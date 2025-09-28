@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 28/09/2025 04:06
+// 28/09/2025 13:41
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
@@ -286,19 +286,6 @@ class ApiService {
     }
   }
 
-  Future<ProductInfo?> getProductInfo(String codeCip) async {
-    try {
-      final response = await _dio.get('/info', queryParameters: {'search': codeCip});
-      if (response.statusCode == 200 && response.data != null) {
-        return ProductInfo.fromJson(response.data);
-      }
-      return null;
-    } catch (e) {
-      print("Error fetching product info: $e");
-      return null;
-    }
-  }
-
   Future<List<ProductDetails>> searchProductFiche(String query) async {
     try {
       final response = await _dio.get(
@@ -342,5 +329,19 @@ class ApiService {
     print('Mise à jour de la date de péremption pour $productId à $newDate');
     await Future.delayed(const Duration(seconds: 1));
     return true;
+  }
+
+  Future<ProductInfo?> getProductInfo(String codeCip) async {
+    try {
+      final response = await _dio.get('/info', queryParameters: {'search': codeCip});
+
+      if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) {
+        return ProductInfo.fromJson(response.data[0]);
+      }
+      return null;
+    } catch (e) {
+      print("Error fetching product info: $e");
+      return null;
+    }
   }
 }
