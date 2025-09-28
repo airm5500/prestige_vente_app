@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 28/09/2025 02:17
+// 28/09/2025 04:14
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -135,38 +135,58 @@ class _VenteTabState extends State<VenteTab> {
   }
 
   void _showPaymentDialog() async {
+    // CORRECTION : On capture le ScaffoldMessenger AVANT les opérations asynchrones
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUser = authProvider.user;
+
+    if (currentUser == null) {
+      Constants.showSnackBar(context, "Erreur: Utilisateur non trouvé", isError: true);
+      return;
+    }
+
     final paymentMethods = await saleProvider.apiService.getPaymentMethods();
 
     if (!mounted) return;
 
     showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Choisir un mode de règlement'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: paymentMethods.length,
-            itemBuilder: (context, index) {
-              final method = paymentMethods[index];
-              return ListTile(
-                title: Text(method.name),
-                onTap: () async {
-                  Navigator.of(ctx).pop(); // Ferme la popup des règlements
-                  final success = await saleProvider.cloturerVente(method);
-                  if (mounted && success) {
-                    Constants.showSnackBar(context, 'Vente validée avec succès !');
-                    _showPrintDialog(isPrevente: false, paymentMethod: method);
-                  }
-                },
-              );
-            },
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Choisir un mode de règlement'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: paymentMethods.length,
+              itemBuilder: (context, index) {
+                final method = paymentMethods[index];
+                return ListTile(
+                  title: Text(method.name),
+                  onTap: () async {
+                    Navigator.of(ctx).pop(); // On ferme la popup
+                    final success = await saleProvider.cloturerVente(method, currentUser);
+
+                    // 'mounted' n'est pas suffisant ici, il faut utiliser la référence capturée
+                    if (success) {
+                      scaffoldMessenger.showSnackBar(const SnackBar(
+                        content: Text('Vente validée avec succès !'),
+                        backgroundColor: AppColors.success,
+                      ));
+                      _showPrintDialog(isPrevente: false, paymentMethod: method);
+                    } else {
+                      scaffoldMessenger.showSnackBar(SnackBar(
+                        content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
+                        backgroundColor: AppColors.error,
+                      ));
+                    }
+                  },
+                );
+              },
+            ),
           ),
-        ),
-      ),
-    );
+        ));
   }
 
   @override
@@ -205,8 +225,8 @@ class _VenteTabState extends State<VenteTab> {
                         itemBuilder: (context, index) {
                           final product = saleProvider.searchResults[index];
                           return ListTile(
-                            title: Text(product.strNAME),
-                            subtitle: Text('CIP: ${product.intCIP} | Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'),
+                            title: Text('${product.strNAME} - CIP: ${product.intCIP}'),
+                            subtitle: Text('Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'),
                             onTap: () => _showQuantityDialog(product),
                           );
                         },

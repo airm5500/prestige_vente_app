@@ -1,13 +1,11 @@
 // lib/providers/product_search_provider.dart
-// 28/09/2025 02:32
+// 28/09/2025 03:34
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product_search_result.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
-import 'package:prestige_vente_app/providers/settings_provider.dart';
 
-// Classe pour stocker les données agrégées pour le graphique
 class MonthlyComparisonData {
   final int sales;
   final int orders;
@@ -18,23 +16,18 @@ class MonthlyComparisonData {
 class ProductSearchProvider with ChangeNotifier {
   final ApiService _apiService;
 
-  ProductSearchProvider(SettingsProvider settingsProvider)
-      : _apiService = ApiService(baseUrl: settingsProvider.baseUrl);
+  ProductSearchProvider(this._apiService);
 
-  // --- ETAT ---
   bool _isLoading = false;
   List<ProductDetails> _searchResults = [];
   ProductDetails? _selectedProduct;
   List<MonthlyComparisonData> _comparisonData = [];
 
-  // --- GETTERS ---
   bool get isLoading => _isLoading;
   List<ProductDetails> get searchResults => _searchResults;
   ProductDetails? get selectedProduct => _selectedProduct;
   List<MonthlyComparisonData> get comparisonData => _comparisonData;
   bool get hasComparisonData => _comparisonData.isNotEmpty;
-
-  // --- ACTIONS ---
 
   void clear() {
     _searchResults = [];
@@ -57,7 +50,7 @@ class ProductSearchProvider with ChangeNotifier {
   Future<void> selectProduct(ProductDetails product) async {
     _setLoading(true);
     _selectedProduct = product;
-    _searchResults = []; // On cache les résultats de recherche
+    _searchResults = [];
     await _loadComparisonData(product);
     _setLoading(false);
   }
@@ -67,20 +60,16 @@ class ProductSearchProvider with ChangeNotifier {
     final startDate = '$year-01-01';
     final endDate = '$year-12-31';
 
-    // Appels API en parallèle
     final results = await Future.wait([
       _apiService.getProductOrderHistory(product.lgFamilleId, startDate, endDate),
       _apiService.getAnnualSales(product.intCip, year),
     ]);
-
     final orders = results[0] as List<ProductOrderHistory>;
     final salesData = results[1] as List<ProductAnnualSale>;
     final sales = salesData.isNotEmpty ? salesData.first.monthlySales : <String, int>{};
 
-    // Traitement des données
     List<MonthlyComparisonData> monthlyData = List.generate(12, (_) => MonthlyComparisonData());
 
-    // Agréger les commandes par mois
     for (var order in orders) {
       try {
         final date = DateFormat('dd/MM/yyyy HH:mm').parse(order.dtEntree);
@@ -95,7 +84,6 @@ class ProductSearchProvider with ChangeNotifier {
       }
     }
 
-    // Intégrer les ventes
     sales.forEach((monthName, salesCount) {
       final monthIndex = _monthNameToInt(monthName);
       if(monthIndex != -1) {

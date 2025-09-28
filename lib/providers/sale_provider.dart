@@ -1,20 +1,17 @@
 // lib/providers/sale_provider.dart
-// 28/09/2025 02:15
+// 28/09/2025 04:08
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
-import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/api/models/user.dart';
 
 class SaleProvider with ChangeNotifier {
   final ApiService _apiService;
-  final ApiService apiService; // Public getter for easy access from UI
+  ApiService get apiService => _apiService;
 
-  SaleProvider(SettingsProvider settingsProvider)
-      : _apiService = ApiService(baseUrl: settingsProvider.baseUrl),
-        apiService = ApiService(baseUrl: settingsProvider.baseUrl);
+  SaleProvider(this._apiService);
 
-  // --- ETAT ---
   bool _isLoading = false;
   String? _errorMessage;
   String? _currentVenteId;
@@ -22,7 +19,6 @@ class SaleProvider with ChangeNotifier {
   SaleSummary _saleSummary = SaleSummary();
   List<ProductSearchResult> _searchResults = [];
 
-  // --- GETTERS ---
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String? get currentVenteId => _currentVenteId;
@@ -30,9 +26,6 @@ class SaleProvider with ChangeNotifier {
   SaleSummary get saleSummary => _saleSummary;
   List<ProductSearchResult> get searchResults => _searchResults;
 
-  // --- ACTIONS ---
-
-  /// Réinitialise l'état pour une nouvelle vente
   void startNewSale() {
     _currentVenteId = null;
     _cartItems = [];
@@ -42,7 +35,6 @@ class SaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  /// Recherche de produits
   Future<void> searchProducts(String query) async {
     if (query.length < 3) {
       _searchResults = [];
@@ -54,17 +46,14 @@ class SaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  /// Ajoute un produit au panier
   Future<void> addProductToCart(ProductSearchResult product, int quantity, {bool isPrevente = false}) async {
     _setLoading(true);
-
     final newVenteId = await _apiService.addItemToSale(
         produitId: product.lgFAMILLEID,
         qte: quantity,
         itemPu: product.intPRICE,
         venteId: _currentVenteId,
         isPrevente: isPrevente);
-
     if (newVenteId != null) {
       _currentVenteId = newVenteId;
       await _refreshCartAndSummary();
@@ -74,7 +63,6 @@ class SaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  /// Supprime un produit du panier
   Future<void> removeProductFromCart(String itemId) async {
     _setLoading(true);
     final success = await _apiService.removeItemFromSale(itemId);
@@ -86,7 +74,6 @@ class SaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  /// Met à jour un produit dans le panier
   Future<void> updateCartItem(SaleItemDetail item, int newQuantity, int newPrice) async {
     _setLoading(true);
     final success = await _apiService.updateSaleItem(
@@ -94,7 +81,6 @@ class SaleProvider with ChangeNotifier {
         produitId: item.lgFAMILLEID,
         qte: newQuantity,
         itemPu: newPrice);
-
     if (success) {
       await _refreshCartAndSummary();
     } else {
@@ -103,28 +89,30 @@ class SaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  /// Clôture la vente
-  Future<bool> cloturerVente(PaymentMethod paymentMethod) async {
+  Future<bool> cloturerVente(PaymentMethod paymentMethod, User currentUser) async {
     if (_currentVenteId == null) return false;
     _setLoading(true);
 
     final clientId = paymentMethod.name.toLowerCase().replaceAll(' ', '').replaceAll('é', 'e');
+
+    await _apiService.updateClientForSale(_currentVenteId!, clientId);
 
     final success = await _apiService.cloturerVente(
       venteId: _currentVenteId!,
       summary: _saleSummary,
       typeReglementId: paymentMethod.id,
       clientId: clientId,
+      userVendeurId: currentUser.userId,
     );
 
     if (!success) {
-      _errorMessage = "La clôture de la vente a échoué.";
+      _errorMessage = "La clôture de la vente a échoué. Vérifiez les logs du serveur.";
     }
+
     _setLoading(false);
     return success;
   }
 
-  /// Termine la prévente
   Future<bool> terminerPrevente() async {
     if (_currentVenteId == null) return false;
     _setLoading(true);
@@ -136,20 +124,14 @@ class SaleProvider with ChangeNotifier {
     return success;
   }
 
-  /// Charge une prévente existante dans l'écran de vente
   Future<void> loadPrevente(String preventeId) async {
     _setLoading(true);
-    startNewSale(); // On réinitialise l'état au cas où
-
+    startNewSale();
     _currentVenteId = preventeId;
-    await _refreshCartAndSummary(); // On charge les données de la prévente
-
+    await _refreshCartAndSummary();
     _setLoading(false);
   }
 
-  // --- Méthodes privées ---
-
-  /// Rafraîchit le panier et le résumé de la vente
   Future<void> _refreshCartAndSummary() async {
     if (_currentVenteId != null) {
       final results = await Future.wait([

@@ -1,15 +1,13 @@
 // lib/api/models/sale.dart
-// 28/09/2025 01:41
-
-// Pour les détails d'un article dans le panier
+// 28/09/2025 03:40
 class SaleItemDetail {
   final String lgPREENREGISTREMENTDETAILID;
   final String lgFAMILLEID;
   final String strNAME;
   final String intCIP;
   final int intQUANTITY;
-  final int intPRICEUNITAIR; // Prix unitaire de l'article
-  final int intPRICE; // Montant total de la ligne (PU * Qte)
+  final int intPRICEUNITAIR;
+  final int intPRICE;
 
   SaleItemDetail({
     required this.lgPREENREGISTREMENTDETAILID,
@@ -23,24 +21,27 @@ class SaleItemDetail {
 
   factory SaleItemDetail.fromJson(Map<String, dynamic> json) {
     return SaleItemDetail(
-      lgPREENREGISTREMENTDETAILID: json['lgPREENREGISTREMENTDETAILID'],
-      lgFAMILLEID: json['lgFAMILLEID'],
-      strNAME: json['strNAME'],
-      intCIP: json['intCIP'],
-      intQUANTITY: json['intQUANTITY'],
-      intPRICEUNITAIR: json['intPRICEUNITAIR'],
-      intPRICE: json['intPRICE'],
+      lgPREENREGISTREMENTDETAILID: json['lgPREENREGISTREMENTDETAILID'] ?? '',
+      lgFAMILLEID: json['lgFAMILLEID'] ?? '',
+      strNAME: json['strNAME'] ?? '',
+      intCIP: json['intCIP'] ?? '',
+      intQUANTITY: json['intQUANTITY'] ?? 0,
+      intPRICEUNITAIR: json['intPRICEUNITAIR'] ?? 0,
+      intPRICE: json['intPRICE'] ?? 0,
     );
   }
 }
 
-// Pour la réponse après calcul du net à payer
+// CORRECTION : Ajout de tous les champs renvoyés par l'API net/vno
 class SaleSummary {
   final int montant;
   final int remise;
   final int montantNet;
   final String venteId;
   final String reference;
+  final int marge;
+  final int montantTva;
+  // Ajoutez d'autres champs de l'objet 'data' ici si nécessaire
 
   SaleSummary({
     this.montant = 0,
@@ -48,6 +49,8 @@ class SaleSummary {
     this.montantNet = 0,
     this.venteId = '',
     this.reference = '',
+    this.marge = 0,
+    this.montantTva = 0,
   });
 
   factory SaleSummary.fromNetResponse(Map<String, dynamic> json) {
@@ -56,13 +59,26 @@ class SaleSummary {
       montant: data['montant'] ?? 0,
       remise: data['remise'] ?? 0,
       montantNet: data['montantNet'] ?? 0,
+      marge: data['marge'] ?? 0,
+      montantTva: data['montantTva'] ?? 0,
       venteId: json['lgPREENREGISTREMENTID'] ?? '',
       reference: json['strREF'] ?? '',
     );
   }
+
+  // Méthode pour convertir l'objet en JSON pour la requête de clôture
+  Map<String, dynamic> toJson() {
+    return {
+      'montant': montant,
+      'remise': remise,
+      'montantNet': montantNet,
+      'marge': marge,
+      'montantTva': montantTva,
+      'tierspayants': [], // Champ requis par l'API
+    };
+  }
 }
 
-// Pour la liste des préventes
 class PreventeListItem {
   final String lgPREENREGISTREMENTID;
   final String heure;
@@ -82,17 +98,16 @@ class PreventeListItem {
 
   factory PreventeListItem.fromJson(Map<String, dynamic> json) {
     return PreventeListItem(
-      lgPREENREGISTREMENTID: json['lgPREENREGISTREMENTID'],
-      heure: json['heure'],
-      dtUPDATED: json['dtUPDATED'],
-      intPRICE: json['intPRICE'],
-      strREF: json['strREF'],
-      userFullName: json['userFullName'],
+      lgPREENREGISTREMENTID: json['lgPREENREGISTREMENTID'] ?? '',
+      heure: json['heure'] ?? '',
+      dtUPDATED: json['dtUPDATED'] ?? '',
+      intPRICE: json['intPRICE'] ?? 0,
+      strREF: json['strREF'] ?? '',
+      userFullName: json['userFullName'] ?? '',
     );
   }
 }
 
-// Pour les modes de règlement
 class PaymentMethod {
   final String id;
   final String name;
@@ -101,8 +116,8 @@ class PaymentMethod {
 
   factory PaymentMethod.fromJson(Map<String, dynamic> json) {
     return PaymentMethod(
-      id: json['lgTYPEREGLEMENTID'],
-      name: json['strNAME'],
+      id: json['lgTYPEREGLEMENTID'] ?? '',
+      name: json['strNAME'] ?? '',
     );
   }
 }

@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 28/09/2025 02:38
+// 28/09/2025 04:06
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
@@ -9,7 +9,6 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/api/models/product_search_result.dart';
-
 
 class ApiService {
   final Dio _dio;
@@ -21,14 +20,9 @@ class ApiService {
     _dio.interceptors.add(LogInterceptor(responseBody: true, requestBody: true));
   }
 
-  // --- Authentification ---
-
   Future<User?> login(String login, String password) async {
     try {
-      final response = await _dio.post(
-        '/user/auth',
-        data: {'login': login, 'password': password},
-      );
+      final response = await _dio.post('/user/auth', data: {'login': login, 'password': password});
       if (response.statusCode == 200 && response.data['success'] == true) {
         return User.fromJson(response.data);
       }
@@ -47,8 +41,6 @@ class ApiService {
     }
   }
 
-  // --- Officine ---
-
   Future<Officine?> fetchOfficineInfo() async {
     try {
       final response = await _dio.get('/officine');
@@ -62,13 +54,16 @@ class ApiService {
     }
   }
 
-  // --- Vente / Prévente ---
-
   Future<List<ProductSearchResult>> searchProducts(String query) async {
     try {
-      final response = await _dio.get('/vente/search', queryParameters: {'query': query, 'limit': 10});
+      final response = await _dio.get(
+        '/vente/search',
+        queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 10},
+      );
       if (response.statusCode == 200 && response.data['data'] is List) {
-        return (response.data['data'] as List).map((item) => ProductSearchResult.fromJson(item)).toList();
+        return (response.data['data'] as List)
+            .map((item) => ProductSearchResult.fromJson(item))
+            .toList();
       }
       return [];
     } catch (e) {
@@ -78,15 +73,37 @@ class ApiService {
   }
 
   Future<String?> addItemToSale({
-    required String produitId, required int qte, required int itemPu, String? venteId, bool isPrevente = false,
+    required String produitId,
+    required int qte,
+    required int itemPu,
+    String? venteId,
+    bool isPrevente = false,
   }) async {
     try {
-      final response = await _dio.post('/vente/add/vno', data: {
-        "typeVenteId": "1", "natureVenteId": "1", "produitId": produitId, "itemPu": itemPu,
-        "qte": qte, "qteServie": qte, "devis": false, "venteId": venteId, "prevente": isPrevente,
-      });
+      const typeVenteId = "1";
+      const natureVenteId = "1";
+
+      final bool isFirstItem = venteId == null;
+      final String endpoint = isFirstItem ? '/vente/add/vno' : '/vente/add/item';
+
+      final Map<String, dynamic> data = {
+        "typeVenteId": typeVenteId,
+        "natureVenteId": natureVenteId,
+        "produitId": produitId,
+        "itemPu": itemPu,
+        "qte": qte,
+        "qteServie": qte,
+        "devis": false,
+        "venteId": venteId,
+        "prevente": isPrevente,
+        "remiseId": null,
+        "userVendeurId": null
+      };
+
+      final response = await _dio.post(endpoint, data: data);
+
       if (response.statusCode == 200 && response.data['success'] == true) {
-        return response.data['data']['lgPREENREGISTREMENTID'];
+        return isFirstItem ? response.data['data']['lgPREENREGISTREMENTID'] : venteId;
       }
       return null;
     } catch (e) {
@@ -97,7 +114,10 @@ class ApiService {
 
   Future<List<SaleItemDetail>> getSaleDetails(String venteId) async {
     try {
-      final response = await _dio.get('/vente/deatails', queryParameters: {'venteId': venteId, 'limit': 100});
+      final response = await _dio.get(
+        '/vente/deatails',
+        queryParameters: {'venteId': venteId, 'page': 1, 'start': 0, 'limit': 100},
+      );
       if (response.statusCode == 200 && response.data['data'] is List) {
         return (response.data['data'] as List).map((item) => SaleItemDetail.fromJson(item)).toList();
       }
@@ -118,10 +138,19 @@ class ApiService {
     }
   }
 
-  Future<bool> updateSaleItem({required String itemId, required String produitId, required int qte, required int itemPu}) async {
+  Future<bool> updateSaleItem({
+    required String itemId,
+    required String produitId,
+    required int qte,
+    required int itemPu,
+  }) async {
     try {
       final response = await _dio.post('/vente/update/item/vno', data: {
-        "itemId": itemId, "produitId": produitId, "qte": qte, "qteServie": qte, "itemPu": itemPu,
+        "itemId": itemId,
+        "produitId": produitId,
+        "qte": qte,
+        "qteServie": qte,
+        "itemPu": itemPu,
       });
       return response.statusCode == 200 && response.data['success'] == true;
     } catch (e) {
@@ -145,7 +174,9 @@ class ApiService {
 
   Future<List<PaymentMethod>> getPaymentMethods() async {
     try {
-      final response = await _dio.get('/common/reglement');
+      final response = await _dio.get('/common/reglement',
+          queryParameters: {'page': 1, 'start': 0, 'limit': 25}
+      );
       if (response.statusCode == 200 && response.data['data'] is List) {
         return (response.data['data'] as List).map((e) => PaymentMethod.fromJson(e)).toList();
       }
@@ -156,14 +187,55 @@ class ApiService {
     }
   }
 
-  Future<bool> cloturerVente({required String venteId, required SaleSummary summary, required String typeReglementId, required String clientId}) async {
+  Future<bool> updateClientForSale(String venteId, String clientId) async {
+    try {
+      final response = await _dio.post(
+        '/vente/update/client',
+        data: {"clientId": clientId, "venteId": venteId},
+      );
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) {
+      print("Error updating client for sale: $e");
+      return false;
+    }
+  }
+
+  Future<bool> cloturerVente({
+    required String venteId,
+    required SaleSummary summary,
+    required String typeReglementId,
+    required String clientId,
+    required String userVendeurId,
+  }) async {
     try {
       final response = await _dio.post('/vente/cloturer/vno', data: {
-        "venteId": venteId, "data": { "montant": summary.montant, "remise": summary.remise, "montantNet": summary.montantNet,
-          "marge": 0, "montantTva": 0, "tierspayants": [],
-        },
-        "clientId": clientId, "montantRecu": summary.montantNet, "montantPaye": summary.montantNet,
-        "typeVenteId": "1", "natureVenteId": "1", "reglements": [{"typeReglement": typeReglementId, "montant": summary.montantNet}],
+        "banque": "",
+        "clientId": clientId,
+        "commentaire": "",
+        "data": summary.toJson(),
+        "devis": false,
+        "lieux": "",
+        "marge": summary.marge,
+        "medecinId": null,
+        "montantPaye": summary.montantNet,
+        "montantRecu": summary.montantNet,
+        "montantRemis": 0,
+        "natureVenteId": "1",
+        "nom": "",
+        "partTP": 0,
+        "reglements": [
+          {
+            "montant": summary.montantNet,
+            "montantAttentu": summary.montantNet,
+            "typeReglement": typeReglementId
+          }
+        ],
+        "remiseId": null,
+        "totalRecap": summary.montantNet,
+        "typeRegleId": typeReglementId,
+        "typeVenteId": "1",
+        "userVendeurId": userVendeurId,
+        "venteId": venteId
       });
       return response.statusCode == 200 && response.data['success'] == true;
     } catch (e) {
@@ -185,7 +257,11 @@ class ApiService {
   Future<List<PreventeListItem>> getPreventes() async {
     try {
       final response = await _dio.get('/ventestats/preventes', queryParameters: {
-        'statut': 'is_Process', 'limit': 9999, 'sort': '[{"property":"heure","direction":"DESC"}]',
+        'statut': 'is_Process',
+        'limit': 9999,
+        'sort': '[{"property":"heure","direction":"DESC"}]',
+        'page': 1,
+        'start': 0,
       });
       if (response.statusCode == 200 && response.data['data'] is List) {
         return (response.data['data'] as List).map((item) => PreventeListItem.fromJson(item)).toList();
@@ -196,8 +272,6 @@ class ApiService {
       return [];
     }
   }
-
-  // --- Évaluation Article ---
 
   Future<List<ProductAnnualSale>> getAnnualSales(String query, int year) async {
     try {
@@ -225,11 +299,12 @@ class ApiService {
     }
   }
 
-  // --- Recherche Article ---
-
   Future<List<ProductDetails>> searchProductFiche(String query) async {
     try {
-      final response = await _dio.get('/produit-search/fiche', queryParameters: {'search_value': query, 'limit': 20});
+      final response = await _dio.get(
+        '/produit-search/fiche',
+        queryParameters: {'search_value': query, 'page': 1, 'start': 0, 'limit': 20},
+      );
       if (response.statusCode == 200 && response.data['results'] is List) {
         return (response.data['results'] as List).map((item) => ProductDetails.fromJson(item)).toList();
       }
@@ -240,11 +315,19 @@ class ApiService {
     }
   }
 
-  Future<List<ProductOrderHistory>> getProductOrderHistory(String productId, String dtStart, String dtEnd) async {
+  Future<List<ProductOrderHistory>> getProductOrderHistory(
+      String productId, String dtStart, String dtEnd) async {
     try {
-      final response = await _dio.get('/commande/produit/commande/$productId', queryParameters: {
-        'dtStart': dtStart, 'dtEnd': dtEnd, 'limit': 9999
-      });
+      final response = await _dio.get(
+        '/commande/produit/commande/$productId',
+        queryParameters: {
+          'dtStart': dtStart,
+          'dtEnd': dtEnd,
+          'page': 1,
+          'start': 0,
+          'limit': 9999
+        },
+      );
       if (response.statusCode == 200 && response.data['data'] is List) {
         return (response.data['data'] as List).map((item) => ProductOrderHistory.fromJson(item)).toList();
       }

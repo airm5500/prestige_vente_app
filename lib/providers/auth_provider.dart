@@ -1,34 +1,29 @@
 // lib/providers/auth_provider.dart
-// 28/09/2025 00:28
+// 28/09/2025 03:29
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
-import 'package:prestige_vente_app/providers/settings_provider.dart';
 
 enum AuthStatus { Uninitialized, Authenticated, Unauthenticated, Loading }
 
 class AuthProvider with ChangeNotifier {
-  final SettingsProvider _settingsProvider;
-  late ApiService _apiService;
+  // CORRECTION : Reçoit ApiService au lieu de SettingsProvider
+  final ApiService _apiService;
 
   AuthStatus _status = AuthStatus.Uninitialized;
   User? _user;
   Officine? _officine;
   String? _errorMessage;
 
-  // Getters pour accéder à l'état depuis l'UI
   AuthStatus get status => _status;
   User? get user => _user;
   Officine? get officine => _officine;
   String? get errorMessage => _errorMessage;
 
-  AuthProvider(this._settingsProvider) {
-    // On initialise le service API avec l'URL de base des paramètres
-    _apiService = ApiService(baseUrl: _settingsProvider.baseUrl);
-  }
+  // CORRECTION : Le constructeur prend ApiService
+  AuthProvider(this._apiService);
 
-  // Méthode de connexion
   Future<bool> login(String login, String password) async {
     _status = AuthStatus.Loading;
     _errorMessage = null;
@@ -39,7 +34,6 @@ class AuthProvider with ChangeNotifier {
     if (user != null) {
       _user = user;
       _status = AuthStatus.Authenticated;
-      // Après une connexion réussie, on charge les infos de la pharmacie
       await _loadOfficineInfo();
       notifyListeners();
       return true;
@@ -51,13 +45,11 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  // Charge les informations de la pharmacie
   Future<void> _loadOfficineInfo() async {
     _officine = await _apiService.fetchOfficineInfo();
     notifyListeners();
   }
 
-  // Méthode de déconnexion
   Future<void> logout() async {
     await _apiService.logout();
     _user = null;
