@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 28/09/2025 05:03
+// 28/09/2025 13:06
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -71,18 +71,58 @@ class _VenteTabState extends State<VenteTab> {
             child: const Text('Ajouter'),
             onPressed: () {
               final quantity = int.tryParse(qteController.text) ?? 0;
-              if (quantity > 0) {
-                Provider.of<SaleProvider>(context, listen: false)
-                    .addProductToCart(product, quantity, isPrevente: widget.isPrevente);
-                _searchController.clear();
-                _searchFocusNode.requestFocus();
-              }
+              // On ferme d'abord la popup de quantité
               Navigator.of(ctx).pop();
+              if (quantity > 0) {
+                // CORRECTION : On appelle la nouvelle fonction qui gère la vérification du stock
+                _checkStockAndAddProduct(product, quantity);
+              }
             },
           ),
         ],
       ),
     );
+  }
+
+  // CORRECTION : Nouvelle fonction pour vérifier le stock avant d'ajouter
+  void _checkStockAndAddProduct(ProductSearchResult product, int quantity) {
+    // Action d'ajout réutilisable
+    void _addProduct() {
+      Provider.of<SaleProvider>(context, listen: false)
+          .addProductToCart(product, quantity, isPrevente: widget.isPrevente);
+      _searchController.clear();
+      _searchFocusNode.requestFocus();
+    }
+
+    if (quantity > product.intNUMBERAVAILABLE) {
+      showDialog(
+        context: context,
+        builder: (confirmCtx) => AlertDialog(
+          title: const Text('Stock insuffisant'),
+          content: Text(
+              'Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
+          actions: [
+            TextButton(
+              child: const Text('Non'),
+              onPressed: () {
+                Navigator.of(confirmCtx).pop();
+                _searchFocusNode.requestFocus(); // Revient à la zone de recherche
+              },
+            ),
+            ElevatedButton(
+              child: const Text('Oui'),
+              onPressed: () {
+                Navigator.of(confirmCtx).pop();
+                _addProduct(); // Ajoute le produit
+              },
+            ),
+          ],
+        ),
+      );
+    } else {
+      // Si le stock est suffisant, on ajoute directement
+      _addProduct();
+    }
   }
 
   void _showPrintDialog({required bool isPrevente, PaymentMethod? paymentMethod}) {
@@ -214,7 +254,6 @@ class _VenteTabState extends State<VenteTab> {
                   if (saleProvider.searchResults.isNotEmpty)
                     Container(
                       color: Theme.of(context).scaffoldBackgroundColor.withOpacity(0.95),
-                      // CORRECTION : Ajout du widget Scrollbar
                       child: Scrollbar(
                         child: ListView.builder(
                           itemCount: saleProvider.searchResults.length,
