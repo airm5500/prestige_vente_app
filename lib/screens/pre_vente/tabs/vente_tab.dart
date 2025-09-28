@@ -1,11 +1,13 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 28/09/2025 20:09
+// 29/09/2025 23:25
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/pre_vente/widgets/sale_cart_widget.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
@@ -52,7 +54,6 @@ class _VenteTabState extends State<VenteTab> {
 
   void _showQuantityDialog(ProductSearchResult product) {
     final qteController = TextEditingController(text: '1');
-
     void submitQuantity() {
       final quantity = int.tryParse(qteController.text) ?? 0;
       Navigator.of(context).pop();
@@ -60,7 +61,6 @@ class _VenteTabState extends State<VenteTab> {
         _checkStockAndAddProduct(product, quantity);
       }
     }
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -94,7 +94,6 @@ class _VenteTabState extends State<VenteTab> {
       _searchController.clear();
       _searchFocusNode.requestFocus();
     }
-
     if (quantity > product.intNUMBERAVAILABLE) {
       showDialog(
         context: context,
@@ -118,7 +117,8 @@ class _VenteTabState extends State<VenteTab> {
     }
   }
 
-  void _showPrintDialog({required bool isPrevente, PaymentMethod? paymentMethod}) {
+  void _showPrintDialog({required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser}) {
+    final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final receiptService = ReceiptService();
@@ -133,20 +133,29 @@ class _VenteTabState extends State<VenteTab> {
         actions: [
           TextButton(
             child: const Text('Non'),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              saleProvider.startNewSale();
-            },
+            onPressed: () { Navigator.of(ctx).pop(); saleProvider.startNewSale(); },
           ),
           ElevatedButton(
             child: const Text('Oui'),
-            onPressed: () {
+            // CORRECTION : La fonction onPressed devient 'async' pour pouvoir utiliser 'await'
+            onPressed: () async {
+              // On attend que l'impression ou l'affichage de l'aperçu soit terminé
               if (isPrevente) {
-                receiptService.printPreventeTicket(context: context, officine: authProvider.officine!, saleSummary: summaryToPrint);
+                await receiptService.printPreventeTicket(
+                  context: context, officine: authProvider.officine!,
+                  saleSummary: summaryToPrint, currentUser: currentUser,
+                  isTestMode: settingsProvider.isTestPrintMode,
+                );
               } else {
-                receiptService.printSaleTicket(context: context, officine: authProvider.officine!, saleSummary: summaryToPrint, items: itemsToPrint, paymentMethod: paymentMethod!);
+                await receiptService.printSaleTicket(
+                  context: context, officine: authProvider.officine!,
+                  saleSummary: summaryToPrint, items: itemsToPrint,
+                  paymentMethod: paymentMethod!, currentUser: currentUser,
+                  isTestMode: settingsProvider.isTestPrintMode,
+                );
               }
-              Navigator.of(ctx).pop();
+              // Ces actions ne se déclenchent qu'après la fin de l'impression/aperçu
+              if (ctx.mounted) Navigator.of(ctx).pop();
               saleProvider.startNewSale();
             },
           ),
@@ -160,7 +169,6 @@ class _VenteTabState extends State<VenteTab> {
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final currentUser = authProvider.user;
-
     if (currentUser == null) {
       Constants.showSnackBar(context, "Erreur: Utilisateur non trouvé", isError: true);
       return;
@@ -185,7 +193,7 @@ class _VenteTabState extends State<VenteTab> {
                     final success = await saleProvider.cloturerVente(method, currentUser);
                     if (success) {
                       scaffoldMessenger.showSnackBar(const SnackBar(content: Text('Vente validée avec succès !'), backgroundColor: AppColors.success));
-                      _showPrintDialog(isPrevente: false, paymentMethod: method);
+                      _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
                     } else {
                       scaffoldMessenger.showSnackBar(SnackBar(content: Text(saleProvider.errorMessage ?? "La validation a échoué"), backgroundColor: AppColors.error));
                     }
@@ -203,155 +211,9 @@ class _VenteTabState extends State<VenteTab> {
     return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout();
   }
 
-  Widget _buildMobileLayout() {
-    return Column(
-      children: [
-        _buildSearchArea(),
-        const Divider(height: 1),
-        Expanded(child: _buildCartAndResultsOverlay()),
-        _buildSummaryFooter(),
-      ],
-    );
-  }
-
-  Widget _buildTabletLayout() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          flex: 4,
-          child: Column(
-            children: [
-              _buildSearchArea(),
-              const Divider(height: 1),
-              Expanded(child: _buildCartAndResultsOverlay()),
-              _buildSummaryFooter(),
-            ],
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        Expanded(
-          flex: 6,
-          child: Container(
-            color: Colors.black.withOpacity(0.03),
-            child: const SaleCartWidget(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSearchArea() {
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: TextField(
-        controller: _searchController,
-        focusNode: _searchFocusNode,
-        decoration: InputDecoration(
-          labelText: 'Rechercher un produit (CIP ou Nom)',
-          prefixIcon: const Icon(Icons.search),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-            icon: const Icon(Icons.clear),
-            onPressed: () {
-              _searchController.clear();
-              Provider.of<SaleProvider>(context, listen: false).searchProducts('');
-            },
-          )
-              : null,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCartAndResultsOverlay() {
-    return Consumer<SaleProvider>(
-      builder: (context, saleProvider, child) {
-        final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
-
-        return Stack(
-          children: [
-            if (!isTabletLandscape)
-              const SaleCartWidget(),
-
-            if (saleProvider.searchResults.isNotEmpty)
-              Container(
-                // MODIFICATION : Remplacement de withOpacity
-                color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242),
-                child: Scrollbar(
-                  child: ListView.builder(
-                    itemCount: saleProvider.searchResults.length,
-                    itemBuilder: (context, index) {
-                      final product = saleProvider.searchResults[index];
-                      return Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        child: ListTile(
-                          title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('CIP: ${product.intCIP} | Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'),
-                          onTap: () => _showQuantityDialog(product),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildSummaryFooter() {
-    return Consumer<SaleProvider>(
-      builder: (context, saleProvider, child) {
-        final summary = saleProvider.saleSummary;
-        return Card(
-          elevation: 4,
-          margin: const EdgeInsets.all(0),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Total: ${Constants.formatNumber(summary.montant)}', style: const TextStyle(fontSize: 16)),
-                    Text(
-                      'Net à Payer: ${Constants.formatNumber(summary.montantNet)}',
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary),
-                    ),
-                  ],
-                ),
-                saleProvider.isLoading
-                    ? const CircularProgressIndicator()
-                    : SizedBox(
-                  width: 56,
-                  height: 56,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      shape: const CircleBorder(),
-                      padding: EdgeInsets.zero,
-                      backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success,
-                    ),
-                    child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
-                    onPressed: saleProvider.cartItems.isEmpty ? null : () async {
-                      if (widget.isPrevente) {
-                        final success = await saleProvider.terminerPrevente();
-                        if (mounted && success) {
-                          _showPrintDialog(isPrevente: true);
-                        }
-                      } else {
-                        _showPaymentDialog();
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+  Widget _buildMobileLayout() { return Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ); }
+  Widget _buildTabletLayout() { return Row( crossAxisAlignment: CrossAxisAlignment.start, children: [ Expanded( flex: 4, child: Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ), ), const VerticalDivider(width: 1), Expanded( flex: 6, child: Container( color: Colors.black.withOpacity(0.03), child: const SaleCartWidget(), ), ), ], ); }
+  Widget _buildSearchArea() { return Padding( padding: const EdgeInsets.all(8.0), child: TextField( controller: _searchController, focusNode: _searchFocusNode, decoration: InputDecoration( labelText: 'Rechercher un produit (CIP ou Nom)', prefixIcon: const Icon(Icons.search), suffixIcon: _searchController.text.isNotEmpty ? IconButton( icon: const Icon(Icons.clear), onPressed: () { _searchController.clear(); Provider.of<SaleProvider>(context, listen: false).searchProducts(''); }, ) : null, ), ), ); }
+  Widget _buildCartAndResultsOverlay() { return Consumer<SaleProvider>( builder: (context, saleProvider, child) { final bool isTabletLandscape = MediaQuery.of(context).size.width > 800; return Stack( children: [ if (!isTabletLandscape) const SaleCartWidget(), if (saleProvider.searchResults.isNotEmpty) Container( color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242), child: Scrollbar( child: ListView.builder( itemCount: saleProvider.searchResults.length, itemBuilder: (context, index) { final product = saleProvider.searchResults[index]; return Card( margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: ListTile( title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text('CIP: ${product.intCIP} | Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'), onTap: () => _showQuantityDialog(product), ), ); }, ), ), ), ], ); }, ); }
+  Widget _buildSummaryFooter() { return Consumer<SaleProvider>( builder: (context, saleProvider, child) { final summary = saleProvider.saleSummary; return Card( elevation: 4, margin: const EdgeInsets.all(0), child: Padding( padding: const EdgeInsets.all(12.0), child: Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Text('Total: ${Constants.formatNumber(summary.montant)}', style: const TextStyle(fontSize: 16)), Text( 'Net à Payer: ${Constants.formatNumber(summary.montantNet)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary), ), ], ), saleProvider.isLoading ? const CircularProgressIndicator() : SizedBox( width: 56, height: 56, child: ElevatedButton( style: ElevatedButton.styleFrom( shape: const CircleBorder(), padding: EdgeInsets.zero, backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success, ), child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white), onPressed: saleProvider.cartItems.isEmpty ? null : () async { if (widget.isPrevente) { final authProvider = Provider.of<AuthProvider>(context, listen: false); final currentUser = authProvider.user; if(currentUser != null) { final success = await saleProvider.terminerPrevente(); if (mounted && success) { _showPrintDialog(isPrevente: true, currentUser: currentUser); } } } else { _showPaymentDialog(); } }, ), ), ], ), ), ); }, ); }
 }
