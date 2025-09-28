@@ -1,13 +1,17 @@
 // lib/providers/product_stats_provider.dart
-// 28/09/2025 03:33
+// 28/09/2025 21:10
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 
 class ProductStatsProvider with ChangeNotifier {
-  final ApiService _apiService;
+  ApiService _apiService;
 
   ProductStatsProvider(this._apiService);
+
+  void updateApiService(ApiService newApiService) {
+    _apiService = newApiService;
+  }
 
   bool _isLoading = false;
   List<ProductAnnualSale> _searchResults = [];

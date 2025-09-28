@@ -1,9 +1,8 @@
 // lib/main.dart
-// 28/09/2025 13:55
+// 28/09/2025 21:05
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:provider/provider.dart';
-// Import nécessaire pour l'initialisation des locales
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:prestige_vente_app/providers/auth_provider.dart';
@@ -14,13 +13,9 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/splash_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
-// La fonction main doit être asynchrone pour attendre l'initialisation
 Future<void> main() async {
-  // Ces deux lignes sont cruciales pour que l'application
-  // et le formatage des dates fonctionnent correctement.
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('fr_FR', null);
-
   runApp(const MyApp());
 }
 
@@ -32,24 +27,31 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
+
         ProxyProvider<SettingsProvider, ApiService>(
           update: (context, settings, previous) => ApiService(baseUrl: settings.baseUrl),
         ),
+
+        // MODIFICATION : La logique 'update' est corrigée pour tous les providers.
+        // On met à jour l'instance existante au lieu d'en créer une nouvelle.
         ChangeNotifierProxyProvider<ApiService, AuthProvider>(
           create: (context) => AuthProvider(Provider.of<ApiService>(context, listen: false)),
-          update: (context, apiService, authProvider) => AuthProvider(apiService),
+          update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
+
         ChangeNotifierProxyProvider<ApiService, SaleProvider>(
           create: (context) => SaleProvider(Provider.of<ApiService>(context, listen: false)),
-          update: (context, apiService, saleProvider) => SaleProvider(apiService),
+          update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
+
         ChangeNotifierProxyProvider<ApiService, ProductStatsProvider>(
           create: (context) => ProductStatsProvider(Provider.of<ApiService>(context, listen: false)),
-          update: (context, apiService, productStatsProvider) => ProductStatsProvider(apiService),
+          update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
+
         ChangeNotifierProxyProvider<ApiService, ProductSearchProvider>(
           create: (context) => ProductSearchProvider(Provider.of<ApiService>(context, listen: false)),
-          update: (context, apiService, productSearchProvider) => ProductSearchProvider(apiService),
+          update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
       ],
       child: MaterialApp(

@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 28/09/2025 18:38
+// 28/09/2025 20:09
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -276,6 +276,7 @@ class _VenteTabState extends State<VenteTab> {
 
             if (saleProvider.searchResults.isNotEmpty)
               Container(
+                // MODIFICATION : Remplacement de withOpacity
                 color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242),
                 child: Scrollbar(
                   child: ListView.builder(

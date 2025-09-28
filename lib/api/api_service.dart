@@ -1,8 +1,7 @@
 // lib/api/api_service.dart
-// 28/09/2025 13:41
+// 28/09/2025 20:33
 import 'package:dio/dio.dart';
-import 'package:dio_cookie_manager/dio_cookie_manager.dart';
-import 'package:cookie_jar/cookie_jar.dart';
+import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -11,13 +10,10 @@ import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/api/models/product_search_result.dart';
 
 class ApiService {
-  final Dio _dio;
-  final String baseUrl;
+  late Dio _dio;
 
-  ApiService({required this.baseUrl})
-      : _dio = Dio(BaseOptions(baseUrl: baseUrl)) {
-    _dio.interceptors.add(CookieManager(CookieJar()));
-    _dio.interceptors.add(LogInterceptor(responseBody: true, requestBody: true));
+  ApiService({required String baseUrl}) {
+    _dio = DioClient.getClient(baseUrl);
   }
 
   Future<User?> login(String login, String password) async {

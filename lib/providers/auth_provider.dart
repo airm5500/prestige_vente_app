@@ -1,5 +1,5 @@
 // lib/providers/auth_provider.dart
-// 28/09/2025 03:29
+// 28/09/2025 21:06
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -8,8 +8,7 @@ import 'package:prestige_vente_app/api/models/user.dart';
 enum AuthStatus { Uninitialized, Authenticated, Unauthenticated, Loading }
 
 class AuthProvider with ChangeNotifier {
-  // CORRECTION : Reçoit ApiService au lieu de SettingsProvider
-  final ApiService _apiService;
+  ApiService _apiService;
 
   AuthStatus _status = AuthStatus.Uninitialized;
   User? _user;
@@ -21,8 +20,12 @@ class AuthProvider with ChangeNotifier {
   Officine? get officine => _officine;
   String? get errorMessage => _errorMessage;
 
-  // CORRECTION : Le constructeur prend ApiService
   AuthProvider(this._apiService);
+
+  // MODIFICATION : Ajout de cette méthode pour la mise à jour par ProxyProvider
+  void updateApiService(ApiService newApiService) {
+    _apiService = newApiService;
+  }
 
   Future<bool> login(String login, String password) async {
     _status = AuthStatus.Loading;
@@ -34,7 +37,6 @@ class AuthProvider with ChangeNotifier {
     if (user != null) {
       _user = user;
       _status = AuthStatus.Authenticated;
-      await _loadOfficineInfo();
       notifyListeners();
       return true;
     } else {
@@ -45,7 +47,7 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<void> _loadOfficineInfo() async {
+  Future<void> loadOfficineInfo() async {
     _officine = await _apiService.fetchOfficineInfo();
     notifyListeners();
   }

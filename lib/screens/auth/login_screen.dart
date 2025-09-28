@@ -1,6 +1,7 @@
 // lib/screens/auth/login_screen.dart
-// 28/09/2025 00:29
+// 28/09/2025 20:58
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
@@ -16,19 +17,48 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _loginController = TextEditingController(text: 'admin'); // Valeur pour test
-  final _passwordController = TextEditingController(text: 'dcph1995'); // Valeur pour test
+  final _loginController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
+  bool _stayConnected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    setState(() {
+      _stayConnected = settings.stayConnected;
+    });
+
+    if (settings.stayConnected) {
+      _loginController.text = settings.savedLogin;
+      _passwordController.text = await settings.getSavedPassword();
+    }
+  }
 
   Future<void> _submit() async {
     if (_formKey.currentState!.validate()) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
+
       final success = await authProvider.login(
         _loginController.text,
         _passwordController.text,
       );
 
       if (mounted && success) {
+        await authProvider.loadOfficineInfo();
+
+        await settingsProvider.saveCredentials(
+          _loginController.text,
+          _passwordController.text,
+          _stayConnected,
+        );
+
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
         );
@@ -38,22 +68,45 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Connexion'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
-            },
-            tooltip: 'Configuration',
+    return Consumer<SettingsProvider>(
+      builder: (context, settings, child) {
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Connexion'),
+            actions: [
+              Row(
+                children: [
+                  const Text('Local', style: TextStyle(fontSize: 12)),
+                  Switch(
+                    value: settings.isRemote,
+                    onChanged: (value) {
+                      if (value && settings.remoteIp.isEmpty) {
+                        Constants.showSnackBar(
+                          context,
+                          'Veuillez renseigner une IP Distante dans la configuration.',
+                          isError: true,
+                        );
+                        return;
+                      }
+                      settings.setConnectionMode(value);
+                    },
+                  ),
+                  const Text('Distant', style: TextStyle(fontSize: 12)),
+                  IconButton(
+                    icon: const Icon(Icons.settings),
+                    onPressed: () {
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsScreen()));
+                    },
+                    tooltip: 'Configuration',
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
-      ),
-      body: Center(
+          body: child,
+        );
+      },
+      child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20.0),
           child: ConstrainedBox(
@@ -63,15 +116,8 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.lock_open, size: 60, color: AppColors.primary),
+                  Icon(Icons.lock_open, size: 60, color: AppColors.primary),
                   const SizedBox(height: 20),
-                  // Affichage du nom du pharmacien titulaire si disponible
-                  if (authProvider.officine != null)
-                    Text(
-                      authProvider.officine!.fullName,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primary),
-                    ),
                   const SizedBox(height: 30),
                   TextFormField(
                     controller: _loginController,
@@ -92,23 +138,47 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     validator: (value) => value!.isEmpty ? 'Veuillez saisir votre mot de passe' : null,
                   ),
-                  const SizedBox(height: 15),
-                  // Affiche le message d'erreur si la connexion échoue
-                  if (authProvider.status == AuthStatus.Unauthenticated && authProvider.errorMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 15.0),
-                      child: Text(
-                        authProvider.errorMessage!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold),
-                      ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: _stayConnected,
+                          onChanged: (value) {
+                            setState(() {
+                              _stayConnected = value ?? false;
+                            });
+                          },
+                        ),
+                        const Text('Rester connecté'),
+                      ],
                     ),
-                  authProvider.status == AuthStatus.Loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : ElevatedButton(
-                    onPressed: _submit,
-                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15)),
-                    child: const Text('Se connecter'),
+                  ),
+                  Consumer<AuthProvider>(
+                    builder: (context, auth, _) {
+                      if (auth.status == AuthStatus.Unauthenticated && auth.errorMessage != null) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 15.0),
+                          child: Text(
+                            auth.errorMessage!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold),
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                  Consumer<AuthProvider>(
+                    builder: (context, auth, _) {
+                      return auth.status == AuthStatus.Loading
+                          ? const Center(child: CircularProgressIndicator())
+                          : ElevatedButton(
+                        onPressed: _submit,
+                        style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15)),
+                        child: const Text('Se connecter'),
+                      );
+                    },
                   ),
                 ],
               ),

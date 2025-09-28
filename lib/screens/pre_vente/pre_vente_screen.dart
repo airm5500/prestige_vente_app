@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/pre_vente_screen.dart
-// 28/09/2025 19:11
+// 28/09/2025 20:08
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/prevente_list_tab.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/vente_tab.dart';
@@ -27,7 +27,6 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final saleProvider = Provider.of<SaleProvider>(context, listen: false);
       saleProvider.startNewSale();
-      // On déclenche le chargement de la liste des préventes une seule fois
       saleProvider.fetchPreventes();
     });
   }
@@ -41,10 +40,11 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
 
   void _handleTabSelection() {
     if (_tabController.indexIsChanging) { return; }
-    // Si on va sur l'onglet "Liste Preventes", on rafraîchit les données
+
     if (_tabController.index == 2) {
       Provider.of<SaleProvider>(context, listen: false).fetchPreventes();
     }
+
     setState(() {
       switch (_tabController.index) {
         case 0: _activeTabColor = Colors.orange; break;
@@ -77,7 +77,8 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
               height: 48,
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.5),
+                // MODIFICATION : Remplacement de withOpacity
+                color: AppColors.primary.withAlpha(128), // 50% d'opacité
                 borderRadius: BorderRadius.circular(8),
               ),
               child: TabBar(
@@ -88,9 +89,9 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
                 ),
                 indicatorSize: TabBarIndicatorSize.tab,
                 labelColor: Colors.white,
-                unselectedLabelColor: Colors.white.withOpacity(0.8),
+                // MODIFICATION : Remplacement de withOpacity
+                unselectedLabelColor: Colors.white.withAlpha(204), // 80% d'opacité
                 tabs: [
-                  // MODIFICATION : Utilisation d'un Row pour afficher icône et texte côte à côte
                   _buildTab(Icons.history_toggle_off, 'PREVENTE'),
                   _buildTab(Icons.point_of_sale, 'VENTE'),
                   _buildTab(Icons.list_alt, 'LISTE'),
@@ -111,7 +112,6 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     );
   }
 
-  // MODIFICATION : Widget pour créer un onglet horizontal
   Widget _buildTab(IconData icon, String text) {
     return Tab(
       child: Row(

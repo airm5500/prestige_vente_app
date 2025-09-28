@@ -1,5 +1,5 @@
 // lib/providers/sale_provider.dart
-// 28/09/2025 19:48
+// 28/09/2025 21:22
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -8,10 +8,14 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 
 class SaleProvider with ChangeNotifier {
-  final ApiService _apiService;
+  ApiService _apiService;
   ApiService get apiService => _apiService;
 
   SaleProvider(this._apiService);
+
+  void updateApiService(ApiService newApiService) {
+    _apiService = newApiService;
+  }
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -32,28 +36,44 @@ class SaleProvider with ChangeNotifier {
   bool get isLoadingPreventes => _isLoadingPreventes;
 
   Future<void> fetchPreventes() async {
-    _isLoadingPreventes = true;
-    // CORRECTION : On vide la liste avant de notifier l'UI du chargement.
-    // L'ancienne liste ne sera plus affichée pendant le rafraîchissement.
-    _preventes.clear();
-    notifyListeners();
+    if (_isLoadingPreventes) return;
 
-    List<PreventeListItem> fetchedPreventes = await _apiService.getPreventes();
+    try {
+      _isLoadingPreventes = true;
+      _preventes.clear();
+      notifyListeners();
 
-    fetchedPreventes.sort((a, b) {
-      try {
-        final format = DateFormat('dd/MM/yyyy HH:mm:ss');
-        final dateTimeA = format.parse('${a.dtUPDATED} ${a.heure}');
-        final dateTimeB = format.parse('${b.dtUPDATED} ${b.heure}');
-        return dateTimeB.compareTo(dateTimeA);
-      } catch (e) {
-        return 0;
+      List<PreventeListItem> fetchedPreventes = await _apiService.getPreventes();
+
+      // CORRECTION : On filtre les doublons reçus de l'API
+      final uniquePreventesMap = <String, PreventeListItem>{};
+      for (final prevente in fetchedPreventes) {
+        // En utilisant une Map, on s'assure de ne garder que la première
+        // occurrence de chaque ID de prévente unique.
+        uniquePreventesMap.putIfAbsent(prevente.lgPREENREGISTREMENTID, () => prevente);
       }
-    });
+      final uniquePreventesList = uniquePreventesMap.values.toList();
 
-    _preventes = fetchedPreventes;
-    _isLoadingPreventes = false;
-    notifyListeners();
+
+      uniquePreventesList.sort((a, b) {
+        try {
+          final format = DateFormat('dd/MM/yyyy HH:mm:ss');
+          final dateTimeA = format.parse('${a.dtUPDATED} ${a.heure}');
+          final dateTimeB = format.parse('${b.dtUPDATED} ${b.heure}');
+          return dateTimeB.compareTo(dateTimeA);
+        } catch (e) {
+          return 0;
+        }
+      });
+
+      _preventes = uniquePreventesList;
+
+    } catch (e) {
+      print("Erreur lors de la récupération des préventes: $e");
+    } finally {
+      _isLoadingPreventes = false;
+      notifyListeners();
+    }
   }
 
   void startNewSale() {

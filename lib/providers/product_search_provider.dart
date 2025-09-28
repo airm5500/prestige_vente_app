@@ -1,5 +1,5 @@
 // lib/providers/product_search_provider.dart
-// 28/09/2025 03:34
+// 28/09/2025 21:11
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -14,9 +14,13 @@ class MonthlyComparisonData {
 }
 
 class ProductSearchProvider with ChangeNotifier {
-  final ApiService _apiService;
+  ApiService _apiService;
 
   ProductSearchProvider(this._apiService);
+
+  void updateApiService(ApiService newApiService) {
+    _apiService = newApiService;
+  }
 
   bool _isLoading = false;
   List<ProductDetails> _searchResults = [];
