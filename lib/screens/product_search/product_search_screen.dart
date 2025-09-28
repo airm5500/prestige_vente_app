@@ -1,5 +1,5 @@
 // lib/screens/product_search/product_search_screen.dart
-// 28/09/2025 02:47
+// 28/09/2025 16:18
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -16,7 +16,6 @@ class ProductSearchScreen extends StatefulWidget {
 
 class _ProductSearchScreenState extends State<ProductSearchScreen> {
   final _searchController = TextEditingController();
-  final _searchFocusNode = FocusNode();
   Timer? _debounce;
 
   @override
@@ -24,7 +23,6 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<ProductSearchProvider>(context, listen: false).clear();
-      FocusScope.of(context).requestFocus(_searchFocusNode);
     });
     _searchController.addListener(_onSearchChanged);
   }
@@ -32,7 +30,6 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
   @override
   void dispose() {
     _searchController.dispose();
-    _searchFocusNode.dispose();
     _debounce?.cancel();
     super.dispose();
   }
@@ -57,7 +54,7 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
               if (provider.isLoading) const LinearProgressIndicator(),
               Expanded(
                 child: provider.selectedProduct != null
-                    ? _buildDetailsView(provider)
+                    ? _buildDetailsLayout(provider)
                     : _buildSearchResults(provider),
               ),
             ],
@@ -72,7 +69,6 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
       padding: const EdgeInsets.all(8.0),
       child: TextField(
         controller: _searchController,
-        focusNode: _searchFocusNode,
         decoration: InputDecoration(
           labelText: 'Rechercher par CIP, Nom ou Scan',
           prefixIcon: const Icon(Icons.search),
@@ -107,44 +103,66 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
     );
   }
 
-  Widget _buildDetailsView(ProductSearchProvider provider) {
-    final product = provider.selectedProduct!;
+  Widget _buildDetailsLayout(ProductSearchProvider provider) {
+    final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
+
+    final infoCard = _buildProductInfoCard(provider);
+    final comparisonCard = provider.hasComparisonData ? _buildComparisonCard(provider) : const SizedBox.shrink();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
-      child: Column(
+      child: isTabletLandscape
+          ? Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(product.strName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Column(
-                children: [
-                  _detailRow("Code CIP:", product.intCip),
-                  _detailRow("Prix Vente:", Constants.formatNumber(product.intPrice)),
-                  _detailRow("Prix Achat:", Constants.formatNumber(product.intPaf)),
-                  _detailRow("Stock:", product.intNumber.toString()),
-                  _detailRow("Emplacement:", product.lgZoneGeoId),
-                  _detailRow("Date Péremption:", product.dtPeremption),
-                  _detailRow("Dernière Vente:", product.dtLastVente),
-                  _detailRow("Dernière Entrée:", product.dtLastEntree),
-                  _detailRow("État (Cmd/Ent/Sug):",
-                      '${product.produitState['enCommande']}/${product.produitState['entree']}/${product.produitState['enSuggestion']}'
-                  ),
-                ],
-              ),
-            ),
-          ),
+          Expanded(flex: 5, child: infoCard),
+          const SizedBox(width: 16),
+          Expanded(flex: 5, child: comparisonCard),
+        ],
+      )
+          : Column(
+        children: [
+          infoCard,
           const SizedBox(height: 20),
-          if(provider.hasComparisonData)
-            _buildComparisonSection(provider),
+          comparisonCard,
         ],
       ),
     );
   }
 
-  Widget _buildComparisonSection(ProductSearchProvider provider) {
+  Widget _buildProductInfoCard(ProductSearchProvider provider) {
+    final product = provider.selectedProduct!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(product.strName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 10),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              children: [
+                _detailRow("Code CIP:", product.intCip),
+                _detailRow("Prix Vente:", Constants.formatNumber(product.intPrice)),
+                _detailRow("Prix Achat:", Constants.formatNumber(product.intPaf)),
+                _detailRow("Stock:", product.intNumber.toString()),
+                _detailRow("Emplacement:", product.lgZoneGeoId),
+                _detailRow("Date Péremption:", product.dtPeremption),
+                _detailRow("Dernière Vente:", product.dtLastVente),
+                _detailRow("Dernière Entrée:", product.dtLastEntree),
+                _detailRow("État (Cmd/Ent/Sug):",
+                    '${product.produitState['enCommande']}/${product.produitState['entree']}/${product.produitState['enSuggestion']}'
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // CORRECTION : La section du graphique a été réécrite pour plus de clarté
+  Widget _buildComparisonCard(ProductSearchProvider provider) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -155,38 +173,8 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
             const SizedBox(height: 20),
             SizedBox(
               height: 300,
-              child: LineChart(
-                  LineChartData(
-                      titlesData: FlTitlesData(
-                        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
-                        bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, interval: 1, getTitlesWidget: (value, meta) {
-                          const months = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 8.0),
-                            child: Text(months[value.toInt()]),
-                          );
-                        })),
-                      ),
-                      borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.shade300)),
-                      gridData: const FlGridData(show: true),
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.sales.toDouble())).toList(),
-                          isCurved: true,
-                          color: Colors.blue,
-                          barWidth: 3,
-                        ),
-                        LineChartBarData(
-                          spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.orders.toDouble())).toList(),
-                          isCurved: true,
-                          color: Colors.green,
-                          barWidth: 3,
-                        )
-                      ]
-                  )
-              ),
+              // On passe directement l'objet LineChartData au constructeur de LineChart
+              child: LineChart(_buildChartData(provider)),
             ),
             const SizedBox(height: 10),
             Row(
@@ -200,6 +188,45 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // CORRECTION : Création d'une fonction dédiée pour la configuration du graphique
+  LineChartData _buildChartData(ProductSearchProvider provider) {
+    return LineChartData(
+      // Configuration des titres (axes)
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, interval: 1, getTitlesWidget: (value, meta) {
+            const months = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+            if (value.toInt() >= 0 && value.toInt() < months.length) {
+              return Text(months[value.toInt()]);
+            }
+            return const Text('');
+          })),
+        ),
+        // Configuration des bordures et de la grille
+        borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.shade300)),
+        gridData: const FlGridData(show: true),
+        // Configuration des lignes (courbes)
+        lineBarsData: [
+          // Ligne des Ventes
+          LineChartBarData(
+            spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.sales.toDouble())).toList(),
+            isCurved: true,
+            color: Colors.blue,
+            barWidth: 3,
+          ),
+          // Ligne des Commandes
+          LineChartBarData(
+            spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.orders.toDouble())).toList(),
+            isCurved: true,
+            color: Colors.green,
+            barWidth: 3,
+          )
+        ]
     );
   }
 
@@ -218,7 +245,7 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(color: Colors.black54)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+          Flexible(child: Text(value, textAlign: TextAlign.end, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16))),
         ],
       ),
     );
