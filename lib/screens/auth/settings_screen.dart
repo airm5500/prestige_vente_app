@@ -1,5 +1,5 @@
 // lib/screens/auth/settings_screen.dart
-// 29/09/2025 23:16
+// 29/09/2025 23:56
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -8,7 +8,6 @@ import 'package:prestige_vente_app/utils/constants.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
-
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -93,6 +92,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
+                          const Text("Largeur du ticket", style: TextStyle(fontSize: 16)),
+                          ToggleButtons(
+                            isSelected: [
+                              settings.paperWidth == 58,
+                              settings.paperWidth == 80,
+                            ],
+                            onPressed: (index) {
+                              settings.setPaperWidth(index == 0 ? 58 : 80);
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            children: const [
+                              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('58mm')),
+                              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('80mm')),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
                           const Text("Mode test d'impression", style: TextStyle(fontSize: 16)),
                           Switch(
                             value: settings.isTestPrintMode,
@@ -110,10 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       settings.isLoading
                           ? const Center(child: CircularProgressIndicator())
-                          : ElevatedButton(
-                        onPressed: _onSave,
-                        child: const Text('Enregistrer'),
-                      ),
+                          : ElevatedButton(onPressed: _onSave, child: const Text('Enregistrer')),
                     ],
                   ),
                 );

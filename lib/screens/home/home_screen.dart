@@ -1,7 +1,8 @@
 // lib/screens/home/home_screen.dart
-// 28/09/2025 20:57
+// 29/09/2025 23:55
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
+import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
 import 'package:prestige_vente_app/screens/pre_vente/pre_vente_screen.dart';
 import 'package:prestige_vente_app/screens/product_evaluation/product_evaluation_screen.dart';
 import 'package:prestige_vente_app/screens/product_search/product_search_screen.dart';
@@ -25,7 +26,17 @@ class HomeScreen extends StatelessWidget {
             return Text(auth.officine?.nomComplet ?? 'Prestige Vente');
           },
         ),
+        // MODIFICATION : Ajout du bouton de configuration
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen())
+              );
+            },
+            tooltip: 'Configuration',
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {
@@ -48,7 +59,6 @@ class HomeScreen extends StatelessWidget {
               Consumer<AuthProvider>(
                 builder: (context, auth, child) {
                   final officine = auth.officine;
-
                   return Card(
                     color: AppColors.primary.withAlpha(26),
                     elevation: 0,
@@ -62,14 +72,12 @@ class HomeScreen extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // MODIFICATION : Nouveau message de bienvenue
                                 Text(
                                   'Bienvenu(e) à ${officine?.nomComplet ?? ''}',
                                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 if (officine != null)
-                                // MODIFICATION : Nom du pharmacien en dessous
                                   Text(
                                     officine.fullName,
                                     style: const TextStyle(fontSize: 16, color: Colors.black54),

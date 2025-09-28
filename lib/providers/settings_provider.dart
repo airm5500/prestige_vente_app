@@ -1,5 +1,5 @@
 // lib/providers/settings_provider.dart
-// 29/09/2025 23:15
+// 29/09/2025 23:55
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
@@ -14,6 +14,7 @@ class SettingsProvider with ChangeNotifier {
   static const String _savedLoginKey = 'saved_login';
   static const String _savedPasswordKey = 'saved_password';
   static const String _isTestPrintModeKey = 'is_test_print_mode';
+  static const String _paperWidthKey = 'paper_width';
 
   String _localIp = '';
   String _remoteIp = '';
@@ -23,6 +24,7 @@ class SettingsProvider with ChangeNotifier {
   bool _stayConnected = false;
   String _savedLogin = '';
   bool _isTestPrintMode = true;
+  int _paperWidth = 58;
 
   String get localIp => _localIp;
   String get remoteIp => _remoteIp;
@@ -32,6 +34,7 @@ class SettingsProvider with ChangeNotifier {
   bool get stayConnected => _stayConnected;
   String get savedLogin => _savedLogin;
   bool get isTestPrintMode => _isTestPrintMode;
+  int get paperWidth => _paperWidth;
 
   String get baseUrl {
     final ip = _isRemote ? _remoteIp : _localIp;
@@ -51,6 +54,14 @@ class SettingsProvider with ChangeNotifier {
     _stayConnected = prefs.getBool(_stayConnectedKey) ?? false;
     _savedLogin = prefs.getString(_savedLoginKey) ?? '';
     _isTestPrintMode = prefs.getBool(_isTestPrintModeKey) ?? true;
+    _paperWidth = prefs.getInt(_paperWidthKey) ?? 58;
+    notifyListeners();
+  }
+
+  Future<void> setPaperWidth(int width) async {
+    _paperWidth = width;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_paperWidthKey, _paperWidth);
     notifyListeners();
   }
 
