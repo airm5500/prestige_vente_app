@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/pre_vente_screen.dart
-// 28/09/2025 01:46
+// 28/09/2025 17:10
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/prevente_list_tab.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/vente_tab.dart';
@@ -20,7 +20,7 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    // Initialise une nouvelle vente à l'ouverture de l'écran
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<SaleProvider>(context, listen: false).startNewSale();
     });
@@ -37,6 +37,16 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pre/Vente'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () {
+              Provider.of<SaleProvider>(context, listen: false).startNewSale();
+              _tabController.animateTo(0);
+            },
+            tooltip: 'Nouvelle Vente',
+          )
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -45,26 +55,12 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
             Tab(text: 'LISTE PREVENTES'),
           ],
         ),
-        actions: [
-          // Bouton pour démarrer une nouvelle vente
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () {
-              Provider.of<SaleProvider>(context, listen: false).startNewSale();
-              _tabController.animateTo(0); // Revient au premier onglet
-            },
-            tooltip: 'Nouvelle Vente',
-          )
-        ],
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          // Onglet 1: Prevente (isPrevente = true)
           const VenteTab(isPrevente: true),
-          // Onglet 2: Vente (isPrevente = false)
           const VenteTab(isPrevente: false),
-          // Onglet 3: Liste des préventes
           PreventeListTab(tabController: _tabController),
         ],
       ),

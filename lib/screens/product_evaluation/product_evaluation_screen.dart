@@ -1,5 +1,5 @@
 // lib/screens/product_evaluation/product_evaluation_screen.dart
-// 28/09/2025 16:15
+// 28/09/2025 16:46
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -72,6 +72,8 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
       padding: const EdgeInsets.all(8.0),
       child: TextField(
         controller: _searchController,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => _onSearchChanged(),
         decoration: InputDecoration(
           labelText: 'Rechercher par CIP ou Nom',
           prefixIcon: const Icon(Icons.search),

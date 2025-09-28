@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 28/09/2025 16:00
+// 28/09/2025 17:11
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -52,6 +52,15 @@ class _VenteTabState extends State<VenteTab> {
 
   void _showQuantityDialog(ProductSearchResult product) {
     final qteController = TextEditingController(text: '1');
+
+    void submitQuantity() {
+      final quantity = int.tryParse(qteController.text) ?? 0;
+      Navigator.of(context).pop();
+      if (quantity > 0) {
+        _checkStockAndAddProduct(product, quantity);
+      }
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -61,6 +70,8 @@ class _VenteTabState extends State<VenteTab> {
           autofocus: true,
           decoration: const InputDecoration(labelText: 'Quantité'),
           keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => submitQuantity(),
         ),
         actions: [
           TextButton(
@@ -69,13 +80,7 @@ class _VenteTabState extends State<VenteTab> {
           ),
           ElevatedButton(
             child: const Text('Ajouter'),
-            onPressed: () {
-              final quantity = int.tryParse(qteController.text) ?? 0;
-              Navigator.of(ctx).pop();
-              if (quantity > 0) {
-                _checkStockAndAddProduct(product, quantity);
-              }
-            },
+            onPressed: submitQuantity,
           ),
         ],
       ),
@@ -95,16 +100,9 @@ class _VenteTabState extends State<VenteTab> {
         context: context,
         builder: (confirmCtx) => AlertDialog(
           title: const Text('Stock insuffisant'),
-          content: Text(
-              'Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
+          content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
           actions: [
-            TextButton(
-              child: const Text('Non'),
-              onPressed: () {
-                Navigator.of(confirmCtx).pop();
-                _searchFocusNode.requestFocus();
-              },
-            ),
+            TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }),
             ElevatedButton(
               child: const Text('Oui'),
               onPressed: () {
@@ -135,7 +133,10 @@ class _VenteTabState extends State<VenteTab> {
         actions: [
           TextButton(
             child: const Text('Non'),
-            onPressed: () { Navigator.of(ctx).pop(); saleProvider.startNewSale(); },
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              saleProvider.startNewSale();
+            },
           ),
           ElevatedButton(
             child: const Text('Oui'),
@@ -198,14 +199,10 @@ class _VenteTabState extends State<VenteTab> {
 
   @override
   Widget build(BuildContext context) {
-    // CORRECTION : On détecte la largeur de l'écran pour choisir la bonne mise en page.
-    // Un breakpoint à 800 est un bon début pour les tablettes en mode paysage.
     final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
-
     return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout();
   }
 
-  // --- Mise en page pour Mobile (ou tablette en portrait) ---
   Widget _buildMobileLayout() {
     return Column(
       children: [
@@ -217,37 +214,32 @@ class _VenteTabState extends State<VenteTab> {
     );
   }
 
-  // --- Mise en page pour Tablette en Paysage ---
   Widget _buildTabletLayout() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Colonne de gauche (Recherche et Résumé)
         Expanded(
-          flex: 4, // Prend 40% de l'espace
+          flex: 4,
           child: Column(
             children: [
               _buildSearchArea(),
               const Divider(height: 1),
-              Expanded(child: _buildCartAndResultsOverlay()), // Le panier est ici pour la superposition des résultats
+              Expanded(child: _buildCartAndResultsOverlay()),
               _buildSummaryFooter(),
             ],
           ),
         ),
         const VerticalDivider(width: 1),
-        // Colonne de droite (Panier seul)
         Expanded(
-          flex: 6, // Prend 60% de l'espace
+          flex: 6,
           child: Container(
-            color: Colors.black.withOpacity(0.03), // Léger fond pour délimiter
+            color: Colors.black.withOpacity(0.03),
             child: const SaleCartWidget(),
           ),
         ),
       ],
     );
   }
-
-  // --- Widgets partagés ---
 
   Widget _buildSearchArea() {
     return Padding(
@@ -275,18 +267,16 @@ class _VenteTabState extends State<VenteTab> {
   Widget _buildCartAndResultsOverlay() {
     return Consumer<SaleProvider>(
       builder: (context, saleProvider, child) {
-        // En mode tablette, le panier est à droite, donc on n'affiche que les résultats ici
         final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
 
         return Stack(
           children: [
-            // En mode mobile, on affiche le panier en fond. En mode tablette, cet espace est vide.
             if (!isTabletLandscape)
               const SaleCartWidget(),
 
             if (saleProvider.searchResults.isNotEmpty)
               Container(
-                color: Theme.of(context).scaffoldBackgroundColor.withOpacity(0.95),
+                color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242),
                 child: Scrollbar(
                   child: ListView.builder(
                     itemCount: saleProvider.searchResults.length,

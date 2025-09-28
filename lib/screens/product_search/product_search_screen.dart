@@ -1,5 +1,5 @@
 // lib/screens/product_search/product_search_screen.dart
-// 28/09/2025 16:18
+// 28/09/2025 16:46
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -69,6 +69,8 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
       padding: const EdgeInsets.all(8.0),
       child: TextField(
         controller: _searchController,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => _onSearchChanged(),
         decoration: InputDecoration(
           labelText: 'Rechercher par CIP, Nom ou Scan',
           prefixIcon: const Icon(Icons.search),
@@ -161,7 +163,6 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
     );
   }
 
-  // CORRECTION : La section du graphique a été réécrite pour plus de clarté
   Widget _buildComparisonCard(ProductSearchProvider provider) {
     return Card(
       child: Padding(
@@ -173,7 +174,6 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
             const SizedBox(height: 20),
             SizedBox(
               height: 300,
-              // On passe directement l'objet LineChartData au constructeur de LineChart
               child: LineChart(_buildChartData(provider)),
             ),
             const SizedBox(height: 10),
@@ -191,10 +191,8 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
     );
   }
 
-  // CORRECTION : Création d'une fonction dédiée pour la configuration du graphique
   LineChartData _buildChartData(ProductSearchProvider provider) {
     return LineChartData(
-      // Configuration des titres (axes)
         titlesData: FlTitlesData(
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -207,19 +205,15 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
             return const Text('');
           })),
         ),
-        // Configuration des bordures et de la grille
         borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.shade300)),
         gridData: const FlGridData(show: true),
-        // Configuration des lignes (courbes)
         lineBarsData: [
-          // Ligne des Ventes
           LineChartBarData(
             spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.sales.toDouble())).toList(),
             isCurved: true,
             color: Colors.blue,
             barWidth: 3,
           ),
-          // Ligne des Commandes
           LineChartBarData(
             spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.orders.toDouble())).toList(),
             isCurved: true,
