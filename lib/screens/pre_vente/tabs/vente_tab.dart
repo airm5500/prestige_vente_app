@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 28/09/2025 04:14
+// 28/09/2025 05:03
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -89,10 +89,8 @@ class _VenteTabState extends State<VenteTab> {
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final receiptService = ReceiptService();
-
     final summaryToPrint = saleProvider.saleSummary;
     final itemsToPrint = List<SaleItemDetail>.from(saleProvider.cartItems);
-
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -135,9 +133,7 @@ class _VenteTabState extends State<VenteTab> {
   }
 
   void _showPaymentDialog() async {
-    // CORRECTION : On capture le ScaffoldMessenger AVANT les opérations asynchrones
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final currentUser = authProvider.user;
@@ -146,11 +142,8 @@ class _VenteTabState extends State<VenteTab> {
       Constants.showSnackBar(context, "Erreur: Utilisateur non trouvé", isError: true);
       return;
     }
-
     final paymentMethods = await saleProvider.apiService.getPaymentMethods();
-
     if (!mounted) return;
-
     showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -165,10 +158,8 @@ class _VenteTabState extends State<VenteTab> {
                 return ListTile(
                   title: Text(method.name),
                   onTap: () async {
-                    Navigator.of(ctx).pop(); // On ferme la popup
+                    Navigator.of(ctx).pop();
                     final success = await saleProvider.cloturerVente(method, currentUser);
-
-                    // 'mounted' n'est pas suffisant ici, il faut utiliser la référence capturée
                     if (success) {
                       scaffoldMessenger.showSnackBar(const SnackBar(
                         content: Text('Vente validée avec succès !'),
@@ -195,41 +186,50 @@ class _VenteTabState extends State<VenteTab> {
       children: [
         Padding(
           padding: const EdgeInsets.all(8.0),
+          child: TextField(
+            controller: _searchController,
+            focusNode: _searchFocusNode,
+            decoration: InputDecoration(
+              labelText: 'Rechercher un produit (CIP ou Nom)',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _searchController.clear();
+                  Provider.of<SaleProvider>(context, listen: false).searchProducts('');
+                },
+              )
+                  : null,
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
           child: Consumer<SaleProvider>(
             builder: (context, saleProvider, child) {
-              return Column(
+              return Stack(
                 children: [
-                  TextField(
-                    controller: _searchController,
-                    focusNode: _searchFocusNode,
-                    decoration: InputDecoration(
-                      labelText: 'Rechercher un produit (CIP ou Nom)',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchController.text.isNotEmpty
-                          ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          saleProvider.searchProducts('');
-                        },
-                      )
-                          : null,
-                    ),
-                  ),
+                  const SaleCartWidget(),
                   if (saleProvider.searchResults.isNotEmpty)
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 200),
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: saleProvider.searchResults.length,
-                        itemBuilder: (context, index) {
-                          final product = saleProvider.searchResults[index];
-                          return ListTile(
-                            title: Text('${product.strNAME} - CIP: ${product.intCIP}'),
-                            subtitle: Text('Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'),
-                            onTap: () => _showQuantityDialog(product),
-                          );
-                        },
+                    Container(
+                      color: Theme.of(context).scaffoldBackgroundColor.withOpacity(0.95),
+                      // CORRECTION : Ajout du widget Scrollbar
+                      child: Scrollbar(
+                        child: ListView.builder(
+                          itemCount: saleProvider.searchResults.length,
+                          itemBuilder: (context, index) {
+                            final product = saleProvider.searchResults[index];
+                            return Card(
+                              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              child: ListTile(
+                                title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text('CIP: ${product.intCIP} | Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'),
+                                onTap: () => _showQuantityDialog(product),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
                 ],
@@ -237,8 +237,7 @@ class _VenteTabState extends State<VenteTab> {
             },
           ),
         ),
-        const Divider(),
-        const Expanded(child: SaleCartWidget()),
+
         Consumer<SaleProvider>(
           builder: (context, saleProvider, child) {
             final summary = saleProvider.saleSummary;
@@ -274,7 +273,6 @@ class _VenteTabState extends State<VenteTab> {
                         if (widget.isPrevente) {
                           final success = await saleProvider.terminerPrevente();
                           if (mounted && success) {
-                            Constants.showSnackBar(context, 'Prévente enregistrée !');
                             _showPrintDialog(isPrevente: true);
                           }
                         } else {

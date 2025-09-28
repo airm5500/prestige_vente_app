@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/widgets/sale_cart_widget.dart
-// 28/09/2025 02:00
+// 28/09/2025 04:46
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
@@ -9,7 +9,6 @@ import 'package:provider/provider.dart';
 class SaleCartWidget extends StatelessWidget {
   const SaleCartWidget({super.key});
 
-  // Affiche une boîte de dialogue pour modifier la quantité et le prix
   void _showEditDialog(BuildContext context, SaleItemDetail item) {
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
     final qteController = TextEditingController(text: item.intQUANTITY.toString());
@@ -55,9 +54,12 @@ class SaleCartWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Le Consumer écoute les changements du SaleProvider
     return Consumer<SaleProvider>(
       builder: (context, saleProvider, child) {
+        if (saleProvider.isLoading && saleProvider.cartItems.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
         if (saleProvider.cartItems.isEmpty) {
           return const Center(
             child: Column(
@@ -71,36 +73,52 @@ class SaleCartWidget extends StatelessWidget {
           );
         }
 
-        // Affiche la liste des articles dans le panier
         return ListView.builder(
           itemCount: saleProvider.cartItems.length,
           itemBuilder: (context, index) {
             final item = saleProvider.cartItems[index];
+            // CORRECTION : Nouvelle mise en page pour l'article du panier
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: ListTile(
-                title: Text(item.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('CIP: ${item.intCIP}'),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Affiche Quantité x Prix Unitaire = Total Ligne
+                    // Ligne 1 : Nom et CIP
                     Text(
-                      '${item.intQUANTITY} x ${Constants.formatNumber(item.intPRICEUNITAIR)} = ${Constants.formatNumber(item.intPRICE)}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      '${item.strNAME} - CIP: ${item.intCIP}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
-                    const SizedBox(width: 10),
-                    // Bouton pour modifier
-                    IconButton(
-                      icon: const Icon(Icons.edit, color: AppColors.secondary),
-                      onPressed: () => _showEditDialog(context, item),
-                    ),
-                    // Bouton pour supprimer
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: AppColors.error),
-                      onPressed: () {
-                        saleProvider.removeProductFromCart(item.lgPREENREGISTREMENTDETAILID);
-                      },
+                    const SizedBox(height: 8),
+                    // Ligne 2 : Détails financiers et actions
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${item.intQUANTITY} x ${Constants.formatNumber(item.intPRICEUNITAIR)} = ${Constants.formatNumber(item.intPRICE)}',
+                          style: const TextStyle(fontSize: 15, color: Colors.black87),
+                        ),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit, color: AppColors.secondary),
+                              onPressed: () => _showEditDialog(context, item),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                            const SizedBox(width: 16),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: AppColors.error),
+                              onPressed: () {
+                                saleProvider.removeProductFromCart(item.lgPREENREGISTREMENTDETAILID);
+                              },
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
+                        )
+                      ],
                     ),
                   ],
                 ),

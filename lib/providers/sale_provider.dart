@@ -1,5 +1,5 @@
 // lib/providers/sale_provider.dart
-// 28/09/2025 04:08
+// 28/09/2025 04:58
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -42,6 +42,8 @@ class SaleProvider with ChangeNotifier {
       return;
     }
     _setLoading(true);
+    // CORRECTION : On s'assure de vider la liste avant toute nouvelle recherche
+    _searchResults.clear();
     _searchResults = await _apiService.searchProducts(query);
     _setLoading(false);
   }
