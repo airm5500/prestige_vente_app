@@ -1,0 +1,46 @@
+name: prestige_vente_app
+description: "Application de point de vente Prestige Vente"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Pour les appels réseau et la gestion des cookies
+  dio: ^5.4.3+1
+  dio_cookie_manager: ^3.1.1
+  cookie_jar: ^4.0.8
+
+  # Pour la gestion d'état (simple et efficace)
+  provider: ^6.1.2
+
+  # Pour stocker les paramètres de configuration
+  shared_preferences: ^2.2.3
+
+  # Pour formater les dates et les nombres
+  intl: ^0.20.2
+
+  # Pour les graphiques
+  fl_chart: ^0.68.0
+
+  # Pour l'impression sur les terminaux Sunmi
+  sunmi_printer_plus: ^3.0.1
+
+  # Pour la génération d'UUID uniques (pour les ID de vente)
+  uuid: ^4.4.0
+
+  # Icônes
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
