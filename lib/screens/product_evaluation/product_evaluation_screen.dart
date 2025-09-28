@@ -1,11 +1,9 @@
 // lib/screens/product_evaluation/product_evaluation_screen.dart
-// 28/09/2025 16:46
+// 28/09/2025 18:38
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/providers/product_stats_provider.dart';
-import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 
@@ -19,12 +17,14 @@ class ProductEvaluationScreen extends StatefulWidget {
 class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
   final _searchController = TextEditingController();
   Timer? _debounce;
+  final _searchFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<ProductStatsProvider>(context, listen: false).clear();
+      FocusScope.of(context).requestFocus(_searchFocusNode);
     });
     _searchController.addListener(_onSearchChanged);
   }
@@ -33,6 +33,7 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
   void dispose() {
     _searchController.dispose();
     _debounce?.cancel();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -72,6 +73,7 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
       padding: const EdgeInsets.all(8.0),
       child: TextField(
         controller: _searchController,
+        focusNode: _searchFocusNode,
         textInputAction: TextInputAction.search,
         onSubmitted: (_) => _onSearchChanged(),
         decoration: InputDecoration(

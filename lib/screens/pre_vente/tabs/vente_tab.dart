@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 28/09/2025 17:11
+// 28/09/2025 18:38
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -316,7 +316,6 @@ class _VenteTabState extends State<VenteTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Total: ${Constants.formatNumber(summary.montant)}', style: const TextStyle(fontSize: 16)),
-                    Text('Remise: ${Constants.formatNumber(summary.remise)}', style: const TextStyle(fontSize: 16)),
                     Text(
                       'Net à Payer: ${Constants.formatNumber(summary.montantNet)}',
                       style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary),
@@ -325,23 +324,27 @@ class _VenteTabState extends State<VenteTab> {
                 ),
                 saleProvider.isLoading
                     ? const CircularProgressIndicator()
-                    : ElevatedButton.icon(
-                  icon: Icon(widget.isPrevente ? Icons.save : Icons.check_circle),
-                  label: Text(widget.isPrevente ? 'Terminer PREvente' : 'Valider Vente'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                  ),
-                  onPressed: saleProvider.cartItems.isEmpty ? null : () async {
-                    if (widget.isPrevente) {
-                      final success = await saleProvider.terminerPrevente();
-                      if (mounted && success) {
-                        _showPrintDialog(isPrevente: true);
+                    : SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      shape: const CircleBorder(),
+                      padding: EdgeInsets.zero,
+                      backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success,
+                    ),
+                    child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
+                    onPressed: saleProvider.cartItems.isEmpty ? null : () async {
+                      if (widget.isPrevente) {
+                        final success = await saleProvider.terminerPrevente();
+                        if (mounted && success) {
+                          _showPrintDialog(isPrevente: true);
+                        }
+                      } else {
+                        _showPaymentDialog();
                       }
-                    } else {
-                      _showPaymentDialog();
-                    }
-                  },
+                    },
+                  ),
                 ),
               ],
             ),

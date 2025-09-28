@@ -1,6 +1,7 @@
 // lib/providers/sale_provider.dart
-// 28/09/2025 04:58
+// 28/09/2025 19:48
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -18,6 +19,8 @@ class SaleProvider with ChangeNotifier {
   List<SaleItemDetail> _cartItems = [];
   SaleSummary _saleSummary = SaleSummary();
   List<ProductSearchResult> _searchResults = [];
+  List<PreventeListItem> _preventes = [];
+  bool _isLoadingPreventes = false;
 
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
@@ -25,6 +28,33 @@ class SaleProvider with ChangeNotifier {
   List<SaleItemDetail> get cartItems => _cartItems;
   SaleSummary get saleSummary => _saleSummary;
   List<ProductSearchResult> get searchResults => _searchResults;
+  List<PreventeListItem> get preventes => _preventes;
+  bool get isLoadingPreventes => _isLoadingPreventes;
+
+  Future<void> fetchPreventes() async {
+    _isLoadingPreventes = true;
+    // CORRECTION : On vide la liste avant de notifier l'UI du chargement.
+    // L'ancienne liste ne sera plus affichée pendant le rafraîchissement.
+    _preventes.clear();
+    notifyListeners();
+
+    List<PreventeListItem> fetchedPreventes = await _apiService.getPreventes();
+
+    fetchedPreventes.sort((a, b) {
+      try {
+        final format = DateFormat('dd/MM/yyyy HH:mm:ss');
+        final dateTimeA = format.parse('${a.dtUPDATED} ${a.heure}');
+        final dateTimeB = format.parse('${b.dtUPDATED} ${b.heure}');
+        return dateTimeB.compareTo(dateTimeA);
+      } catch (e) {
+        return 0;
+      }
+    });
+
+    _preventes = fetchedPreventes;
+    _isLoadingPreventes = false;
+    notifyListeners();
+  }
 
   void startNewSale() {
     _currentVenteId = null;
@@ -42,7 +72,6 @@ class SaleProvider with ChangeNotifier {
       return;
     }
     _setLoading(true);
-    // CORRECTION : On s'assure de vider la liste avant toute nouvelle recherche
     _searchResults.clear();
     _searchResults = await _apiService.searchProducts(query);
     _setLoading(false);

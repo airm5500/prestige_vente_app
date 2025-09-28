@@ -1,5 +1,5 @@
 // lib/screens/home/home_screen.dart
-// 28/09/2025 02:37
+// 28/09/2025 17:33
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/pre_vente/pre_vente_screen.dart';
@@ -81,9 +81,11 @@ class HomeScreen extends StatelessWidget {
                   crossAxisSpacing: 16,
                   mainAxisSpacing: 16,
                   children: [
+                    // MODIFICATION : Ajout de couleurs douces
                     MenuButton(
                       icon: Icons.point_of_sale,
                       label: 'Pre/Vente',
+                      color: Colors.blue.shade50,
                       onTap: () {
                         Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => const PreVenteScreen())
@@ -93,6 +95,7 @@ class HomeScreen extends StatelessWidget {
                     MenuButton(
                       icon: Icons.bar_chart,
                       label: 'Évaluation Vente',
+                      color: Colors.green.shade50,
                       onTap: () {
                         Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => const ProductEvaluationScreen())
@@ -102,6 +105,7 @@ class HomeScreen extends StatelessWidget {
                     MenuButton(
                       icon: Icons.search,
                       label: 'Recherche Article',
+                      color: Colors.orange.shade50,
                       onTap: () {
                         Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => const ProductSearchScreen())
