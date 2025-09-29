@@ -1,5 +1,5 @@
 // lib/utils/constants.dart
-// 28/09/2025 02:40
+// 29/09/2025 02:10
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -45,7 +45,6 @@ class AppTheme {
         filled: true,
         fillColor: Colors.white,
       ),
-      // CORRECTION : Utilisation de CardThemeData au lieu de CardTheme
       cardTheme: CardThemeData(
         elevation: 2.0,
         shape: RoundedRectangleBorder(
@@ -62,6 +61,8 @@ class Constants {
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? AppColors.error : AppColors.secondary,
+        // MODIFICATION : Durée d'affichage réduite à 2 secondes
+        duration: const Duration(seconds: 1),
       ),
     );
   }

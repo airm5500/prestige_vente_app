@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 29/09/2025 01:59
+// 29/09/2025 02:12
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -173,10 +173,15 @@ class _VenteTabState extends State<VenteTab> {
       Constants.showSnackBar(context, "Erreur: Utilisateur non trouvé", isError: true);
       return;
     }
-    final paymentMethods = await saleProvider.apiService.getPaymentMethods();
+
+    final allPaymentMethods = await saleProvider.apiService.getPaymentMethods();
     if (!mounted) return;
+
     const allowedNames = {'ORANGE', 'WAVE', 'MTN', 'MOOV', 'Carte Bancaire'};
-    final filteredMethods = paymentMethods.where((method) => allowedNames.contains(method.name)).toList();
+    final filteredMethods = allPaymentMethods
+        .where((method) => allowedNames.contains(method.name))
+        .toList();
+
     showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -194,10 +199,18 @@ class _VenteTabState extends State<VenteTab> {
                     Navigator.of(ctx).pop();
                     final success = await saleProvider.cloturerVente(method, currentUser);
                     if (success) {
-                      scaffoldMessenger.showSnackBar(const SnackBar(content: Text('Vente validée avec succès !'), backgroundColor: AppColors.success));
+                      scaffoldMessenger.showSnackBar(const SnackBar(
+                        content: Text('Vente validée avec succès !'),
+                        backgroundColor: AppColors.success,
+                        duration: Duration(seconds: 2),
+                      ));
                       _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
                     } else {
-                      scaffoldMessenger.showSnackBar(SnackBar(content: Text(saleProvider.errorMessage ?? "La validation a échoué"), backgroundColor: AppColors.error));
+                      scaffoldMessenger.showSnackBar(SnackBar(
+                        content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
+                        backgroundColor: AppColors.error,
+                        duration: const Duration(seconds: 2),
+                      ));
                     }
                   },
                 );
@@ -213,9 +226,158 @@ class _VenteTabState extends State<VenteTab> {
     return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout();
   }
 
-  Widget _buildMobileLayout() { return Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ); }
-  Widget _buildTabletLayout() { return Row( crossAxisAlignment: CrossAxisAlignment.start, children: [ Expanded( flex: 4, child: Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ), ), const VerticalDivider(width: 1), Expanded( flex: 6, child: Container( color: Colors.black.withOpacity(0.03), child: const SaleCartWidget(), ), ), ], ); }
-  Widget _buildSearchArea() { return Padding( padding: const EdgeInsets.all(8.0), child: TextField( controller: _searchController, focusNode: _searchFocusNode, decoration: InputDecoration( labelText: 'Rechercher un produit (CIP ou Nom)', prefixIcon: const Icon(Icons.search), suffixIcon: _searchController.text.isNotEmpty ? IconButton( icon: const Icon(Icons.clear), onPressed: () { _searchController.clear(); Provider.of<SaleProvider>(context, listen: false).searchProducts(''); }, ) : null, ), ), ); }
-  Widget _buildCartAndResultsOverlay() { return Consumer<SaleProvider>( builder: (context, saleProvider, child) { final bool isTabletLandscape = MediaQuery.of(context).size.width > 800; return Stack( children: [ if (!isTabletLandscape) const SaleCartWidget(), if (saleProvider.searchResults.isNotEmpty) Container( color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242), child: Scrollbar( child: ListView.builder( itemCount: saleProvider.searchResults.length, itemBuilder: (context, index) { final product = saleProvider.searchResults[index]; return Card( margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: ListTile( title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text('CIP: ${product.intCIP} | Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'), onTap: () => _showQuantityDialog(product), ), ); }, ), ), ), ], ); }, ); }
-  Widget _buildSummaryFooter() { return Consumer<SaleProvider>( builder: (context, saleProvider, child) { final summary = saleProvider.saleSummary; return Card( elevation: 4, margin: const EdgeInsets.all(0), child: Padding( padding: const EdgeInsets.all(12.0), child: Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Text('Total: ${Constants.formatNumber(summary.montant)}', style: const TextStyle(fontSize: 16)), Text( 'Net à Payer: ${Constants.formatNumber(summary.montantNet)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary), ), ], ), saleProvider.isLoading ? const CircularProgressIndicator() : SizedBox( width: 56, height: 56, child: ElevatedButton( style: ElevatedButton.styleFrom( shape: const CircleBorder(), padding: EdgeInsets.zero, backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success, ), child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white), onPressed: saleProvider.cartItems.isEmpty ? null : () async { if (widget.isPrevente) { final authProvider = Provider.of<AuthProvider>(context, listen: false); final currentUser = authProvider.user; if(currentUser != null) { final success = await saleProvider.terminerPrevente(); if (mounted && success) { _showPrintDialog(isPrevente: true, currentUser: currentUser); } } } else { _showPaymentDialog(); } }, ), ), ], ), ), ); }, ); }
+  Widget _buildMobileLayout() {
+    return Column(
+      children: [
+        _buildSearchArea(),
+        const Divider(height: 1),
+        Expanded(child: _buildCartAndResultsOverlay()),
+        _buildSummaryFooter(),
+      ],
+    );
+  }
+
+  Widget _buildTabletLayout() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 4,
+          child: Column(
+            children: [
+              _buildSearchArea(),
+              const Divider(height: 1),
+              Expanded(child: _buildCartAndResultsOverlay()),
+              _buildSummaryFooter(),
+            ],
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          flex: 6,
+          child: Container(
+            color: Colors.black.withAlpha(8),
+            child: const SaleCartWidget(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchArea() {
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: TextField(
+        controller: _searchController,
+        focusNode: _searchFocusNode,
+        decoration: InputDecoration(
+          labelText: 'Rechercher un produit (CIP ou Nom)',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: () {
+              _searchController.clear();
+              Provider.of<SaleProvider>(context, listen: false).searchProducts('');
+            },
+          )
+              : null,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCartAndResultsOverlay() {
+    return Consumer<SaleProvider>(
+      builder: (context, saleProvider, child) {
+        final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
+
+        return Stack(
+          children: [
+            if (!isTabletLandscape)
+              const SaleCartWidget(),
+
+            if (saleProvider.searchResults.isNotEmpty)
+              Container(
+                color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242),
+                child: Scrollbar(
+                  child: ListView.builder(
+                    itemCount: saleProvider.searchResults.length,
+                    itemBuilder: (context, index) {
+                      final product = saleProvider.searchResults[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: ListTile(
+                          title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text('CIP: ${product.intCIP} | Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'),
+                          onTap: () => _showQuantityDialog(product),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSummaryFooter() {
+    return Consumer<SaleProvider>(
+      builder: (context, saleProvider, child) {
+        final summary = saleProvider.saleSummary;
+        return Card(
+          elevation: 4,
+          margin: const EdgeInsets.all(0),
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Total: ${Constants.formatNumber(summary.montant)}', style: const TextStyle(fontSize: 16)),
+                    Text(
+                      'Net à Payer: ${Constants.formatNumber(summary.montantNet)}',
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary),
+                    ),
+                  ],
+                ),
+                saleProvider.isLoading
+                    ? const CircularProgressIndicator()
+                    : SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      shape: const CircleBorder(),
+                      padding: EdgeInsets.zero,
+                      backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success,
+                    ),
+                    child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
+                    onPressed: saleProvider.cartItems.isEmpty ? null : () async {
+                      if (widget.isPrevente) {
+                        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                        final currentUser = authProvider.user;
+                        if(currentUser != null) {
+                          final success = await saleProvider.terminerPrevente();
+                          if (mounted && success) {
+                            _showPrintDialog(isPrevente: true, currentUser: currentUser);
+                          }
+                        }
+                      } else {
+                        _showPaymentDialog();
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
