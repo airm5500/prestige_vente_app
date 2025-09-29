@@ -1,5 +1,5 @@
 // lib/screens/auth/settings_screen.dart
-// 29/09/2025 23:56
+// 29/09/2025 01:58
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -17,7 +17,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _remoteIpController;
   late TextEditingController _appNameController;
   late TextEditingController _portController;
-
   final _formKey = GlobalKey<FormState>();
   String? _pingResult;
 
@@ -88,24 +87,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 20),
                       TextFormField(controller: _portController, decoration: const InputDecoration(labelText: 'Port'), keyboardType: TextInputType.number, validator: (value) => value!.isEmpty ? 'Ce champ est requis' : null),
                       const Divider(height: 40),
-
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text("Largeur du ticket", style: TextStyle(fontSize: 16)),
                           ToggleButtons(
-                            isSelected: [
-                              settings.paperWidth == 58,
-                              settings.paperWidth == 80,
-                            ],
-                            onPressed: (index) {
-                              settings.setPaperWidth(index == 0 ? 58 : 80);
-                            },
+                            isSelected: [ settings.paperWidth == 58, settings.paperWidth == 80 ],
+                            onPressed: (index) { settings.setPaperWidth(index == 0 ? 58 : 80); },
                             borderRadius: BorderRadius.circular(8),
-                            children: const [
-                              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('58mm')),
-                              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('80mm')),
-                            ],
+                            children: const [ Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('58mm')), Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('80mm')) ],
                           ),
                         ],
                       ),
@@ -114,12 +104,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text("Mode test d'impression", style: TextStyle(fontSize: 16)),
-                          Switch(
-                            value: settings.isTestPrintMode,
-                            onChanged: (value) {
-                              settings.setTestPrintMode(value);
-                            },
-                          ),
+                          Switch( value: settings.isTestPrintMode, onChanged: (value) { settings.setTestPrintMode(value); } ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Flexible(child: Text("Afficher QR code (Vente)", style: TextStyle(fontSize: 16))),
+                          Switch( value: settings.showQrCodeOnSaleTicket, onChanged: (value) { settings.setShowQrCodeOnSaleTicket(value); } ),
                         ],
                       ),
                       const SizedBox(height: 20),

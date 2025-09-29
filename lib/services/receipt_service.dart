@@ -1,5 +1,5 @@
 // lib/services/receipt_service.dart
-// 29/09/2025 01:17
+// 29/09/2025 01:59
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -14,13 +14,13 @@ import 'package:qr_flutter/qr_flutter.dart';
 class ReceiptService {
   Future<void> printSaleTicket({
     required BuildContext context, required Officine officine, required SaleSummary saleSummary, required List<SaleItemDetail> items,
-    required PaymentMethod paymentMethod, required User currentUser, required bool isTestMode, required int paperWidth,
+    required PaymentMethod paymentMethod, required User currentUser, required bool isTestMode, required int paperWidth, required bool showQrCode,
   }) async {
     if (isTestMode) {
-      final ticketWidget = _buildSaleTicketWidget(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth);
+      final ticketWidget = _buildSaleTicketWidget(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode);
       await _showTestTicketDialog(context, ticketWidget, paperWidth);
     } else {
-      await _printSaleTicketSunmi(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth);
+      await _printSaleTicketSunmi(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode);
     }
   }
 
@@ -36,9 +36,22 @@ class ReceiptService {
     }
   }
 
-  Future<bool> _initializePrinter(BuildContext context) async { try { final bool? isConnected = await SunmiPrinter.bindingPrinter(); if (isConnected != true) { Constants.showSnackBar(context, "Imprimante non connectée.", isError: true); return false; } await SunmiPrinter.initPrinter(); return true; } catch (e) { Constants.showSnackBar(context, 'Erreur imprimante Sunmi: $e', isError: true); return false; } }
+  Future<bool> _initializePrinter(BuildContext context) async {
+    try {
+      final bool? isConnected = await SunmiPrinter.bindingPrinter();
+      if (isConnected != true) {
+        Constants.showSnackBar(context, "Imprimante non connectée.", isError: true);
+        return false;
+      }
+      await SunmiPrinter.initPrinter();
+      return true;
+    } catch (e) {
+      Constants.showSnackBar(context, 'Erreur imprimante Sunmi: $e', isError: true);
+      return false;
+    }
+  }
 
-  Future<void> _printSaleTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth) async {
+  Future<void> _printSaleTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode) async {
     if (!await _initializePrinter(context)) return;
     try {
       await SunmiPrinter.startTransactionPrint(true);
@@ -54,7 +67,7 @@ class ReceiptService {
       await SunmiPrinter.printText(officine.fullName);
       await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
       await SunmiPrinter.printText(line());
-      await SunmiPrinter.printText( fit('Article', articleWidth) + fit('Qte*P.U', financialWidth) + fit('Total', financialWidth), style: SunmiStyle(bold: true), );
+      await SunmiPrinter.printText(fit('Article', articleWidth) + fit('Qte*P.U', financialWidth) + fit('Total', financialWidth), style: SunmiStyle(bold: true));
       await SunmiPrinter.printText(line('.'));
       for (final item in items) {
         await SunmiPrinter.printText(item.strNAME);
@@ -64,15 +77,19 @@ class ReceiptService {
       await SunmiPrinter.printText(line());
       await SunmiPrinter.setAlignment(SunmiPrintAlign.RIGHT);
       await SunmiPrinter.printText('Total: ${Constants.formatNumber(saleSummary.montant)}');
-      await SunmiPrinter.printText( 'NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD), );
+      await SunmiPrinter.printText('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
       await SunmiPrinter.printText('Mode: ${paymentMethod.name.toUpperCase()}');
       await SunmiPrinter.printText(line());
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.printText(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()));
       await SunmiPrinter.printText("Vendeur: ${currentUser.fullName}");
       await SunmiPrinter.lineWrap(1);
-      await SunmiPrinter.printQRCode(saleSummary.reference);
-      await SunmiPrinter.printText(saleSummary.reference);
+
+      if (showQrCode) {
+        await SunmiPrinter.printQRCode(saleSummary.reference);
+        await SunmiPrinter.printText(saleSummary.reference);
+      }
+
       await SunmiPrinter.lineWrap(3);
       await SunmiPrinter.cut();
       await SunmiPrinter.exitTransactionPrint(true);
@@ -88,31 +105,20 @@ class ReceiptService {
       final int cols = paperWidth == 58 ? 32 : 48;
       String line([String ch = '-']) => List.filled(cols, ch).join();
       SunmiStyle defaultStyle = SunmiStyle(fontSize: SunmiFontSize.MD);
-
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.printText(officine.nomComplet.toUpperCase(), style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
       await SunmiPrinter.printText(officine.fullName, style: defaultStyle);
       await SunmiPrinter.printText(line());
-      // MODIFICATION : Ajout de l'heure dans le titre
       await SunmiPrinter.printText('PRE-VENTE -- ${DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now())}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
       await SunmiPrinter.printText(line());
-
       await SunmiPrinter.lineWrap(1);
-
-      // MODIFICATION : "NET A PAYER" et le montant centrés
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
-      await SunmiPrinter.printText(
-        'NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}',
-        style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD),
-      );
+      await SunmiPrinter.printText('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
       await SunmiPrinter.lineWrap(1);
-
       await SunmiPrinter.printQRCode(saleSummary.reference, size: 8);
       await SunmiPrinter.printText(saleSummary.reference, style: defaultStyle);
       await SunmiPrinter.lineWrap(1);
       await SunmiPrinter.printText("Vendeur: ${currentUser.fullName}", style: defaultStyle);
-      // L'heure a été déplacée dans le titre
-
       await SunmiPrinter.lineWrap(3);
       await SunmiPrinter.cut();
       await SunmiPrinter.exitTransactionPrint(true);
@@ -121,9 +127,26 @@ class ReceiptService {
     }
   }
 
-  Future<void> _showTestTicketDialog(BuildContext context, Widget ticketContent, int paperWidth) async { await showDialog( context: context, builder: (ctx) => AlertDialog( title: const Text("Aperçu du Ticket"), content: Container( width: paperWidth == 58 ? 300 : 420, child: ticketContent, ), actions: [ TextButton( child: const Text("Fermer"), onPressed: () => Navigator.of(ctx).pop(), ) ], ), ); }
+  Future<void> _showTestTicketDialog(BuildContext context, Widget ticketContent, int paperWidth) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Aperçu du Ticket"),
+        content: Container(
+          width: paperWidth == 58 ? 300 : 420,
+          child: ticketContent,
+        ),
+        actions: [
+          TextButton(
+            child: const Text("Fermer"),
+            onPressed: () => Navigator.of(ctx).pop(),
+          )
+        ],
+      ),
+    );
+  }
 
-  Widget _buildSaleTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth) {
+  Widget _buildSaleTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -158,9 +181,11 @@ class ReceiptService {
           Text(line(), style: textStyle),
           Center(child: Text(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()), style: textStyle)),
           Center(child: Text("Vendeur: ${currentUser.fullName}", style: textStyle)),
-          const SizedBox(height: 8),
-          Center( child: QrImageView( data: saleSummary.reference, version: QrVersions.auto, size: 120.0, ), ),
-          Center(child: Text(saleSummary.reference, style: textStyle)),
+          if (showQrCode) ...[
+            const SizedBox(height: 8),
+            Center( child: QrImageView( data: saleSummary.reference, version: QrVersions.auto, size: 120.0, ), ),
+            Center(child: Text(saleSummary.reference, style: textStyle)),
+          ]
         ],
       ),
     );
@@ -179,21 +204,20 @@ class ReceiptService {
           Text(officine.nomComplet.toUpperCase(), style: boldStyle.copyWith(fontSize: 14)),
           Text(officine.fullName, style: textStyle),
           Text(line(), style: textStyle),
-          // MODIFICATION : Ajout de l'heure dans le titre
           Text('PRE-VENTE -- ${DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now())}', style: boldStyle),
           Text(line(), style: textStyle),
           const SizedBox(height: 16),
-          // MODIFICATION : "NET A PAYER" et le montant centrés
-          Text(
-              'NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}',
-              style: boldStyle.copyWith(fontSize: 14)
+          Center(
+            child: Text(
+                'NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}',
+                style: boldStyle.copyWith(fontSize: 14)
+            ),
           ),
           const SizedBox(height: 16),
           Center(child: QrImageView(data: saleSummary.reference, version: QrVersions.auto, size: 120.0)),
           Center(child: Text(saleSummary.reference, style: textStyle)),
           const SizedBox(height: 8),
           Center(child: Text("Vendeur: ${currentUser.fullName}", style: textStyle)),
-          // L'heure a été déplacée dans le titre
         ],
       ),
     );
