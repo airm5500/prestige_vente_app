@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
 
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/product_search_provider.dart';
@@ -51,6 +52,12 @@ class MyApp extends StatelessWidget {
 
         ChangeNotifierProxyProvider<ApiService, ProductSearchProvider>(
           create: (context) => ProductSearchProvider(Provider.of<ApiService>(context, listen: false)),
+          update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
+        ),
+
+        // MODIFICATION : Ajout du nouveau Provider
+        ChangeNotifierProxyProvider<ApiService, ExpirationUpdateProvider>(
+          create: (context) => ExpirationUpdateProvider(Provider.of<ApiService>(context, listen: false)),
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
       ],

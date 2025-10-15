@@ -340,4 +340,28 @@ class ApiService {
       return null;
     }
   }
+  Future<bool> addLot({
+    required String produitId,
+    required String datePeremption,
+    required String numLot,
+    required int quantity,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/fichearticle/add-lot',
+        data: {
+          "produitId": produitId,
+          "datePeremption": datePeremption,
+          "numLot": numLot,
+          "quantity": quantity
+        },
+      );
+      // CORRECTION : Si le code de statut est 202, c'est un succès.
+      return response.statusCode == 202;
+    } catch (e) {
+      print("Error adding lot: $e");
+      return false;
+    }
+  }
+
 }

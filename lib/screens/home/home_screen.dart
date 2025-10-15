@@ -11,6 +11,7 @@ import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/utils/responsive.dart';
 import 'package:prestige_vente_app/widgets/menu_button.dart';
+import 'package:prestige_vente_app/screens/expiration_update/expiration_update_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -129,6 +130,18 @@ class HomeScreen extends StatelessWidget {
                         );
                       },
                     ),
+
+                    MenuButton(
+                      icon: Icons.date_range,
+                      label: 'Mise à jour Péremption',
+                      color: Colors.purple.shade50,
+                      onTap: () {
+                        Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const ExpirationUpdateScreen())
+                        );
+                      },
+                    ),
+
                   ],
                 ),
               ),
