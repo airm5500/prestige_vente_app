@@ -1,5 +1,5 @@
 // lib/screens/expiration_update/expiration_update_screen.dart
-// 15/10/2025 23:58
+// 16/10/2025 00:30
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -19,11 +19,11 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   final _searchFocusNode = FocusNode();
   Timer? _debounce;
 
+  final _formKey = GlobalKey<FormState>();
   final _dateController = TextEditingController();
   final _lotController = TextEditingController();
   final _quantityController = TextEditingController(text: '1');
 
-  // On a besoin de tous les FocusNodes pour un contrôle manuel
   final _dateFocusNode = FocusNode();
   final _lotFocusNode = FocusNode();
   final _quantityFocusNode = FocusNode();
@@ -55,39 +55,48 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   void _resetForm() {
     final provider = Provider.of<ExpirationUpdateProvider>(context, listen: false);
     provider.clearSelection();
+    if (_formKey.currentState != null) {
+      _formKey.currentState!.reset();
+    }
     _dateController.clear();
     _lotController.clear();
     _quantityController.text = '1';
+
+    // MODIFICATION : Le curseur retourne à la recherche ET sélectionne le texte
     FocusScope.of(context).requestFocus(_searchFocusNode);
+    _searchController.selection = TextSelection(baseOffset: 0, extentOffset: _searchController.text.length);
   }
 
-  void _formatAndSetDate(String input) {
-    if (input.isEmpty) return;
+  bool _formatAndValidateDate(String input) {
+    if (input.isEmpty) return false;
     String digits = input.replaceAll(RegExp(r'[\/\-\s\.]'), '');
     String day, month, year;
     try {
       if (digits.length == 4) { day = '01'; month = digits.substring(0, 2); year = '20${digits.substring(2, 4)}';
       } else if (digits.length == 6) { day = digits.substring(0, 2); month = digits.substring(2, 4); year = '20${digits.substring(4, 6)}';
       } else if (digits.length == 8) { day = digits.substring(0, 2); month = digits.substring(2, 4); year = digits.substring(4, 8);
-      } else { return; }
+      } else { return false; }
+
       final formattedDate = '$day/$month/$year';
-      DateFormat('dd/MM/yyyy').parseLoose(formattedDate);
+      final parsedDate = DateFormat('dd/MM/yyyy').parseLoose(formattedDate);
+      if (parsedDate.isBefore(DateTime.now().subtract(const Duration(days: 1)))) {
+        return false;
+      }
       _dateController.text = formattedDate;
+      return true;
     } catch (e) {
       print("Date invalide: $e");
+      return false;
     }
   }
 
   Future<void> _submitForm() async {
-    final provider = Provider.of<ExpirationUpdateProvider>(context, listen: false);
-
-    _formatAndSetDate(_dateController.text);
-
-    if (_dateController.text.isEmpty || _lotController.text.isEmpty) {
-      Constants.showSnackBar(context, "Veuillez remplir la date et le N° de lot.", isError: true);
+    // On force la validation de tous les champs avant de soumettre
+    if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
+    final provider = Provider.of<ExpirationUpdateProvider>(context, listen: false);
     final success = await provider.submitUpdate(
       date: _dateController.text,
       lot: _lotController.text,
@@ -113,7 +122,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
           return Column(
             children: [
               _buildSearchBar(provider),
-              if (provider.isLoading && provider.selectedProduct == null) const LinearProgressIndicator(),
+              if (provider.isLoading) const LinearProgressIndicator(),
               Expanded(
                 child: provider.selectedProduct == null
                     ? _buildSearchResults(provider)
@@ -162,9 +171,8 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
             title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text('CIP: ${product.intCIP} | Prix: ${Constants.formatNumber(product.intPRICE)} | Stock: ${product.intNUMBERAVAILABLE}'),
             onTap: () {
-              // On retire d'abord le focus de la barre de recherche
+              // MODIFICATION : On retire le focus AVANT de changer l'UI
               _searchFocusNode.unfocus();
-              // Ensuite, on sélectionne le produit, ce qui affichera le formulaire
               provider.selectProduct(product);
             },
           ),
@@ -176,7 +184,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   Widget _buildUpdateForm(ExpirationUpdateProvider provider) {
     final product = provider.selectedProduct!;
 
-    // On utilise cette méthode pour demander le focus APRES que le widget soit construit
+    // MODIFICATION : On demande le focus APRES que le widget soit construit
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         FocusScope.of(context).requestFocus(_dateFocusNode);
@@ -188,63 +196,86 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
       child: Card(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(child: Text(product.strNAME, style: Theme.of(context).textTheme.titleLarge)),
-                  IconButton(icon: const Icon(Icons.close), onPressed: _resetForm),
-                ],
-              ),
-              Text('CIP: ${product.intCIP}'),
-              const Divider(height: 30),
-              Focus(
-                onFocusChange: (hasFocus) {
-                  if (!hasFocus) { _formatAndSetDate(_dateController.text); }
-                },
-                child: TextFormField(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(child: Text(product.strNAME, style: Theme.of(context).textTheme.titleLarge)),
+                    IconButton(icon: const Icon(Icons.close), onPressed: _resetForm),
+                  ],
+                ),
+                Text('CIP: ${product.intCIP}'),
+                const Divider(height: 30),
+                TextFormField(
                   controller: _dateController,
                   focusNode: _dateFocusNode,
                   decoration: const InputDecoration(labelText: 'Date de Péremption (JJMMYY)'),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.next,
+                  validator: (value) {
+                    if (!_formatAndValidateDate(value ?? '')) {
+                      return 'Date invalide ou passée';
+                    }
+                    return null;
+                  },
                   onFieldSubmitted: (_) {
-                    _formatAndSetDate(_dateController.text);
-                    FocusScope.of(context).requestFocus(_lotFocusNode);
+                    // MODIFICATION : On valide avant de passer au suivant
+                    if (_formKey.currentState?.validate() ?? false) {
+                      FocusScope.of(context).requestFocus(_lotFocusNode);
+                    }
                   },
                 ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _lotController,
-                focusNode: _lotFocusNode,
-                decoration: const InputDecoration(labelText: 'N° de Lot'),
-                textInputAction: TextInputAction.next,
-                onFieldSubmitted: (_) => FocusScope.of(context).requestFocus(_quantityFocusNode),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _quantityController,
-                focusNode: _quantityFocusNode,
-                decoration: const InputDecoration(labelText: 'Quantité'),
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) => _submitForm(),
-              ),
-              const SizedBox(height: 24),
-              if(provider.isLoading)
-                const Center(child: CircularProgressIndicator())
-              else
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _submitForm,
-                    child: const Text('Valider'),
-                  ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _lotController,
+                  focusNode: _lotFocusNode,
+                  decoration: const InputDecoration(labelText: 'N° de Lot'),
+                  textInputAction: TextInputAction.next,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Le N° de lot est requis';
+                    }
+                    return null;
+                  },
+                  onFieldSubmitted: (_) {
+                    if (_formKey.currentState?.validate() ?? false) {
+                      FocusScope.of(context).requestFocus(_quantityFocusNode);
+                    }
+                  },
                 ),
-            ],
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _quantityController,
+                  focusNode: _quantityFocusNode,
+                  decoration: const InputDecoration(labelText: 'Quantité'),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.done,
+                  validator: (value) {
+                    final int? quantity = int.tryParse(value ?? '1');
+                    if (quantity == null || quantity == 0) {
+                      return 'La quantité ne peut pas être 0';
+                    }
+                    return null;
+                  },
+                  onFieldSubmitted: (_) => _submitForm(),
+                ),
+                const SizedBox(height: 24),
+                if(provider.isLoading)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _submitForm,
+                      child: const Text('Valider'),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
