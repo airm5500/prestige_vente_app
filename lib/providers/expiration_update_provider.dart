@@ -1,10 +1,9 @@
 // lib/providers/expiration_update_provider.dart
-// 15/10/2025 09:40
+// 15/10/2025 23:50
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
-import 'package:prestige_vente_app/api/models/product.dart';
-import 'package:prestige_vente_app/api/models/product_search_result.dart';
+import 'package:prestige_vente_app/api/models/product.dart'; // Utilise le modèle de recherche rapide
 
 class ExpirationUpdateProvider with ChangeNotifier {
   ApiService _apiService;
@@ -16,14 +15,14 @@ class ExpirationUpdateProvider with ChangeNotifier {
   }
 
   bool _isLoading = false;
-  // MODIFICATION : La liste de résultats utilise maintenant le modèle rapide
   List<ProductSearchResult> _searchResults = [];
-  ProductDetails? _selectedProduct;
+  // MODIFICATION : Le produit sélectionné est maintenant du type de la recherche rapide
+  ProductSearchResult? _selectedProduct;
   String? _errorMessage;
 
   bool get isLoading => _isLoading;
   List<ProductSearchResult> get searchResults => _searchResults;
-  ProductDetails? get selectedProduct => _selectedProduct;
+  ProductSearchResult? get selectedProduct => _selectedProduct;
   String? get errorMessage => _errorMessage;
 
   void clearSearch() {
@@ -37,7 +36,6 @@ class ExpirationUpdateProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // MODIFICATION : La recherche utilise maintenant l'API rapide
   Future<void> search(String query) async {
     if (query.isEmpty) {
       clearSearch();
@@ -45,27 +43,16 @@ class ExpirationUpdateProvider with ChangeNotifier {
     }
     _isLoading = true;
     notifyListeners();
-    // Utilise la recherche rapide
+    // Utilise l'API de recherche rapide
     _searchResults = await _apiService.searchProducts(query);
     _isLoading = false;
     notifyListeners();
   }
 
-  // MODIFICATION : La sélection déclenche l'appel à l'API détaillée
-  Future<void> selectProduct(ProductSearchResult product) async {
-    _isLoading = true;
-    _searchResults = []; // On cache la liste des résultats
-    notifyListeners();
-
-    // On appelle l'API détaillée pour obtenir toutes les infos
-    final detailedResults = await _apiService.searchProductFiche(product.intCIP);
-    if (detailedResults.isNotEmpty) {
-      _selectedProduct = detailedResults.first;
-    } else {
-      _errorMessage = "Impossible de charger les détails du produit.";
-    }
-
-    _isLoading = false;
+  // MODIFICATION : La sélection est maintenant une simple affectation, sans appel API
+  void selectProduct(ProductSearchResult product) {
+    _selectedProduct = product;
+    _searchResults = []; // On cache les résultats
     notifyListeners();
   }
 
@@ -82,7 +69,8 @@ class ExpirationUpdateProvider with ChangeNotifier {
     final formattedDate = DateFormat('yyyy-MM-dd').format(DateFormat('dd/MM/yyyy').parse(date));
 
     final success = await _apiService.addLot(
-      produitId: _selectedProduct!.lgFamilleId,
+      // MODIFICATION : Utilise l'ID du bon modèle
+      produitId: _selectedProduct!.lgFAMILLEID,
       datePeremption: formattedDate,
       numLot: lot,
       quantity: quantity,

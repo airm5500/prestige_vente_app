@@ -1,9 +1,8 @@
 // lib/screens/expiration_update/expiration_update_screen.dart
-// 15/10/2025 09:41
+// 15/10/2025 23:58
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -24,6 +23,8 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   final _lotController = TextEditingController();
   final _quantityController = TextEditingController(text: '1');
 
+  // On a besoin de tous les FocusNodes pour un contrôle manuel
+  final _dateFocusNode = FocusNode();
   final _lotFocusNode = FocusNode();
   final _quantityFocusNode = FocusNode();
 
@@ -40,7 +41,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   void dispose() {
     _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel();
     _dateController.dispose(); _lotController.dispose(); _quantityController.dispose();
-    _lotFocusNode.dispose(); _quantityFocusNode.dispose();
+    _dateFocusNode.dispose(); _lotFocusNode.dispose(); _quantityFocusNode.dispose();
     super.dispose();
   }
 
@@ -60,26 +61,33 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     FocusScope.of(context).requestFocus(_searchFocusNode);
   }
 
-  Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2101),
-    );
-
-    // MODIFICATION : On vérifie que le widget est toujours affiché
-    if (!mounted || picked == null) return;
-
-    setState(() {
-      _dateController.text = DateFormat('dd/MM/yyyy').format(picked);
-      // On demande le focus sur le champ suivant
-      FocusScope.of(context).requestFocus(_lotFocusNode);
-    });
+  void _formatAndSetDate(String input) {
+    if (input.isEmpty) return;
+    String digits = input.replaceAll(RegExp(r'[\/\-\s\.]'), '');
+    String day, month, year;
+    try {
+      if (digits.length == 4) { day = '01'; month = digits.substring(0, 2); year = '20${digits.substring(2, 4)}';
+      } else if (digits.length == 6) { day = digits.substring(0, 2); month = digits.substring(2, 4); year = '20${digits.substring(4, 6)}';
+      } else if (digits.length == 8) { day = digits.substring(0, 2); month = digits.substring(2, 4); year = digits.substring(4, 8);
+      } else { return; }
+      final formattedDate = '$day/$month/$year';
+      DateFormat('dd/MM/yyyy').parseLoose(formattedDate);
+      _dateController.text = formattedDate;
+    } catch (e) {
+      print("Date invalide: $e");
+    }
   }
 
   Future<void> _submitForm() async {
     final provider = Provider.of<ExpirationUpdateProvider>(context, listen: false);
+
+    _formatAndSetDate(_dateController.text);
+
+    if (_dateController.text.isEmpty || _lotController.text.isEmpty) {
+      Constants.showSnackBar(context, "Veuillez remplir la date et le N° de lot.", isError: true);
+      return;
+    }
+
     final success = await provider.submitUpdate(
       date: _dateController.text,
       lot: _lotController.text,
@@ -105,7 +113,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
           return Column(
             children: [
               _buildSearchBar(provider),
-              if (provider.isLoading) const LinearProgressIndicator(),
+              if (provider.isLoading && provider.selectedProduct == null) const LinearProgressIndicator(),
               Expanded(
                 child: provider.selectedProduct == null
                     ? _buildSearchResults(provider)
@@ -153,13 +161,11 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
           child: ListTile(
             title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text('CIP: ${product.intCIP} | Prix: ${Constants.formatNumber(product.intPRICE)} | Stock: ${product.intNUMBERAVAILABLE}'),
-            onTap: () async {
-              // On lance la sélection qui va charger les détails
-              await provider.selectProduct(product);
-              // On attend que les détails soient chargés, PUIS on ouvre le calendrier
-              if (mounted) {
-                _selectDate(context);
-              }
+            onTap: () {
+              // On retire d'abord le focus de la barre de recherche
+              _searchFocusNode.unfocus();
+              // Ensuite, on sélectionne le produit, ce qui affichera le formulaire
+              provider.selectProduct(product);
             },
           ),
         );
@@ -169,6 +175,14 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
 
   Widget _buildUpdateForm(ExpirationUpdateProvider provider) {
     final product = provider.selectedProduct!;
+
+    // On utilise cette méthode pour demander le focus APRES que le widget soit construit
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        FocusScope.of(context).requestFocus(_dateFocusNode);
+      }
+    });
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Card(
@@ -180,17 +194,27 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(child: Text(product.strName, style: Theme.of(context).textTheme.titleLarge)),
+                  Expanded(child: Text(product.strNAME, style: Theme.of(context).textTheme.titleLarge)),
                   IconButton(icon: const Icon(Icons.close), onPressed: _resetForm),
                 ],
               ),
-              Text('CIP: ${product.intCip}'),
+              Text('CIP: ${product.intCIP}'),
               const Divider(height: 30),
-              TextFormField(
-                controller: _dateController,
-                readOnly: true,
-                decoration: const InputDecoration(labelText: 'Date de Péremption', suffixIcon: Icon(Icons.calendar_today)),
-                onTap: () => _selectDate(context),
+              Focus(
+                onFocusChange: (hasFocus) {
+                  if (!hasFocus) { _formatAndSetDate(_dateController.text); }
+                },
+                child: TextFormField(
+                  controller: _dateController,
+                  focusNode: _dateFocusNode,
+                  decoration: const InputDecoration(labelText: 'Date de Péremption (JJMMYY)'),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) {
+                    _formatAndSetDate(_dateController.text);
+                    FocusScope.of(context).requestFocus(_lotFocusNode);
+                  },
+                ),
               ),
               const SizedBox(height: 16),
               TextFormField(
