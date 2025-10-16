@@ -8,6 +8,8 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/api/models/product_search_result.dart';
+import 'package:prestige_vente_app/api/models/commande.dart';
+import 'package:prestige_vente_app/api/models/commande_item.dart';
 
 class ApiService {
   late Dio _dio;
@@ -18,7 +20,8 @@ class ApiService {
 
   Future<User?> login(String login, String password) async {
     try {
-      final response = await _dio.post('/user/auth', data: {'login': login, 'password': password});
+      final response = await _dio.post(
+          '/user/auth', data: {'login': login, 'password': password});
       if (response.statusCode == 200 && response.data['success'] == true) {
         return User.fromJson(response.data);
       }
@@ -40,7 +43,8 @@ class ApiService {
   Future<Officine?> fetchOfficineInfo() async {
     try {
       final response = await _dio.get('/officine');
-      if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) {
+      if (response.statusCode == 200 && response.data is List &&
+          response.data.isNotEmpty) {
         return Officine.fromJson(response.data[0]);
       }
       return null;
@@ -80,7 +84,9 @@ class ApiService {
       const natureVenteId = "1";
 
       final bool isFirstItem = venteId == null;
-      final String endpoint = isFirstItem ? '/vente/add/vno' : '/vente/add/item';
+      final String endpoint = isFirstItem
+          ? '/vente/add/vno'
+          : '/vente/add/item';
 
       final Map<String, dynamic> data = {
         "typeVenteId": typeVenteId,
@@ -99,7 +105,9 @@ class ApiService {
       final response = await _dio.post(endpoint, data: data);
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        return isFirstItem ? response.data['data']['lgPREENREGISTREMENTID'] : venteId;
+        return isFirstItem
+            ? response.data['data']['lgPREENREGISTREMENTID']
+            : venteId;
       }
       return null;
     } catch (e) {
@@ -112,10 +120,16 @@ class ApiService {
     try {
       final response = await _dio.get(
         '/vente/deatails',
-        queryParameters: {'venteId': venteId, 'page': 1, 'start': 0, 'limit': 100},
+        queryParameters: {
+          'venteId': venteId,
+          'page': 1,
+          'start': 0,
+          'limit': 100
+        },
       );
       if (response.statusCode == 200 && response.data['data'] is List) {
-        return (response.data['data'] as List).map((item) => SaleItemDetail.fromJson(item)).toList();
+        return (response.data['data'] as List).map((item) =>
+            SaleItemDetail.fromJson(item)).toList();
       }
       return [];
     } catch (e) {
@@ -157,7 +171,8 @@ class ApiService {
 
   Future<SaleSummary?> calculateNet(String venteId) async {
     try {
-      final response = await _dio.post('/vente/net/vno', data: {"venteId": venteId, "checkUg": false});
+      final response = await _dio.post(
+          '/vente/net/vno', data: {"venteId": venteId, "checkUg": false});
       if (response.statusCode == 200 && response.data['success'] == true) {
         return SaleSummary.fromNetResponse(response.data);
       }
@@ -174,7 +189,8 @@ class ApiService {
           queryParameters: {'page': 1, 'start': 0, 'limit': 25}
       );
       if (response.statusCode == 200 && response.data['data'] is List) {
-        return (response.data['data'] as List).map((e) => PaymentMethod.fromJson(e)).toList();
+        return (response.data['data'] as List).map((e) =>
+            PaymentMethod.fromJson(e)).toList();
       }
       return [];
     } catch (e) {
@@ -252,7 +268,8 @@ class ApiService {
 
   Future<List<PreventeListItem>> getPreventes() async {
     try {
-      final response = await _dio.get('/ventestats/preventes', queryParameters: {
+      final response = await _dio.get(
+          '/ventestats/preventes', queryParameters: {
         'statut': 'is_Process',
         'limit': 9999,
         'sort': '[{"property":"heure","direction":"DESC"}]',
@@ -260,7 +277,8 @@ class ApiService {
         'start': 0,
       });
       if (response.statusCode == 200 && response.data['data'] is List) {
-        return (response.data['data'] as List).map((item) => PreventeListItem.fromJson(item)).toList();
+        return (response.data['data'] as List).map((item) =>
+            PreventeListItem.fromJson(item)).toList();
       }
       return [];
     } catch (e) {
@@ -271,9 +289,11 @@ class ApiService {
 
   Future<List<ProductAnnualSale>> getAnnualSales(String query, int year) async {
     try {
-      final response = await _dio.get('/produit/stats/vente-annuelle', queryParameters: {'search': query, 'year': year});
+      final response = await _dio.get('/produit/stats/vente-annuelle',
+          queryParameters: {'search': query, 'year': year});
       if (response.statusCode == 200 && response.data['data'] is List) {
-        return (response.data['data'] as List).map((item) => ProductAnnualSale.fromJson(item)).toList();
+        return (response.data['data'] as List).map((item) =>
+            ProductAnnualSale.fromJson(item)).toList();
       }
       return [];
     } catch (e) {
@@ -286,10 +306,16 @@ class ApiService {
     try {
       final response = await _dio.get(
         '/produit-search/fiche',
-        queryParameters: {'search_value': query, 'page': 1, 'start': 0, 'limit': 20},
+        queryParameters: {
+          'search_value': query,
+          'page': 1,
+          'start': 0,
+          'limit': 20
+        },
       );
       if (response.statusCode == 200 && response.data['results'] is List) {
-        return (response.data['results'] as List).map((item) => ProductDetails.fromJson(item)).toList();
+        return (response.data['results'] as List).map((item) =>
+            ProductDetails.fromJson(item)).toList();
       }
       return [];
     } catch (e) {
@@ -298,8 +324,8 @@ class ApiService {
     }
   }
 
-  Future<List<ProductOrderHistory>> getProductOrderHistory(
-      String productId, String dtStart, String dtEnd) async {
+  Future<List<ProductOrderHistory>> getProductOrderHistory(String productId,
+      String dtStart, String dtEnd) async {
     try {
       final response = await _dio.get(
         '/commande/produit/commande/$productId',
@@ -312,7 +338,8 @@ class ApiService {
         },
       );
       if (response.statusCode == 200 && response.data['data'] is List) {
-        return (response.data['data'] as List).map((item) => ProductOrderHistory.fromJson(item)).toList();
+        return (response.data['data'] as List).map((item) =>
+            ProductOrderHistory.fromJson(item)).toList();
       }
       return [];
     } catch (e) {
@@ -329,9 +356,11 @@ class ApiService {
 
   Future<ProductInfo?> getProductInfo(String codeCip) async {
     try {
-      final response = await _dio.get('/info', queryParameters: {'search': codeCip});
+      final response = await _dio.get(
+          '/info', queryParameters: {'search': codeCip});
 
-      if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) {
+      if (response.statusCode == 200 && response.data is List &&
+          response.data.isNotEmpty) {
         return ProductInfo.fromJson(response.data[0]);
       }
       return null;
@@ -340,6 +369,7 @@ class ApiService {
       return null;
     }
   }
+
   Future<bool> addLot({
     required String produitId,
     required String datePeremption,
@@ -363,5 +393,66 @@ class ApiService {
       return false;
     }
   }
+
+  Future<List<Commande>> getCommandes() async {
+    try {
+      final response = await _dio.get(
+        '/commande/list',
+        queryParameters: {
+          'page': 1,
+          'start': 0,
+          'limit': 100
+        }, // On charge une grande liste
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List)
+            .map((c) => Commande.fromJson(c))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching commandes: $e");
+      return [];
+    }
+  }
+
+  Future<List<CommandeItem>> getCommandeItems(String orderId) async {
+    try {
+      final response = await _dio.get(
+        '/commande/commande-en-cours-items',
+        queryParameters: {
+          'orderId': orderId,
+          'page': 1,
+          'start': 0,
+          'limit': 9999
+        },
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List).map((i) =>
+            CommandeItem.fromJson(i)).toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching commande items: $e");
+      return [];
+    }
+  }
+
+  Future<bool> postCheckedQuantity({
+    required String detailId,
+    required int quantity,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/commande/item/checked-quantities',
+        data: {"id": detailId, "checked": true, "checkedQuantity": quantity},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print("Error posting checked quantity: $e");
+      return false;
+    }
+  }
+
 
 }
