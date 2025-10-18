@@ -1,5 +1,5 @@
 // lib/screens/delivery_control/delivery_list_screen.dart
-// 16/10/2025 10:41
+// 18/10/2025 14:40
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
 import 'package:prestige_vente_app/screens/delivery_control/delivery_detail_screen.dart';
@@ -41,11 +41,10 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
               itemCount: provider.commandes.length,
               itemBuilder: (context, index) {
                 final commande = provider.commandes[index];
+
                 final isCompleted = provider.isOrderCompleted(commande.id);
-                // MODIFICATION: Check for the in-progress state
                 final isInProgress = provider.isOrderInProgress(commande.id);
 
-                // Determine the color and icon based on the state
                 Color? cardColor;
                 IconData iconData;
                 Color iconColor;
@@ -77,7 +76,13 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
                     onTap: () async {
                       await provider.selectCommande(commande);
                       if (mounted) {
-                        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeliveryDetailScreen()));
+                        // On attend que l'écran de détail soit fermé (quand l'utilisateur appuie sur "retour")
+                        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeliveryDetailScreen()));
+
+                        // MODIFICATION : Une fois de retour, on rafraîchit la liste.
+                        if (mounted) {
+                          provider.fetchCommandes();
+                        }
                       }
                     },
                   ),

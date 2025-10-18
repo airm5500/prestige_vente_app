@@ -1,5 +1,5 @@
 // lib/providers/delivery_control_provider.dart
-// 16/10/2025 10:57
+// 18/10/2025 14:30
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/commande.dart';
@@ -15,7 +15,6 @@ class DeliveryControlProvider with ChangeNotifier {
   Commande? _selectedCommande;
   List<CommandeItem> _items = [];
 
-  // MODIFICATION : Ce Map ne sert plus qu'à stocker les NOUVELLES saisies
   Map<String, Map<String, int>> _checkedQuantitiesPerOrder = {};
 
   bool get isLoading => _isLoading;
@@ -25,22 +24,27 @@ class DeliveryControlProvider with ChangeNotifier {
 
   Map<String, int> get checkedQuantities => _selectedCommande != null ? _checkedQuantitiesPerOrder[_selectedCommande!.id] ?? {} : {};
 
-  // MODIFICATION : La logique utilise maintenant les données du serveur
+  // La fonction que votre code recherche est ici
   bool get isCurrentOrderCompleted {
     if (_selectedCommande == null) return false;
-    // On vérifie le statut de la commande chargée depuis le serveur
-    return _selectedCommande!.isChecked;
+    // La commande est considérée comme "terminée" localement si
+    // le statut du serveur est "TERMINE" OU si l'utilisateur vient de cocher tous les articles
+    if (_selectedCommande!.statutTraitement == "TERMINE") return true;
+    if (_items.isEmpty) return false;
+    return checkedQuantities.length == _items.length;
   }
 
   bool isOrderCompleted(String orderId) {
-    final commande = _commandes.firstWhere((c) => c.id == orderId, orElse: () => Commande(id: '', ref: '', grossiste: '', date: '', nbreProduit: -1, prixAchatTotal: 0, statut: '', isChecked: false));
-    return commande.isChecked;
+    // Utilise orElse pour éviter les erreurs si la commande n'est pas trouvée
+    final commande = _commandes.firstWhere((c) => c.id == orderId,
+        orElse: () => Commande(id: '', ref: '', grossiste: '', date: '', nbreProduit: -1, prixAchatTotal: 0, statut: '', statutTraitement: "A_FAIRE"));
+    return commande.statutTraitement == "TERMINE";
   }
 
   bool isOrderInProgress(String orderId) {
-    final quantities = _checkedQuantitiesPerOrder[orderId] ?? {};
-    // En cours si on a commencé à saisir mais que la commande n'est pas marquée comme terminée par le serveur
-    return quantities.isNotEmpty && !isOrderCompleted(orderId);
+    final commande = _commandes.firstWhere((c) => c.id == orderId,
+        orElse: () => Commande(id: '', ref: '', grossiste: '', date: '', nbreProduit: -1, prixAchatTotal: 0, statut: '', statutTraitement: "A_FAIRE"));
+    return commande.statutTraitement == "EN_COURS";
   }
 
   Future<void> fetchCommandes() async {
@@ -59,7 +63,6 @@ class DeliveryControlProvider with ChangeNotifier {
 
     _items = await _apiService.getCommandeItems(commande.id);
 
-    // MODIFICATION : On pré-remplit les quantités avec les données du serveur
     for (var item in _items) {
       if (item.isChecked) {
         _checkedQuantitiesPerOrder[commande.id]![item.id] = item.checkedQuantity;

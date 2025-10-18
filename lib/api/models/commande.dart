@@ -1,5 +1,5 @@
 // lib/api/models/commande.dart
-// 16/10/2025 10:55
+// 18/10/2025 14:25
 class Commande {
   final String id;
   final String ref;
@@ -8,8 +8,8 @@ class Commande {
   final int nbreProduit;
   final int prixAchatTotal;
   final String statut;
-  // MODIFICATION : Ajout du champ 'checked'
-  final bool isChecked;
+  // MODIFICATION : On remplace 'isChecked' par le nouveau champ
+  final String statutTraitement;
 
   Commande({
     required this.id,
@@ -19,7 +19,7 @@ class Commande {
     required this.nbreProduit,
     required this.prixAchatTotal,
     required this.statut,
-    required this.isChecked,
+    required this.statutTraitement,
   });
 
   factory Commande.fromJson(Map<String, dynamic> json) {
@@ -31,8 +31,8 @@ class Commande {
       nbreProduit: json['int_NBRE_PRODUIT'] ?? 0,
       prixAchatTotal: json['PRIX_ACHAT_TOTAL'] ?? 0,
       statut: json['str_STATUT'] ?? '',
-      // MODIFICATION : Lecture du champ 'checked'
-      isChecked: json['checked'] ?? false,
+      // MODIFICATION : On lit le nouveau champ
+      statutTraitement: json['statutTraitement'] ?? 'A_FAIRE',
     );
   }
 }

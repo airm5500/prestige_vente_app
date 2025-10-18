@@ -1,6 +1,5 @@
 // lib/screens/delivery_control/delivery_detail_screen.dart
-// 16/10/2025 10:30
-import 'dart:async';
+// 18/10/2025 14:31
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/commande_item.dart';
 import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
@@ -30,16 +29,11 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     final provider = Provider.of<DeliveryControlProvider>(context, listen: false);
     _filteredItems = provider.items;
 
-    // MODIFICATION : On récupère les quantités déjà saisies
     final checkedQuantities = provider.checkedQuantities;
 
     for (var item in provider.items) {
       _itemFocusNodes[item.id] = FocusNode();
-
-      // On vérifie s'il y a une valeur sauvegardée pour cet item
       final savedQuantity = checkedQuantities[item.id];
-
-      // On initialise le controller avec la valeur sauvegardée, ou vide sinon.
       _itemControllers[item.id] = TextEditingController(
         text: savedQuantity != null ? savedQuantity.toString() : '',
       );
@@ -76,7 +70,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         if (_filteredItems.length == 1) {
           final itemId = _filteredItems.first.id;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            FocusScope.of(context).requestFocus(_itemFocusNodes[itemId]);
+            if(mounted) {
+              FocusScope.of(context).requestFocus(_itemFocusNodes[itemId]);
+            }
           });
         }
       }
@@ -100,6 +96,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                 style: TextButton.styleFrom(foregroundColor: Colors.white),
                 icon: const Icon(Icons.assessment),
                 label: const Text('Rapport'),
+                // L'erreur était ici, la fonction est bien 'isCurrentOrderCompleted'
                 onPressed: provider.isCurrentOrderCompleted ? () {
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeliveryReportScreen()));
                 } : null,
