@@ -1,11 +1,9 @@
 // lib/main.dart
-// 28/09/2025 21:05
+// 18/10/2025 15:20
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
-import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
 
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/product_search_provider.dart';
@@ -14,6 +12,12 @@ import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/splash_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+
+// MODIFICATION : Imports pour les nouveaux providers
+import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
+import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
+import 'package:prestige_vente_app/providers/bl_control_provider.dart';
+
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,8 +38,6 @@ class MyApp extends StatelessWidget {
           update: (context, settings, previous) => ApiService(baseUrl: settings.baseUrl),
         ),
 
-        // MODIFICATION : La logique 'update' est corrigée pour tous les providers.
-        // On met à jour l'instance existante au lieu d'en créer une nouvelle.
         ChangeNotifierProxyProvider<ApiService, AuthProvider>(
           create: (context) => AuthProvider(Provider.of<ApiService>(context, listen: false)),
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
@@ -56,7 +58,6 @@ class MyApp extends StatelessWidget {
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
 
-        // MODIFICATION : Ajout du nouveau Provider
         ChangeNotifierProxyProvider<ApiService, ExpirationUpdateProvider>(
           create: (context) => ExpirationUpdateProvider(Provider.of<ApiService>(context, listen: false)),
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
@@ -64,6 +65,11 @@ class MyApp extends StatelessWidget {
 
         ChangeNotifierProxyProvider<ApiService, DeliveryControlProvider>(
           create: (context) => DeliveryControlProvider(Provider.of<ApiService>(context, listen: false)),
+          update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
+        ),
+
+        ChangeNotifierProxyProvider<ApiService, BlControlProvider>(
+          create: (context) => BlControlProvider(Provider.of<ApiService>(context, listen: false)),
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
       ],

@@ -10,6 +10,8 @@ import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/api/models/product_search_result.dart';
 import 'package:prestige_vente_app/api/models/commande.dart';
 import 'package:prestige_vente_app/api/models/commande_item.dart';
+import 'package:prestige_vente_app/api/models/bon_livraison.dart';
+import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
 
 class ApiService {
   late Dio _dio;
@@ -454,5 +456,74 @@ class ApiService {
     }
   }
 
+  // --- Pointage Bon de Livraison ---
 
+  Future<List<BonLivraison>> getBonsLivraison({
+    String query = '',
+    String? dtStart,
+    String? dtEnd,
+  }) async {
+    try {
+      var queryParameters = {
+        'query': query,
+        'page': 1,
+        'start': 0,
+        'limit': 9999,
+        'sort': '[{"property":"dt_DATE_LIVRAISON","direction":"ASC"}]',
+        // MODIFICATION : Ajout du statut pour filtrer côté serveur
+        'statut': 'is_Closed'
+      };
+
+      if (dtStart != null && dtStart.isNotEmpty) {
+        queryParameters['dtStart'] = dtStart;
+      }
+      if (dtEnd != null && dtEnd.isNotEmpty) {
+        queryParameters['dtEnd'] = dtEnd;
+      }
+
+      final response = await _dio.get(
+        '/commande/list-bons',
+        queryParameters: queryParameters,
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List).map((bl) => BonLivraison.fromJson(bl)).toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching bons livraison: $e");
+      return [];
+    }
+  }
+
+  Future<List<BonLivraisonItem>> getBonLivraisonItems(String blId) async {
+    try {
+      final response = await _dio.get(
+        '/commande/bon/items/$blId',
+        queryParameters: {'page': 1, 'start': 0, 'limit': 9999},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List).map((i) => BonLivraisonItem.fromJson(i)).toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching BL items: $e");
+      return [];
+    }
+  }
+
+  Future<bool> postBonItemCheckedQuantity({
+    required String detailId,
+    required int quantity,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/commande/bon/items/checked-quantities',
+        data: {"id": detailId, "checked": true, "checkedQuantity": quantity},
+      );
+      return response.statusCode == 200 || response.statusCode == 202;
+    } catch (e) {
+      print("Error posting BL checked quantity: $e");
+      return false;
+    }
+  }
 }
