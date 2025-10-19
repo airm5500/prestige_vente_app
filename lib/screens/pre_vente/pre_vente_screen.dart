@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/pre_vente_screen.dart
-// 19/10/2025 00:10
+// 19/10/2025 00:30
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/prevente_list_tab.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/vente_tab.dart';
@@ -8,7 +8,10 @@ import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
 class PreVenteScreen extends StatefulWidget {
-  const PreVenteScreen({super.key});
+  // MODIFICATION : Ajout d'un index initial optionnel
+  final int initialTabIndex;
+
+  const PreVenteScreen({super.key, this.initialTabIndex = 0});
 
   @override
   State<PreVenteScreen> createState() => _PreVenteScreenState();
@@ -21,7 +24,15 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    // MODIFICATION : On utilise l'index initial passé en paramètre
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.initialTabIndex,
+    );
+
+    // On met à jour la couleur active en fonction de l'index de départ
+    _updateTabColor(_tabController.index);
     _tabController.addListener(_handleTabSelection);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -44,9 +55,13 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     if (_tabController.index == 2) {
       Provider.of<SaleProvider>(context, listen: false).fetchPreventes();
     }
+    _updateTabColor(_tabController.index);
+  }
 
+  // MODIFICATION : Logique de couleur séparée
+  void _updateTabColor(int index) {
     setState(() {
-      switch (_tabController.index) {
+      switch (index) {
         case 0: _activeTabColor = Colors.orange; break;
         case 1: _activeTabColor = AppColors.success; break;
         case 2: _activeTabColor = AppColors.secondary; break;
@@ -110,7 +125,6 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     );
   }
 
-  // MODIFICATION : Le widget Text est maintenant dans un Flexible
   Widget _buildTab(IconData icon, String text) {
     return Tab(
       child: Row(
@@ -121,7 +135,7 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
           Flexible(
             child: Text(
               text,
-              overflow: TextOverflow.ellipsis, // Ajoute "..." si c'est trop long
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],

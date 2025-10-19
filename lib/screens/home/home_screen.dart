@@ -1,5 +1,5 @@
 // lib/screens/home/home_screen.dart
-// 18/10/2025 22:10
+// 19/10/2025 00:51
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -39,7 +39,6 @@ class _HomeScreenState extends State<HomeScreen> {
   List<MenuItem> _menuItems = [];
   List<List<MenuItem>> _pages = [];
 
-  // On garde une référence aux providers
   late SaleProvider _saleProvider;
   late BlControlProvider _blProvider;
 
@@ -56,14 +55,11 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // Navigation simple
   void navigate(Widget screen) {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
-  // MODIFICATION : Logique de rafraîchissement au clic sur le bouton info
   Future<void> _showInfoPopup() async {
-    // 1. Affiche un petit dialogue de chargement
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -78,46 +74,47 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    // 2. Rafraîchit les données en arrière-plan
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     await Future.wait([
       _saleProvider.fetchPreventes(),
-      _blProvider.fetchBonsLivraison(dtStart: today, dtEnd: today)
+      _blProvider.fetchBonsLivraison(dtStart: today, dtEnd: today, query: '')
     ]);
 
     if (!mounted) return;
-    Navigator.of(context).pop(); // Ferme le dialogue de chargement
+    Navigator.of(context).pop();
 
-    // 3. Affiche le dialogue avec les données à jour
     showDialog(
       context: context,
       builder: (ctx) {
         final preventesCount = _saleProvider.preventes.length;
-        final blCount = _blProvider.bonsLivraison.length; // On compte tous les BL "is_Closed" du jour
+        final blCount = _blProvider.bonsLivraison
+            .where((b) => b.statutTraitement != "TERMINE")
+            .length;
 
         return AlertDialog(
           title: const Text('Tâches en attente'),
+          contentPadding: const EdgeInsets.symmetric(vertical: 8.0),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (preventesCount > 0)
-                Text(
-                  '$preventesCount Prévente(s) en attente',
-                  style: TextStyle(color: Colors.orange.shade700, fontWeight: FontWeight.bold, fontSize: 16),
-                )
-              else
-                const Text("Aucune prévente en attente.", style: TextStyle(fontSize: 16)),
-
-              const SizedBox(height: 16),
-
-              if (blCount > 0)
-                Text(
-                  '$blCount BL(s) à pointer',
-                  style: TextStyle(color: Colors.cyan.shade700, fontWeight: FontWeight.bold, fontSize: 16),
-                )
-              else
-                const Text("Aucun BL à pointer.", style: TextStyle(fontSize: 16)),
+              ListTile(
+                leading: Icon(Icons.history_toggle_off, color: Colors.orange.shade700),
+                title: Text('$preventesCount Prévente(s) en attente'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  navigate(const PreVenteScreen(initialTabIndex: 2));
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.checklist, color: Colors.cyan.shade700),
+                title: Text('$blCount BL(s) à pointer'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  // MODIFICATION : On navigue en passant le filtre
+                  navigate(const BlListScreen(initialFilter: 'A_TRAITER'));
+                },
+              ),
             ],
           ),
           actions: [
@@ -155,7 +152,6 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Prestige Mobile'),
         actions: [
-          // MODIFICATION : Bouton d'info réintégré
           IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: _showInfoPopup,

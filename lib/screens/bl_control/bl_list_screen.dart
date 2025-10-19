@@ -1,14 +1,18 @@
 // lib/screens/bl_control/bl_list_screen.dart
-// 18/10/2025 16:12
+// 19/10/2025 00:50
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/api/models/bon_livraison.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
 import 'package:prestige_vente_app/screens/bl_control/bl_detail_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 
 class BlListScreen extends StatefulWidget {
-  const BlListScreen({super.key});
+  // MODIFICATION : Accepte un filtre initial
+  final String? initialFilter;
+
+  const BlListScreen({super.key, this.initialFilter});
 
   @override
   State<BlListScreen> createState() => _BlListScreenState();
@@ -19,16 +23,23 @@ class _BlListScreenState extends State<BlListScreen> {
   final _dtStartController = TextEditingController();
   final _dtEndController = TextEditingController();
 
-  String? _dtStart; // Format YYYY-MM-DD
-  String? _dtEnd;   // Format YYYY-MM-DD
+  String? _dtStart;
+  String? _dtEnd;
+
+  // MODIFICATION : État pour les ToggleButtons (0: À Traiter, 1: Terminés, 2: Tous)
+  List<bool> _isSelected = [true, false, false];
 
   @override
   void initState() {
     super.initState();
-    // On met les dates du jour par défaut
     final now = DateTime.now();
     _setDate(now, _dtStartController, (val) => _dtStart = val);
     _setDate(now, _dtEndController, (val) => _dtEnd = val);
+
+    // Applique le filtre initial si fourni
+    if (widget.initialFilter == 'A_TRAITER') {
+      _isSelected = [true, false, false]; // "À Traiter"
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchData();
@@ -76,54 +87,70 @@ class _BlListScreenState extends State<BlListScreen> {
       appBar: AppBar(title: const Text('Bons de Livraison')),
       body: Column(
         children: [
+          // MODIFICATION : Zone de filtres réorganisée et réduite
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                labelText: 'Rechercher par N° de BL...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    _fetchData();
-                  },
-                ),
-              ),
-              textInputAction: TextInputAction.search,
-              onSubmitted: (_) => _fetchData(),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-            child: Row(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
               children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _dtStartController,
-                    readOnly: true,
-                    decoration: const InputDecoration(labelText: 'Date Début', suffixIcon: Icon(Icons.calendar_today)),
-                    onTap: () => _selectDate(context, _dtStartController, (val) => _dtStart = val),
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    labelText: 'Rechercher par N° de BL...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () { _searchController.clear(); _fetchData(); },
+                    ),
+                    isDense: true, // Réduit la hauteur
                   ),
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _fetchData(),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextFormField(
-                    controller: _dtEndController,
-                    readOnly: true,
-                    decoration: const InputDecoration(labelText: 'Date Fin', suffixIcon: Icon(Icons.calendar_today)),
-                    onTap: () => _selectDate(context, _dtEndController, (val) => _dtEnd = val),
-                  ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _dtStartController,
+                        readOnly: true,
+                        decoration: const InputDecoration(labelText: 'Date Début', suffixIcon: Icon(Icons.calendar_today), isDense: true),
+                        onTap: () => _selectDate(context, _dtStartController, (val) => _dtStart = val),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _dtEndController,
+                        readOnly: true,
+                        decoration: const InputDecoration(labelText: 'Date Fin', suffixIcon: Icon(Icons.calendar_today), isDense: true),
+                        onTap: () => _selectDate(context, _dtEndController, (val) => _dtEnd = val),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.search),
+                      onPressed: _fetchData,
+                      style: IconButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: _fetchData,
-                  style: IconButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                  ),
+                const SizedBox(height: 8),
+                ToggleButtons(
+                  isSelected: _isSelected,
+                  onPressed: (index) {
+                    setState(() {
+                      for (int i = 0; i < _isSelected.length; i++) {
+                        _isSelected[i] = i == index;
+                      }
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  constraints: BoxConstraints.expand(width: (MediaQuery.of(context).size.width / 3.5), height: 36),
+                  children: const [
+                    Text('À Traiter'),
+                    Text('Terminés'),
+                    Text('Tous'),
+                  ],
                 ),
               ],
             ),
@@ -134,17 +161,28 @@ class _BlListScreenState extends State<BlListScreen> {
                 if (provider.isLoading && provider.bonsLivraison.isEmpty) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (provider.bonsLivraison.isEmpty) {
+
+                // MODIFICATION : Logique de filtrage locale
+                List<BonLivraison> filteredList = provider.bonsLivraison;
+                if (_isSelected[0]) { // À Traiter
+                  filteredList = provider.bonsLivraison.where((bl) => bl.statutTraitement != 'TERMINE').toList();
+                } else if (_isSelected[1]) { // Terminés
+                  filteredList = provider.bonsLivraison.where((bl) => bl.statutTraitement == 'TERMINE').toList();
+                }
+                // Si _isSelected[2] (Tous), on n'applique pas de filtre
+
+                if (filteredList.isEmpty) {
                   return const Center(child: Text('Aucun bon de livraison trouvé.'));
                 }
+
                 return RefreshIndicator(
                   onRefresh: () async => _fetchData(),
                   child: ListView.builder(
-                    itemCount: provider.bonsLivraison.length,
+                    itemCount: filteredList.length,
                     itemBuilder: (context, index) {
-                      final bl = provider.bonsLivraison[index];
-                      final isCompleted = provider.isBlCompleted(bl.id);
-                      final isInProgress = provider.isBlInProgress(bl.id);
+                      final bl = filteredList[index];
+                      final isCompleted = bl.statutTraitement == "TERMINE";
+                      final isInProgress = bl.statutTraitement == "EN_COURS";
 
                       Color? cardColor;
                       IconData iconData;
@@ -158,7 +196,7 @@ class _BlListScreenState extends State<BlListScreen> {
                         cardColor = Colors.orange.shade50;
                         iconData = Icons.pending_actions;
                         iconColor = Colors.orange;
-                      } else {
+                      } else { // A_FAIRE
                         cardColor = null;
                         iconData = Icons.receipt_long;
                         iconColor = AppColors.primary;
