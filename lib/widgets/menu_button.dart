@@ -1,5 +1,5 @@
 // lib/widgets/menu_button.dart
-// 28/09/2025 17:32
+// 18/10/2025 20:00
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
@@ -7,29 +7,30 @@ class MenuButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  // MODIFICATION : Ajout d'un paramètre de couleur optionnel
-  final Color? color;
+  // MODIFICATION : La couleur s'applique maintenant à l'icône, pas au fond
+  final Color color;
 
   const MenuButton({
     Key? key,
     required this.icon,
     required this.label,
     required this.onTap,
-    this.color, // Couleur optionnelle
+    this.color = AppColors.primary, // Couleur par défaut si non fournie
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      // MODIFICATION : Utilise la couleur passée en paramètre, sinon blanc
-      color: color ?? Colors.white,
+      // Le fond est maintenant blanc (ou la couleur par défaut du CardTheme)
+      color: Colors.white,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 48, color: AppColors.primary),
+            // L'icône prend la couleur
+            Icon(icon, size: 48, color: color),
             const SizedBox(height: 12),
             Text(
               label,

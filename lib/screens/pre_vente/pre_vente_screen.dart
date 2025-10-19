@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/pre_vente_screen.dart
-// 28/09/2025 20:08
+// 19/10/2025 00:10
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/prevente_list_tab.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/vente_tab.dart';
@@ -77,8 +77,7 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
               height: 48,
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                // MODIFICATION : Remplacement de withOpacity
-                color: AppColors.primary.withAlpha(128), // 50% d'opacité
+                color: AppColors.primary.withAlpha(128),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: TabBar(
@@ -89,8 +88,7 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
                 ),
                 indicatorSize: TabBarIndicatorSize.tab,
                 labelColor: Colors.white,
-                // MODIFICATION : Remplacement de withOpacity
-                unselectedLabelColor: Colors.white.withAlpha(204), // 80% d'opacité
+                unselectedLabelColor: Colors.white.withAlpha(204),
                 tabs: [
                   _buildTab(Icons.history_toggle_off, 'PREVENTE'),
                   _buildTab(Icons.point_of_sale, 'VENTE'),
@@ -112,6 +110,7 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     );
   }
 
+  // MODIFICATION : Le widget Text est maintenant dans un Flexible
   Widget _buildTab(IconData icon, String text) {
     return Tab(
       child: Row(
@@ -119,7 +118,12 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
         children: [
           Icon(icon, size: 20),
           const SizedBox(width: 8),
-          Text(text),
+          Flexible(
+            child: Text(
+              text,
+              overflow: TextOverflow.ellipsis, // Ajoute "..." si c'est trop long
+            ),
+          ),
         ],
       ),
     );

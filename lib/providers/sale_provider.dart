@@ -1,5 +1,5 @@
 // lib/providers/sale_provider.dart
-// 28/09/2025 21:22
+// 18/10/2025 21:22
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -36,25 +36,25 @@ class SaleProvider with ChangeNotifier {
   bool get isLoadingPreventes => _isLoadingPreventes;
 
   Future<void> fetchPreventes() async {
+    // S'assure de ne pas lancer un nouveau chargement si un est déjà en cours
     if (_isLoadingPreventes) return;
 
     try {
       _isLoadingPreventes = true;
+      // Vide la liste avant de notifier pour éviter le "saut" visuel
       _preventes.clear();
       notifyListeners();
 
       List<PreventeListItem> fetchedPreventes = await _apiService.getPreventes();
 
-      // CORRECTION : On filtre les doublons reçus de l'API
+      // Filtre les doublons reçus de l'API basé sur l'ID unique
       final uniquePreventesMap = <String, PreventeListItem>{};
       for (final prevente in fetchedPreventes) {
-        // En utilisant une Map, on s'assure de ne garder que la première
-        // occurrence de chaque ID de prévente unique.
         uniquePreventesMap.putIfAbsent(prevente.lgPREENREGISTREMENTID, () => prevente);
       }
       final uniquePreventesList = uniquePreventesMap.values.toList();
 
-
+      // Trie la liste unique par date et heure (le plus récent en premier)
       uniquePreventesList.sort((a, b) {
         try {
           final format = DateFormat('dd/MM/yyyy HH:mm:ss');
@@ -71,6 +71,7 @@ class SaleProvider with ChangeNotifier {
     } catch (e) {
       print("Erreur lors de la récupération des préventes: $e");
     } finally {
+      // S'assure que le loader disparaît, même en cas d'erreur
       _isLoadingPreventes = false;
       notifyListeners();
     }

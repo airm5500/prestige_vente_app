@@ -1,5 +1,5 @@
 // lib/screens/auth/login_screen.dart
-// 28/09/2025 20:58
+// 18/10/2025 21:51
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
@@ -51,17 +51,20 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (mounted && success) {
-        await authProvider.loadOfficineInfo();
-
         await settingsProvider.saveCredentials(
           _loginController.text,
           _passwordController.text,
           _stayConnected,
         );
 
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+        // MODIFICATION : On ne charge QUE les infos de l'officine.
+        await authProvider.loadOfficineInfo();
+
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        }
       }
     }
   }
