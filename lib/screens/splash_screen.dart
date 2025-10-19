@@ -1,11 +1,10 @@
 // lib/screens/splash_screen.dart
-// 28/09/2025 02:41
+// 19/10/2025 00:55
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
-// CORRECTION : Ajout de l'import manquant
 import 'package:prestige_vente_app/utils/constants.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -31,11 +30,11 @@ class _SplashScreenState extends State<SplashScreen> {
     if (mounted) {
       if (settingsProvider.localIp.isEmpty) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const SettingsScreen()),
+          MaterialPageRoute(builder: (_) => SettingsScreen()),
         );
       } else {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          MaterialPageRoute(builder: (_) => LoginScreen()),
         );
       }
     }
@@ -52,7 +51,8 @@ class _SplashScreenState extends State<SplashScreen> {
             Icon(Icons.store, size: 80, color: Colors.white),
             SizedBox(height: 20),
             Text(
-              'Prestige Vente',
+              // MODIFICATION : Le texte est changé ici
+              'Prestige Mobile',
               style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             SizedBox(height: 40),

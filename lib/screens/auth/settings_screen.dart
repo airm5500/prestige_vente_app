@@ -1,5 +1,5 @@
 // lib/screens/auth/settings_screen.dart
-// 29/09/2025 01:58
+// 19/10/2025 00:51
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -87,6 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 20),
                       TextFormField(controller: _portController, decoration: const InputDecoration(labelText: 'Port'), keyboardType: TextInputType.number, validator: (value) => value!.isEmpty ? 'Ce champ est requis' : null),
                       const Divider(height: 40),
+
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -115,6 +116,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Switch( value: settings.showQrCodeOnSaleTicket, onChanged: (value) { settings.setShowQrCodeOnSaleTicket(value); } ),
                         ],
                       ),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Flexible(child: Text("Modifier Contrôle Livraison", style: TextStyle(fontSize: 16))),
+                          Switch( value: settings.canEditDeliveryControl, onChanged: (value) { settings.setCanEditDeliveryControl(value); } ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Flexible(child: Text("Modifier Pointage BL", style: TextStyle(fontSize: 16))),
+                          Switch( value: settings.canEditBlControl, onChanged: (value) { settings.setCanEditBlControl(value); } ),
+                        ],
+                      ),
+
                       const SizedBox(height: 20),
                       if (_pingResult != null)
                         Padding(

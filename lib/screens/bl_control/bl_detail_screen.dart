@@ -1,8 +1,9 @@
 // lib/screens/bl_control/bl_detail_screen.dart
-// 16/10/2025 15:07
+// 19/10/2025 00:53
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/bl_control/bl_report_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -81,6 +82,9 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
+    final bool canEdit = settingsProvider.canEditBlControl;
+
     return Consumer<BlControlProvider>(
       builder: (context, provider, child) {
         final bl = provider.selectedBonLivraison;
@@ -114,7 +118,10 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
                     final item = _filteredItems[index];
                     final nextItem = (index + 1 < _filteredItems.length) ? _filteredItems[index + 1] : null;
 
-                    return _buildItemTile(context, item, nextItem, provider);
+                    final isChecked = provider.checkedQuantities.containsKey(item.id);
+                    final bool isEnabled = canEdit || !isChecked;
+
+                    return _buildItemTile(context, item, nextItem, provider, isEnabled);
                   },
                 ),
               ),
@@ -143,27 +150,27 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
     );
   }
 
-  Widget _buildItemTile(BuildContext context, BonLivraisonItem item, BonLivraisonItem? nextItem, BlControlProvider provider) {
+  Widget _buildItemTile(BuildContext context, BonLivraisonItem item, BonLivraisonItem? nextItem, BlControlProvider provider, bool isEnabled) {
     final controller = _itemControllers[item.id]!;
     final focusNode = _itemFocusNodes[item.id]!;
     final isChecked = provider.checkedQuantities.containsKey(item.id);
 
     return Card(
-      color: isChecked ? Colors.green.shade50 : null,
+      color: isChecked ? (isEnabled ? Colors.green.shade50 : Colors.grey.shade200) : null,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: ListTile(
         leading: Icon(
           isChecked ? Icons.check_circle : Icons.radio_button_unchecked,
-          color: isChecked ? AppColors.success : Colors.grey,
+          color: isEnabled ? (isChecked ? AppColors.success : Colors.grey) : Colors.grey,
         ),
         title: Text(item.nomProduit, style: const TextStyle(fontWeight: FontWeight.bold)),
-        // On n'affiche que le CIP, comme demandé (pas le stock théorique)
         subtitle: Text('CIP: ${item.cip}'),
         trailing: SizedBox(
           width: 80,
           child: TextField(
             controller: controller,
             focusNode: focusNode,
+            enabled: isEnabled,
             textAlign: TextAlign.center,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(

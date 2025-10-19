@@ -1,8 +1,9 @@
 // lib/screens/delivery_control/delivery_detail_screen.dart
-// 18/10/2025 14:31
+// 19/10/2025 00:52
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/commande_item.dart';
 import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/delivery_control/delivery_report_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -81,6 +82,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
+    final bool canEdit = settingsProvider.canEditDeliveryControl;
+
     return Consumer<DeliveryControlProvider>(
       builder: (context, provider, child) {
         final commande = provider.selectedCommande;
@@ -96,7 +100,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                 style: TextButton.styleFrom(foregroundColor: Colors.white),
                 icon: const Icon(Icons.assessment),
                 label: const Text('Rapport'),
-                // L'erreur était ici, la fonction est bien 'isCurrentOrderCompleted'
                 onPressed: provider.isCurrentOrderCompleted ? () {
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeliveryReportScreen()));
                 } : null,
@@ -115,7 +118,10 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                     final item = _filteredItems[index];
                     final nextItem = (index + 1 < _filteredItems.length) ? _filteredItems[index + 1] : null;
 
-                    return _buildItemTile(context, item, nextItem, provider);
+                    final isChecked = provider.checkedQuantities.containsKey(item.id);
+                    final bool isEnabled = canEdit || !isChecked;
+
+                    return _buildItemTile(context, item, nextItem, provider, isEnabled);
                   },
                 ),
               ),
@@ -144,18 +150,18 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     );
   }
 
-  Widget _buildItemTile(BuildContext context, CommandeItem item, CommandeItem? nextItem, DeliveryControlProvider provider) {
+  Widget _buildItemTile(BuildContext context, CommandeItem item, CommandeItem? nextItem, DeliveryControlProvider provider, bool isEnabled) {
     final controller = _itemControllers[item.id]!;
     final focusNode = _itemFocusNodes[item.id]!;
     final isChecked = provider.checkedQuantities.containsKey(item.id);
 
     return Card(
-      color: isChecked ? Colors.green.shade50 : null,
+      color: isChecked ? (isEnabled ? Colors.green.shade50 : Colors.grey.shade200) : null,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: ListTile(
         leading: Icon(
           isChecked ? Icons.check_circle : Icons.radio_button_unchecked,
-          color: isChecked ? AppColors.success : Colors.grey,
+          color: isEnabled ? (isChecked ? AppColors.success : Colors.grey) : Colors.grey,
         ),
         title: Text(item.nomProduit, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text('CIP: ${item.cip} | Qté Cmd: ${item.qteCommandee}'),
@@ -164,6 +170,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           child: TextField(
             controller: controller,
             focusNode: focusNode,
+            enabled: isEnabled,
             textAlign: TextAlign.center,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
