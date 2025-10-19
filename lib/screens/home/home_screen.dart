@@ -1,5 +1,5 @@
 // lib/screens/home/home_screen.dart
-// 19/10/2025 00:51
+// 16/10/2025 10:14
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -17,6 +17,9 @@ import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/utils/responsive.dart';
 import 'package:prestige_vente_app/widgets/menu_button.dart';
+// AJOUT
+import 'package:prestige_vente_app/screens/product_update/ean_update_screen.dart';
+import 'package:prestige_vente_app/screens/product_update/emplacement_update_screen.dart';
 
 class MenuItem {
   final String label;
@@ -111,7 +114,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 title: Text('$blCount BL(s) à pointer'),
                 onTap: () {
                   Navigator.of(ctx).pop();
-                  // MODIFICATION : On navigue en passant le filtre
                   navigate(const BlListScreen(initialFilter: 'A_TRAITER'));
                 },
               ),
@@ -136,6 +138,19 @@ class _HomeScreenState extends State<HomeScreen> {
       MenuItem( label: 'Mise à jour Péremption', icon: Icons.date_range, color: Colors.purple.shade700, onTap: () => navigate(const ExpirationUpdateScreen())),
       MenuItem( label: 'Contrôle Livraison', icon: Icons.inventory_2, color: Colors.teal.shade700, onTap: () => navigate(const DeliveryListScreen())),
       MenuItem( label: 'Pointage BL Stock', icon: Icons.checklist, color: Colors.cyan.shade700, onTap: () => navigate(const BlListScreen())),
+      // AJOUT DES 2 NOUVEAUX MENUS
+      MenuItem(
+        label: 'Mise à jour EAN',
+        icon: Icons.qr_code_scanner,
+        color: Colors.indigo.shade400,
+        onTap: () => navigate(const EanUpdateScreen()),
+      ),
+      MenuItem(
+        label: 'Mise à jour Emplacement',
+        icon: Icons.location_on,
+        color: Colors.brown.shade400,
+        onTap: () => navigate(const EmplacementUpdateScreen()),
+      ),
     ];
     _pages = [];
     for (var i = 0; i < _menuItems.length; i += 6) {

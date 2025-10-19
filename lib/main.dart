@@ -17,6 +17,7 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
 import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
+import 'package:prestige_vente_app/providers/product_update_provider.dart'; // AJOUT
 
 
 Future<void> main() async {
@@ -70,6 +71,12 @@ class MyApp extends StatelessWidget {
 
         ChangeNotifierProxyProvider<ApiService, BlControlProvider>(
           create: (context) => BlControlProvider(Provider.of<ApiService>(context, listen: false)),
+          update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
+        ),
+
+        // AJOUT
+        ChangeNotifierProxyProvider<ApiService, ProductUpdateProvider>(
+          create: (context) => ProductUpdateProvider(Provider.of<ApiService>(context, listen: false)),
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
       ],

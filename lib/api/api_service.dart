@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/api/models/commande.dart';
 import 'package:prestige_vente_app/api/models/commande_item.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
+import 'package:prestige_vente_app/api/models/rayon.dart';
 
 class ApiService {
   late Dio _dio;
@@ -526,4 +527,50 @@ class ApiService {
       return false;
     }
   }
+
+  // --- Fiche Article Lite Update ---
+
+  Future<List<Rayon>> getRayons() async {
+    try {
+      final response = await _dio.get(
+        '/common/rayons',
+        queryParameters: {'query': '', 'page': 1, 'start': 0, 'limit': 9999},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List).map((r) => Rayon.fromJson(r)).toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching rayons: $e");
+      return [];
+    }
+  }
+
+  // MODIFICATION : La méthode accepte maintenant 200, 202, ou 200 avec success:true
+  Future<bool> updateLiteInfo(Map<String, dynamic> data) async {
+    try {
+      final response = await _dio.post(
+        '/fichearticle/produit/update-lite-info',
+        data: data,
+      );
+
+      if (response.statusCode == 202) {
+        return true; // Succès (Accepté)
+      }
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return true; // Succès (OK avec JSON)
+      }
+      return false; // Échec
+
+    } on DioException catch (e) {
+      // Gère le cas où Dio lève une exception pour un 202 (si mal configuré)
+      if (e.response?.statusCode == 202) return true;
+      print("Error in updateLiteInfo: $e");
+      return false;
+    } catch (e) {
+      print("Error in updateLiteInfo: $e");
+      return false;
+    }
+  }
+
 }
