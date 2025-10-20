@@ -1,3 +1,4 @@
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -7,6 +8,7 @@ plugins {
 
 // La lecture de la version se fait maintenant automatiquement par le plugin Flutter.
 // Il n'y a plus besoin de script manuel en haut du fichier.
+
 
 android {
     namespace = "com.example.prestige_vente_app"
@@ -31,7 +33,7 @@ android {
         // MODIFICATION : Ces lignes DOIVENT être décommentées.
         // Flutter les remplit automatiquement pendant la compilation.
         versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionName = "1.2.1"
     }
 
     buildTypes {
@@ -40,10 +42,11 @@ android {
         }
     }
 
-    // MODIFICATION : Le script de renommage corrigé en syntaxe Kotlin moderne.
+    // MODIFICATION : Utilisation de votre script de renommage (syntaxe Kotlin)
     applicationVariants.all {
         outputs.all {
             val outputImpl = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            // Ce script ne met que le versionName (ex: 1.2.1)
             outputImpl.outputFileName = "prestigepos-${name}-${versionName}.apk"
         }
     }

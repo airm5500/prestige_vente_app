@@ -116,6 +116,7 @@ class PaymentMethod {
 
   factory PaymentMethod.fromJson(Map<String, dynamic> json) {
     return PaymentMethod(
+      // On utilise "lgTYPEREGLEMENTID" comme ID
       id: json['lgTYPEREGLEMENTID'] ?? '',
       name: json['strNAME'] ?? '',
     );

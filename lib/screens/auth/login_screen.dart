@@ -1,6 +1,9 @@
 // lib/screens/auth/login_screen.dart
-// 18/10/2025 21:51
+// 20/10/2025 02:45
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/providers/bl_control_provider.dart';
+import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
 import 'package:provider/provider.dart';
@@ -22,6 +25,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isPasswordVisible = false;
   bool _stayConnected = false;
 
+  // MODIFICATION : Ajout d'un état de chargement local
+  bool _isConnecting = false;
+
   @override
   void initState() {
     super.initState();
@@ -42,28 +48,51 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _submit() async {
     if (_formKey.currentState!.validate()) {
+      // 1. On active l'indicateur de chargement local
+      setState(() { _isConnecting = true; });
+
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
 
-      final success = await authProvider.login(
-        _loginController.text,
-        _passwordController.text,
-      );
-
-      if (mounted && success) {
-        await settingsProvider.saveCredentials(
+      try {
+        final success = await authProvider.login(
           _loginController.text,
           _passwordController.text,
-          _stayConnected,
         );
 
-        // MODIFICATION : On ne charge QUE les infos de l'officine.
-        await authProvider.loadOfficineInfo();
-
-        if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
+        if (mounted && success) {
+          await settingsProvider.saveCredentials(
+            _loginController.text,
+            _passwordController.text,
+            _stayConnected,
           );
+
+          final saleProvider = Provider.of<SaleProvider>(context, listen: false);
+          final blProvider = Provider.of<BlControlProvider>(context, listen: false);
+          final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+          // 2. Le spinner local reste visible pendant ce temps
+          await Future.wait([
+            authProvider.loadOfficineInfo(),
+            saleProvider.fetchPreventes(),
+            blProvider.fetchBonsLivraison(dtStart: today, dtEnd: today, query: ''),
+            saleProvider.fetchPaymentMethodsWithQr(),
+          ]);
+
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const HomeScreen()),
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          Constants.showSnackBar(context, "Erreur de connexion: $e", isError: true);
+        }
+      } finally {
+        // 3. On désactive l'indicateur de chargement si on est toujours sur la page
+        if (mounted) {
+          setState(() { _isConnecting = false; });
         }
       }
     }
@@ -174,7 +203,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   Consumer<AuthProvider>(
                     builder: (context, auth, _) {
-                      return auth.status == AuthStatus.Loading
+                      // MODIFICATION : Le bouton vérifie l'état local OU l'état du provider
+                      return (auth.status == AuthStatus.Loading || _isConnecting)
                           ? const Center(child: CircularProgressIndicator())
                           : ElevatedButton(
                         onPressed: _submit,

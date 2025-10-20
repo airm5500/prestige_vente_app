@@ -1,10 +1,11 @@
 // lib/screens/auth/settings_screen.dart
-// 19/10/2025 00:51
+// 20/10/2025 03:45
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/screens/auth/qr_code_preview_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -88,52 +89,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       TextFormField(controller: _portController, decoration: const InputDecoration(labelText: 'Port'), keyboardType: TextInputType.number, validator: (value) => value!.isEmpty ? 'Ce champ est requis' : null),
                       const Divider(height: 40),
 
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text("Largeur du ticket", style: TextStyle(fontSize: 16)),
-                          ToggleButtons(
-                            isSelected: [ settings.paperWidth == 58, settings.paperWidth == 80 ],
-                            onPressed: (index) { settings.setPaperWidth(index == 0 ? 58 : 80); },
-                            borderRadius: BorderRadius.circular(8),
-                            children: const [ Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('58mm')), Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('80mm')) ],
-                          ),
-                        ],
-                      ),
+                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Text("Largeur du ticket", style: TextStyle(fontSize: 16)), ToggleButtons( isSelected: [ settings.paperWidth == 58, settings.paperWidth == 80 ], onPressed: (index) { settings.setPaperWidth(index == 0 ? 58 : 80); }, borderRadius: BorderRadius.circular(8), children: const [ Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('58mm')), Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('80mm')) ], ), ], ),
                       const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text("Mode test d'impression", style: TextStyle(fontSize: 16)),
-                          Switch( value: settings.isTestPrintMode, onChanged: (value) { settings.setTestPrintMode(value); } ),
-                        ],
-                      ),
+                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Text("Mode test d'impression", style: TextStyle(fontSize: 16)), Switch( value: settings.isTestPrintMode, onChanged: (value) { settings.setTestPrintMode(value); } ), ], ),
                       const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Flexible(child: Text("Afficher QR code (Vente)", style: TextStyle(fontSize: 16))),
-                          Switch( value: settings.showQrCodeOnSaleTicket, onChanged: (value) { settings.setShowQrCodeOnSaleTicket(value); } ),
-                        ],
-                      ),
+                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Afficher QR code (Vente)", style: TextStyle(fontSize: 16))), Switch( value: settings.showQrCodeOnSaleTicket, onChanged: (value) { settings.setShowQrCodeOnSaleTicket(value); } ), ], ),
                       const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Flexible(child: Text("Modifier Contrôle Livraison", style: TextStyle(fontSize: 16))),
-                          Switch( value: settings.canEditDeliveryControl, onChanged: (value) { settings.setCanEditDeliveryControl(value); } ),
-                        ],
-                      ),
+                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Modifier Contrôle Livraison", style: TextStyle(fontSize: 16))), Switch( value: settings.canEditDeliveryControl, onChanged: (value) { settings.setCanEditDeliveryControl(value); } ), ], ),
                       const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Flexible(child: Text("Modifier Pointage BL", style: TextStyle(fontSize: 16))),
-                          Switch( value: settings.canEditBlControl, onChanged: (value) { settings.setCanEditBlControl(value); } ),
-                        ],
-                      ),
+                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Modifier Pointage BL", style: TextStyle(fontSize: 16))), Switch( value: settings.canEditBlControl, onChanged: (value) { settings.setCanEditBlControl(value); } ), ], ),
 
+                      const Divider(height: 30),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.qr_code_2),
+                        label: const Text("Aperçu des QR Codes de Paiement"),
+                        onPressed: () {
+                          // MODIFICATION : On vérifie si l'IP est configurée avant de naviguer
+                          if (settings.localIp.isEmpty) {
+                            Constants.showSnackBar(
+                              context,
+                              "Veuillez renseigner l'adresse ip svp",
+                              isError: true,
+                            );
+                          } else {
+                            Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => const QrCodePreviewScreen())
+                            );
+                          }
+                        },
+                      ),
                       const SizedBox(height: 20),
+
                       if (_pingResult != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 15.0),

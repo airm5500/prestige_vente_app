@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/pre_vente_screen.dart
-// 19/10/2025 00:30
+// 19/10/2025 00:10
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/prevente_list_tab.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/vente_tab.dart';
@@ -8,7 +8,6 @@ import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
 class PreVenteScreen extends StatefulWidget {
-  // MODIFICATION : Ajout d'un index initial optionnel
   final int initialTabIndex;
 
   const PreVenteScreen({super.key, this.initialTabIndex = 0});
@@ -24,21 +23,22 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    // MODIFICATION : On utilise l'index initial passé en paramètre
     _tabController = TabController(
       length: 3,
       vsync: this,
       initialIndex: widget.initialTabIndex,
     );
 
-    // On met à jour la couleur active en fonction de l'index de départ
     _updateTabColor(_tabController.index);
     _tabController.addListener(_handleTabSelection);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final saleProvider = Provider.of<SaleProvider>(context, listen: false);
       saleProvider.startNewSale();
-      saleProvider.fetchPreventes();
+      // On charge les préventes uniquement si on va sur l'onglet
+      if (widget.initialTabIndex == 2) {
+        saleProvider.fetchPreventes();
+      }
     });
   }
 
@@ -58,7 +58,6 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     _updateTabColor(_tabController.index);
   }
 
-  // MODIFICATION : Logique de couleur séparée
   void _updateTabColor(int index) {
     setState(() {
       switch (index) {
@@ -125,10 +124,13 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     );
   }
 
+  // MODIFICATION : Le contenu du Tab est maintenant une Row
+  // pour forcer un affichage horizontal et éviter le débordement vertical.
   Widget _buildTab(IconData icon, String text) {
     return Tab(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center, // Centre verticalement
         children: [
           Icon(icon, size: 20),
           const SizedBox(width: 8),

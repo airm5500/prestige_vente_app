@@ -1,5 +1,5 @@
 // lib/screens/home/home_screen.dart
-// 16/10/2025 10:14
+// 19/10/2025 00:40
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -17,7 +17,7 @@ import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/utils/responsive.dart';
 import 'package:prestige_vente_app/widgets/menu_button.dart';
-// AJOUT
+// AJOUTS
 import 'package:prestige_vente_app/screens/product_update/ean_update_screen.dart';
 import 'package:prestige_vente_app/screens/product_update/emplacement_update_screen.dart';
 
@@ -84,7 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ]);
 
     if (!mounted) return;
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(); // Ferme le dialogue de chargement
 
     showDialog(
       context: context,
@@ -138,7 +138,8 @@ class _HomeScreenState extends State<HomeScreen> {
       MenuItem( label: 'Mise à jour Péremption', icon: Icons.date_range, color: Colors.purple.shade700, onTap: () => navigate(const ExpirationUpdateScreen())),
       MenuItem( label: 'Contrôle Livraison', icon: Icons.inventory_2, color: Colors.teal.shade700, onTap: () => navigate(const DeliveryListScreen())),
       MenuItem( label: 'Pointage BL Stock', icon: Icons.checklist, color: Colors.cyan.shade700, onTap: () => navigate(const BlListScreen())),
-      // AJOUT DES 2 NOUVEAUX MENUS
+
+      // MODIFICATION : Les 2 menus sont de retour
       MenuItem(
         label: 'Mise à jour EAN',
         icon: Icons.qr_code_scanner,
@@ -153,6 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     ];
     _pages = [];
+    // La pagination (6 par page) est gérée automatiquement
     for (var i = 0; i < _menuItems.length; i += 6) {
       _pages.add(_menuItems.sublist(i, i + 6 > _menuItems.length ? _menuItems.length : i + 6));
     }

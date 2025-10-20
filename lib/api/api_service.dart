@@ -13,6 +13,7 @@ import 'package:prestige_vente_app/api/models/commande_item.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
 import 'package:prestige_vente_app/api/models/rayon.dart';
+import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 
 class ApiService {
   late Dio _dio;
@@ -570,6 +571,33 @@ class ApiService {
     } catch (e) {
       print("Error in updateLiteInfo: $e");
       return false;
+    }
+  }
+
+  // MODIFICATION : On lit maintenant la liste "data"
+  Future<List<PaymentMethodQr>> getPaymentMethodsWithQr() async {
+    try {
+      final response = await _dio.get(
+        '/modereglement/all',
+        queryParameters: {'page': 1, 'start': 0, 'limit': 20},
+      );
+
+      // MODIFICATION : On s'assure de lire la liste "data"
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        final List data = response.data['data'];
+        final List<PaymentMethodQr> methods = [];
+
+        for (var item in data) {
+          if (item is Map<String, dynamic>) {
+            methods.add(PaymentMethodQr.fromJson(item));
+          }
+        }
+        return methods;
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching payment methods with QR: $e");
+      return [];
     }
   }
 

@@ -1,6 +1,7 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 29/09/2025 02:12
+// 20/10/2025 02:40
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -12,6 +13,8 @@ import 'package:prestige_vente_app/screens/pre_vente/widgets/sale_cart_widget.da
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 
 class VenteTab extends StatefulWidget {
   final bool isPrevente;
@@ -22,100 +25,13 @@ class VenteTab extends StatefulWidget {
 }
 
 class _VenteTabState extends State<VenteTab> {
-  final _searchController = TextEditingController();
-  final _searchFocusNode = FocusNode();
-  Timer? _debounce;
-
-  @override
-  void initState() {
-    super.initState();
-    _searchController.addListener(_onSearchChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      FocusScope.of(context).requestFocus(_searchFocusNode);
-    });
-  }
-
-  @override
-  void dispose() {
-    _searchController.removeListener(_onSearchChanged);
-    _searchController.dispose();
-    _searchFocusNode.dispose();
-    _debounce?.cancel();
-    super.dispose();
-  }
-
-  void _onSearchChanged() {
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      Provider.of<SaleProvider>(context, listen: false)
-          .searchProducts(_searchController.text);
-    });
-  }
-
-  void _showQuantityDialog(ProductSearchResult product) {
-    final qteController = TextEditingController(text: '1');
-    void submitQuantity() {
-      final quantity = int.tryParse(qteController.text) ?? 0;
-      Navigator.of(context).pop();
-      if (quantity > 0) {
-        _checkStockAndAddProduct(product, quantity);
-      }
-    }
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(product.strNAME),
-        content: TextField(
-          controller: qteController,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Quantité'),
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => submitQuantity(),
-        ),
-        actions: [
-          TextButton(
-            child: const Text('Annuler'),
-            onPressed: () => Navigator.of(ctx).pop(),
-          ),
-          ElevatedButton(
-            child: const Text('Ajouter'),
-            onPressed: submitQuantity,
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _checkStockAndAddProduct(ProductSearchResult product, int quantity) {
-    void _addProduct() {
-      Provider.of<SaleProvider>(context, listen: false)
-          .addProductToCart(product, quantity, isPrevente: widget.isPrevente);
-      _searchController.clear();
-      _searchFocusNode.requestFocus();
-    }
-    if (quantity > product.intNUMBERAVAILABLE) {
-      showDialog(
-        context: context,
-        builder: (confirmCtx) => AlertDialog(
-          title: const Text('Stock insuffisant'),
-          content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
-          actions: [
-            TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }),
-            ElevatedButton(
-              child: const Text('Oui'),
-              onPressed: () {
-                Navigator.of(confirmCtx).pop();
-                _addProduct();
-              },
-            ),
-          ],
-        ),
-      );
-    } else {
-      _addProduct();
-    }
-  }
+  // ... (initState, dispose, _onSearchChanged, _showQuantityDialog, _checkStockAndAddProduct restent inchangés)
+  final _searchController = TextEditingController(); final _searchFocusNode = FocusNode(); Timer? _debounce;
+  @override void initState() { super.initState(); _searchController.addListener(_onSearchChanged); WidgetsBinding.instance.addPostFrameCallback((_) { FocusScope.of(context).requestFocus(_searchFocusNode); }); }
+  @override void dispose() { _searchController.removeListener(_onSearchChanged); _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel(); super.dispose(); }
+  void _onSearchChanged() { if (_debounce?.isActive ?? false) _debounce!.cancel(); _debounce = Timer(const Duration(milliseconds: 500), () { Provider.of<SaleProvider>(context, listen: false) .searchProducts(_searchController.text); }); }
+  void _showQuantityDialog(ProductSearchResult product) { final qteController = TextEditingController(text: '1'); void submitQuantity() { final quantity = int.tryParse(qteController.text) ?? 0; Navigator.of(context).pop(); if (quantity > 0) { _checkStockAndAddProduct(product, quantity); } } showDialog( context: context, builder: (ctx) => AlertDialog( title: Text(product.strNAME), content: TextField( controller: qteController, autofocus: true, decoration: const InputDecoration(labelText: 'Quantité'), keyboardType: TextInputType.number, textInputAction: TextInputAction.done, onSubmitted: (_) => submitQuantity(), ), actions: [ TextButton( child: const Text('Annuler'), onPressed: () => Navigator.of(ctx).pop(), ), ElevatedButton( child: const Text('Ajouter'), onPressed: submitQuantity, ), ], ), ); }
+  void _checkStockAndAddProduct(ProductSearchResult product, int quantity) { void _addProduct() { Provider.of<SaleProvider>(context, listen: false) .addProductToCart(product, quantity, isPrevente: widget.isPrevente); _searchController.clear(); _searchFocusNode.requestFocus(); } if (quantity > product.intNUMBERAVAILABLE) { showDialog( context: context, builder: (confirmCtx) => AlertDialog( title: const Text('Stock insuffisant'), content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'), actions: [ TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }), ElevatedButton( child: const Text('Oui'), onPressed: () { Navigator.of(confirmCtx).pop(); _addProduct(); }, ), ], ), ); } else { _addProduct(); } }
 
   void _showPrintDialog({required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser}) {
     final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
@@ -164,6 +80,47 @@ class _VenteTabState extends State<VenteTab> {
     );
   }
 
+  // MODIFICATION : Cette fonction prend maintenant la popup d'impression en paramètre
+  Future<void> _showQrCodeDialog(PaymentMethodQr method, SaleSummary summary, User currentUser) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text("Paiement via ${method.name}"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("Veuillez scanner le QR code pour payer ${Constants.formatNumber(summary.montantNet)}."),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: 250,
+                height: 250,
+                child: method.qrCode != null
+                    ? Image.memory(method.qrCode!)
+                    : const Center(child: Text("QR Code non disponible")),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              child: const Text("OK"),
+              onPressed: () {
+                Navigator.of(ctx).pop(); // Ferme cette popup
+                // On déclenche la popup d'impression SEULEMENT APRÈS le clic sur OK
+                _showPrintDialog(
+                    isPrevente: false,
+                    paymentMethod: PaymentMethod(id: method.id, name: method.name),
+                    currentUser: currentUser
+                );
+              },
+            )
+          ],
+        );
+      },
+    );
+  }
+
   void _showPaymentDialog() async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
@@ -198,13 +155,31 @@ class _VenteTabState extends State<VenteTab> {
                   onTap: () async {
                     Navigator.of(ctx).pop();
                     final success = await saleProvider.cloturerVente(method, currentUser);
+
                     if (success) {
                       scaffoldMessenger.showSnackBar(const SnackBar(
                         content: Text('Vente validée avec succès !'),
                         backgroundColor: AppColors.success,
                         duration: Duration(seconds: 2),
                       ));
-                      _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
+
+                      final paymentQrMethods = saleProvider.paymentMethodsWithQr;
+                      PaymentMethodQr? qrMethod;
+                      try {
+                        qrMethod = paymentQrMethods.firstWhere((m) => m.id == method.id);
+                      } catch (e) {
+                        qrMethod = null;
+                      }
+
+                      // MODIFICATION : Le flux est corrigé
+                      if (qrMethod != null && qrMethod.qrCode != null) {
+                        // Si QR code, on l'affiche. Il appellera _showPrintDialog en cliquant sur OK.
+                        await _showQrCodeDialog(qrMethod, saleProvider.saleSummary, currentUser);
+                      } else {
+                        // Si pas de QR code, on affiche directement la popup d'impression.
+                        _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
+                      }
+
                     } else {
                       scaffoldMessenger.showSnackBar(SnackBar(
                         content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
@@ -256,7 +231,7 @@ class _VenteTabState extends State<VenteTab> {
         Expanded(
           flex: 6,
           child: Container(
-            color: Colors.black.withAlpha(8),
+            color: Colors.black.withOpacity(0.03),
             child: const SaleCartWidget(),
           ),
         ),

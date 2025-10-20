@@ -1,11 +1,12 @@
 // lib/providers/sale_provider.dart
-// 18/10/2025 21:22
+// 20/10/2025 01:40
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
+import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 
 class SaleProvider with ChangeNotifier {
   ApiService _apiService;
@@ -26,6 +27,9 @@ class SaleProvider with ChangeNotifier {
   List<PreventeListItem> _preventes = [];
   bool _isLoadingPreventes = false;
 
+  List<PaymentMethodQr> _paymentMethodsWithQr = [];
+  bool _isLoadingPaymentMethodsQr = false;
+
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String? get currentVenteId => _currentVenteId;
@@ -34,27 +38,36 @@ class SaleProvider with ChangeNotifier {
   List<ProductSearchResult> get searchResults => _searchResults;
   List<PreventeListItem> get preventes => _preventes;
   bool get isLoadingPreventes => _isLoadingPreventes;
+  List<PaymentMethodQr> get paymentMethodsWithQr => _paymentMethodsWithQr;
+
+  Future<void> fetchPaymentMethodsWithQr() async {
+    if (_paymentMethodsWithQr.isNotEmpty || _isLoadingPaymentMethodsQr) return;
+    try {
+      _isLoadingPaymentMethodsQr = true;
+      _paymentMethodsWithQr = await _apiService.getPaymentMethodsWithQr();
+    } catch (e) {
+      print("Error in SaleProvider fetching QR methods: $e");
+    } finally {
+      _isLoadingPaymentMethodsQr = false;
+      notifyListeners();
+    }
+  }
 
   Future<void> fetchPreventes() async {
-    // S'assure de ne pas lancer un nouveau chargement si un est déjà en cours
     if (_isLoadingPreventes) return;
-
     try {
       _isLoadingPreventes = true;
-      // Vide la liste avant de notifier pour éviter le "saut" visuel
       _preventes.clear();
       notifyListeners();
 
       List<PreventeListItem> fetchedPreventes = await _apiService.getPreventes();
 
-      // Filtre les doublons reçus de l'API basé sur l'ID unique
       final uniquePreventesMap = <String, PreventeListItem>{};
       for (final prevente in fetchedPreventes) {
         uniquePreventesMap.putIfAbsent(prevente.lgPREENREGISTREMENTID, () => prevente);
       }
       final uniquePreventesList = uniquePreventesMap.values.toList();
 
-      // Trie la liste unique par date et heure (le plus récent en premier)
       uniquePreventesList.sort((a, b) {
         try {
           final format = DateFormat('dd/MM/yyyy HH:mm:ss');
@@ -67,11 +80,9 @@ class SaleProvider with ChangeNotifier {
       });
 
       _preventes = uniquePreventesList;
-
     } catch (e) {
       print("Erreur lors de la récupération des préventes: $e");
     } finally {
-      // S'assure que le loader disparaît, même en cas d'erreur
       _isLoadingPreventes = false;
       notifyListeners();
     }
