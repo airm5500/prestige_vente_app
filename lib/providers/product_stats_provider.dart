@@ -1,17 +1,14 @@
 // lib/providers/product_stats_provider.dart
-// 28/09/2025 21:10
+// 20/10/2025 10:16
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/api/models/product_info.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 
 class ProductStatsProvider with ChangeNotifier {
   ApiService _apiService;
-
   ProductStatsProvider(this._apiService);
-
-  void updateApiService(ApiService newApiService) {
-    _apiService = newApiService;
-  }
+  void updateApiService(ApiService newApiService) { _apiService = newApiService; }
 
   bool _isLoading = false;
   List<ProductAnnualSale> _searchResults = [];
@@ -29,14 +26,7 @@ class ProductStatsProvider with ChangeNotifier {
   bool get isComparisonLoading => _isComparisonLoading;
   bool get showComparisonChart => _showComparisonChart;
 
-  void clear() {
-    _searchResults = [];
-    _selectedProductSales = null;
-    _selectedProductInfo = null;
-    _comparisonData = [];
-    _showComparisonChart = false;
-    notifyListeners();
-  }
+  void clear() { _searchResults = []; _selectedProductSales = null; _selectedProductInfo = null; _comparisonData = []; _showComparisonChart = false; notifyListeners(); }
 
   Future<void> searchProducts(String query) async {
     bool isCip = int.tryParse(query) != null;
@@ -55,7 +45,8 @@ class ProductStatsProvider with ChangeNotifier {
     _showComparisonChart = false;
     _comparisonData = [];
     _selectedProductSales = productSales;
-    _selectedProductInfo = await _apiService.getProductInfo(productSales.codeCip);
+    // MODIFICATION : Appel à la méthode renommée
+    _selectedProductInfo = await _apiService.getProductInfoForStats(productSales.codeCip);
     _setLoading(false);
   }
 

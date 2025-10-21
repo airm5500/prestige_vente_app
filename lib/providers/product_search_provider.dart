@@ -1,9 +1,10 @@
 // lib/providers/product_search_provider.dart
-// 28/09/2025 21:11
+// 20/10/2025 10:17
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product_search_result.dart';
+import 'package:prestige_vente_app/api/models/product_info.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 
 class MonthlyComparisonData {
@@ -15,27 +16,27 @@ class MonthlyComparisonData {
 
 class ProductSearchProvider with ChangeNotifier {
   ApiService _apiService;
-
   ProductSearchProvider(this._apiService);
-
-  void updateApiService(ApiService newApiService) {
-    _apiService = newApiService;
-  }
+  void updateApiService(ApiService newApiService) { _apiService = newApiService; }
 
   bool _isLoading = false;
-  List<ProductDetails> _searchResults = [];
-  ProductDetails? _selectedProduct;
+
+  List<ProductInfo> _searchResults = [];
+  ProductInfo? _selectedProductInfo;
+  ProductDetails? _selectedProductDetails;
   List<MonthlyComparisonData> _comparisonData = [];
 
   bool get isLoading => _isLoading;
-  List<ProductDetails> get searchResults => _searchResults;
-  ProductDetails? get selectedProduct => _selectedProduct;
+  List<ProductInfo> get searchResults => _searchResults;
+  ProductInfo? get selectedProductInfo => _selectedProductInfo;
+  ProductDetails? get selectedProductDetails => _selectedProductDetails;
   List<MonthlyComparisonData> get comparisonData => _comparisonData;
   bool get hasComparisonData => _comparisonData.isNotEmpty;
 
   void clear() {
     _searchResults = [];
-    _selectedProduct = null;
+    _selectedProductInfo = null;
+    _selectedProductDetails = null;
     _comparisonData = [];
     notifyListeners();
   }
@@ -45,29 +46,44 @@ class ProductSearchProvider with ChangeNotifier {
       clear();
       return;
     }
-    _setLoading(true);
-    _selectedProduct = null;
-    _searchResults = await _apiService.searchProductFiche(query);
-    _setLoading(false);
+    _isLoading = true;
+    _selectedProductInfo = null;
+    _selectedProductDetails = null;
+    notifyListeners();
+
+    _searchResults = await _apiService.searchProductInfoForSearch(query);
+    _isLoading = false;
+    notifyListeners();
   }
 
-  Future<void> selectProduct(ProductDetails product) async {
-    _setLoading(true);
-    _selectedProduct = product;
+  Future<void> selectProduct(ProductInfo product) async {
+    _isLoading = true;
+    _selectedProductInfo = product;
     _searchResults = [];
-    await _loadComparisonData(product);
-    _setLoading(false);
+    notifyListeners();
+
+    final results = await Future.wait([
+      _apiService.getProductDetailsForSearch(product.codeCip),
+      _loadComparisonData(product.produitId, product.codeCip),
+    ]);
+
+    _selectedProductDetails = results[0] as ProductDetails?;
+    _comparisonData = results[1] as List<MonthlyComparisonData>;
+
+    _isLoading = false;
+    notifyListeners();
   }
 
-  Future<void> _loadComparisonData(ProductDetails product) async {
+  Future<List<MonthlyComparisonData>> _loadComparisonData(String productId, String cip) async {
     final year = DateTime.now().year;
     final startDate = '$year-01-01';
     final endDate = '$year-12-31';
 
     final results = await Future.wait([
-      _apiService.getProductOrderHistory(product.lgFamilleId, startDate, endDate),
-      _apiService.getAnnualSales(product.intCip, year),
+      _apiService.getProductOrderHistory(productId, startDate, endDate),
+      _apiService.getAnnualSales(cip, year),
     ]);
+
     final orders = results[0] as List<ProductOrderHistory>;
     final salesData = results[1] as List<ProductAnnualSale>;
     final sales = salesData.isNotEmpty ? salesData.first.monthlySales : <String, int>{};
@@ -83,9 +99,7 @@ class ProductSearchProvider with ChangeNotifier {
           orders: monthlyData[monthIndex].orders + order.intNumber,
           orderFrequency: monthlyData[monthIndex].orderFrequency + 1,
         );
-      } catch (e) {
-        print("Could not parse date: ${order.dtEntree}");
-      }
+      } catch (e) { print("Could not parse date: ${order.dtEntree}"); }
     }
 
     sales.forEach((monthName, salesCount) {
@@ -99,16 +113,11 @@ class ProductSearchProvider with ChangeNotifier {
       }
     });
 
-    _comparisonData = monthlyData;
+    return monthlyData;
   }
 
   int _monthNameToInt(String name) {
     const months = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', 'octobre', 'novembre', 'decembre'];
     return months.indexOf(name.toLowerCase());
-  }
-
-  void _setLoading(bool value) {
-    _isLoading = value;
-    notifyListeners();
   }
 }

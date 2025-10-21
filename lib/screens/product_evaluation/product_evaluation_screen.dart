@@ -1,9 +1,12 @@
 // lib/screens/product_evaluation/product_evaluation_screen.dart
-// 28/09/2025 18:38
+// 20/10/2025 10:19
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:prestige_vente_app/api/models/product_info.dart';
+import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/providers/product_stats_provider.dart';
+import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 
@@ -155,8 +158,9 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
       children: [
         _buildDetailRow('CIP:', product.codeCip, isBold: true),
         _buildDetailRow('Désignation:', product.libelle, isBold: true),
-        _buildDetailRow('Prix Achat:', info?.prixAchat ?? 'N/A'),
-        _buildDetailRow('Prix Vente:', info?.prixVente ?? 'N/A'),
+        // MODIFICATION : Ajout de .toString()
+        _buildDetailRow('Prix Achat:', info?.prixAchat.toString() ?? 'N/A'),
+        _buildDetailRow('Prix Vente:', info?.prixVente.toString() ?? 'N/A'),
         _buildDetailRow('Emplacement:', info?.emplacement ?? 'N/A'),
         _buildDetailRow('Grossiste:', info?.grossiste ?? 'N/A'),
       ],

@@ -19,6 +19,7 @@ class ProductDetails {
   final int intNumberDetail;
   final String dtPeremption;
   final Map<String, int> produitState;
+  final int boolDeconditionneExist;
 
   ProductDetails({
     required this.lgFamilleId,
@@ -37,6 +38,8 @@ class ProductDetails {
     required this.intNumberDetail,
     required this.dtPeremption,
     required this.produitState,
+    required this.boolDeconditionneExist, // Ajout au constructeur
+
   });
 
   factory ProductDetails.fromJson(Map<String, dynamic> json) {
@@ -61,6 +64,7 @@ class ProductDetails {
         'entree': json['produitState']?['entree'] ?? 0,
         'enSuggestion': json['produitState']?['enSuggestion'] ?? 0,
       },
+      boolDeconditionneExist: json['bool_DECONDITIONNE_EXIST'] ?? 0, // Lecture du champ
     );
   }
 }

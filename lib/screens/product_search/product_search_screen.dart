@@ -1,5 +1,5 @@
 // lib/screens/product_search/product_search_screen.dart
-// 28/09/2025 18:38
+// 20/10/2025 10:18
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -16,8 +16,8 @@ class ProductSearchScreen extends StatefulWidget {
 
 class _ProductSearchScreenState extends State<ProductSearchScreen> {
   final _searchController = TextEditingController();
-  Timer? _debounce;
   final _searchFocusNode = FocusNode();
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -31,17 +31,14 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
 
   @override
   void dispose() {
-    _searchController.dispose();
-    _debounce?.cancel();
-    _searchFocusNode.dispose();
+    _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel();
     super.dispose();
   }
 
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      Provider.of<ProductSearchProvider>(context, listen: false)
-          .search(_searchController.text);
+      Provider.of<ProductSearchProvider>(context, listen: false).search(_searchController.text);
     });
   }
 
@@ -56,8 +53,8 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
               _buildSearchBar(provider),
               if (provider.isLoading) const LinearProgressIndicator(),
               Expanded(
-                child: provider.selectedProduct != null
-                    ? _buildDetailsLayout(provider)
+                child: provider.selectedProductInfo != null
+                    ? _buildDetailsView(provider)
                     : _buildSearchResults(provider),
               ),
             ],
@@ -73,19 +70,16 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
       child: TextField(
         controller: _searchController,
         focusNode: _searchFocusNode,
-        textInputAction: TextInputAction.search,
-        onSubmitted: (_) => _onSearchChanged(),
         decoration: InputDecoration(
           labelText: 'Rechercher par CIP, Nom ou Scan',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: IconButton(
             icon: const Icon(Icons.clear),
-            onPressed: () {
-              _searchController.clear();
-              provider.clear();
-            },
+            onPressed: () { _searchController.clear(); provider.clear(); },
           ),
         ),
+        onSubmitted: (_) => _onSearchChanged(),
+        textInputAction: TextInputAction.search,
       ),
     );
   }
@@ -100,74 +94,55 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
         final product = provider.searchResults[index];
         return Card(
           child: ListTile(
-            title: Text(product.strName, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('CIP: ${product.intCip} | Stock: ${product.intNumber} | Prix: ${Constants.formatNumber(product.intPrice)}'),
-            onTap: () => provider.selectProduct(product),
+            title: Text(product.libelle, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text('CIP: ${product.codeCip} | Prix: ${Constants.formatNumber(product.prixVente)} | Stock: ${product.stock}'),
+            onTap: () {
+              _searchFocusNode.unfocus();
+              provider.selectProduct(product);
+            },
           ),
         );
       },
     );
   }
 
-  Widget _buildDetailsLayout(ProductSearchProvider provider) {
-    final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
-
-    final infoCard = _buildProductInfoCard(provider);
-    final comparisonCard = provider.hasComparisonData ? _buildComparisonCard(provider) : const SizedBox.shrink();
+  Widget _buildDetailsView(ProductSearchProvider provider) {
+    final info = provider.selectedProductInfo!;
+    final details = provider.selectedProductDetails; // Peut être null pendant le chargement
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
-      child: isTabletLandscape
-          ? Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(flex: 5, child: infoCard),
-          const SizedBox(width: 16),
-          Expanded(flex: 5, child: comparisonCard),
-        ],
-      )
-          : Column(
-        children: [
-          infoCard,
+          Text(info.libelle, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                children: [
+                  _detailRow("Code CIP:", info.codeCip),
+                  _detailRow("Prix Vente:", Constants.formatNumber(info.prixVente)),
+                  _detailRow("Prix Achat:", Constants.formatNumber(info.prixAchat)),
+                  _detailRow("Stock Actuel:", info.stock.toString()),
+                  _detailRow("Emplacement:", info.emplacement),
+                  _detailRow("Grossiste:", info.grossiste),
+
+
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 20),
-          comparisonCard,
+          if (provider.hasComparisonData)
+            _buildComparisonSection(provider),
         ],
       ),
     );
   }
 
-  Widget _buildProductInfoCard(ProductSearchProvider provider) {
-    final product = provider.selectedProduct!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(product.strName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              children: [
-                _detailRow("Code CIP:", product.intCip),
-                _detailRow("Prix Vente:", Constants.formatNumber(product.intPrice)),
-                _detailRow("Prix Achat:", Constants.formatNumber(product.intPaf)),
-                _detailRow("Stock:", product.intNumber.toString()),
-                _detailRow("Emplacement:", product.lgZoneGeoId),
-                _detailRow("Date Péremption:", product.dtPeremption),
-                _detailRow("Dernière Vente:", product.dtLastVente),
-                _detailRow("Dernière Entrée:", product.dtLastEntree),
-                _detailRow("État (Cmd/Ent/Sug):",
-                    '${product.produitState['enCommande']}/${product.produitState['entree']}/${product.produitState['enSuggestion']}'
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildComparisonCard(ProductSearchProvider provider) {
+  Widget _buildComparisonSection(ProductSearchProvider provider) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -176,10 +151,7 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
           children: [
             const Text('Comparaison Ventes / Commandes', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
-            SizedBox(
-              height: 300,
-              child: LineChart(_buildChartData(provider)),
-            ),
+            SizedBox( height: 300, child: LineChart(_buildChartData(provider)), ),
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -213,27 +185,17 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
         gridData: const FlGridData(show: true),
         lineBarsData: [
           LineChartBarData(
-            spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.sales.toDouble())).toList(),
-            isCurved: true,
-            color: Colors.blue,
-            barWidth: 3,
-          ),
+              spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.sales.toDouble())).toList(),
+              isCurved: true, color: Colors.blue, barWidth: 3),
           LineChartBarData(
-            spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.orders.toDouble())).toList(),
-            isCurved: true,
-            color: Colors.green,
-            barWidth: 3,
-          )
+              spots: provider.comparisonData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.orders.toDouble())).toList(),
+              isCurved: true, color: Colors.green, barWidth: 3)
         ]
     );
   }
 
   Widget _legendItem(Color color, String text) {
-    return Row(children: [
-      Container(width: 12, height: 12, color: color),
-      const SizedBox(width: 8),
-      Text(text),
-    ]);
+    return Row(children: [ Container(width: 12, height: 12, color: color), const SizedBox(width: 8), Text(text) ]);
   }
 
   Widget _detailRow(String label, String value) {

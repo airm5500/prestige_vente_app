@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/api/models/bon_livraison.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
 import 'package:prestige_vente_app/api/models/rayon.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
+import 'package:prestige_vente_app/api/models/product_info.dart';
 
 class ApiService {
   late Dio _dio;
@@ -598,6 +599,61 @@ class ApiService {
     } catch (e) {
       print("Error fetching payment methods with QR: $e");
       return [];
+    }
+  }
+
+  // --- NOUVELLE LOGIQUE POUR RECHERCHE ARTICLE ---
+
+  // MODIFICATION : Renommée. C'est l'API pour l'écran Evaluation Vente
+  Future<ProductInfo?> getProductInfoForStats(String codeCip) async {
+    try {
+      final response = await _dio.get('/info', queryParameters: {'search': codeCip});
+      if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) {
+        return ProductInfo.fromJson(response.data[0]);
+      }
+      return null;
+    } catch (e) {
+      print("Error fetching product info for stats: $e");
+      return null;
+    }
+  }
+
+  // MODIFICATION : Nouvelle méthode pour la RECHERCHE RAPIDE (étape 1)
+  Future<List<ProductInfo>> searchProductInfoForSearch(String query) async {
+    try {
+      final response = await _dio.get(
+        '/info',
+        queryParameters: {'search': query},
+      );
+      if (response.statusCode == 200 && response.data is List) {
+        return (response.data as List)
+            .map((item) => ProductInfo.fromJson(item))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error in searchProductInfoForSearch: $e");
+      return [];
+    }
+  }
+
+  // MODIFICATION : Cette méthode charge maintenant les DETAILS (étape 2)
+  Future<ProductDetails?> getProductDetailsForSearch(String codeCip) async {
+    try {
+      final response = await _dio.get(
+        '/produit-search/fiche',
+        queryParameters: {'search_value': codeCip, 'page': 1, 'start': 0, 'limit': 1},
+      );
+      if (response.statusCode == 200 && response.data['results'] is List) {
+        final results = response.data['results'] as List;
+        if (results.isNotEmpty) {
+          return ProductDetails.fromJson(results.first);
+        }
+      }
+      return null;
+    } catch (e) {
+      print("Error in getProductDetailsForSearch: $e");
+      return null;
     }
   }
 
