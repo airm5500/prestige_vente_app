@@ -1,5 +1,5 @@
 // lib/api/models/bon_livraison_item.dart
-// 18/10/2025 15:57
+// 19/10/2025 03:00
 class BonLivraisonItem {
   final String id;
   final String produitId;
@@ -7,13 +7,13 @@ class BonLivraisonItem {
   final String cip;
   final int qteCommandee;
   final int qteRecue;
-  final int stockInitial;
+  final int stockInitial; // Ce champ contient lg_FAMILLE_QTE_STOCK
   final bool isChecked;
   final int checkedQuantity;
   final int prixAchat;
 
-  // Stock théorique avant ce pointage
-  int get stockTheorique => stockInitial + qteRecue;
+  // MODIFICATION : Le stock théorique EST le stockInitial (qui est lg_FAMILLE_QTE_STOCK)
+  int get stockTheorique => stockInitial;
 
   BonLivraisonItem({
     required this.id,
@@ -41,7 +41,7 @@ class BonLivraisonItem {
       cip: cipValue,
       qteCommandee: json['int_QTE_CMDE'] ?? 0,
       qteRecue: json['int_QTE_RECUE'] ?? 0,
-      stockInitial: json['lg_FAMILLE_QTE_STOCK'] ?? 0, // Utilisation de lg_FAMILLE_QTE_STOCK
+      stockInitial: json['lg_FAMILLE_QTE_STOCK'] ?? 0,
       isChecked: json['checked'] ?? false,
       checkedQuantity: json['checkedQuantity'] ?? 0,
       prixAchat: json['int_PA_REEL'] ?? 0,
