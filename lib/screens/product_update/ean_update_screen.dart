@@ -1,5 +1,5 @@
 // lib/screens/product_update/ean_update_screen.dart
-// 19/10/2025 00:50
+// 30/10/2025 00:00
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Import pour le filtre de saisie
@@ -22,6 +22,19 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
   final _eanFocusNode = FocusNode();
   final _formKey = GlobalKey<FormState>();
 
+  void _setupFocusNodeSelection(FocusNode node, TextEditingController controller) {
+    node.addListener(() {
+      if (node.hasFocus) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          controller.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: controller.text.length,
+          );
+        });
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +43,7 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     });
     _searchController.addListener(_onSearchChanged);
+    _setupFocusNodeSelection(_eanFocusNode, _eanController);
   }
 
   @override
@@ -125,6 +139,7 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
             subtitle: Text('CIP: ${product.intCIP} | Stock: ${product.intNUMBERAVAILABLE}'),
             onTap: () {
               _searchFocusNode.unfocus();
+              _eanController.clear();
               provider.selectProduct(product);
             },
           ),
@@ -135,9 +150,33 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
 
   Widget _buildUpdateForm(ProductUpdateProvider provider) {
     final product = provider.selectedProduct!;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) FocusScope.of(context).requestFocus(_eanFocusNode);
-    });
+    final details = provider.selectedProductDetails;
+
+    if (details != null && _eanController.text.isEmpty) {
+      if (details.intEan13.isNotEmpty && details.intEan13 != 'N/A') {
+        _eanController.text = details.intEan13;
+      }
+    }
+
+    // --- MODIFICATION : Logique d'affichage EAN ---
+    String eanDisplay = "";
+    if (provider.isLoading && details == null) {
+      // Cas 1 : Chargement des détails en cours
+      eanDisplay = ' (EAN Fabricant: ...)';
+    } else if (details != null && details.intEan13.isNotEmpty && details.intEan13 != 'N/A') {
+      // Cas 2 : Les détails sont chargés et l'EAN existe
+      eanDisplay = ' (EAN Fabricant: ${details.intEan13})';
+    }
+    // Cas 3 : Détails chargés mais pas d'EAN (eanDisplay reste "")
+    // --- FIN MODIFICATION ---
+
+
+    if (!provider.isLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) FocusScope.of(context).requestFocus(_eanFocusNode);
+      });
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Card(
@@ -155,13 +194,13 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
                     IconButton(icon: const Icon(Icons.close), onPressed: _resetForm),
                   ],
                 ),
-                Text('CIP: ${product.intCIP}'),
+                // MODIFICATION : Affichage du CIP + EAN
+                Text('CIP: ${product.intCIP}$eanDisplay'),
                 const Divider(height: 30),
                 TextFormField(
                   controller: _eanController,
                   focusNode: _eanFocusNode,
                   decoration: const InputDecoration(labelText: 'Code EAN Fabricant', prefixIcon: Icon(Icons.qr_code_scanner)),
-                  // MODIFICATION : Accepte uniquement les chiffres
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   textInputAction: TextInputAction.done,
@@ -169,6 +208,7 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
                   onFieldSubmitted: (_) => _submitForm(),
                 ),
                 const SizedBox(height: 24),
+
                 if(provider.isLoading)
                   const Center(child: CircularProgressIndicator())
                 else

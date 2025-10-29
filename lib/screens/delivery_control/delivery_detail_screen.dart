@@ -1,5 +1,5 @@
 // lib/screens/delivery_control/delivery_detail_screen.dart
-// 19/10/2025 00:52
+// 29/10/2025 22:55
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/commande_item.dart';
 import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
@@ -33,11 +33,27 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     final checkedQuantities = provider.checkedQuantities;
 
     for (var item in provider.items) {
-      _itemFocusNodes[item.id] = FocusNode();
       final savedQuantity = checkedQuantities[item.id];
-      _itemControllers[item.id] = TextEditingController(
+      // MODIFICATION : Le controller et le focus node sont créés en premier
+      final controller = TextEditingController(
         text: savedQuantity != null ? savedQuantity.toString() : '',
       );
+      final focusNode = FocusNode();
+
+      // MODIFICATION : Ajout du listener pour la pré-sélection
+      focusNode.addListener(() {
+        if (focusNode.hasFocus) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            controller.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: controller.text.length,
+            );
+          });
+        }
+      });
+
+      _itemFocusNodes[item.id] = focusNode;
+      _itemControllers[item.id] = controller;
     }
 
     _searchController.addListener(_filterList);

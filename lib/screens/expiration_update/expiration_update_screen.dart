@@ -1,5 +1,5 @@
 // lib/screens/expiration_update/expiration_update_screen.dart
-// 16/10/2025 00:30
+// 29/10/2025 22:55
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -28,6 +28,20 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   final _lotFocusNode = FocusNode();
   final _quantityFocusNode = FocusNode();
 
+  // MODIFICATION : Fonction helper pour ajouter le listener de sélection
+  void _setupFocusNodeSelection(FocusNode node, TextEditingController controller) {
+    node.addListener(() {
+      if (node.hasFocus) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          controller.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: controller.text.length,
+          );
+        });
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -35,6 +49,11 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     });
     _searchController.addListener(_onSearchChanged);
+
+    // MODIFICATION : Ajout des listeners pour la pré-sélection
+    _setupFocusNodeSelection(_dateFocusNode, _dateController);
+    _setupFocusNodeSelection(_lotFocusNode, _lotController);
+    _setupFocusNodeSelection(_quantityFocusNode, _quantityController);
   }
 
   @override
@@ -62,7 +81,6 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     _lotController.clear();
     _quantityController.text = '1';
 
-    // MODIFICATION : Le curseur retourne à la recherche ET sélectionne le texte
     FocusScope.of(context).requestFocus(_searchFocusNode);
     _searchController.selection = TextSelection(baseOffset: 0, extentOffset: _searchController.text.length);
   }
@@ -91,7 +109,6 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   }
 
   Future<void> _submitForm() async {
-    // On force la validation de tous les champs avant de soumettre
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
@@ -171,7 +188,6 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
             title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text('CIP: ${product.intCIP} | Prix: ${Constants.formatNumber(product.intPRICE)} | Stock: ${product.intNUMBERAVAILABLE}'),
             onTap: () {
-              // MODIFICATION : On retire le focus AVANT de changer l'UI
               _searchFocusNode.unfocus();
               provider.selectProduct(product);
             },
@@ -184,7 +200,6 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   Widget _buildUpdateForm(ExpirationUpdateProvider provider) {
     final product = provider.selectedProduct!;
 
-    // MODIFICATION : On demande le focus APRES que le widget soit construit
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         FocusScope.of(context).requestFocus(_dateFocusNode);
@@ -223,7 +238,6 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                     return null;
                   },
                   onFieldSubmitted: (_) {
-                    // MODIFICATION : On valide avant de passer au suivant
                     if (_formKey.currentState?.validate() ?? false) {
                       FocusScope.of(context).requestFocus(_lotFocusNode);
                     }

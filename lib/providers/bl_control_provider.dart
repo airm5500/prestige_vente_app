@@ -1,5 +1,5 @@
 // lib/providers/bl_control_provider.dart
-// 18/10/2025 16:41
+// 19/10/2025 03:01
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison.dart';
@@ -26,6 +26,14 @@ class BlControlProvider with ChangeNotifier {
   BonLivraison? get selectedBonLivraison => _selectedBonLivraison;
   List<BonLivraisonItem> get items => _items;
   Map<String, int> get checkedQuantities => _selectedBonLivraison != null ? _checkedQuantitiesPerBl[_selectedBonLivraison!.id] ?? {} : {};
+
+  // MODIFICATION : Getter pour la liste unique des emplacements
+  List<String> get emplacements {
+    if (_items.isEmpty) return [];
+    final allEmplacements = _items.map((item) => item.zoneGeoName).toSet();
+    return allEmplacements.toList()..sort();
+  }
+
   bool get isCurrentBlCompleted { if (_selectedBonLivraison == null) return false; if (_selectedBonLivraison!.statutTraitement == "TERMINE") return true; if (_items.isEmpty) return false; return checkedQuantities.length == _items.length; }
 
   BonLivraison _findBl(String blId) {
@@ -49,13 +57,14 @@ class BlControlProvider with ChangeNotifier {
 
     notifyListeners();
 
-    // MODIFICATION : On récupère directement la liste filtrée par le serveur.
-    // Le filtre ".where(...)" a été supprimé.
-    _bonsLivraison = await _apiService.getBonsLivraison(
+    final allBLs = await _apiService.getBonsLivraison(
       query: _currentBlQuery,
       dtStart: _currentBlDtStart,
       dtEnd: _currentBlDtEnd,
     );
+
+    //_bonsLivraison = allBLs.where((bl) => bl.strStatut == "enable").toList();
+    _bonsLivraison = allBLs;
 
     _isLoading = false;
     notifyListeners();

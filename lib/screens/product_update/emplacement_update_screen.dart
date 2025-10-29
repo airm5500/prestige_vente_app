@@ -1,5 +1,5 @@
 // lib/screens/product_update/emplacement_update_screen.dart
-// 19/10/2025 02:10
+// 29/10/2025 22:55
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/rayon.dart';
@@ -22,6 +22,20 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> {
   String? _selectedRayonId;
   final _rayonFocusNode = FocusNode();
 
+  // MODIFICATION : Fonction helper pour ajouter le listener de sélection
+  void _setupFocusNodeSelection(FocusNode node, TextEditingController controller) {
+    node.addListener(() {
+      if (node.hasFocus) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          controller.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: controller.text.length,
+          );
+        });
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -32,6 +46,9 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     });
     _searchController.addListener(_onSearchChanged);
+
+    // MODIFICATION : Ajout du listener pour la pré-sélection
+    _setupFocusNodeSelection(_rayonFocusNode, _rayonController);
   }
 
   @override
@@ -57,7 +74,6 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> {
   }
 
   Future<void> _submitForm() async {
-    // Si l'utilisateur a tapé le nom exact, on cherche l'ID
     if (_selectedRayonId == null) {
       final provider = Provider.of<ProductUpdateProvider>(context, listen: false);
       final text = _rayonController.text.toLowerCase().trim();
@@ -154,7 +170,6 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> {
   Widget _buildUpdateForm(ProductUpdateProvider provider) {
     final product = provider.selectedProduct!;
 
-    // Demande de focus après la construction du widget
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) FocusScope.of(context).requestFocus(_rayonFocusNode);
     });
@@ -181,32 +196,27 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> {
                   style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.black54),
                 ),
                 const Divider(height: 30),
-
-                // MODIFICATION : Remplacement par DropdownMenu
                 DropdownMenu<Rayon>(
                   controller: _rayonController,
                   focusNode: _rayonFocusNode,
                   label: const Text('Nouvel Emplacement'),
                   expandedInsets: EdgeInsets.zero,
-                  enableFilter: true, // Active la recherche/filtrage
-                  requestFocusOnTap: true, // Permet de taper sans ouvrir la liste
-                  // Crée les entrées de la liste
+                  enableFilter: true,
+                  requestFocusOnTap: true,
                   dropdownMenuEntries: provider.rayons.map((Rayon rayon) {
                     return DropdownMenuEntry<Rayon>(
                       value: rayon,
                       label: rayon.libelle,
                     );
                   }).toList(),
-                  // Quand un item est sélectionné
                   onSelected: (Rayon? rayon) {
                     if (rayon != null) {
                       _selectedRayonId = rayon.id;
                       _rayonController.text = rayon.libelle;
-                      _submitForm(); // On valide directement
+                      _submitForm();
                     }
                   },
                 ),
-
                 const SizedBox(height: 24),
                 if(provider.isLoading)
                   const Center(child: CircularProgressIndicator())

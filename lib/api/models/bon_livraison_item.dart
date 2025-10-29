@@ -7,12 +7,14 @@ class BonLivraisonItem {
   final String cip;
   final int qteCommandee;
   final int qteRecue;
-  final int stockInitial; // Ce champ contient lg_FAMILLE_QTE_STOCK
+  final int stockInitial;
   final bool isChecked;
   final int checkedQuantity;
   final int prixAchat;
+  // AJOUTS
+  final int prixVente;
+  final String zoneGeoName;
 
-  // MODIFICATION : Le stock théorique EST le stockInitial (qui est lg_FAMILLE_QTE_STOCK)
   int get stockTheorique => stockInitial;
 
   BonLivraisonItem({
@@ -26,6 +28,8 @@ class BonLivraisonItem {
     required this.isChecked,
     required this.checkedQuantity,
     required this.prixAchat,
+    required this.prixVente,
+    required this.zoneGeoName,
   });
 
   factory BonLivraisonItem.fromJson(Map<String, dynamic> json) {
@@ -45,6 +49,9 @@ class BonLivraisonItem {
       isChecked: json['checked'] ?? false,
       checkedQuantity: json['checkedQuantity'] ?? 0,
       prixAchat: json['int_PA_REEL'] ?? 0,
+      // AJOUTS
+      prixVente: json['int_PRIX_VENTE'] ?? 0,
+      zoneGeoName: json['lg_ZONE_GEO_NAME'] ?? 'Non défini',
     );
   }
 }
