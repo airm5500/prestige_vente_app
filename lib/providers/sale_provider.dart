@@ -1,5 +1,5 @@
 // lib/providers/sale_provider.dart
-// 20/10/2025 01:40
+// 30/10/2025 00:15
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -60,8 +60,13 @@ class SaleProvider with ChangeNotifier {
       _preventes.clear();
       notifyListeners();
 
+      // 1. On récupère toutes les préventes "is_Process"
       List<PreventeListItem> fetchedPreventes = await _apiService.getPreventes();
 
+      // 2. MODIFICATION : On filtre localement pour ne garder que le type "1"
+      fetchedPreventes = fetchedPreventes.where((p) => p.lgTYPEVENTEID == "1").toList();
+
+      // 3. On continue avec la liste filtrée
       final uniquePreventesMap = <String, PreventeListItem>{};
       for (final prevente in fetchedPreventes) {
         uniquePreventesMap.putIfAbsent(prevente.lgPREENREGISTREMENTID, () => prevente);

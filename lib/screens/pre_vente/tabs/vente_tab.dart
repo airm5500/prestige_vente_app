@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 20/10/2025 02:40
+// 30/10/2025 00:30
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -80,7 +80,6 @@ class _VenteTabState extends State<VenteTab> {
     );
   }
 
-  // MODIFICATION : Cette fonction prend maintenant la popup d'impression en paramètre
   Future<void> _showQrCodeDialog(PaymentMethodQr method, SaleSummary summary, User currentUser) async {
     await showDialog(
       context: context,
@@ -106,8 +105,7 @@ class _VenteTabState extends State<VenteTab> {
             ElevatedButton(
               child: const Text("OK"),
               onPressed: () {
-                Navigator.of(ctx).pop(); // Ferme cette popup
-                // On déclenche la popup d'impression SEULEMENT APRÈS le clic sur OK
+                Navigator.of(ctx).pop();
                 _showPrintDialog(
                     isPrevente: false,
                     paymentMethod: PaymentMethod(id: method.id, name: method.name),
@@ -171,12 +169,9 @@ class _VenteTabState extends State<VenteTab> {
                         qrMethod = null;
                       }
 
-                      // MODIFICATION : Le flux est corrigé
                       if (qrMethod != null && qrMethod.qrCode != null) {
-                        // Si QR code, on l'affiche. Il appellera _showPrintDialog en cliquant sur OK.
                         await _showQrCodeDialog(qrMethod, saleProvider.saleSummary, currentUser);
                       } else {
-                        // Si pas de QR code, on affiche directement la popup d'impression.
                         _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
                       }
 
@@ -280,14 +275,54 @@ class _VenteTabState extends State<VenteTab> {
                     itemCount: saleProvider.searchResults.length,
                     itemBuilder: (context, index) {
                       final product = saleProvider.searchResults[index];
+
+                      // --- DÉBUT DE LA MODIFICATION ---
                       return Card(
                         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         child: ListTile(
                           title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('CIP: ${product.intCIP} | Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'),
+
+                          // Utilisation de RichText pour des styles multiples
+                          subtitle: RichText(
+                            text: TextSpan(
+                              // Style par défaut du subtitle
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
+                              children: [
+                                TextSpan(text: 'CIP: ${product.intCIP} | Stock: '),
+
+                                // 2. Stock en bleu
+                                TextSpan(
+                                  text: product.intNUMBERAVAILABLE.toString(),
+                                  style: const TextStyle(
+                                    color: AppColors.secondary, // Bleu
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+
+                                TextSpan(text: ' | Prix: '),
+
+                                // 3. Prix en gras
+                                TextSpan(
+                                  text: Constants.formatNumber(product.intPRICE),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black, // Plus visible
+                                  ),
+                                ),
+
+                                // 1. Ajout de l'emplacement (strLIBELLEE)
+                                if (product.strLIBELLEE.isNotEmpty)
+                                  TextSpan(
+                                    text: ' (${product.strLIBELLEE})',
+                                    style: const TextStyle(fontStyle: FontStyle.italic),
+                                  ),
+                              ],
+                            ),
+                          ),
                           onTap: () => _showQuantityDialog(product),
                         ),
                       );
+                      // --- FIN DE LA MODIFICATION ---
                     },
                   ),
                 ),

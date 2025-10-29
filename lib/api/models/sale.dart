@@ -1,5 +1,5 @@
 // lib/api/models/sale.dart
-// 28/09/2025 03:40
+// 30/10/2025 00:15
 class SaleItemDetail {
   final String lgPREENREGISTREMENTDETAILID;
   final String lgFAMILLEID;
@@ -32,7 +32,6 @@ class SaleItemDetail {
   }
 }
 
-// CORRECTION : Ajout de tous les champs renvoyés par l'API net/vno
 class SaleSummary {
   final int montant;
   final int remise;
@@ -66,7 +65,6 @@ class SaleSummary {
     );
   }
 
-  // Méthode pour convertir l'objet en JSON pour la requête de clôture
   Map<String, dynamic> toJson() {
     return {
       'montant': montant,
@@ -86,6 +84,8 @@ class PreventeListItem {
   final int intPRICE;
   final String strREF;
   final String userFullName;
+  // MODIFICATION : Ajout du champ pour le filtre
+  final String lgTYPEVENTEID;
 
   PreventeListItem({
     required this.lgPREENREGISTREMENTID,
@@ -94,6 +94,8 @@ class PreventeListItem {
     required this.intPRICE,
     required this.strREF,
     required this.userFullName,
+    // MODIFICATION : Ajout au constructeur
+    required this.lgTYPEVENTEID,
   });
 
   factory PreventeListItem.fromJson(Map<String, dynamic> json) {
@@ -104,6 +106,8 @@ class PreventeListItem {
       intPRICE: json['intPRICE'] ?? 0,
       strREF: json['strREF'] ?? '',
       userFullName: json['userFullName'] ?? '',
+      // MODIFICATION : Lecture du champ depuis l'API
+      lgTYPEVENTEID: json['lgTYPEVENTEID'] ?? '',
     );
   }
 }
@@ -116,7 +120,6 @@ class PaymentMethod {
 
   factory PaymentMethod.fromJson(Map<String, dynamic> json) {
     return PaymentMethod(
-      // On utilise "lgTYPEREGLEMENTID" comme ID
       id: json['lgTYPEREGLEMENTID'] ?? '',
       name: json['strNAME'] ?? '',
     );
