@@ -1,5 +1,5 @@
 // lib/providers/settings_provider.dart
-// 19/10/2025 00:50
+// 30/10/2025 01:30
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
@@ -18,6 +18,13 @@ class SettingsProvider with ChangeNotifier {
   static const String _showQrCodeOnSaleTicketKey = 'show_qr_code_on_sale_ticket';
   static const String _canEditDeliveryControlKey = 'can_edit_delivery_control';
   static const String _canEditBlControlKey = 'can_edit_bl_control';
+  // MODIFICATION (Point 1)
+  static const String _enabledPaymentMethodIdsKey = 'enabled_payment_method_ids';
+  // MODIFICATION (Point 2)
+  static const String _numberOfTicketsKey = 'number_of_tickets';
+  // MODIFICATION (Point 3)
+  static const String _ticketCodeTypeKey = 'ticket_code_type'; // 'QR_CODE' ou 'BARCODE'
+
 
   String _localIp = '';
   String _remoteIp = '';
@@ -31,6 +38,13 @@ class SettingsProvider with ChangeNotifier {
   bool _showQrCodeOnSaleTicket = true;
   bool _canEditDeliveryControl = true;
   bool _canEditBlControl = true;
+  // MODIFICATION (Point 1)
+  List<String> _enabledPaymentMethodIds = [];
+  // MODIFICATION (Point 2)
+  int _numberOfTickets = 1;
+  // MODIFICATION (Point 3)
+  String _ticketCodeType = 'QR_CODE';
+
 
   String get localIp => _localIp;
   String get remoteIp => _remoteIp;
@@ -44,6 +58,13 @@ class SettingsProvider with ChangeNotifier {
   bool get showQrCodeOnSaleTicket => _showQrCodeOnSaleTicket;
   bool get canEditDeliveryControl => _canEditDeliveryControl;
   bool get canEditBlControl => _canEditBlControl;
+  // MODIFICATION (Point 1)
+  List<String> get enabledPaymentMethodIds => _enabledPaymentMethodIds;
+  // MODIFICATION (Point 2)
+  int get numberOfTickets => _numberOfTickets;
+  // MODIFICATION (Point 3)
+  String get ticketCodeType => _ticketCodeType;
+
 
   String get baseUrl {
     final ip = _isRemote ? _remoteIp : _localIp;
@@ -67,6 +88,43 @@ class SettingsProvider with ChangeNotifier {
     _showQrCodeOnSaleTicket = prefs.getBool(_showQrCodeOnSaleTicketKey) ?? true;
     _canEditDeliveryControl = prefs.getBool(_canEditDeliveryControlKey) ?? true;
     _canEditBlControl = prefs.getBool(_canEditBlControlKey) ?? true;
+    // MODIFICATION (Point 1)
+    _enabledPaymentMethodIds = prefs.getStringList(_enabledPaymentMethodIdsKey) ?? [];
+    // MODIFICATION (Point 2)
+    _numberOfTickets = prefs.getInt(_numberOfTicketsKey) ?? 1;
+    // MODIFICATION (Point 3)
+    _ticketCodeType = prefs.getString(_ticketCodeTypeKey) ?? 'QR_CODE';
+
+    notifyListeners();
+  }
+
+  // MODIFICATION (Point 1)
+  Future<void> togglePaymentMethod(String methodId, bool isEnabled) async {
+    if (isEnabled) {
+      if (!_enabledPaymentMethodIds.contains(methodId)) {
+        _enabledPaymentMethodIds.add(methodId);
+      }
+    } else {
+      _enabledPaymentMethodIds.remove(methodId);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_enabledPaymentMethodIdsKey, _enabledPaymentMethodIds);
+    notifyListeners();
+  }
+
+  // MODIFICATION (Point 2)
+  Future<void> setNumberOfTickets(int count) async {
+    _numberOfTickets = count;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_numberOfTicketsKey, _numberOfTickets);
+    notifyListeners();
+  }
+
+  // MODIFICATION (Point 3)
+  Future<void> setTicketCodeType(String codeType) async {
+    _ticketCodeType = codeType;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_ticketCodeTypeKey, _ticketCodeType);
     notifyListeners();
   }
 

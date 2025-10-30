@@ -1,7 +1,8 @@
 // lib/screens/auth/qr_code_preview_screen.dart
-// 20/10/2025 02:40
+// 30/10/2025 01:30
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart'; // MODIFICATION
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 
@@ -13,12 +14,12 @@ class QrCodePreviewScreen extends StatelessWidget {
     // On récupère la liste complète
     final allPaymentMethods = Provider.of<SaleProvider>(context, listen: false).paymentMethodsWithQr;
 
-    // MODIFICATION : On définit les noms autorisés
-    const allowedNames = {'ORANGE', 'WAVE', 'MTN', 'MOOV', 'Carte Bancaire'};
+    // MODIFICATION (Point 1) : On récupère les IDs activés dans les settings
+    final enabledIds = Provider.of<SettingsProvider>(context).enabledPaymentMethodIds;
 
-    // MODIFICATION : On filtre la liste
+    // MODIFICATION : On filtre la liste basée sur les IDs activés
     final filteredMethods = allPaymentMethods
-        .where((method) => allowedNames.contains(method.name))
+        .where((method) => enabledIds.contains(method.id))
         .toList();
 
     return Scaffold(
