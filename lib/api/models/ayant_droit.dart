@@ -1,5 +1,7 @@
 // lib/api/models/ayant_droit.dart
-// 02/11/2025 15:20
+// 05/11/2025 02:10 (Corrigé)
+import 'package:flutter/foundation.dart'; // Import pour @override
+
 class AyantDroit {
   final String lgAYANTSDROITSID;
   final String lgCLIENTID;
@@ -33,4 +35,17 @@ class AyantDroit {
       dtNAISSANCE: json['dtNAISSANCE'],
     );
   }
+
+  // MODIFICATION (Correction Erreur Point 4)
+  // Permet au DropdownButton de comparer les instances
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+
+    return other is AyantDroit &&
+        other.lgAYANTSDROITSID == lgAYANTSDROITSID;
+  }
+
+  @override
+  int get hashCode => lgAYANTSDROITSID.hashCode;
 }

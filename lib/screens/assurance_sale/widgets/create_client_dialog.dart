@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/create_client_dialog.dart
-// 02/11/2025 15:35
+// 05/11/2025 18:05 (Corrigé)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,10 +21,27 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
   final _prenomController = TextEditingController();
   final _matriculeController = TextEditingController();
   final _pourcentageController = TextEditingController();
-  final _assuranceController = TextEditingController();
+
+  final _assuranceTextController = TextEditingController();
+
+  final _nomFocusNode = FocusNode();
+  final _prenomFocusNode = FocusNode();
+  final _matriculeFocusNode = FocusNode();
+  final _assuranceFocusNode = FocusNode();
+  final _pourcentageFocusNode = FocusNode();
 
   TiersPayantAssurance? _selectedTiersPayant;
+
+  bool _isSubmitting = false;
   Timer? _debounce;
+
+  // MODIFICATION : Ajout du listener de recherche
+  @override
+  void initState() {
+    super.initState();
+    // Ajoute un listener au controller de texte
+    _assuranceTextController.addListener(_onAssuranceSearchChanged);
+  }
 
   @override
   void dispose() {
@@ -32,134 +49,199 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
     _prenomController.dispose();
     _matriculeController.dispose();
     _pourcentageController.dispose();
-    _assuranceController.dispose();
+    _assuranceTextController.removeListener(_onAssuranceSearchChanged); // Nettoyer
+    _assuranceTextController.dispose();
+    _nomFocusNode.dispose();
+    _prenomFocusNode.dispose();
+    _matriculeFocusNode.dispose();
+    _assuranceFocusNode.dispose();
+    _pourcentageFocusNode.dispose();
     _debounce?.cancel();
     super.dispose();
   }
 
-  void _onAssuranceSearchChanged(AssuranceSaleProvider provider) {
+  // MODIFICATION : Appel au provider via le listener
+  void _onAssuranceSearchChanged() {
+    final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      provider.searchTiersPayantAssurance(_assuranceController.text);
+      final query = _assuranceTextController.text;
+      if (query.length >= 3) {
+        provider.searchTiersPayantAssurance(query);
+      } else {
+        provider.searchTiersPayantAssurance(""); // Vide la liste si moins de 3 chars
+      }
     });
+
+    // Si l'utilisateur change le texte, invalide la sélection
+    if (_assuranceTextController.text != _selectedTiersPayant?.strFULLNAME) {
+      _selectedTiersPayant = null;
+    }
   }
 
   Future<void> _submit() async {
+    if (_isSubmitting) return;
+
+    // Validation du formulaire
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
-    if (_selectedTiersPayant == null) {
-      Constants.showSnackBar(context, "Veuillez sélectionner une assurance.", isError: true);
+
+    // Vérification manuelle de la sélection
+    if (_selectedTiersPayant == null || _assuranceTextController.text != _selectedTiersPayant!.strFULLNAME) {
+      Constants.showSnackBar(context, "Veuillez sélectionner une assurance valide dans la liste.", isError: true);
+      _assuranceFocusNode.requestFocus();
       return;
     }
 
-    final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-    final success = await provider.createClient(
-      _prenomController.text.trim(),
-      _nomController.text.trim(),
-      _matriculeController.text.trim(),
-      _selectedTiersPayant!,
-      int.tryParse(_pourcentageController.text) ?? 0,
-    );
+    setState(() { _isSubmitting = true; });
 
-    if (mounted && success) {
-      Navigator.of(context).pop(); // Ferme le dialogue
+    final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
+
+    try {
+      // Rappel : strFIRSTNAME = Nom, strLASTNAME = Prénom(s)
+      final success = await provider.createClient(
+        _nomController.text.trim(),      // Nom -> strFIRSTNAME
+        _prenomController.text.trim(), // Prénom(s) -> strLASTNAME
+        _matriculeController.text.trim(),
+        _selectedTiersPayant!,
+        int.tryParse(_pourcentageController.text) ?? 0,
+      );
+
+      if (mounted && success) {
+        Navigator.of(context).pop(); // Ferme le dialogue
+      }
+    } catch (e) {
+      if(mounted) {
+        Constants.showSnackBar(context, "Erreur: $e", isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() { _isSubmitting = false; });
+      }
     }
-    // L'erreur est gérée par le provider et affichée sur l'écran principal
   }
 
   @override
   Widget build(BuildContext context) {
-    // Utilise Consumer pour accéder au provider et reconstruire si la liste de TP change
-    return Consumer<AssuranceSaleProvider>(
-      builder: (context, provider, child) {
-        return AlertDialog(
-          title: const Text('Créer un Client Assurance'),
-          content: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: _nomController,
-                    decoration: const InputDecoration(labelText: 'Nom *'),
-                    validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
-                  ),
-                  TextFormField(
-                    controller: _prenomController,
-                    decoration: const InputDecoration(labelText: 'Prénom(s)'),
-                  ),
-                  TextFormField(
-                    controller: _matriculeController,
-                    decoration: const InputDecoration(labelText: 'Matricule *'),
-                    validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  // Autocomplete pour la recherche de Tiers Payant
-                  Autocomplete<TiersPayantAssurance>(
-                    fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                      _assuranceController.text = textEditingController.text;
-                      _onAssuranceSearchChanged(provider);
-                      return TextFormField(
-                        controller: textEditingController,
-                        focusNode: focusNode,
-                        decoration: const InputDecoration(
-                          labelText: 'Rechercher Assurance *',
-                        ),
-                        onChanged: (_) => _onAssuranceSearchChanged(provider),
-                        validator: (_) => _selectedTiersPayant == null ? 'Veuillez sélectionner une assurance' : null,
-                      );
-                    },
-                    optionsBuilder: (TextEditingValue textEditingValue) {
-                      if (textEditingValue.text == '') {
-                        return const Iterable<TiersPayantAssurance>.empty();
-                      }
-                      return provider.tiersPayantSearchResults.where((tp) => tp
-                          .strFULLNAME
-                          .toLowerCase()
-                          .contains(textEditingValue.text.toLowerCase()));
-                    },
-                    displayStringForOption: (TiersPayantAssurance option) => option.strFULLNAME,
-                    onSelected: (TiersPayantAssurance selection) {
-                      setState(() {
-                        _selectedTiersPayant = selection;
-                      });
-                      // Met à jour le texte pour l'utilisateur
-                      _assuranceController.text = selection.strFULLNAME;
-                    },
-                  ),
-                  TextFormField(
-                    controller: _pourcentageController,
-                    decoration: const InputDecoration(labelText: 'Pourcentage % *'),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    validator: (val) {
-                      if (val?.isEmpty ?? true) return 'Requis';
-                      final int? p = int.tryParse(val!);
-                      if (p == null || p <= 0 || p > 100) {
-                        return 'Invalide (1-100)';
-                      }
-                      return null;
-                    },
-                  ),
-                ],
+
+    return AlertDialog(
+      title: const Text('Créer un Client Assurance'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _nomController, // Le Nom (strFIRSTNAME)
+                focusNode: _nomFocusNode,
+                decoration: const InputDecoration(labelText: 'Nom *'),
+                validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
+                textInputAction: TextInputAction.next,
+                onFieldSubmitted: (_) => FocusScope.of(context).requestFocus(_prenomFocusNode),
               ),
-            ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _prenomController, // Le Prénom (strLASTNAME)
+                focusNode: _prenomFocusNode,
+                decoration: const InputDecoration(labelText: 'Prénom(s) *'),
+                validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
+                textInputAction: TextInputAction.next,
+                onFieldSubmitted: (_) => FocusScope.of(context).requestFocus(_matriculeFocusNode),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _matriculeController,
+                focusNode: _matriculeFocusNode,
+                decoration: const InputDecoration(labelText: 'Matricule *'),
+                validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
+                textInputAction: TextInputAction.next,
+                onFieldSubmitted: (_) => FocusScope.of(context).requestFocus(_assuranceFocusNode),
+              ),
+              const SizedBox(height: 16),
+
+              // MODIFICATION : Remplacement par DropdownMenu
+              // Il a besoin d'un Consumer pour mettre à jour sa liste
+              Consumer<AssuranceSaleProvider>(
+                  builder: (context, provider, child) {
+                    return DropdownMenu<TiersPayantAssurance>(
+                      // Utilise notre controller pour la saisie de texte
+                      controller: _assuranceTextController,
+                      focusNode: _assuranceFocusNode,
+                      label: const Text('Rechercher Assurance *'),
+                      // Occupe toute la largeur
+                      expandedInsets: EdgeInsets.zero,
+                      // Permet la saisie
+                      enableFilter: true,
+                      // Affiche le menu de recherche
+                      enableSearch: true,
+
+                      // Construit la liste des résultats depuis le provider
+                      dropdownMenuEntries: provider.tiersPayantSearchResults.map((tp) {
+                        return DropdownMenuEntry<TiersPayantAssurance>(
+                          value: tp,
+                          label: tp.strFULLNAME,
+                        );
+                      }).toList(),
+
+                      // Quand un item est sélectionné
+                      onSelected: (TiersPayantAssurance? selection) {
+                        _selectedTiersPayant = selection;
+                        // Règle le texte du champ
+                        _assuranceTextController.text = selection?.strFULLNAME ?? "";
+                        FocusScope.of(context).requestFocus(_pourcentageFocusNode);
+                      },
+
+                      // Validateur
+                  //    inputDecorationTheme: InputDecorationTheme(
+                  //      errorText: (_selectedTiersPayant == null && _assuranceTextController.text.isNotEmpty)
+                  //          ? 'Veuillez sélectionner dans la liste'
+                  //          : null,
+                  //    ),
+                    );
+                  }
+              ),
+              // FIN MODIFICATION
+
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _pourcentageController,
+                focusNode: _pourcentageFocusNode,
+                decoration: const InputDecoration(labelText: 'Pourcentage % *'),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _submit(),
+                validator: (val) {
+                  if (val?.isEmpty ?? true) return 'Requis';
+                  final int? p = int.tryParse(val!);
+                  if (p == null || p <= 0 || p > 100) {
+                    return 'Invalide (1-100)';
+                  }
+                  return null;
+                },
+              ),
+            ],
           ),
-          actions: [
-            if (provider.isLoading) const CircularProgressIndicator(),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: provider.isLoading ? null : _submit,
-              child: const Text('Valider'),
-            ),
-          ],
-        );
-      },
+        ),
+      ),
+      actions: [
+        if (_isSubmitting)
+          const Padding(
+            padding: EdgeInsets.all(8.0),
+            child: CircularProgressIndicator(),
+          )
+        else
+          ElevatedButton(
+            onPressed: _submit,
+            child: const Text('Valider'),
+          ),
+        TextButton(
+          onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
+      ],
     );
   }
 }

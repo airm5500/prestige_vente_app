@@ -1,5 +1,5 @@
 // lib/screens/auth/settings_screen.dart
-// 30/10/2025 00:45
+// 05/11/2025 00:30 (Corrigé)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:provider/provider.dart';
@@ -83,39 +83,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // MODIFICATION (Point 1) : Fonction qui ouvre le Pop-up
   void _showPaymentMethodDialog() {
     final settings = Provider.of<SettingsProvider>(context, listen: false);
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
 
-    // On récupère tous les modes de paiement chargés
     final allMethods = saleProvider.paymentMethodsWithQr;
 
     showDialog(
       context: context,
       builder: (ctx) {
-        // StatefulBuilder est nécessaire pour que les Checkbox se mettent à jour
-        // à l'intérieur du pop-up (qui est un widget "stateless" à la base)
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
             return AlertDialog(
               title: const Text('Gérer les modes de paiement'),
               content: SizedBox(
                 width: double.maxFinite,
-                // Utilise SingleChildScrollView si la liste est longue
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: allMethods.map((PaymentMethodQr method) {
                       return CheckboxListTile(
                         title: Text(method.name),
-                        // On lit l'état actuel depuis le provider
                         value: settings.enabledPaymentMethodIds.contains(method.id),
                         onChanged: (bool? value) {
                           if (value != null) {
-                            // 1. On met à jour le provider (sauvegarde)
                             settings.togglePaymentMethod(method.id, value);
-                            // 2. On rafraîchit l'UI du pop-up
                             setDialogState(() {});
                           }
                         },
@@ -175,22 +167,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 10),
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Nombre de tickets (Vente)", style: TextStyle(fontSize: 16))), SizedBox( width: 80, child: DropdownButtonFormField<int>( value: settings.numberOfTickets, items: [1, 2, 3].map((int value) => DropdownMenuItem<int>(value: value, child: Text(value.toString()))).toList(), onChanged: (value) { if(value != null) settings.setNumberOfTickets(value); }, decoration: const InputDecoration(isDense: true), ), ) ], ),
                       const SizedBox(height: 10),
+
+                      // MODIFICATION (Point 7)
+                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Nombre de tickets (Assurance)", style: TextStyle(fontSize: 16))), SizedBox( width: 80, child: DropdownButtonFormField<int>( value: settings.numberOfTicketsAssurance, items: [1, 2, 3].map((int value) => DropdownMenuItem<int>(value: value, child: Text(value.toString()))).toList(), onChanged: (value) { if(value != null) settings.setNumberOfTicketsAssurance(value); }, decoration: const InputDecoration(isDense: true), ), ) ], ),
+                      const SizedBox(height: 10),
+
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Text("Type de code ticket", style: TextStyle(fontSize: 16)), ToggleButtons( isSelected: [ settings.ticketCodeType == 'QR_CODE', settings.ticketCodeType == 'BARCODE' ], onPressed: (index) { settings.setTicketCodeType(index == 0 ? 'QR_CODE' : 'BARCODE'); }, borderRadius: BorderRadius.circular(8), children: const [ Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('QR Code')), Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Code-barres')) ], ), ], ),
 
                       const Divider(height: 30),
 
-                      Text('Droits', style: Theme.of(context).textTheme.titleLarge),
+                      Text('Droits & Limites', style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 10),
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Modifier Contrôle Livraison", style: TextStyle(fontSize: 16))), Switch( value: settings.canEditDeliveryControl, onChanged: (value) { settings.setCanEditDeliveryControl(value); } ), ], ),
                       const SizedBox(height: 10),
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Modifier Pointage BL", style: TextStyle(fontSize: 16))), Switch( value: settings.canEditBlControl, onChanged: (value) { settings.setCanEditBlControl(value); } ), ], ),
+                      const SizedBox(height: 10),
+
+                      // MODIFICATION (Point 4 & 5)
+                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Max Tiers Payants (Assurance)", style: TextStyle(fontSize: 16))), SizedBox( width: 80, child: DropdownButtonFormField<int>( value: settings.maxTiersPayants, items: [1, 2, 3].map((int value) => DropdownMenuItem<int>(value: value, child: Text(value.toString()))).toList(), onChanged: (value) { if(value != null) settings.setMaxTiersPayants(value); }, decoration: const InputDecoration(isDense: true), ), ) ], ),
+
 
                       const Divider(height: 30),
 
                       Text('Modes de Paiement', style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 10),
 
-                      // MODIFICATION (Point 1) : Remplacement de la liste par des boutons
                       _buildPaymentSettingsButtons(settings),
 
                       const SizedBox(height: 20),
@@ -216,7 +217,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildIpField({ required TextEditingController controller, required String label, required bool isRequired}) { return Row( children: [ Expanded( child: TextFormField( controller: controller, decoration: InputDecoration(labelText: label), keyboardType: TextInputType.phone, validator: (value) { if (isRequired && value!.isEmpty) { return 'Ce champ est requis'; } return null; }, ), ), const SizedBox(width: 10), IconButton( icon: const Icon(Icons.network_ping, color: AppColors.secondary), onPressed: () => _onPing( controller.text, _portController.text, _appNameController.text), tooltip: 'Tester la connexion', ), ], ); }
 
-  // MODIFICATION (Point 1) : Nouveau widget pour les boutons
   Widget _buildPaymentSettingsButtons(SettingsProvider settings) {
     if (_isLoadingPaymentMethods) {
       return const Center(child: CircularProgressIndicator());
@@ -229,14 +229,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. Bouton pour ouvrir le Pop-up
         OutlinedButton.icon(
           icon: const Icon(Icons.credit_card),
           label: const Text("Gérer les modes de paiement"),
           onPressed: _showPaymentMethodDialog,
         ),
         const SizedBox(height: 8),
-        // 2. Bouton pour l'aperçu (gardé)
         OutlinedButton.icon(
           icon: const Icon(Icons.qr_code_2),
           label: const Text("Aperçu des QR Codes de Paiement"),

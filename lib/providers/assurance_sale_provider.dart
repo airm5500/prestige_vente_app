@@ -1,5 +1,5 @@
 // lib/providers/assurance_sale_provider.dart
-// 02/11/2025 15:50 (Corrigé)
+// 05/11/2025 18:50 (Corrigé)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
@@ -9,45 +9,50 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 
-// Les étapes du processus de vente assurance
 enum AssuranceStep {
-  clientSearch, // Étape 1: Recherche/Création Client
-  bonAndAyantDroit, // Étape 2: Saisie des N° de bon / Choix Ayant Droit
-  productSearch // Étape 3: Ajout des produits
+  clientSearch,
+  bonAndAyantDroit,
+  productSearch
 }
+
+class ActiveTiersPayant {
+  ClientTiersPayant originalData;
+  int taux;
+
+  ActiveTiersPayant({required this.originalData, required this.taux});
+
+  String get compteTp => originalData.compteTp;
+  String get tpFullName => originalData.tpFullName;
+  String get numSecurity => originalData.numSecurity;
+}
+
 
 class AssuranceSaleProvider with ChangeNotifier {
   final ApiService _apiService;
-  final String _authenticatedUserId; // ID de l'utilisateur connecté
+  final String _authenticatedUserId;
 
-  // --- IDs Statiques (selon vos spécifications) ---
-  static const String _natureVenteId = "1"; // PRESCRIPTION
-  static const String _typeVenteId = "2"; // ASSURANCE_MUTUELLE
+  static const String _natureVenteId = "1";
+  static const String _typeVenteId = "2";
 
-  // --- États de chargement et d'erreur ---
   bool _isLoading = false;
   String? _errorMessage;
-
-  // --- État de l'étape actuelle ---
   AssuranceStep _currentStep = AssuranceStep.clientSearch;
 
-  // --- État: Client et Ayants Droit ---
   List<ClientAssurance> _clientSearchResults = [];
   ClientAssurance? _selectedClient;
   List<AyantDroit> _ayantDroitList = [];
   AyantDroit? _selectedAyantDroit;
 
-  // --- État: Tiers Payants et N° de Bon ---
-  List<TiersPayantAssurance> _tiersPayantSearchResults = [];
-  Map<String, String> _bonNumbers = {}; // { compteTpId: "numBon" }
+  List<ActiveTiersPayant> _activeTiersPayants = [];
 
-  // --- État: Vente et Panier ---
+  List<TiersPayantAssurance> _tiersPayantSearchResults = [];
+  Map<String, String> _bonNumbers = {};
+
   List<ProductSearchResult> _productSearchResults = [];
   String? _currentVenteId;
   List<SaleItemDetail> _cartItems = [];
   AssuranceSaleSummary? _saleSummary;
 
-  // --- Getters Publics ---
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   AssuranceStep get currentStep => _currentStep;
@@ -57,6 +62,8 @@ class AssuranceSaleProvider with ChangeNotifier {
   List<AyantDroit> get ayantDroitList => _ayantDroitList;
   AyantDroit? get selectedAyantDroit => _selectedAyantDroit;
 
+  List<ActiveTiersPayant> get activeTiersPayants => _activeTiersPayants;
+
   List<TiersPayantAssurance> get tiersPayantSearchResults => _tiersPayantSearchResults;
   Map<String, String> get bonNumbers => _bonNumbers;
 
@@ -65,10 +72,7 @@ class AssuranceSaleProvider with ChangeNotifier {
   List<SaleItemDetail> get cartItems => _cartItems;
   AssuranceSaleSummary? get saleSummary => _saleSummary;
 
-  // --- Constructeur ---
   AssuranceSaleProvider(this._apiService, this._authenticatedUserId);
-
-  // --- Méthodes de Gestion d'État ---
 
   void _setLoading(bool loading) {
     _isLoading = loading;
@@ -88,6 +92,7 @@ class AssuranceSaleProvider with ChangeNotifier {
     _selectedClient = null;
     _ayantDroitList = [];
     _selectedAyantDroit = null;
+    _activeTiersPayants = [];
     _tiersPayantSearchResults = [];
     _bonNumbers = {};
     _productSearchResults = [];
@@ -120,58 +125,58 @@ class AssuranceSaleProvider with ChangeNotifier {
     _selectedClient = client;
     _clientSearchResults = [];
 
-    // Initialiser la map des numéros de bon
+    _activeTiersPayants = client.tiersPayants.map((tp) =>
+        ActiveTiersPayant(originalData: tp, taux: tp.taux)
+    ).toList();
+
     _bonNumbers = {};
-    for (var tp in client.tiersPayants) {
+    for (var tp in _activeTiersPayants) {
       _bonNumbers[tp.compteTp] = "";
     }
 
-    // *** CORRECTION DE L'ERREUR 1 ***
-    // Le client est son propre ayant droit par défaut
-    // On le cherche dans la liste des ayants droits fournie
     try {
-      // Essaye de trouver le client lui-même dans la liste des ayants droits
       _selectedAyantDroit = client.ayantDroits.firstWhere(
               (ad) => ad.lgAYANTSDROITSID == client.lgCLIENTID
       );
     } catch (e) {
-      // Si non trouvé (ou si la liste est vide), on prend le premier ou null
       _selectedAyantDroit = client.ayantDroits.isNotEmpty ? client.ayantDroits.first : null;
     }
     _ayantDroitList = client.ayantDroits;
-    // *** FIN CORRECTION ***
 
     _currentStep = AssuranceStep.bonAndAyantDroit;
     _setLoading(false);
   }
 
   void returnToClientSearch() {
-    startNewAssuranceSale(); // Recommence tout
+    startNewAssuranceSale();
   }
 
-  Future<void> searchTiersPayantAssurance(String query) async {
-    if (query.length < 2) {
+  // MODIFICATION (Correction Erreur 'void' + Ajout notifyListeners)
+  Future<List<TiersPayantAssurance>> searchTiersPayantAssurance(String query) async {
+    if (query.length < 3) {
       _tiersPayantSearchResults = [];
-      notifyListeners();
-      return;
+      notifyListeners(); // <-- AJOUT 1: Notifier quand on vide la liste
+      return [];
     }
-    // Pas de _setLoading pour ne pas bloquer l'UI de création client
     _tiersPayantSearchResults = await _apiService.searchTiersPayantsAssurance(query);
-    notifyListeners();
+    notifyListeners(); // <-- AJOUT 2: Notifier quand on a les résultats
+    return _tiersPayantSearchResults;
   }
+  // FIN MODIFICATION
 
   Future<bool> createClient(String firstName, String lastName, String numSecu, TiersPayantAssurance tiersPayant, int pourcentage) async {
     _setLoading(true);
     _setError(null);
+
     final newClient = await _apiService.createClientAssurance(
-      firstName: firstName,
-      lastName: lastName,
+      firstName: firstName, // Nom
+      lastName: lastName,   // Prénom
       numSecu: numSecu,
       tiersPayantId: tiersPayant.lgTIERSPAYANTID,
       pourcentage: pourcentage,
     );
     if (newClient != null) {
-      await selectClient(newClient); // Sélectionne le client nouvellement créé
+      await selectClient(newClient);
       return true;
     } else {
       _setError("Échec de la création du client.");
@@ -187,17 +192,16 @@ class AssuranceSaleProvider with ChangeNotifier {
 
     final updatedClient = await _apiService.addTiersPayantToClient(
         clientId: _selectedClient!.lgCLIENTID,
-        firstName: _selectedClient!.strFIRSTNAME,
-        lastName: _selectedClient!.strLASTNAME,
+        firstName: _selectedClient!.strFIRSTNAME, // Nom
+        lastName: _selectedClient!.strLASTNAME,  // Prénom
         tiersPayantId: tiersPayant.lgTIERSPAYANTID,
         numSecu: numSecu,
         pourcentage: pourcentage,
         order: _selectedClient!.tiersPayants.length + 1,
-        compteTp: "" // Le serveur va générer le compteTp
+        compteTp: ""
     );
 
     if (updatedClient != null) {
-      // Met à jour le client sélectionné avec les nouveaux TPs
       await selectClient(updatedClient);
       return true;
     } else {
@@ -216,10 +220,36 @@ class AssuranceSaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  void selectAyantDroit(AyantDroit ayantDroit) {
-    _selectedAyantDroit = ayantDroit;
+  void selectAyantDroit(AyantDroit? ayantDroit) {
+    _selectedAyantDroit =ayantDroit;
     notifyListeners();
   }
+
+  void toggleTiersPayant(ClientTiersPayant tp, bool isActive) {
+    if (isActive) {
+      if (_activeTiersPayants.indexWhere((atp) => atp.originalData.compteTp == tp.compteTp) == -1) {
+        _activeTiersPayants.add(ActiveTiersPayant(originalData: tp, taux: tp.taux));
+        _bonNumbers[tp.compteTp] = "";
+      }
+    } else {
+      _activeTiersPayants.removeWhere((atp) => atp.originalData.compteTp == tp.compteTp);
+      _bonNumbers.remove(tp.compteTp);
+    }
+    _saleSummary = null;
+    notifyListeners();
+  }
+
+  void updateTiersPayantTaux(String compteTp, int newTaux) {
+    try {
+      final tp = _activeTiersPayants.firstWhere((atp) => atp.originalData.compteTp == compteTp);
+      tp.taux = newTaux;
+      _saleSummary = null;
+      notifyListeners();
+    } catch (e) {
+      // Ne devrait pas arriver
+    }
+  }
+
 
   Future<bool> createAyantDroit(String firstName, String lastName, String numSecu) async {
     if (_selectedClient == null) return false;
@@ -228,14 +258,20 @@ class AssuranceSaleProvider with ChangeNotifier {
 
     final newAyantDroit = await _apiService.createAyantDroit(
       clientId: _selectedClient!.lgCLIENTID,
-      firstName: firstName,
-      lastName: lastName,
+      firstName: firstName, // Nom
+      lastName: lastName,   // Prénom
       numSecu: numSecu,
     );
 
     if (newAyantDroit != null) {
-      await loadAyantDroits(); // Recharge la liste
-      _selectedAyantDroit = newAyantDroit; // Le sélectionne
+      await loadAyantDroits();
+
+      try {
+        _selectedAyantDroit = _ayantDroitList.firstWhere((ad) => ad.lgAYANTSDROITSID == newAyantDroit.lgAYANTSDROITSID);
+      } catch(e) {
+        _selectedAyantDroit = _ayantDroitList.isNotEmpty ? _ayantDroitList.first : null;
+      }
+
       _setLoading(false);
       return true;
     } else {
@@ -254,13 +290,21 @@ class AssuranceSaleProvider with ChangeNotifier {
 
   bool validateBonsAndProceed() {
     _setError(null);
-    for (var bon in _bonNumbers.values) {
-      if (bon.isEmpty) {
-        _setError("Tous les numéros de bon sont requis.");
+
+    if (_activeTiersPayants.isEmpty) {
+      _setError("Veuillez activer au moins un tiers payant pour cette vente.");
+      notifyListeners();
+      return false;
+    }
+
+    for (var tp in _activeTiersPayants) {
+      if (_bonNumbers[tp.compteTp]?.isEmpty ?? true) {
+        _setError("Le N° de bon pour ${tp.tpFullName} est requis.");
         notifyListeners();
         return false;
       }
     }
+
     _currentStep = AssuranceStep.productSearch;
     notifyListeners();
     return true;
@@ -268,7 +312,7 @@ class AssuranceSaleProvider with ChangeNotifier {
 
   void returnToBonStep() {
     _currentStep = AssuranceStep.bonAndAyantDroit;
-    _saleSummary = null; // Efface le calcul net précédent
+    _saleSummary = null;
     notifyListeners();
   }
 
@@ -291,9 +335,7 @@ class AssuranceSaleProvider with ChangeNotifier {
   }
 
   List<Map<String, dynamic>> _buildTiersPayantPayload() {
-    if (_selectedClient == null) return [];
-
-    return _selectedClient!.tiersPayants.map((tp) {
+    return _activeTiersPayants.map((tp) {
       return {
         "compteTp": tp.compteTp,
         "numBon": _bonNumbers[tp.compteTp] ?? "",
@@ -343,7 +385,7 @@ class AssuranceSaleProvider with ChangeNotifier {
       return;
     }
     _cartItems = await _apiService.getSaleDetails(_currentVenteId!);
-    _saleSummary = null; // Invalide le calcul net après modif panier
+    _saleSummary = null;
     notifyListeners();
   }
 
@@ -416,16 +458,17 @@ class AssuranceSaleProvider with ChangeNotifier {
 
   Future<List<PaymentMethod>> getFilteredPaymentMethods() async {
     final allMethods = await _apiService.getPaymentMethods();
-    // Filtre pour garder uniquement les 5 modes spécifiés
     const allowedIds = {"3", "8", "9", "7", "10"};
     return allMethods.where((m) => allowedIds.contains(m.id)).toList();
   }
 
-  Future<bool> cloturerVente(PaymentMethod paymentMethod) async {
+  Future<bool> cloturerVente(PaymentMethod? paymentMethod) async {
     if (_currentVenteId == null || _selectedClient == null || _selectedAyantDroit == null || _saleSummary == null) {
       _setError("Données de vente incomplètes.");
       return false;
     }
+
+    final PaymentMethod finalPaymentMethod = paymentMethod ?? PaymentMethod(id: '1', name: 'ESPECES');
 
     _setLoading(true);
     _setError(null);
@@ -440,7 +483,7 @@ class AssuranceSaleProvider with ChangeNotifier {
       typeVenteId: _typeVenteId,
       userVendeurId: _authenticatedUserId,
       summary: _saleSummary!,
-      typeReglementId: paymentMethod.id,
+      typeReglementId: finalPaymentMethod.id,
       tierspayants: tiersPayantPayload,
     );
 

@@ -1,5 +1,5 @@
 // lib/providers/settings_provider.dart
-// 30/10/2025 01:30
+// 05/11/2025 00:30 (Corrigé)
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
@@ -18,12 +18,14 @@ class SettingsProvider with ChangeNotifier {
   static const String _showQrCodeOnSaleTicketKey = 'show_qr_code_on_sale_ticket';
   static const String _canEditDeliveryControlKey = 'can_edit_delivery_control';
   static const String _canEditBlControlKey = 'can_edit_bl_control';
-  // MODIFICATION (Point 1)
   static const String _enabledPaymentMethodIdsKey = 'enabled_payment_method_ids';
-  // MODIFICATION (Point 2)
   static const String _numberOfTicketsKey = 'number_of_tickets';
-  // MODIFICATION (Point 3)
   static const String _ticketCodeTypeKey = 'ticket_code_type'; // 'QR_CODE' ou 'BARCODE'
+
+  // MODIFICATION (Point 7)
+  static const String _numberOfTicketsAssuranceKey = 'number_of_tickets_assurance';
+  // MODIFICATION (Point 4 & 5)
+  static const String _maxTiersPayantsKey = 'max_tiers_payants';
 
 
   String _localIp = '';
@@ -38,12 +40,14 @@ class SettingsProvider with ChangeNotifier {
   bool _showQrCodeOnSaleTicket = true;
   bool _canEditDeliveryControl = true;
   bool _canEditBlControl = true;
-  // MODIFICATION (Point 1)
   List<String> _enabledPaymentMethodIds = [];
-  // MODIFICATION (Point 2)
   int _numberOfTickets = 1;
-  // MODIFICATION (Point 3)
   String _ticketCodeType = 'QR_CODE';
+
+  // MODIFICATION (Point 7)
+  int _numberOfTicketsAssurance = 1;
+  // MODIFICATION (Point 4 & 5)
+  int _maxTiersPayants = 2;
 
 
   String get localIp => _localIp;
@@ -58,12 +62,14 @@ class SettingsProvider with ChangeNotifier {
   bool get showQrCodeOnSaleTicket => _showQrCodeOnSaleTicket;
   bool get canEditDeliveryControl => _canEditDeliveryControl;
   bool get canEditBlControl => _canEditBlControl;
-  // MODIFICATION (Point 1)
   List<String> get enabledPaymentMethodIds => _enabledPaymentMethodIds;
-  // MODIFICATION (Point 2)
   int get numberOfTickets => _numberOfTickets;
-  // MODIFICATION (Point 3)
   String get ticketCodeType => _ticketCodeType;
+
+  // MODIFICATION (Point 7)
+  int get numberOfTicketsAssurance => _numberOfTicketsAssurance;
+  // MODIFICATION (Point 4 & 5)
+  int get maxTiersPayants => _maxTiersPayants;
 
 
   String get baseUrl {
@@ -88,17 +94,18 @@ class SettingsProvider with ChangeNotifier {
     _showQrCodeOnSaleTicket = prefs.getBool(_showQrCodeOnSaleTicketKey) ?? true;
     _canEditDeliveryControl = prefs.getBool(_canEditDeliveryControlKey) ?? true;
     _canEditBlControl = prefs.getBool(_canEditBlControlKey) ?? true;
-    // MODIFICATION (Point 1)
     _enabledPaymentMethodIds = prefs.getStringList(_enabledPaymentMethodIdsKey) ?? [];
-    // MODIFICATION (Point 2)
     _numberOfTickets = prefs.getInt(_numberOfTicketsKey) ?? 1;
-    // MODIFICATION (Point 3)
     _ticketCodeType = prefs.getString(_ticketCodeTypeKey) ?? 'QR_CODE';
+
+    // MODIFICATION (Point 7)
+    _numberOfTicketsAssurance = prefs.getInt(_numberOfTicketsAssuranceKey) ?? 1;
+    // MODIFICATION (Point 4 & 5)
+    _maxTiersPayants = prefs.getInt(_maxTiersPayantsKey) ?? 2;
 
     notifyListeners();
   }
 
-  // MODIFICATION (Point 1)
   Future<void> togglePaymentMethod(String methodId, bool isEnabled) async {
     if (isEnabled) {
       if (!_enabledPaymentMethodIds.contains(methodId)) {
@@ -112,7 +119,6 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // MODIFICATION (Point 2)
   Future<void> setNumberOfTickets(int count) async {
     _numberOfTickets = count;
     final prefs = await SharedPreferences.getInstance();
@@ -120,7 +126,22 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // MODIFICATION (Point 3)
+  // MODIFICATION (Point 7)
+  Future<void> setNumberOfTicketsAssurance(int count) async {
+    _numberOfTicketsAssurance = count;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_numberOfTicketsAssuranceKey, _numberOfTicketsAssurance);
+    notifyListeners();
+  }
+
+  // MODIFICATION (Point 4 & 5)
+  Future<void> setMaxTiersPayants(int count) async {
+    _maxTiersPayants = count;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_maxTiersPayantsKey, _maxTiersPayants);
+    notifyListeners();
+  }
+
   Future<void> setTicketCodeType(String codeType) async {
     _ticketCodeType = codeType;
     final prefs = await SharedPreferences.getInstance();
@@ -222,7 +243,7 @@ class SettingsProvider with ChangeNotifier {
 
   Future<bool> ping(String ip, String port, String appName) async {
     if (ip.isEmpty) return false;
-    final url = 'http://$ip:$port/$appName/api/v1/user/auth';
+    final url = 'http://$ip:$port/$_appName/api/v1/user/auth';
     try {
       final dio = Dio();
       await dio.post(url, data: {}, options: Options(receiveDataWhenStatusError: true));

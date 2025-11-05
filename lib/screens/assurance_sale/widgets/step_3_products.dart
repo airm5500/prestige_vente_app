@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/step_3_products.dart
-// 02/11/2025 15:45
+// 05/11/2025 00:30 (Corrigé)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -92,7 +92,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   Widget build(BuildContext context) {
     final provider = Provider.of<AssuranceSaleProvider>(context);
 
-    // Adapte l'affichage pour mobile (portrait) vs tablette (paysage)
     final bool isTabletLandscape = Responsive.isTablet(context) || Responsive.isDesktop(context);
 
     return Column(
@@ -106,26 +105,23 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             subtitle: Text(provider.selectedAyantDroit?.fullName ?? 'Ayant droit'),
             trailing: TextButton.icon(
               icon: const Icon(Icons.edit, size: 18),
-              label: const Text('Modifier'),
+              // MODIFICATION (Point 8) - Libellé plus clair
+              label: const Text('Modif. Bon/Patient'),
               onPressed: () => provider.returnToBonStep(),
             ),
           ),
         ),
 
-        // --- Contenu principal (Panier + Recherche) ---
         Expanded(
           child: isTabletLandscape
               ? _buildTabletLayout(provider)
               : _buildMobileLayout(provider),
         ),
 
-        // --- Pied de page (Calcul et Validation) ---
         const AssuranceSummaryFooter(),
       ],
     );
   }
-
-  // --- Layouts pour Mobile et Tablette ---
 
   Widget _buildMobileLayout(AssuranceSaleProvider provider) {
     return Column(
@@ -133,8 +129,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
         _buildSearchArea(provider),
         const Divider(height: 1),
         Expanded(
-          // Sur mobile, le panier est en dessous
-          // et les résultats de recherche s'affichent par-dessus
           child: Stack(
             children: [
               const AssuranceCartWidget(),
@@ -151,7 +145,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Colonne de gauche (Recherche + Résultats)
         Expanded(
           flex: 4,
           child: Column(
@@ -159,14 +152,12 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
               _buildSearchArea(provider),
               const Divider(height: 1),
               Expanded(
-                // Sur tablette, les résultats s'affichent sous la barre
                 child: _buildSearchResultsList(provider),
               ),
             ],
           ),
         ),
         const VerticalDivider(width: 1),
-        // Colonne de droite (Panier)
         Expanded(
           flex: 6,
           child: Container(
@@ -177,8 +168,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       ],
     );
   }
-
-  // --- Widgets Communs ---
 
   Widget _buildSearchArea(AssuranceSaleProvider provider) {
     return Padding(
@@ -204,7 +193,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   }
 
   Widget _buildSearchResultsOverlay(AssuranceSaleProvider provider) {
-    // Conteneur semi-transparent qui flotte au-dessus du panier
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242),
       child: _buildSearchResultsList(provider),

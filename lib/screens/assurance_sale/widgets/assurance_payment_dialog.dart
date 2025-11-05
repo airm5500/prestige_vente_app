@@ -1,11 +1,8 @@
 // lib/screens/assurance_sale/widgets/assurance_payment_dialog.dart
-// 02/11/2025 15:50 (Corrigé)
+// 05/11/2025 02:10 (Corrigé)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
-import 'package:prestige_vente_app/providers/auth_provider.dart';
-import 'package:prestige_vente_app/providers/settings_provider.dart';
-import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 
@@ -22,87 +19,44 @@ class _AssurancePaymentDialogState extends State<AssurancePaymentDialog> {
   @override
   void initState() {
     super.initState();
-    // Charge les modes de paiement filtrés
     _paymentMethodsFuture =
         Provider.of<AssuranceSaleProvider>(context, listen: false)
             .getFilteredPaymentMethods();
   }
 
+  // MODIFICATION (Point 2)
+  // Cette méthode gère la validation et ferme le dialogue en retournant un succès/échec
   Future<void> _handlePayment(PaymentMethod method) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
 
+    // Affiche un indicateur de chargement DANS le dialogue
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text("Validation...")])),
+    );
+
     final success = await provider.cloturerVente(method);
+
+    navigator.pop(); // Ferme le dialogue de chargement
 
     if (!success) {
       scaffoldMessenger.showSnackBar(SnackBar(
         content: Text(provider.errorMessage ?? "La validation a échoué"),
         backgroundColor: AppColors.error,
       ));
-      return;
+      // Ne ferme pas le dialogue de paiement, l'utilisateur peut réessayer
+    } else {
+      scaffoldMessenger.showSnackBar(const SnackBar(
+        content: Text('Vente validée avec succès !'),
+        backgroundColor: AppColors.success,
+      ));
+      // Si succès, ferme le dialogue de choix de paiement
+      // et retourne le mode de paiement utilisé
+      navigator.pop(method);
     }
-
-    // Si succès, ferme le dialogue de paiement
-    navigator.pop();
-
-    scaffoldMessenger.showSnackBar(const SnackBar(
-      content: Text('Vente validée avec succès !'),
-      backgroundColor: AppColors.success,
-    ));
-
-    // --- Logique d'impression ---
-    final settings = Provider.of<SettingsProvider>(context, listen: false);
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final receiptService = ReceiptService();
-
-    // Capture des données AVANT de réinitialiser
-    final summaryToPrint = provider.saleSummary!;
-    final itemsToPrint = List<SaleItemDetail>.from(provider.cartItems);
-    final clientToPrint = provider.selectedClient!;
-    // *** CORRECTION DE L'ERREUR 2 ***
-    final ayantDroitToPrint = provider.selectedAyantDroit!;
-    // *** FIN CORRECTION ***
-
-    final bool? printTicket = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Vente Assurance terminée'),
-        content: const Text('Voulez-vous imprimer le ticket ?'),
-        actions: [
-          TextButton(
-            child: const Text('Non'),
-            onPressed: () => Navigator.of(ctx).pop(false),
-          ),
-          ElevatedButton(
-            child: const Text('Oui'),
-            onPressed: () => Navigator.of(ctx).pop(true),
-          ),
-        ],
-      ),
-    );
-
-    if (printTicket == true) {
-      await receiptService.printAssuranceSaleTicket(
-        context: context,
-        officine: auth.officine!,
-        saleSummary: summaryToPrint,
-        items: itemsToPrint,
-        client: clientToPrint,
-        // *** CORRECTION DE L'ERREUR 3 ***
-        ayantDroit: ayantDroitToPrint,
-        // *** FIN CORRECTION ***
-        paymentMethod: method,
-        currentUser: auth.user!,
-        isTestMode: settings.isTestPrintMode,
-        paperWidth: settings.paperWidth,
-        ticketCodeType: settings.ticketCodeType,
-      );
-    }
-
-    // Réinitialise l'écran de vente
-    provider.startNewAssuranceSale();
   }
 
   @override
