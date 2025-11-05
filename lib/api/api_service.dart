@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 28/09/2025 20:33
+// 02/11/2025 15:25
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -16,6 +16,14 @@ import 'package:prestige_vente_app/api/models/rayon.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product_info.dart';
 
+// NOUVEAUX IMPORTS POUR L'ASSURANCE
+import 'package:prestige_vente_app/api/models/nature_vente.dart';
+import 'package:prestige_vente_app/api/models/type_vente.dart';
+import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
+import 'package:prestige_vente_app/api/models/client_assurance.dart';
+import 'package:prestige_vente_app/api/models/ayant_droit.dart';
+import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
+
 class ApiService {
   late Dio _dio;
 
@@ -23,6 +31,7 @@ class ApiService {
     _dio = DioClient.getClient(baseUrl);
   }
 
+  // --- AUTHENTIFICATION (Existant) ---
   Future<User?> login(String login, String password) async {
     try {
       final response = await _dio.post(
@@ -59,6 +68,7 @@ class ApiService {
     }
   }
 
+  // --- VENTE COMPTANT / PREVENTE (Existant) ---
   Future<List<ProductSearchResult>> searchProducts(String query) async {
     try {
       final response = await _dio.get(
@@ -292,6 +302,7 @@ class ApiService {
     }
   }
 
+  // --- MODULE RECHERCHE / STATS (Existant) ---
   Future<List<ProductAnnualSale>> getAnnualSales(String query, int year) async {
     try {
       final response = await _dio.get('/produit/stats/vente-annuelle',
@@ -399,6 +410,7 @@ class ApiService {
     }
   }
 
+  // --- MODULE GESTION DE STOCK (Existant) ---
   Future<List<Commande>> getCommandes() async {
     try {
       final response = await _dio.get(
@@ -458,8 +470,6 @@ class ApiService {
       return false;
     }
   }
-
-  // --- Pointage Bon de Livraison ---
 
   Future<List<BonLivraison>> getBonsLivraison({
     String query = '',
@@ -530,8 +540,7 @@ class ApiService {
     }
   }
 
-  // --- Fiche Article Lite Update ---
-
+  // --- MODULE FICHE ARTICLE (Existant) ---
   Future<List<Rayon>> getRayons() async {
     try {
       final response = await _dio.get(
@@ -548,7 +557,6 @@ class ApiService {
     }
   }
 
-  // MODIFICATION : La méthode accepte maintenant 200, 202, ou 200 avec success:true
   Future<bool> updateLiteInfo(Map<String, dynamic> data) async {
     try {
       final response = await _dio.post(
@@ -575,7 +583,6 @@ class ApiService {
     }
   }
 
-  // MODIFICATION : On lit maintenant la liste "data"
   Future<List<PaymentMethodQr>> getPaymentMethodsWithQr() async {
     try {
       final response = await _dio.get(
@@ -602,9 +609,6 @@ class ApiService {
     }
   }
 
-  // --- NOUVELLE LOGIQUE POUR RECHERCHE ARTICLE ---
-
-  // MODIFICATION : Renommée. C'est l'API pour l'écran Evaluation Vente
   Future<ProductInfo?> getProductInfoForStats(String codeCip) async {
     try {
       final response = await _dio.get('/info', queryParameters: {'search': codeCip});
@@ -618,7 +622,6 @@ class ApiService {
     }
   }
 
-  // MODIFICATION : Nouvelle méthode pour la RECHERCHE RAPIDE (étape 1)
   Future<List<ProductInfo>> searchProductInfoForSearch(String query) async {
     try {
       final response = await _dio.get(
@@ -637,7 +640,6 @@ class ApiService {
     }
   }
 
-  // MODIFICATION : Cette méthode charge maintenant les DETAILS (étape 2)
   Future<ProductDetails?> getProductDetailsForSearch(String codeCip) async {
     try {
       final response = await _dio.get(
@@ -654,6 +656,411 @@ class ApiService {
     } catch (e) {
       print("Error in getProductDetailsForSearch: $e");
       return null;
+    }
+  }
+
+  // ======================================================
+  // NOUVELLES MÉTHODES POUR VENTE ASSURANCE
+  // ======================================================
+
+  Future<List<NatureVente>> getNaturesVente() async {
+    try {
+      final response = await _dio.get(
+        '/common/natures',
+        queryParameters: {'page': 1, 'start': 0, 'limit': 25},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List)
+            .map((e) => NatureVente.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching natures vente: $e");
+      return [];
+    }
+  }
+
+  Future<List<TypeVente>> getTypeVentes() async {
+    try {
+      final response = await _dio.get(
+        '/common/typeventes',
+        queryParameters: {'page': 1, 'start': 0, 'limit': 25},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List)
+            .map((e) => TypeVente.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching type ventes: $e");
+      return [];
+    }
+  }
+
+  Future<List<ClientAssurance>> searchClientAssurance(String query) async {
+    try {
+      final response = await _dio.get(
+        '/client/all',
+        queryParameters: {
+          'query': query,
+          'typeClientId': '1', // 1 = Client Assurance
+          'page': 1,
+          'start': 0,
+          'limit': 25
+        },
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List)
+            .map((e) => ClientAssurance.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error searching client assurance: $e");
+      return [];
+    }
+  }
+
+  Future<List<TiersPayantAssurance>> searchTiersPayantsAssurance(String query) async {
+    try {
+      final response = await _dio.get(
+        '/client/tiers-payants/assurance',
+        queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 25},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List)
+            .map((e) => TiersPayantAssurance.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error searching tiers payants assurance: $e");
+      return [];
+    }
+  }
+
+  Future<ClientAssurance?> createClientAssurance({
+    required String firstName,
+    required String lastName,
+    required String numSecu,
+    required String tiersPayantId,
+    required int pourcentage,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/client/add/assurance',
+        data: {
+          "bIsAbsolute": false,
+          "compteTp": "",
+          "dblQUOTACONSOMENSUELLE": 0,
+          "dbPLAFONDENCOURS": 0,
+          "dtNAISSANCE": "",
+          "intPOURCENTAGE": pourcentage,
+          "intPRIORITY": 1,
+          "lgCATEGORIEAYANTDROITID": "", // Géré par le serveur
+          "lgCLIENTID": "", // Géré par le serveur
+          "lgCOMPANYID": "", // Géré par le serveur
+          "lgRISQUEID": "", // Géré par le serveur
+          "lgTIERSPAYANTID": tiersPayantId,
+          "lgTYPECLIENTID": "1", // 1 = Client Assurance
+          "lgVILLEID": "",
+          "strADRESSE": "",
+          "strCODEPOSTAL": "",
+          "strFIRSTNAME": firstName,
+          "strLASTNAME": lastName,
+          "strNUMEROSECURITESOCIAL": numSecu,
+          "strSEXE": "",
+          "tiersPayants": [] // Géré par le serveur
+        },
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return ClientAssurance.fromJson(response.data['data']);
+      }
+      return null;
+    } catch (e) {
+      print("Error creating client assurance: $e");
+      return null;
+    }
+  }
+
+  Future<ClientAssurance?> addTiersPayantToClient({
+    required String clientId,
+    required String firstName,
+    required String lastName,
+    required String tiersPayantId,
+    required String numSecu,
+    required int pourcentage,
+    required int order,
+    required String compteTp
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/client/add/assurance',
+        data: {
+          "bIsAbsolute": false,
+          "compteTp": compteTp,
+          "dblQUOTACONSOMENSUELLE": 0,
+          "dbPLAFONDENCOURS": 0,
+          "dtNAISSANCE": "",
+          "intPOURCENTAGE": pourcentage,
+          "intPRIORITY": order,
+          "lgCATEGORIEAYANTDROITID": "",
+          "lgCLIENTID": clientId,
+          "lgCOMPANYID": "",
+          "lgRISQUEID": "",
+          "lgTIERSPAYANTID": tiersPayantId,
+          "lgTYPECLIENTID": "1",
+          "lgVILLEID": "",
+          "strADRESSE": "",
+          "strCODEPOSTAL": "",
+          "strFIRSTNAME": firstName,
+          "strLASTNAME": lastName,
+          "strNUMEROSECURITESOCIAL": numSecu,
+          "strSEXE": "",
+          "tiersPayants": [
+            {
+              "bIsAbsolute": false,
+              "compteTp": "",
+              "dbPLAFONDENCOURS": 0,
+              "lgTIERSPAYANTID": tiersPayantId,
+              "numSecurity": numSecu,
+              "order": order,
+              "taux": pourcentage,
+              "tpFullName": "" // Le nom n'est pas requis, juste l'ID
+            }
+          ]
+        },
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return ClientAssurance.fromJson(response.data['data']);
+      }
+      return null;
+    } catch (e) {
+      print("Error adding tiers payant to client: $e");
+      return null;
+    }
+  }
+
+
+  Future<List<AyantDroit>> getAyantDroits(String clientId) async {
+    try {
+      final response = await _dio.get(
+        '/client/ayant-droits',
+        queryParameters: {'clientId': clientId},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List)
+            .map((e) => AyantDroit.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching ayant droits: $e");
+      return [];
+    }
+  }
+
+  Future<AyantDroit?> createAyantDroit({
+    required String clientId,
+    required String firstName,
+    required String lastName,
+    required String numSecu,
+    String? dtNaissance,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/client/ayant-droits/$clientId',
+        data: {
+          "dtNAISSANCE": dtNaissance ?? "",
+          "lgVILLEID": "",
+          "strFIRSTNAME": firstName,
+          "strLASTNAME": lastName,
+          "strNUMEROSECURITESOCIAL": numSecu
+        },
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return AyantDroit.fromJson(response.data['data']);
+      }
+      return null;
+    } catch (e) {
+      print("Error creating ayant droit: $e");
+      return null;
+    }
+  }
+
+  Map<String, dynamic> _buildAssuranceSalePayload({
+    required String produitId,
+    required int qte,
+    required int itemPu,
+    required String clientId,
+    required String ayantDroitId,
+    required String natureVenteId,
+    required String typeVenteId,
+    required String? userVendeurId,
+    required List<Map<String, dynamic>> tierspayants, // { "compteTp": "...", "numBon": "...", "taux": ... }
+    String? venteId,
+  }) {
+    return {
+      "ayantDroitId": ayantDroitId,
+      "clientId": clientId,
+      "devis": false,
+      "itemPu": itemPu,
+      "natureVenteId": natureVenteId,
+      "prevente": true, // Toujours true pour la prévente assurance
+      "produitId": produitId,
+      "qte": qte,
+      "qteServie": qte,
+      "remiseId": null,
+      "tierspayants": tierspayants.map((tp) => {
+        "cmu": "false",
+        "compteTp": tp['compteTp'],
+        "numBon": tp['numBon'],
+        "taux": tp['taux']
+      }).toList(),
+      "typeVenteId": typeVenteId,
+      "userVendeurId": userVendeurId,
+      "venteId": venteId
+    };
+  }
+
+  Future<String?> addAssuranceSaleItem({
+    required String produitId,
+    required int qte,
+    required int itemPu,
+    required String clientId,
+    required String ayantDroitId,
+    required String natureVenteId, // "1"
+    required String typeVenteId,   // "2"
+    required String? userVendeurId,
+    required List<Map<String, dynamic>> tierspayants,
+    String? venteId,
+  }) async {
+    try {
+      final bool isFirstItem = venteId == null;
+      final String endpoint = isFirstItem
+          ? '/vente/add/assurance' // Premier produit
+          : '/vente/add/item';   // Produits suivants
+
+      final payload = _buildAssuranceSalePayload(
+        produitId: produitId,
+        qte: qte,
+        itemPu: itemPu,
+        clientId: clientId,
+        ayantDroitId: ayantDroitId,
+        natureVenteId: natureVenteId,
+        typeVenteId: typeVenteId,
+        userVendeurId: userVendeurId,
+        tierspayants: tierspayants,
+        venteId: venteId,
+      );
+
+      final response = await _dio.post(endpoint, data: payload);
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return response.data['data']['lgPREENREGISTREMENTID'] ?? venteId;
+      }
+      return null;
+    } catch (e) {
+      print("Error adding assurance sale item: $e");
+      return null;
+    }
+  }
+
+  Future<AssuranceSaleSummary?> calculateNetAssurance({
+    required String venteId,
+    required List<Map<String, dynamic>> tierspayants, // { "compteTp": "...", "numBon": "...", "taux": ... }
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/vente/net/assurance',
+        data: {
+          "remiseId": null,
+          "tierspayants": tierspayants.map((tp) => {
+            "cmu": "false",
+            "compteTp": tp['compteTp'],
+            "numBon": tp['numBon'],
+            "taux": tp['taux']
+          }).toList(),
+          "venteId": venteId
+        },
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return AssuranceSaleSummary.fromNetResponse(response.data);
+      }
+      return null;
+    } catch (e) {
+      print("Error calculating net assurance: $e");
+      return null;
+    }
+  }
+
+  Future<bool> cloturerVenteAssurance({
+    required String venteId,
+    required String clientId,
+    required String ayantDroitId,
+    required String natureVenteId, // "1"
+    required String typeVenteId,   // "2"
+    required String? userVendeurId,
+    required AssuranceSaleSummary summary,
+    required String typeReglementId, // ID du mode de paiement (Especes, WAVE, etc.)
+    required List<Map<String, dynamic>> tierspayants, // { "compteTp": "...", "numBon": "...", "taux": ... }
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/vente/cloturer/assurance',
+        data: {
+          "ayantDroitId": ayantDroitId,
+          "banque": "",
+          "clientId": clientId,
+          "commentaire": "",
+          "devis": false,
+          "lieux": "",
+          "marge": summary.marge,
+          "medecinId": null,
+          "montantPaye": summary.montantNet, // Part client
+          "montantRecu": summary.montantNet, // Part client
+          "montantRemis": 0,
+          "natureVenteId": natureVenteId,
+          "nom": "",
+          "partTP": summary.montantTp.toString(), // Part assurance
+          "reglements": [
+            {
+              "montant": summary.montantNet,
+              "montantAttentu": summary.montantNet,
+              "typeReglement": typeReglementId
+            }
+          ],
+          "remiseId": null,
+          "sansBon": false,
+          "tierspayants": tierspayants.map((tp) => {
+            "activeTiersPayant": false,
+            "cmu": false,
+            "compteTp": tp['compteTp'],
+            "dblPLAFOND": 0,
+            "dblQUOTACONSOMENSUELLE": 0,
+            "dbPLAFONDENCOURS": 0,
+            "discount": 0,
+            "enabled": false,
+            "numBon": tp['numBon'],
+            "numSecurity": "",
+            "order": 0,
+            "principal": false,
+            "taux": tp['taux'],
+            "tpnet": summary.tierspayants.firstWhere((ts) => ts.compteTp == tp['compteTp'], orElse: () => TiersPayantSummary(numBon: '', taux: 0, compteTp: '', tpnet: 0)).tpnet
+          }).toList(),
+          "totalRecap": summary.montant,
+          "typeRegleId": typeReglementId,
+          "typeVenteId": typeVenteId,
+          "userVendeurId": userVendeurId,
+          "venteId": venteId
+        },
+      );
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) {
+      print("Error closing assurance sale: $e");
+      return false;
     }
   }
 

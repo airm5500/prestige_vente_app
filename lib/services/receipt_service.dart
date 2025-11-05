@@ -1,5 +1,5 @@
 // lib/services/receipt_service.dart
-// 30/10/2025 01:45
+// 02/11/2025 15:45
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -12,8 +12,15 @@ import 'package:sunmi_printer_plus/sunmi_style.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:barcode_widget/barcode_widget.dart';
 
+// NOUVEAUX IMPORTS
+import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
+import 'package:prestige_vente_app/api/models/client_assurance.dart';
+import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 
 class ReceiptService {
+
+  // --- LOGIQUE EXISTANTE (VENTE COMPTANT) ---
+
   Future<void> printSaleTicket({
     required BuildContext context, required Officine officine, required SaleSummary saleSummary, required List<SaleItemDetail> items,
     required PaymentMethod paymentMethod, required User currentUser, required bool isTestMode, required int paperWidth,
@@ -128,8 +135,6 @@ class ReceiptService {
       await SunmiPrinter.lineWrap(1);
 
       if (ticketCodeType == 'QR_CODE') {
-        // MODIFICATION (Point 1) : Taille du QR Code
-        // Suppression de 'size: 8' pour utiliser la taille par défaut (plus petite)
         await SunmiPrinter.printQRCode(saleSummary.reference);
       } else {
         await SunmiPrinter.printBarCode(saleSummary.reference,
@@ -143,16 +148,168 @@ class ReceiptService {
       await SunmiPrinter.lineWrap(1);
       await SunmiPrinter.printText("Vendeur: ${currentUser.fullName}", style: defaultStyle);
 
-      // MODIFICATION (Point 2) : Ajout de 2 lignes
-      await SunmiPrinter.lineWrap(3); // Lignes existantes
-      await SunmiPrinter.lineWrap(2); // Lignes supplémentaires
-
+      await SunmiPrinter.lineWrap(5);
       await SunmiPrinter.cut();
       await SunmiPrinter.exitTransactionPrint(true);
     } catch(e) {
       Constants.showSnackBar(context, 'Erreur d\'impression: $e', isError: true);
     }
   }
+
+  // --- NOUVELLE LOGIQUE (VENTE ASSURANCE) ---
+
+  Future<void> printAssuranceSaleTicket({
+    required BuildContext context,
+    required Officine officine,
+    required AssuranceSaleSummary saleSummary,
+    required List<SaleItemDetail> items,
+    required ClientAssurance client,
+    required AyantDroit ayantDroit,
+    required PaymentMethod paymentMethod,
+    required User currentUser,
+    required bool isTestMode,
+    required int paperWidth,
+    required String ticketCodeType,
+  }) async {
+    if (isTestMode) {
+      final ticketWidget = _buildAssuranceSaleTicketWidget(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType);
+      await _showTestTicketDialog(context, ticketWidget, paperWidth);
+    } else {
+      await _printAssuranceSaleTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType);
+    }
+  }
+
+  Future<void> printAssurancePreventeTicket({
+    required BuildContext context,
+    required Officine officine,
+    required AssuranceSaleSummary saleSummary,
+    required ClientAssurance client,
+    required AyantDroit ayantDroit,
+    required User currentUser,
+    required bool isTestMode,
+    required int paperWidth,
+    required String ticketCodeType,
+  }) async {
+    if (isTestMode) {
+      final ticketWidget = _buildAssurancePreventeTicketWidget(context, officine, saleSummary, client, ayantDroit, currentUser, paperWidth, ticketCodeType);
+      await _showTestTicketDialog(context, ticketWidget, paperWidth);
+    } else {
+      await _printAssurancePreventeTicketSunmi(context, officine, saleSummary, client, ayantDroit, currentUser, paperWidth, ticketCodeType);
+    }
+  }
+
+  // Impression Sunmi pour Vente Assurance
+  Future<void> _printAssuranceSaleTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType) async {
+    if (!await _initializePrinter(context)) return;
+    try {
+      await SunmiPrinter.startTransactionPrint(true);
+      final int cols = paperWidth == 58 ? 32 : 48;
+      final int articleWidth = paperWidth == 58 ? 14 : 26;
+      final int financialWidth = paperWidth == 58 ? 8 : 10;
+      String line([String ch = '-']) => List.filled(cols, ch).join();
+      String fit(String s, int len) { final t = s.replaceAll("\n", " "); if (t.runes.length <= len) return t.padRight(len); return String.fromCharCodes(t.runes.take(len)); }
+      String r(int v, int len) => Constants.formatNumber(v).padLeft(len);
+
+      final headerAlign = paperWidth == 58 ? SunmiPrintAlign.LEFT : SunmiPrintAlign.CENTER;
+      await SunmiPrinter.setAlignment(headerAlign);
+      await SunmiPrinter.printText(officine.nomComplet.toUpperCase(), style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      await SunmiPrinter.printText(officine.fullName);
+
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
+      await SunmiPrinter.printText('VENTE ASSURANCE', style: SunmiStyle(bold: true));
+
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
+      await SunmiPrinter.printText(line());
+      await SunmiPrinter.printText('Client: ${client.fullName}');
+      await SunmiPrinter.printText('Patient: ${ayantDroit.fullName}');
+      await SunmiPrinter.printText('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}');
+
+      await SunmiPrinter.printText(line());
+      await SunmiPrinter.printText(fit('Article', articleWidth) + fit('Qte*P.U', financialWidth) + fit('Total', financialWidth), style: SunmiStyle(bold: true));
+      await SunmiPrinter.printText(line('.'));
+      for (final item in items) {
+        await SunmiPrinter.printText(fit(item.strNAME, cols));
+        final String priceDetails = fit('', articleWidth) + '${item.intQUANTITY}*${Constants.formatNumber(item.intPRICEUNITAIR)}'.padRight(financialWidth) + r(item.intPRICE, financialWidth);
+        await SunmiPrinter.printText(priceDetails);
+      }
+      await SunmiPrinter.printText(line());
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.RIGHT);
+
+      // Récapitulatif financier
+      await SunmiPrinter.printText('Total Brut: ${Constants.formatNumber(saleSummary.montant)}');
+      await SunmiPrinter.printText('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: SunmiStyle(bold: true));
+      for(var tp in saleSummary.tierspayants) {
+        await SunmiPrinter.printText('  Bon ${tp.numBon} (${tp.taux}%): ${Constants.formatNumber(tp.tpnet)}');
+      }
+      await SunmiPrinter.printText('PART CLIENT: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      await SunmiPrinter.printText('Mode: ${paymentMethod.name.toUpperCase()}');
+
+      await SunmiPrinter.printText(line());
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
+      await SunmiPrinter.printText(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()));
+      await SunmiPrinter.printText("Vendeur: ${currentUser.fullName}");
+
+      await SunmiPrinter.lineWrap(5);
+      await SunmiPrinter.cut();
+      await SunmiPrinter.exitTransactionPrint(true);
+    } catch (e) {
+      Constants.showSnackBar(context, 'Erreur d\'impression: $e', isError: true);
+    }
+  }
+
+  // Impression Sunmi pour Prévente Assurance
+  Future<void> _printAssurancePreventeTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType) async {
+    if (!await _initializePrinter(context)) return;
+    try {
+      await SunmiPrinter.startTransactionPrint(true);
+      final int cols = paperWidth == 58 ? 32 : 48;
+      String line([String ch = '-']) => List.filled(cols, ch).join();
+      SunmiStyle defaultStyle = SunmiStyle(fontSize: SunmiFontSize.MD);
+
+      final headerAlign = paperWidth == 58 ? SunmiPrintAlign.LEFT : SunmiPrintAlign.CENTER;
+      await SunmiPrinter.setAlignment(headerAlign);
+      await SunmiPrinter.printText(officine.nomComplet.toUpperCase(), style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      await SunmiPrinter.printText(officine.fullName, style: defaultStyle);
+
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
+      await SunmiPrinter.printText(line());
+      await SunmiPrinter.printText('PRE-VENTE ASSURANCE', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      await SunmiPrinter.printText(DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now()));
+
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
+      await SunmiPrinter.printText(line());
+      await SunmiPrinter.printText('Client: ${client.fullName}');
+      await SunmiPrinter.printText('Patient: ${ayantDroit.fullName}');
+      await SunmiPrinter.printText('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}');
+
+      await SunmiPrinter.printText(line());
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.RIGHT);
+      await SunmiPrinter.printText('Total Brut: ${Constants.formatNumber(saleSummary.montant)}');
+      await SunmiPrinter.printText('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: SunmiStyle(bold: true));
+      for(var tp in saleSummary.tierspayants) {
+        await SunmiPrinter.printText('  Bon ${tp.numBon} (${tp.taux}%): ${Constants.formatNumber(tp.tpnet)}');
+      }
+      await SunmiPrinter.printText('PART CLIENT: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
+      await SunmiPrinter.lineWrap(1);
+
+      // TODO: Décider quel ID utiliser pour le QR Code/Barcode (VenteId ou Ref. Bon?)
+      // Pour l'instant, on n'imprime rien, car la référence de vente n'est pas passée.
+
+      await SunmiPrinter.lineWrap(1);
+      await SunmiPrinter.printText("Vendeur: ${currentUser.fullName}", style: defaultStyle);
+
+      await SunmiPrinter.lineWrap(5);
+      await SunmiPrinter.cut();
+      await SunmiPrinter.exitTransactionPrint(true);
+    } catch(e) {
+      Constants.showSnackBar(context, 'Erreur d\'impression: $e', isError: true);
+    }
+  }
+
+
+  // --- LOGIQUE D'APERÇU (Mode Test) ---
 
   Future<void> _showTestTicketDialog(BuildContext context, Widget ticketContent, int paperWidth) async { await showDialog( context: context, builder: (ctx) => AlertDialog( title: const Text("Aperçu du Ticket"), content: Container( width: paperWidth == 58 ? 300 : 420, child: ticketContent, ), actions: [ TextButton( child: const Text("Fermer"), onPressed: () => Navigator.of(ctx).pop(), ) ], ), ); }
 
@@ -162,7 +319,6 @@ class ReceiptService {
     final int cols = paperWidth == 58 ? 32 : 48;
     String line([String ch = '-']) => List.filled(cols, ch).join();
     String fit(String s, int len) { final t = s.replaceAll("\n", " "); if (t.runes.length <= len) return t.padRight(len); return String.fromCharCodes(t.runes.take(len)); }
-
     final headerCrossAlign = paperWidth == 58 ? CrossAxisAlignment.start : CrossAxisAlignment.center;
 
     return SingleChildScrollView(
@@ -179,7 +335,6 @@ class ReceiptService {
               ],
             ),
           ),
-
           Text(line(), style: textStyle),
           Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
           Text(line('.'), style: textStyle),
@@ -201,11 +356,9 @@ class ReceiptService {
           Align(alignment: Alignment.centerRight, child: Text('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: boldStyle)),
           Align(alignment: Alignment.centerRight, child: Text('Mode: ${paymentMethod.name.toUpperCase()}', style: textStyle)),
           Text(line(), style: textStyle),
-
           Center(child: Text(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()), style: textStyle)),
           Center(child: Text("Vendeur: ${currentUser.fullName}", style: textStyle)),
           const SizedBox(height: 8),
-
           if (showQrCode)
             Center(
               child: ticketCodeType == 'QR_CODE'
@@ -233,7 +386,6 @@ class ReceiptService {
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
     String line([String ch = '-']) => List.filled(cols, ch).join();
-
     final headerCrossAlign = paperWidth == 58 ? CrossAxisAlignment.start : CrossAxisAlignment.center;
 
     return SingleChildScrollView(
@@ -250,7 +402,6 @@ class ReceiptService {
               ],
             ),
           ),
-
           Text(line(), style: textStyle),
           Text('PRE-VENTE -- ${DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now())}', style: boldStyle),
           Text(line(), style: textStyle),
@@ -260,11 +411,8 @@ class ReceiptService {
               style: boldStyle.copyWith(fontSize: 14)
           ),
           const SizedBox(height: 16),
-
           Center(
             child: ticketCodeType == 'QR_CODE'
-            // MODIFICATION (Point 1) : Taille du QR Code
-            // La taille de 120.0 est la même que celle de la vente
                 ? QrImageView(data: saleSummary.reference, version: QrVersions.auto, size: 120.0)
                 : Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -280,8 +428,105 @@ class ReceiptService {
           Text(saleSummary.reference, style: textStyle),
           const SizedBox(height: 8),
           Text("Vendeur: ${currentUser.fullName}", style: textStyle),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
 
-          // MODIFICATION (Point 2) : Ajout de 2 lignes
+  // NOUVEAUX WIDGETS D'APERÇU (ASSURANCE)
+  Widget _buildAssuranceSaleTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType) {
+    const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
+    const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
+    final int cols = paperWidth == 58 ? 32 : 48;
+    String line([String ch = '-']) => List.filled(cols, ch).join();
+    String fit(String s, int len) { final t = s.replaceAll("\n", " "); if (t.runes.length <= len) return t.padRight(len); return String.fromCharCodes(t.runes.take(len)); }
+    final headerCrossAlign = paperWidth == 58 ? CrossAxisAlignment.start : CrossAxisAlignment.center;
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Align(
+            alignment: paperWidth == 58 ? Alignment.centerLeft : Alignment.center,
+            child: Column(
+              crossAxisAlignment: headerCrossAlign,
+              children: [
+                Text(officine.nomComplet.toUpperCase(), style: boldStyle.copyWith(fontSize: 14)),
+                Text(officine.fullName, style: textStyle),
+              ],
+            ),
+          ),
+          Center(child: Text('VENTE ASSURANCE', style: boldStyle)),
+          Text(line(), style: textStyle),
+          Text('Client: ${client.fullName}', style: textStyle),
+          Text('Patient: ${ayantDroit.fullName}', style: textStyle),
+          Text('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}', style: textStyle),
+          Text(line(), style: textStyle),
+          Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
+          Text(line('.'), style: textStyle),
+          ...items.map((item) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(fit(item.strNAME, cols), style: textStyle),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  '${item.intQUANTITY}*${Constants.formatNumber(item.intPRICEUNITAIR)} = ${Constants.formatNumber(item.intPRICE)}',
+                  style: textStyle,
+                ),
+              ),
+            ],
+          )),
+          Text(line(), style: textStyle),
+          Align(alignment: Alignment.centerRight, child: Text('Total Brut: ${Constants.formatNumber(saleSummary.montant)}', style: textStyle)),
+          Align(alignment: Alignment.centerRight, child: Text('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: boldStyle)),
+          ...saleSummary.tierspayants.map((tp) => Align(alignment: Alignment.centerRight, child: Text('  Bon ${tp.numBon} (${tp.taux}%): ${Constants.formatNumber(tp.tpnet)}', style: textStyle))),
+          Align(alignment: Alignment.centerRight, child: Text('PART CLIENT: ${Constants.formatNumber(saleSummary.montantNet)}', style: boldStyle.copyWith(fontSize: 14))),
+          Align(alignment: Alignment.centerRight, child: Text('Mode: ${paymentMethod.name.toUpperCase()}', style: textStyle)),
+          Text(line(), style: textStyle),
+          Center(child: Text(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()), style: textStyle)),
+          Center(child: Text("Vendeur: ${currentUser.fullName}", style: textStyle)),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAssurancePreventeTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType) {
+    const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
+    const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
+    final int cols = paperWidth == 58 ? 32 : 48;
+    String line([String ch = '-']) => List.filled(cols, ch).join();
+    final headerCrossAlign = paperWidth == 58 ? CrossAxisAlignment.start : CrossAxisAlignment.center;
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Align(
+            alignment: paperWidth == 58 ? Alignment.centerLeft : Alignment.center,
+            child: Column(
+              crossAxisAlignment: headerCrossAlign,
+              children: [
+                Text(officine.nomComplet.toUpperCase(), style: boldStyle.copyWith(fontSize: 14)),
+                Text(officine.fullName, style: textStyle),
+              ],
+            ),
+          ),
+          Center(child: Text('PRE-VENTE ASSURANCE', style: boldStyle)),
+          Center(child: Text(DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now()), style: textStyle)),
+          Text(line(), style: textStyle),
+          Text('Client: ${client.fullName}', style: textStyle),
+          Text('Patient: ${ayantDroit.fullName}', style: textStyle),
+          Text('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}', style: textStyle),
+          Text(line(), style: textStyle),
+          Align(alignment: Alignment.centerRight, child: Text('Total Brut: ${Constants.formatNumber(saleSummary.montant)}', style: textStyle)),
+          Align(alignment: Alignment.centerRight, child: Text('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: boldStyle)),
+          ...saleSummary.tierspayants.map((tp) => Align(alignment: Alignment.centerRight, child: Text('  Bon ${tp.numBon} (${tp.taux}%): ${Constants.formatNumber(tp.tpnet)}', style: textStyle))),
+          Align(alignment: Alignment.centerRight, child: Text('PART CLIENT: ${Constants.formatNumber(saleSummary.montantNet)}', style: boldStyle.copyWith(fontSize: 14))),
+          Text(line(), style: textStyle),
+          Center(child: Text("Vendeur: ${currentUser.fullName}", style: textStyle)),
           const SizedBox(height: 16),
         ],
       ),

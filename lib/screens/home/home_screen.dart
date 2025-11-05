@@ -1,5 +1,5 @@
 // lib/screens/home/home_screen.dart
-// 19/10/2025 00:40
+// 02/11/2025 15:30
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -17,9 +17,12 @@ import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/utils/responsive.dart';
 import 'package:prestige_vente_app/widgets/menu_button.dart';
-// AJOUTS
 import 'package:prestige_vente_app/screens/product_update/ean_update_screen.dart';
 import 'package:prestige_vente_app/screens/product_update/emplacement_update_screen.dart';
+
+// AJOUT : Import pour le nouvel écran (que nous créerons à l'étape suivante)
+import 'package:prestige_vente_app/screens/assurance_sale/assurance_sale_screen.dart';
+
 
 class MenuItem {
   final String label;
@@ -133,13 +136,20 @@ class _HomeScreenState extends State<HomeScreen> {
   void _buildMenuItems(BuildContext context) {
     _menuItems = [
       MenuItem( label: 'Pre/Vente', icon: Icons.point_of_sale, color: Colors.blue.shade700, onTap: () => navigate(const PreVenteScreen())),
+
+      // AJOUT : Le nouveau menu pour l'assurance
+      MenuItem(
+        label: 'Pre/Vente Assurance',
+        icon: Icons.health_and_safety, // Icône pour la santé/assurance
+        color: Colors.red.shade700, // Une nouvelle couleur
+        onTap: () => navigate(const AssuranceSaleScreen()), // Vers le nouvel écran
+      ),
+
       MenuItem( label: 'Évaluation Vente', icon: Icons.bar_chart, color: Colors.green.shade700, onTap: () => navigate(const ProductEvaluationScreen())),
       MenuItem( label: 'Recherche Article', icon: Icons.search, color: Colors.orange.shade700, onTap: () => navigate(const ProductSearchScreen())),
       MenuItem( label: 'Mise à jour Péremption', icon: Icons.date_range, color: Colors.purple.shade700, onTap: () => navigate(const ExpirationUpdateScreen())),
       MenuItem( label: 'Contrôle Livraison', icon: Icons.inventory_2, color: Colors.teal.shade700, onTap: () => navigate(const DeliveryListScreen())),
       MenuItem( label: 'Pointage BL Stock', icon: Icons.checklist, color: Colors.cyan.shade700, onTap: () => navigate(const BlListScreen())),
-
-      // MODIFICATION : Les 2 menus sont de retour
       MenuItem(
         label: 'Mise à jour EAN',
         icon: Icons.qr_code_scanner,
@@ -153,8 +163,10 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: () => navigate(const EmplacementUpdateScreen()),
       ),
     ];
+
     _pages = [];
-    // La pagination (6 par page) est gérée automatiquement
+    // La pagination est gérée automatiquement (6 par page)
+    // Nous avons maintenant 9 items, donc il y aura 2 pages (6 + 3)
     for (var i = 0; i < _menuItems.length; i += 6) {
       _pages.add(_menuItems.sublist(i, i + 6 > _menuItems.length ? _menuItems.length : i + 6));
     }
