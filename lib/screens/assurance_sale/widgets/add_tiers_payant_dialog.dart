@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/add_tiers_payant_dialog.dart
-// 02/11/2025 15:40
+// 06/11/2025 00:15 (Corrigé - Espacement et Recherche)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,33 +19,66 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
   final _formKey = GlobalKey<FormState>();
   final _matriculeController = TextEditingController();
   final _pourcentageController = TextEditingController();
+
+  // MODIFICATIONS : Ajout du controller et focus node (comme in create_client_dialog.dart)
   final _assuranceController = TextEditingController();
+  final _assuranceFocusNode = FocusNode();
+  final _matriculeFocusNode = FocusNode();
+  final _pourcentageFocusNode = FocusNode();
+
 
   TiersPayantAssurance? _selectedTiersPayant;
   Timer? _debounce;
+
+  // MODIFICATION : Ajout du listener
+  @override
+  void initState() {
+    super.initState();
+    _assuranceController.addListener(_onAssuranceSearchChanged);
+  }
 
   @override
   void dispose() {
     _matriculeController.dispose();
     _pourcentageController.dispose();
+    _assuranceController.removeListener(_onAssuranceSearchChanged); // Nettoyer
     _assuranceController.dispose();
+    _assuranceFocusNode.dispose();
+    _matriculeFocusNode.dispose();
+    _pourcentageFocusNode.dispose();
     _debounce?.cancel();
     super.dispose();
   }
 
-  void _onAssuranceSearchChanged(AssuranceSaleProvider provider) {
+  // MODIFICATION : Ajout de la fonction (comme in create_client_dialog.dart)
+  // La recherche se fait à partir de 3 caractères
+  void _onAssuranceSearchChanged() {
+    final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      provider.searchTiersPayantAssurance(_assuranceController.text);
+      final query = _assuranceController.text;
+      if (query.length >= 3) { // <-- Respect de la règle des 3 caractères
+        provider.searchTiersPayantAssurance(query);
+      } else {
+        provider.searchTiersPayantAssurance(""); // Vide la liste
+      }
     });
+
+    // Si l'utilisateur change le texte, invalide la sélection
+    if (_assuranceController.text != _selectedTiersPayant?.strFULLNAME) {
+      _selectedTiersPayant = null;
+    }
   }
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
-    if (_selectedTiersPayant == null) {
-      Constants.showSnackBar(context, "Veuillez sélectionner une assurance.", isError: true);
+
+    // MODIFICATION : Vérification manuelle de la sélection
+    if (_selectedTiersPayant == null || _assuranceController.text != _selectedTiersPayant!.strFULLNAME) {
+      Constants.showSnackBar(context, "Veuillez sélectionner une assurance valide dans la liste.", isError: true);
+      _assuranceFocusNode.requestFocus();
       return;
     }
 
@@ -63,85 +96,108 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AssuranceSaleProvider>(
-      builder: (context, provider, child) {
-        return AlertDialog(
-          title: const Text('Ajouter un Tiers Payant'),
-          content: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text("Client: ${provider.selectedClient?.fullName ?? ''}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  Autocomplete<TiersPayantAssurance>(
-                    fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                      _assuranceController.text = textEditingController.text;
-                      _onAssuranceSearchChanged(provider);
-                      return TextFormField(
-                        controller: textEditingController,
-                        focusNode: focusNode,
-                        decoration: const InputDecoration(
-                          labelText: 'Rechercher Assurance *',
-                        ),
-                        onChanged: (_) => _onAssuranceSearchChanged(provider),
-                        validator: (_) => _selectedTiersPayant == null ? 'Veuillez sélectionner une assurance' : null,
-                      );
-                    },
-                    optionsBuilder: (TextEditingValue textEditingValue) {
-                      if (textEditingValue.text == '') {
-                        return const Iterable<TiersPayantAssurance>.empty();
-                      }
-                      return provider.tiersPayantSearchResults.where((tp) => tp
-                          .strFULLNAME
-                          .toLowerCase()
-                          .contains(textEditingValue.text.toLowerCase()));
-                    },
-                    displayStringForOption: (TiersPayantAssurance option) => option.strFULLNAME,
-                    onSelected: (TiersPayantAssurance selection) {
-                      setState(() {
+    // Pas besoin de Consumer autour de l'AlertDialog,
+    // on le mettra autour du DropdownMenu.
+    final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
+
+    return AlertDialog(
+      title: const Text('Ajouter un Tiers Payant'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Client: ${provider.selectedClient?.fullName ?? ''}", style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16), // Espacement
+
+              // MODIFICATION : Remplacement de Autocomplete par DropdownMenu
+              Consumer<AssuranceSaleProvider>(
+                  builder: (context, provider, child) {
+                    return DropdownMenu<TiersPayantAssurance>(
+                      controller: _assuranceController,
+                      focusNode: _assuranceFocusNode,
+                      label: const Text('Rechercher Assurance *'),
+                      expandedInsets: EdgeInsets.zero,
+                      enableFilter: true,
+                      enableSearch: true,
+                      dropdownMenuEntries: provider.tiersPayantSearchResults.map((tp) {
+                        return DropdownMenuEntry<TiersPayantAssurance>(
+                          value: tp,
+                          label: tp.strFULLNAME,
+                        );
+                      }).toList(),
+                      onSelected: (TiersPayantAssurance? selection) {
                         _selectedTiersPayant = selection;
-                      });
-                      _assuranceController.text = selection.strFULLNAME;
-                    },
-                  ),
-                  TextFormField(
-                    controller: _matriculeController,
-                    decoration: const InputDecoration(labelText: 'Matricule (pour ce TP) *'),
-                    validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
-                  ),
-                  TextFormField(
-                    controller: _pourcentageController,
-                    decoration: const InputDecoration(labelText: 'Pourcentage % *'),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    validator: (val) {
-                      if (val?.isEmpty ?? true) return 'Requis';
-                      final int? p = int.tryParse(val!);
-                      if (p == null || p <= 0 || p > 100) {
-                        return 'Invalide (1-100)';
-                      }
-                      return null;
-                    },
-                  ),
-                ],
+                        _assuranceController.text = selection?.strFULLNAME ?? "";
+                        FocusScope.of(context).requestFocus(_matriculeFocusNode);
+                      },
+                    );
+                  }
               ),
-            ),
+              // FIN MODIFICATION
+
+              // MODIFICATION (Bug 1) : Ajout d'espacement
+              const SizedBox(height: 16),
+
+              TextFormField(
+                controller: _matriculeController,
+                focusNode: _matriculeFocusNode,
+                decoration: const InputDecoration(labelText: 'Matricule (pour ce TP) *'),
+                textInputAction: TextInputAction.next,
+                onFieldSubmitted: (_) => FocusScope.of(context).requestFocus(_pourcentageFocusNode),
+                validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
+              ),
+
+              // MODIFICATION (Bug 1) : Ajout d'espacement
+              const SizedBox(height: 16),
+
+              TextFormField(
+                controller: _pourcentageController,
+                focusNode: _pourcentageFocusNode,
+                decoration: const InputDecoration(labelText: 'Pourcentage % *'),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _submit(),
+                validator: (val) {
+                  if (val?.isEmpty ?? true) return 'Requis';
+                  final int? p = int.tryParse(val!);
+                  if (p == null || p <= 0 || p > 100) {
+                    return 'Invalide (1-100)';
+                  }
+                  return null;
+                },
+              ),
+            ],
           ),
-          actions: [
-            if (provider.isLoading) const CircularProgressIndicator(),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: provider.isLoading ? null : _submit,
-              child: const Text('Ajouter'),
-            ),
-          ],
-        );
-      },
+        ),
+      ),
+      actions: [
+        // On écoute le isLoading du provider pour le spinner
+        Consumer<AssuranceSaleProvider>(
+            builder: (context, provider, child) {
+              if (provider.isLoading) {
+                return const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: CircularProgressIndicator(),
+                );
+              }
+              return const SizedBox.shrink();
+            }
+        ),
+        TextButton(
+          // On désactive si le provider charge
+          onPressed: provider.isLoading ? null : () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
+        ElevatedButton(
+          // On désactive si le provider charge
+          onPressed: provider.isLoading ? null : _submit,
+          child: const Text('Ajouter'),
+        ),
+      ],
     );
   }
 }
