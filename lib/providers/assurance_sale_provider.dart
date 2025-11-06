@@ -84,6 +84,13 @@ class AssuranceSaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  // MODIFICATION (Point 3)
+  void clearError() {
+    _errorMessage = null;
+    notifyListeners();
+  }
+
+
   void startNewAssuranceSale() {
     _isLoading = false;
     _errorMessage = null;
@@ -151,18 +158,16 @@ class AssuranceSaleProvider with ChangeNotifier {
     startNewAssuranceSale();
   }
 
-  // MODIFICATION (Correction Erreur 'void' + Ajout notifyListeners)
   Future<List<TiersPayantAssurance>> searchTiersPayantAssurance(String query) async {
     if (query.length < 3) {
       _tiersPayantSearchResults = [];
-      notifyListeners(); // <-- AJOUT 1: Notifier quand on vide la liste
+      notifyListeners();
       return [];
     }
     _tiersPayantSearchResults = await _apiService.searchTiersPayantsAssurance(query);
-    notifyListeners(); // <-- AJOUT 2: Notifier quand on a les résultats
+    notifyListeners();
     return _tiersPayantSearchResults;
   }
-  // FIN MODIFICATION
 
   Future<bool> createClient(String firstName, String lastName, String numSecu, TiersPayantAssurance tiersPayant, int pourcentage) async {
     _setLoading(true);
@@ -281,34 +286,23 @@ class AssuranceSaleProvider with ChangeNotifier {
     }
   }
 
+  // MODIFICATION (Point 1)
   void updateBonNumber(String compteTpId, String numBon) {
     if (_bonNumbers.containsKey(compteTpId)) {
       _bonNumbers[compteTpId] = numBon;
-      notifyListeners();
+      // notifyListeners(); // <-- SUPPRESSION DE CETTE LIGNE
     }
   }
 
+  // MODIFICATION (Point 2)
   bool validateBonsAndProceed() {
-    _setError(null);
-
-    if (_activeTiersPayants.isEmpty) {
-      _setError("Veuillez activer au moins un tiers payant pour cette vente.");
-      notifyListeners();
-      return false;
-    }
-
-    for (var tp in _activeTiersPayants) {
-      if (_bonNumbers[tp.compteTp]?.isEmpty ?? true) {
-        _setError("Le N° de bon pour ${tp.tpFullName} est requis.");
-        notifyListeners();
-        return false;
-      }
-    }
-
+    // La validation est maintenant gérée dans le widget
+    // Nous changeons juste l'étape
     _currentStep = AssuranceStep.productSearch;
     notifyListeners();
     return true;
   }
+
 
   void returnToBonStep() {
     _currentStep = AssuranceStep.bonAndAyantDroit;
