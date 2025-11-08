@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/step_2_bon_ayantdroit.dart
-// 08/11/2025 22:30 (Correction Erreur: Nom TP)
+// 08/11/2025 23:30 (Correction Overflow)
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
@@ -204,11 +204,7 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                 child: Text("Aucun client sélectionné. Veuillez recommencer."));
           }
 
-          // *** MODIFICATION ***
-          // À chaque reconstruction, on vérifie que les controllers existent
-          // pour les nouveaux TPs ajoutés.
           _initializeControllers(provider);
-          // *** FIN MODIFICATION ***
 
           final bool canAddTiersPayant = client.tiersPayants.length < settings.maxTiersPayants;
           final bool canToggleTiersPayant = client.tiersPayants.length > 1;
@@ -253,7 +249,9 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                     style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 8),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start, // S'assure que le bouton + est aligné en haut
                   children: [
+                    // MODIFICATION (a) : Ajout du widget Expanded
                     Expanded(
                       child: DropdownButtonFormField<AyantDroit>(
                         value: validSelectedAyantDroit,
@@ -261,11 +259,16 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                           labelText: 'Ayant Droit',
                           border: OutlineInputBorder(),
                         ),
+                        // Permet au texte de s'adapter
+                        isExpanded: true,
                         items: provider.ayantDroitList.map((AyantDroit ad) {
                           return DropdownMenuItem<AyantDroit>(
                             value: ad,
+                            // Le texte peut maintenant prendre plusieurs lignes si nécessaire
                             child: Text(
-                                '${ad.fullName} (${ad.strNUMEROSECURITESOCIAL})'),
+                              '${ad.fullName} (${ad.strNUMEROSECURITESOCIAL})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           );
                         }).toList(),
                         onChanged: (AyantDroit? newValue) {
@@ -275,6 +278,7 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                         },
                       ),
                     ),
+                    // FIN MODIFICATION
                     IconButton(
                       icon: const Icon(Icons.add, color: AppColors.secondary),
                       tooltip: 'Créer un nouvel ayant droit',
@@ -301,12 +305,9 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                       );
                       final bool isActive = provider.activeTiersPayants.indexWhere((atp) => atp.originalData.compteTp == tp.compteTp) != -1;
 
-                      // MODIFICATION : Récupération sécurisée
                       final controller = _bonControllers[tp.compteTp];
                       final focusNode = _bonFocusNodes[tp.compteTp];
 
-                      // Si le controller ou le focus node n'existent pas (ne devrait jamais arriver
-                      // grâce à la nouvelle logique)
                       if (controller == null || focusNode == null) {
                         return Card(
                             color: Colors.red.shade100,

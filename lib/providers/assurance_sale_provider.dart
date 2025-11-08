@@ -238,6 +238,7 @@ class AssuranceSaleProvider with ChangeNotifier {
     );
 
     if (updatedClient != null) {
+      // Recharge le client sélectionné avec les nouvelles données
       await selectClient(updatedClient);
       return true;
     } else {

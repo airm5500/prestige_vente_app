@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/create_client_dialog.dart
-// 05/11/2025 18:05 (Corrigé)
+// 08/11/2025 23:00 (Améliorations UI)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -35,11 +35,9 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
   bool _isSubmitting = false;
   Timer? _debounce;
 
-  // MODIFICATION : Ajout du listener de recherche
   @override
   void initState() {
     super.initState();
-    // Ajoute un listener au controller de texte
     _assuranceTextController.addListener(_onAssuranceSearchChanged);
   }
 
@@ -49,7 +47,7 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
     _prenomController.dispose();
     _matriculeController.dispose();
     _pourcentageController.dispose();
-    _assuranceTextController.removeListener(_onAssuranceSearchChanged); // Nettoyer
+    _assuranceTextController.removeListener(_onAssuranceSearchChanged);
     _assuranceTextController.dispose();
     _nomFocusNode.dispose();
     _prenomFocusNode.dispose();
@@ -60,7 +58,6 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
     super.dispose();
   }
 
-  // MODIFICATION : Appel au provider via le listener
   void _onAssuranceSearchChanged() {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
     if (_debounce?.isActive ?? false) _debounce!.cancel();
@@ -69,11 +66,10 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
       if (query.length >= 3) {
         provider.searchTiersPayantAssurance(query);
       } else {
-        provider.searchTiersPayantAssurance(""); // Vide la liste si moins de 3 chars
+        provider.searchTiersPayantAssurance("");
       }
     });
 
-    // Si l'utilisateur change le texte, invalide la sélection
     if (_assuranceTextController.text != _selectedTiersPayant?.strFULLNAME) {
       _selectedTiersPayant = null;
     }
@@ -82,12 +78,10 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
   Future<void> _submit() async {
     if (_isSubmitting) return;
 
-    // Validation du formulaire
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
-    // Vérification manuelle de la sélection
     if (_selectedTiersPayant == null || _assuranceTextController.text != _selectedTiersPayant!.strFULLNAME) {
       Constants.showSnackBar(context, "Veuillez sélectionner une assurance valide dans la liste.", isError: true);
       _assuranceFocusNode.requestFocus();
@@ -99,7 +93,6 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
 
     try {
-      // Rappel : strFIRSTNAME = Nom, strLASTNAME = Prénom(s)
       final success = await provider.createClient(
         _nomController.text.trim(),      // Nom -> strFIRSTNAME
         _prenomController.text.trim(), // Prénom(s) -> strLASTNAME
@@ -136,6 +129,8 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
               TextFormField(
                 controller: _nomController, // Le Nom (strFIRSTNAME)
                 focusNode: _nomFocusNode,
+                // MODIFICATION (Request 3) : Ajout du focus auto
+                autofocus: true,
                 decoration: const InputDecoration(labelText: 'Nom *'),
                 validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
                 textInputAction: TextInputAction.next,
@@ -161,23 +156,16 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
               ),
               const SizedBox(height: 16),
 
-              // MODIFICATION : Remplacement par DropdownMenu
-              // Il a besoin d'un Consumer pour mettre à jour sa liste
               Consumer<AssuranceSaleProvider>(
                   builder: (context, provider, child) {
                     return DropdownMenu<TiersPayantAssurance>(
-                      // Utilise notre controller pour la saisie de texte
                       controller: _assuranceTextController,
                       focusNode: _assuranceFocusNode,
                       label: const Text('Rechercher Assurance *'),
-                      // Occupe toute la largeur
                       expandedInsets: EdgeInsets.zero,
-                      // Permet la saisie
                       enableFilter: true,
-                      // Affiche le menu de recherche
                       enableSearch: true,
 
-                      // Construit la liste des résultats depuis le provider
                       dropdownMenuEntries: provider.tiersPayantSearchResults.map((tp) {
                         return DropdownMenuEntry<TiersPayantAssurance>(
                           value: tp,
@@ -185,25 +173,14 @@ class _CreateClientDialogState extends State<CreateClientDialog> {
                         );
                       }).toList(),
 
-                      // Quand un item est sélectionné
                       onSelected: (TiersPayantAssurance? selection) {
                         _selectedTiersPayant = selection;
-                        // Règle le texte du champ
                         _assuranceTextController.text = selection?.strFULLNAME ?? "";
                         FocusScope.of(context).requestFocus(_pourcentageFocusNode);
                       },
-
-                      // Validateur
-                  //    inputDecorationTheme: InputDecorationTheme(
-                  //      errorText: (_selectedTiersPayant == null && _assuranceTextController.text.isNotEmpty)
-                  //          ? 'Veuillez sélectionner dans la liste'
-                  //          : null,
-                  //    ),
                     );
                   }
               ),
-              // FIN MODIFICATION
-
               const SizedBox(height: 16),
               TextFormField(
                 controller: _pourcentageController,

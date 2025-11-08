@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/add_tiers_payant_dialog.dart
-// 06/11/2025 00:15 (Corrigé - Espacement et Recherche)
+// 08/11/2025 23:15 (Correction Erreur 'autofocus')
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,7 +20,6 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
   final _matriculeController = TextEditingController();
   final _pourcentageController = TextEditingController();
 
-  // MODIFICATIONS : Ajout du controller et focus node (comme in create_client_dialog.dart)
   final _assuranceController = TextEditingController();
   final _assuranceFocusNode = FocusNode();
   final _matriculeFocusNode = FocusNode();
@@ -30,18 +29,25 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
   TiersPayantAssurance? _selectedTiersPayant;
   Timer? _debounce;
 
-  // MODIFICATION : Ajout du listener
   @override
   void initState() {
     super.initState();
     _assuranceController.addListener(_onAssuranceSearchChanged);
+
+    // MODIFICATION (Request 2) : Ajout du focus auto
+    // On demande le focus après la construction du widget
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _assuranceFocusNode.requestFocus();
+      }
+    });
   }
 
   @override
   void dispose() {
     _matriculeController.dispose();
     _pourcentageController.dispose();
-    _assuranceController.removeListener(_onAssuranceSearchChanged); // Nettoyer
+    _assuranceController.removeListener(_onAssuranceSearchChanged);
     _assuranceController.dispose();
     _assuranceFocusNode.dispose();
     _matriculeFocusNode.dispose();
@@ -50,21 +56,18 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
     super.dispose();
   }
 
-  // MODIFICATION : Ajout de la fonction (comme in create_client_dialog.dart)
-  // La recherche se fait à partir de 3 caractères
   void _onAssuranceSearchChanged() {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       final query = _assuranceController.text;
-      if (query.length >= 3) { // <-- Respect de la règle des 3 caractères
+      if (query.length >= 3) {
         provider.searchTiersPayantAssurance(query);
       } else {
-        provider.searchTiersPayantAssurance(""); // Vide la liste
+        provider.searchTiersPayantAssurance("");
       }
     });
 
-    // Si l'utilisateur change le texte, invalide la sélection
     if (_assuranceController.text != _selectedTiersPayant?.strFULLNAME) {
       _selectedTiersPayant = null;
     }
@@ -75,7 +78,6 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
       return;
     }
 
-    // MODIFICATION : Vérification manuelle de la sélection
     if (_selectedTiersPayant == null || _assuranceController.text != _selectedTiersPayant!.strFULLNAME) {
       Constants.showSnackBar(context, "Veuillez sélectionner une assurance valide dans la liste.", isError: true);
       _assuranceFocusNode.requestFocus();
@@ -96,8 +98,6 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
 
   @override
   Widget build(BuildContext context) {
-    // Pas besoin de Consumer autour de l'AlertDialog,
-    // on le mettra autour du DropdownMenu.
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
 
     return AlertDialog(
@@ -110,14 +110,14 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text("Client: ${provider.selectedClient?.fullName ?? ''}", style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16), // Espacement
+              const SizedBox(height: 16),
 
-              // MODIFICATION : Remplacement de Autocomplete par DropdownMenu
               Consumer<AssuranceSaleProvider>(
                   builder: (context, provider, child) {
                     return DropdownMenu<TiersPayantAssurance>(
                       controller: _assuranceController,
                       focusNode: _assuranceFocusNode,
+                      // MODIFICATION : 'autofocus: true' RETIRÉ
                       label: const Text('Rechercher Assurance *'),
                       expandedInsets: EdgeInsets.zero,
                       enableFilter: true,
@@ -136,9 +136,7 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
                     );
                   }
               ),
-              // FIN MODIFICATION
 
-              // MODIFICATION (Bug 1) : Ajout d'espacement
               const SizedBox(height: 16),
 
               TextFormField(
@@ -150,7 +148,6 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
                 validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
               ),
 
-              // MODIFICATION (Bug 1) : Ajout d'espacement
               const SizedBox(height: 16),
 
               TextFormField(
@@ -175,7 +172,6 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
         ),
       ),
       actions: [
-        // On écoute le isLoading du provider pour le spinner
         Consumer<AssuranceSaleProvider>(
             builder: (context, provider, child) {
               if (provider.isLoading) {
@@ -188,12 +184,10 @@ class _AddTiersPayantDialogState extends State<AddTiersPayantDialog> {
             }
         ),
         TextButton(
-          // On désactive si le provider charge
           onPressed: provider.isLoading ? null : () => Navigator.of(context).pop(),
           child: const Text('Annuler'),
         ),
         ElevatedButton(
-          // On désactive si le provider charge
           onPressed: provider.isLoading ? null : _submit,
           child: const Text('Ajouter'),
         ),

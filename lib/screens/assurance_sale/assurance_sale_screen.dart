@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/assurance_sale_screen.dart
-// 08/11/2025 21:10 (Correction dépréciation onPopInvoked)
+// 08/11/2025 23:00 (Améliorations UI)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 import 'package:provider/provider.dart';
@@ -78,8 +78,6 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
       // On peut quitter directement SEULEMENT si aucun client n'est sélectionné
       canPop: canPopDirectly,
 
-      // MODIFICATION : Remplacement de 'onPopInvoked' par 'onPopInvokedWithResult'
-      // Il prend maintenant 2 arguments (didPop, result)
       onPopInvokedWithResult: (bool didPop, dynamic result) {
         // Si le pop a déjà eu lieu (parce que canPop était true), on ne fait rien
         if (didPop) {
@@ -88,13 +86,13 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
         // Sinon (canPop était false), on affiche notre dialogue de confirmation
         _showExitConfirmationDialog(provider);
       },
-      // FIN MODIFICATION
 
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Vente Assurance'),
           actions: [
-            // Bouton pour tout réinitialiser et commencer une nouvelle vente
+            // MODIFICATION (1a) : Bouton (+) "Nouvelle Vente" supprimé
+            /*
             IconButton(
               icon: const Icon(Icons.add),
               onPressed: () {
@@ -103,6 +101,7 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
               },
               tooltip: 'Nouvelle Vente Assurance',
             )
+            */
           ],
           // La flèche "Retour" sera maintenant gérée par le PopScope
         ),
