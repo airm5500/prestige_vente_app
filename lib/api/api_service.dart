@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 02/11/2025 15:25
+// 08/11/2025 22:00 (Correction Ajout TP multiple)
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -31,7 +31,7 @@ class ApiService {
     _dio = DioClient.getClient(baseUrl);
   }
 
-  // --- AUTHENTIFICATION (Existant) ---
+  // --- AUTHENTIFICATION (Inchangé) ---
   Future<User?> login(String login, String password) async {
     try {
       final response = await _dio.post(
@@ -68,7 +68,7 @@ class ApiService {
     }
   }
 
-  // --- VENTE COMPTANT / PREVENTE (Existant) ---
+  // --- VENTE COMPTANT / PREVENTE (Inchangé) ---
   Future<List<ProductSearchResult>> searchProducts(String query) async {
     try {
       final response = await _dio.get(
@@ -302,7 +302,7 @@ class ApiService {
     }
   }
 
-  // --- MODULE RECHERCHE / STATS (Existant) ---
+  // --- MODULE RECHERCHE / STATS (Inchangé) ---
   Future<List<ProductAnnualSale>> getAnnualSales(String query, int year) async {
     try {
       final response = await _dio.get('/produit/stats/vente-annuelle',
@@ -402,7 +402,6 @@ class ApiService {
           "quantity": quantity
         },
       );
-      // CORRECTION : Si le code de statut est 202, c'est un succès.
       return response.statusCode == 202;
     } catch (e) {
       print("Error adding lot: $e");
@@ -410,7 +409,7 @@ class ApiService {
     }
   }
 
-  // --- MODULE GESTION DE STOCK (Existant) ---
+  // --- MODULE GESTION DE STOCK (Inchangé) ---
   Future<List<Commande>> getCommandes() async {
     try {
       final response = await _dio.get(
@@ -419,7 +418,7 @@ class ApiService {
           'page': 1,
           'start': 0,
           'limit': 100
-        }, // On charge une grande liste
+        },
       );
       if (response.statusCode == 200 && response.data['data'] is List) {
         return (response.data['data'] as List)
@@ -483,7 +482,6 @@ class ApiService {
         'start': 0,
         'limit': 9999,
         'sort': '[{"property":"dt_DATE_LIVRAISON","direction":"ASC"}]',
-        // MODIFICATION : Ajout du statut pour filtrer côté serveur
         'statut': 'is_Closed'
       };
 
@@ -540,7 +538,7 @@ class ApiService {
     }
   }
 
-  // --- MODULE FICHE ARTICLE (Existant) ---
+  // --- MODULE FICHE ARTICLE (Inchangé) ---
   Future<List<Rayon>> getRayons() async {
     try {
       final response = await _dio.get(
@@ -565,15 +563,14 @@ class ApiService {
       );
 
       if (response.statusCode == 202) {
-        return true; // Succès (Accepté)
+        return true;
       }
       if (response.statusCode == 200 && response.data['success'] == true) {
-        return true; // Succès (OK avec JSON)
+        return true;
       }
-      return false; // Échec
+      return false;
 
     } on DioException catch (e) {
-      // Gère le cas où Dio lève une exception pour un 202 (si mal configuré)
       if (e.response?.statusCode == 202) return true;
       print("Error in updateLiteInfo: $e");
       return false;
@@ -589,8 +586,6 @@ class ApiService {
         '/modereglement/all',
         queryParameters: {'page': 1, 'start': 0, 'limit': 20},
       );
-
-      // MODIFICATION : On s'assure de lire la liste "data"
       if (response.statusCode == 200 && response.data['data'] is List) {
         final List data = response.data['data'];
         final List<PaymentMethodQr> methods = [];
@@ -759,12 +754,12 @@ class ApiService {
           "dtNAISSANCE": "",
           "intPOURCENTAGE": pourcentage,
           "intPRIORITY": 1,
-          "lgCATEGORIEAYANTDROITID": "", // Géré par le serveur
-          "lgCLIENTID": "", // Géré par le serveur
-          "lgCOMPANYID": "", // Géré par le serveur
-          "lgRISQUEID": "", // Géré par le serveur
+          "lgCATEGORIEAYANTDROITID": "",
+          "lgCLIENTID": "",
+          "lgCOMPANYID": "",
+          "lgRISQUEID": "",
           "lgTIERSPAYANTID": tiersPayantId,
-          "lgTYPECLIENTID": "1", // 1 = Client Assurance
+          "lgTYPECLIENTID": "1",
           "lgVILLEID": "",
           "strADRESSE": "",
           "strCODEPOSTAL": "",
@@ -772,7 +767,7 @@ class ApiService {
           "strLASTNAME": lastName,
           "strNUMEROSECURITESOCIAL": numSecu,
           "strSEXE": "",
-          "tiersPayants": [] // Géré par le serveur
+          "tiersPayants": []
         },
       );
       if (response.statusCode == 200 && response.data['success'] == true) {
@@ -785,52 +780,45 @@ class ApiService {
     }
   }
 
-  Future<ClientAssurance?> addTiersPayantToClient({
-    required String clientId,
-    required String firstName,
-    required String lastName,
-    required String tiersPayantId,
-    required String numSecu,
-    required int pourcentage,
-    required int order,
-    required String compteTp
+  // MODIFICATION (Correction Ajout TP multiple)
+  // La méthode prend maintenant la liste complète des TPs à envoyer
+  Future<ClientAssurance?> updateClientTiersPayants({
+    required ClientAssurance existingClient,
+    required List<Map<String, dynamic>> tiersPayantsPayload,
   }) async {
     try {
+      // 1. Récupère le premier (principal) tiers payant existant
+      final mainTp = existingClient.tiersPayants.firstWhere(
+              (tp) => tp.principal,
+          orElse: () => existingClient.tiersPayants.first
+      );
+
+      // 2. Construit le payload principal
       final response = await _dio.post(
         '/client/add/assurance',
         data: {
           "bIsAbsolute": false,
-          "compteTp": compteTp,
+          "compteTp": mainTp.compteTp,
           "dblQUOTACONSOMENSUELLE": 0,
           "dbPLAFONDENCOURS": 0,
           "dtNAISSANCE": "",
-          "intPOURCENTAGE": pourcentage,
-          "intPRIORITY": order,
+          "intPOURCENTAGE": mainTp.taux,
+          "intPRIORITY": mainTp.order,
           "lgCATEGORIEAYANTDROITID": "",
-          "lgCLIENTID": clientId,
+          "lgCLIENTID": existingClient.lgCLIENTID,
           "lgCOMPANYID": "",
           "lgRISQUEID": "",
-          "lgTIERSPAYANTID": tiersPayantId,
+          "lgTIERSPAYANTID": mainTp.lgTIERSPAYANTID,
           "lgTYPECLIENTID": "1",
           "lgVILLEID": "",
           "strADRESSE": "",
           "strCODEPOSTAL": "",
-          "strFIRSTNAME": firstName,
-          "strLASTNAME": lastName,
-          "strNUMEROSECURITESOCIAL": numSecu,
+          "strFIRSTNAME": existingClient.strFIRSTNAME,
+          "strLASTNAME": existingClient.strLASTNAME,
+          "strNUMEROSECURITESOCIAL": mainTp.numSecurity,
           "strSEXE": "",
-          "tiersPayants": [
-            {
-              "bIsAbsolute": false,
-              "compteTp": "",
-              "dbPLAFONDENCOURS": 0,
-              "lgTIERSPAYANTID": tiersPayantId,
-              "numSecurity": numSecu,
-              "order": order,
-              "taux": pourcentage,
-              "tpFullName": "" // Le nom n'est pas requis, juste l'ID
-            }
-          ]
+          // 3. Envoie la LISTE COMPLETE des TPs
+          "tiersPayants": tiersPayantsPayload
         },
       );
       if (response.statusCode == 200 && response.data['success'] == true) {
@@ -838,7 +826,7 @@ class ApiService {
       }
       return null;
     } catch (e) {
-      print("Error adding tiers payant to client: $e");
+      print("Error updating client tiers payants: $e");
       return null;
     }
   }
@@ -899,7 +887,7 @@ class ApiService {
     required String natureVenteId,
     required String typeVenteId,
     required String? userVendeurId,
-    required List<Map<String, dynamic>> tierspayants, // { "compteTp": "...", "numBon": "...", "taux": ... }
+    required List<Map<String, dynamic>> tierspayants,
     String? venteId,
   }) {
     return {
@@ -908,7 +896,7 @@ class ApiService {
       "devis": false,
       "itemPu": itemPu,
       "natureVenteId": natureVenteId,
-      "prevente": true, // Toujours true pour la prévente assurance
+      "prevente": true,
       "produitId": produitId,
       "qte": qte,
       "qteServie": qte,
@@ -940,8 +928,8 @@ class ApiService {
     try {
       final bool isFirstItem = venteId == null;
       final String endpoint = isFirstItem
-          ? '/vente/add/assurance' // Premier produit
-          : '/vente/add/item';   // Produits suivants
+          ? '/vente/add/assurance'
+          : '/vente/add/item';
 
       final payload = _buildAssuranceSalePayload(
         produitId: produitId,
@@ -970,7 +958,7 @@ class ApiService {
 
   Future<AssuranceSaleSummary?> calculateNetAssurance({
     required String venteId,
-    required List<Map<String, dynamic>> tierspayants, // { "compteTp": "...", "numBon": "...", "taux": ... }
+    required List<Map<String, dynamic>> tierspayants,
   }) async {
     try {
       final response = await _dio.post(
@@ -1004,8 +992,8 @@ class ApiService {
     required String typeVenteId,   // "2"
     required String? userVendeurId,
     required AssuranceSaleSummary summary,
-    required String typeReglementId, // ID du mode de paiement (Especes, WAVE, etc.)
-    required List<Map<String, dynamic>> tierspayants, // { "compteTp": "...", "numBon": "...", "taux": ... }
+    required String typeReglementId,
+    required List<Map<String, dynamic>> tierspayants,
   }) async {
     try {
       final response = await _dio.post(
@@ -1019,12 +1007,12 @@ class ApiService {
           "lieux": "",
           "marge": summary.marge,
           "medecinId": null,
-          "montantPaye": summary.montantNet, // Part client
-          "montantRecu": summary.montantNet, // Part client
+          "montantPaye": summary.montantNet,
+          "montantRecu": summary.montantNet,
           "montantRemis": 0,
           "natureVenteId": natureVenteId,
           "nom": "",
-          "partTP": summary.montantTp.toString(), // Part assurance
+          "partTP": summary.montantTp.toString(),
           "reglements": [
             {
               "montant": summary.montantNet,

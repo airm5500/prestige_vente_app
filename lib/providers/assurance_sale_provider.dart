@@ -1,5 +1,5 @@
 // lib/providers/assurance_sale_provider.dart
-// 05/11/2025 18:50 (Corrigé)
+// 08/11/2025 22:15 (Correction Bug 'Map<String, Object>')
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
@@ -84,7 +84,6 @@ class AssuranceSaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // MODIFICATION (Point 3)
   void clearError() {
     _errorMessage = null;
     notifyListeners();
@@ -192,18 +191,50 @@ class AssuranceSaleProvider with ChangeNotifier {
 
   Future<bool> addTiersPayantToClient(TiersPayantAssurance tiersPayant, String numSecu, int pourcentage) async {
     if (_selectedClient == null) return false;
+
+    if (_selectedClient!.tiersPayants.any((tp) => tp.lgTIERSPAYANTID == tiersPayant.lgTIERSPAYANTID)) {
+      _setError("${tiersPayant.strNAME} est déjà associé à ce client.");
+      notifyListeners();
+      return false;
+    }
+
     _setLoading(true);
     _setError(null);
 
-    final updatedClient = await _apiService.addTiersPayantToClient(
-        clientId: _selectedClient!.lgCLIENTID,
-        firstName: _selectedClient!.strFIRSTNAME, // Nom
-        lastName: _selectedClient!.strLASTNAME,  // Prénom
-        tiersPayantId: tiersPayant.lgTIERSPAYANTID,
-        numSecu: numSecu,
-        pourcentage: pourcentage,
-        order: _selectedClient!.tiersPayants.length + 1,
-        compteTp: ""
+    // MODIFICATION : Correction du bug de type
+    // On s'assure que la liste est bien de type List<Map<String, dynamic>>
+    final List<Map<String, dynamic>> tiersPayantsPayload = _selectedClient!.tiersPayants.map((tp) {
+      // On force le cast en Map<String, dynamic>
+      return {
+        "bIsAbsolute": false,
+        "compteTp": tp.compteTp,
+        "dbPLAFONDENCOURS": 0,
+        "lgTIERSPAYANTID": tp.lgTIERSPAYANTID,
+        "numSecurity": tp.numSecurity,
+        "order": tp.order,
+        "taux": tp.taux,
+        "tpFullName": tp.tpFullName
+      } as Map<String, dynamic>; // <-- Cast explicite
+    }).toList();
+    // FIN MODIFICATION
+
+    // 3. Ajoute le nouveau TP à la liste
+    // (celui-ci est déjà un Map<String, dynamic> par défaut)
+    tiersPayantsPayload.add({
+      "bIsAbsolute": false,
+      "compteTp": "",
+      "dbPLAFONDENCOURS": 0,
+      "lgTIERSPAYANTID": tiersPayant.lgTIERSPAYANTID,
+      "numSecurity": numSecu,
+      "order": _selectedClient!.tiersPayants.length + 1,
+      "taux": pourcentage,
+      "tpFullName": tiersPayant.strFULLNAME
+    });
+
+    // 4. Appelle l'API avec la liste complète
+    final updatedClient = await _apiService.updateClientTiersPayants(
+        existingClient: _selectedClient!,
+        tiersPayantsPayload: tiersPayantsPayload
     );
 
     if (updatedClient != null) {
@@ -286,18 +317,13 @@ class AssuranceSaleProvider with ChangeNotifier {
     }
   }
 
-  // MODIFICATION (Point 1)
   void updateBonNumber(String compteTpId, String numBon) {
     if (_bonNumbers.containsKey(compteTpId)) {
       _bonNumbers[compteTpId] = numBon;
-      // notifyListeners(); // <-- SUPPRESSION DE CETTE LIGNE
     }
   }
 
-  // MODIFICATION (Point 2)
   bool validateBonsAndProceed() {
-    // La validation est maintenant gérée dans le widget
-    // Nous changeons juste l'étape
     _currentStep = AssuranceStep.productSearch;
     notifyListeners();
     return true;

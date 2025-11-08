@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/step_2_bon_ayantdroit.dart
-// 06/11/2025 00:00 (Correction Focus/Curseur)
+// 08/11/2025 22:30 (Correction Erreur: Nom TP)
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
@@ -19,9 +19,9 @@ class Step2BonAyantDroitWidget extends StatefulWidget {
 }
 
 class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
-  // MODIFICATION : Les controllers et focus nodes sont initialisés ici
   final Map<String, TextEditingController> _bonControllers = {};
   final Map<String, FocusNode> _bonFocusNodes = {};
+  FocusNode? _firstActiveFocusNode; // Garde une référence au premier FocusNode
 
   @override
   void initState() {
@@ -29,44 +29,48 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
     final provider =
     Provider.of<AssuranceSaleProvider>(context, listen: false);
 
-    // MODIFICATION : On crée TOUS les controllers et focus nodes UNE SEULE FOIS.
-    if (provider.selectedClient != null) {
-      FocusNode? firstActiveFocusNode;
+    // Crée les controllers et focus nodes pour les TPs existants
+    _initializeControllers(provider);
 
-      for (var tp in provider.selectedClient!.tiersPayants) {
-        // Crée un controller pour chaque TP
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if(mounted) {
+        provider.clearError();
+        // Met le focus sur le premier champ actif, s'il existe
+        if (_firstActiveFocusNode != null) {
+          FocusScope.of(context).requestFocus(_firstActiveFocusNode);
+        }
+      }
+    });
+  }
+
+  // MODIFICATION : Isolée dans une fonction
+  void _initializeControllers(AssuranceSaleProvider provider) {
+    if (provider.selectedClient == null) return;
+
+    _firstActiveFocusNode = null; // Réinitialise
+
+    for (var tp in provider.selectedClient!.tiersPayants) {
+      // S'il n'existe pas, on le crée
+      if (!_bonControllers.containsKey(tp.compteTp)) {
         _bonControllers[tp.compteTp] = TextEditingController(
             text: provider.bonNumbers[tp.compteTp] ?? ""
         );
-
-        // Crée un focus node pour chaque TP
-        final focusNode = FocusNode();
-        _bonFocusNodes[tp.compteTp] = focusNode;
-
-        // On garde en mémoire le premier focus node qui est ACTIF
-        if (firstActiveFocusNode == null &&
-            provider.activeTiersPayants.any((atp) => atp.compteTp == tp.compteTp)) {
-          firstActiveFocusNode = focusNode;
-        }
+      }
+      if (!_bonFocusNodes.containsKey(tp.compteTp)) {
+        _bonFocusNodes[tp.compteTp] = FocusNode();
       }
 
-      // Met le focus sur le premier champ actif
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if(mounted) {
-          provider.clearError(); // Efface les anciennes erreurs
-          if (firstActiveFocusNode != null) {
-            FocusScope.of(context).requestFocus(firstActiveFocusNode);
-          }
-        }
-      });
+      // Vérifie s'il est actif pour le focus
+      bool isActive = provider.activeTiersPayants.any((atp) => atp.compteTp == tp.compteTp);
+      if (_firstActiveFocusNode == null && isActive) {
+        _firstActiveFocusNode = _bonFocusNodes[tp.compteTp];
+      }
     }
   }
 
-  // MODIFICATION : Plus besoin de _updateControllers ou didChangeDependencies
 
   @override
   void dispose() {
-    // MODIFICATION : On nettoie tous les controllers et focus nodes
     _bonControllers.forEach((_, controller) => controller.dispose());
     _bonFocusNodes.forEach((_, node) => node.dispose());
     super.dispose();
@@ -75,7 +79,6 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
   Future<void> _confirmReturnToClientSearch(BuildContext context) async {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
 
-    // Vérifie si un bon est saisi OU si le panier n'est pas vide
     bool hasData = provider.cartItems.isNotEmpty || _bonControllers.values.any((c) => c.text.isNotEmpty);
 
     if (!hasData) {
@@ -148,7 +151,6 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                   provider.updateTiersPayantTaux(activeTp.compteTp, newTaux);
                   Navigator.of(ctx).pop();
                 } else {
-                  // Utilise le context du dialogue
                   Constants.showSnackBar(ctx, "Taux invalide (0-100)", isError: true);
                 }
               },
@@ -160,43 +162,37 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
 
   void _validateAndProceed() {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-    provider.clearError(); // Efface les anciennes erreurs du provider
+    provider.clearError();
 
     if (provider.activeTiersPayants.isEmpty) {
       Constants.showSnackBar(context, "Veuillez activer au moins un tiers payant pour cette vente.", isError: true);
       return;
     }
 
-    // 1. Mettre à jour le provider avec les valeurs des controllers
     _bonControllers.forEach((compteTp, controller) {
-      // Met à jour le provider uniquement si le TP est actif
       if (provider.activeTiersPayants.any((atp) => atp.compteTp == compteTp)) {
         provider.updateBonNumber(compteTp, controller.text.trim());
       }
     });
 
-    // 2. Valider les données (qui sont maintenant dans le provider)
     for (var tp in provider.activeTiersPayants) {
       if (provider.bonNumbers[tp.compteTp]?.isEmpty ?? true) {
         Constants.showSnackBar(context, "Le N° de bon pour ${tp.tpFullName} est requis.", isError: true);
 
-        // Met le focus sur le champ vide
         final focusNode = _bonFocusNodes[tp.compteTp];
         if (focusNode != null) {
           FocusScope.of(context).requestFocus(focusNode);
         }
-        return; // Arrête la validation
+        return;
       }
     }
 
-    // 3. Si tout est bon, on continue
     provider.validateBonsAndProceed();
   }
 
 
   @override
   Widget build(BuildContext context) {
-    // On utilise Consumer pour reconstruire l'interface si nécessaire
     return Consumer<AssuranceSaleProvider>(
         builder: (context, provider, child) {
 
@@ -208,7 +204,14 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                 child: Text("Aucun client sélectionné. Veuillez recommencer."));
           }
 
+          // *** MODIFICATION ***
+          // À chaque reconstruction, on vérifie que les controllers existent
+          // pour les nouveaux TPs ajoutés.
+          _initializeControllers(provider);
+          // *** FIN MODIFICATION ***
+
           final bool canAddTiersPayant = client.tiersPayants.length < settings.maxTiersPayants;
+          final bool canToggleTiersPayant = client.tiersPayants.length > 1;
 
           AyantDroit? validSelectedAyantDroit = provider.selectedAyantDroit;
           if (validSelectedAyantDroit != null && !provider.ayantDroitList.contains(validSelectedAyantDroit)) {
@@ -292,25 +295,27 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                     itemBuilder: (context, index) {
                       final tp = client.tiersPayants[index];
 
-                      // On cherche l'état "actif"
                       final activeTp = provider.activeTiersPayants.firstWhere(
                               (atp) => atp.originalData.compteTp == tp.compteTp,
-                          // Si pas trouvé, on crée un "factice" pour lire le taux
                           orElse: () => ActiveTiersPayant(originalData: tp, taux: tp.taux)
                       );
                       final bool isActive = provider.activeTiersPayants.indexWhere((atp) => atp.originalData.compteTp == tp.compteTp) != -1;
 
-                      // MODIFICATION : On récupère le bon controller et focus node
+                      // MODIFICATION : Récupération sécurisée
                       final controller = _bonControllers[tp.compteTp];
                       final focusNode = _bonFocusNodes[tp.compteTp];
 
-                      // Si le controller ou le focus node n'existent pas (ne devrait pas arriver)
+                      // Si le controller ou le focus node n'existent pas (ne devrait jamais arriver
+                      // grâce à la nouvelle logique)
                       if (controller == null || focusNode == null) {
-                        return Card(child: Text("Erreur: ${tp.tpFullName}"));
+                        return Card(
+                            color: Colors.red.shade100,
+                            child: Text("Erreur d'initialisation: ${tp.tpFullName}")
+                        );
                       }
 
                       return Card(
-                        color: isActive ? Colors.white : Colors.grey[200],
+                        color: isActive ? Colors.white : (canToggleTiersPayant ? Colors.grey[200] : Colors.grey[50]),
                         margin: const EdgeInsets.only(bottom: 8),
                         child: Column(
                           children: [
@@ -318,22 +323,22 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                               title: Text('${tp.tpFullName} (${isActive ? activeTp.taux : tp.taux}%)', style: const TextStyle(fontWeight: FontWeight.bold)),
                               subtitle: Text('Matricule: ${tp.numSecurity}'),
                               value: isActive,
-                              onChanged: (bool? value) {
-                                // C'est ici que le provider notifie et le widget reconstruit
+                              onChanged: canToggleTiersPayant
+                                  ? (bool? value) {
                                 provider.toggleTiersPayant(tp, value ?? false);
-                              },
+                              }
+                                  : null,
+
                               secondary: isActive ? IconButton(
                                 icon: const Icon(Icons.edit, color: Colors.blueAccent),
                                 tooltip: 'Modifier le taux pour cette vente',
                                 onPressed: () => _showEditTauxDialog(activeTp),
                               ) : null,
                             ),
-                            // On affiche le champ SI le TP est actif
                             if (isActive)
                               Padding(
                                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                                 child: TextFormField(
-                                  // On utilise les instances persistantes
                                   focusNode: focusNode,
                                   controller: controller,
                                   decoration: InputDecoration(
@@ -341,9 +346,7 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                                     border: const OutlineInputBorder(),
                                   ),
                                   textInputAction: TextInputAction.next,
-                                  // On met à jour le provider uniquement quand l'utilisateur change de champ
                                   onFieldSubmitted: (_) {
-                                    // Trouve le *prochain* focus node actif
                                     final activeNodes = _bonFocusNodes.entries
                                         .where((entry) => provider.activeTiersPayants.any((atp) => atp.compteTp == entry.key))
                                         .map((entry) => entry.value)
@@ -353,11 +356,9 @@ class _Step2BonAyantDroitWidgetState extends State<Step2BonAyantDroitWidget> {
                                     if (currentIndex != -1 && currentIndex < activeNodes.length - 1) {
                                       FocusScope.of(context).requestFocus(activeNodes[currentIndex + 1]);
                                     } else {
-                                      // Si c'est le dernier, on valide
                                       _validateAndProceed();
                                     }
                                   },
-                                  // On met aussi à jour en perdant le focus
                                   onTapOutside: (_) {
                                     provider.updateBonNumber(tp.compteTp, controller.text.trim());
                                   },
