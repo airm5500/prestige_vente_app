@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/assurance_sale_screen.dart
-// 08/11/2025 20:20 (Ajout confirmation avant de quitter)
+// 08/11/2025 21:05 (Correction Typo AssuranceLStep)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 import 'package:provider/provider.dart';
@@ -31,25 +31,18 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
     switch (provider.currentStep) {
       case AssuranceStep.clientSearch:
         return const Step1ClientWidget();
+    // MODIFICATION : Corrigé "AssuranceLStep" en "AssuranceStep"
       case AssuranceStep.bonAndAyantDroit:
         return const Step2BonAyantDroitWidget();
+    // MODIFICATION : Corrigé "AssuranceLStep" en "AssuranceStep"
       case AssuranceStep.productSearch:
         return const Step3ProductsWidget();
-      default:
-        return const Step1ClientWidget();
     }
   }
 
-  // MODIFICATION : Ajout de la fonction de confirmation
-  Future<bool> _onWillPop() async {
-    final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-
-    // Si aucun client n'est sélectionné (Début étape 1), on peut quitter
-    if (provider.selectedClient == null) {
-      return true;
-    }
-
-    // Si un client est sélectionné (Étape 2 ou 3), on demande confirmation
+  // MODIFICATION : Remplacement de la logique de WillPopScope
+  // par la nouvelle logique pour PopScope.
+  Future<void> _showExitConfirmationDialog(AssuranceSaleProvider provider) async {
     final bool? didConfirm = await showDialog<bool>(
       context: context,
       barrierDismissible: false, // L'utilisateur doit choisir
@@ -70,65 +63,76 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
     );
 
     // Si l'utilisateur a cliqué "Oui"
-    if (didConfirm == true) {
+    if (didConfirm == true && mounted) {
       // On nettoie la vente avant de quitter
       provider.startNewAssuranceSale();
-      return true; // Autorise le "pop" (retour)
-    } else {
-      // L'utilisateur a cliqué "Non", on bloque le "pop"
-      return false;
+      // On force la navigation retour
+      Navigator.of(context).pop();
     }
+    // Si "Non", ne fait rien
   }
 
   @override
   Widget build(BuildContext context) {
-    // MODIFICATION : On enveloppe le tout dans un WillPopScope
-    return WillPopScope(
-      onWillPop: _onWillPop,
-      child: Consumer<AssuranceSaleProvider>(
-        builder: (context, provider, child) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text('Vente Assurance'),
-              actions: [
-                // Bouton pour tout réinitialiser et commencer une nouvelle vente
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  onPressed: () {
-                    // Cette action réinitialise juste l'écran, elle ne quitte pas
-                    provider.startNewAssuranceSale();
-                  },
-                  tooltip: 'Nouvelle Vente Assurance',
-                )
-              ],
-              // La flèche "Retour" sera maintenant gérée par le WillPopScope
-            ),
-            body: Column(
-              children: [
-                // Affiche une barre de chargement si le provider travaille
-                if (provider.isLoading) const LinearProgressIndicator(),
+    // MODIFICATION : Remplacement de WillPopScope par PopScope
 
-                // Affiche une erreur si le provider en signale une
-                if (provider.errorMessage != null)
-                  Container(
-                    width: double.infinity,
-                    color: AppColors.error,
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Text(
-                      provider.errorMessage!,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
+    // On doit récupérer le provider ici pour déterminer si on peut quitter
+    final provider = Provider.of<AssuranceSaleProvider>(context);
+    final bool canPopDirectly = provider.selectedClient == null;
 
-                // Affiche le widget de l'étape actuelle
-                Expanded(
-                  child: _buildCurrentStep(provider),
+    return PopScope(
+      // On peut quitter directement SEULEMENT si aucun client n'est sélectionné
+      canPop: canPopDirectly,
+      // onPopInvoked est appelé si canPop est 'false' et que l'utilisateur
+      // tente de faire "retour"
+      onPopInvoked: (bool didPop) {
+        // Si le pop a déjà eu lieu (parce que canPop était true), on ne fait rien
+        if (didPop) {
+          return;
+        }
+        // Sinon (canPop était false), on affiche notre dialogue de confirmation
+        _showExitConfirmationDialog(provider);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Vente Assurance'),
+          actions: [
+            // Bouton pour tout réinitialiser et commencer une nouvelle vente
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: () {
+                // Cette action réinitialise juste l'écran, elle ne quitte pas
+                provider.startNewAssuranceSale();
+              },
+              tooltip: 'Nouvelle Vente Assurance',
+            )
+          ],
+          // La flèche "Retour" sera maintenant gérée par le PopScope
+        ),
+        body: Column(
+          children: [
+            // Affiche une barre de chargement si le provider travaille
+            if (provider.isLoading) const LinearProgressIndicator(),
+
+            // Affiche une erreur si le provider en signale une
+            if (provider.errorMessage != null)
+              Container(
+                width: double.infinity,
+                color: AppColors.error,
+                padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(
+                  provider.errorMessage!,
+                  style: const TextStyle(color: Colors.white),
                 ),
-              ],
+              ),
+
+            // Affiche le widget de l'étape actuelle
+            Expanded(
+              child: _buildCurrentStep(provider),
             ),
-          );
-        },
+          ],
+        ),
       ),
     );
   }
