@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/assurance_sale_screen.dart
-// 08/11/2025 21:05 (Correction Typo AssuranceLStep)
+// 08/11/2025 21:10 (Correction dépréciation onPopInvoked)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 import 'package:provider/provider.dart';
@@ -31,17 +31,13 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
     switch (provider.currentStep) {
       case AssuranceStep.clientSearch:
         return const Step1ClientWidget();
-    // MODIFICATION : Corrigé "AssuranceLStep" en "AssuranceStep"
       case AssuranceStep.bonAndAyantDroit:
         return const Step2BonAyantDroitWidget();
-    // MODIFICATION : Corrigé "AssuranceLStep" en "AssuranceStep"
       case AssuranceStep.productSearch:
         return const Step3ProductsWidget();
     }
   }
 
-  // MODIFICATION : Remplacement de la logique de WillPopScope
-  // par la nouvelle logique pour PopScope.
   Future<void> _showExitConfirmationDialog(AssuranceSaleProvider provider) async {
     final bool? didConfirm = await showDialog<bool>(
       context: context,
@@ -74,8 +70,6 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // MODIFICATION : Remplacement de WillPopScope par PopScope
-
     // On doit récupérer le provider ici pour déterminer si on peut quitter
     final provider = Provider.of<AssuranceSaleProvider>(context);
     final bool canPopDirectly = provider.selectedClient == null;
@@ -83,9 +77,10 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
     return PopScope(
       // On peut quitter directement SEULEMENT si aucun client n'est sélectionné
       canPop: canPopDirectly,
-      // onPopInvoked est appelé si canPop est 'false' et que l'utilisateur
-      // tente de faire "retour"
-      onPopInvoked: (bool didPop) {
+
+      // MODIFICATION : Remplacement de 'onPopInvoked' par 'onPopInvokedWithResult'
+      // Il prend maintenant 2 arguments (didPop, result)
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
         // Si le pop a déjà eu lieu (parce que canPop était true), on ne fait rien
         if (didPop) {
           return;
@@ -93,6 +88,8 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
         // Sinon (canPop était false), on affiche notre dialogue de confirmation
         _showExitConfirmationDialog(provider);
       },
+      // FIN MODIFICATION
+
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Vente Assurance'),
