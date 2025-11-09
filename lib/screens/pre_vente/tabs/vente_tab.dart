@@ -1,7 +1,7 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
 // 30/10/2025 01:30
 import 'dart:async';
-import 'dart:typed_data';
+//import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -13,7 +13,7 @@ import 'package:prestige_vente_app/screens/pre_vente/widgets/sale_cart_widget.da
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
-import 'package:qr_flutter/qr_flutter.dart';
+//import 'package:qr_flutter/qr_flutter.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 
 class VenteTab extends StatefulWidget {

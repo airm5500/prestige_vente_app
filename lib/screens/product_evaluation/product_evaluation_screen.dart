@@ -3,10 +3,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:prestige_vente_app/api/models/product_info.dart';
-import 'package:prestige_vente_app/api/models/product_stats.dart';
+//import 'package:prestige_vente_app/api/models/product_info.dart';
+//import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/providers/product_stats_provider.dart';
-import 'package:prestige_vente_app/utils/constants.dart';
+//import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 
