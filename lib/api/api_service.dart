@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 09/11/2025 03:00 (Gestion Erreur Caisse Fermée)
+// 09/11/2025 17:30 (Ajout Gestion Périmés)
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -23,6 +23,9 @@ import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/caisse_models.dart';
+
+// AJOUT : Import des nouveaux modèles
+import 'package:prestige_vente_app/api/models/perime_models.dart';
 
 
 class ApiService {
@@ -228,7 +231,6 @@ class ApiService {
     }
   }
 
-  // MODIFICATION : Renvoie maintenant Map<String, dynamic>
   Future<Map<String, dynamic>> cloturerVente({
     required String venteId,
     required SaleSummary summary,
@@ -266,15 +268,12 @@ class ApiService {
         "userVendeurId": userVendeurId,
         "venteId": venteId
       });
-      // Renvoie la réponse JSON complète
       return response.data;
     } catch (e) {
       print("Error closing sale: $e");
-      // Renvoie une réponse d'erreur formatée
       return {"success": false, "msg": "Erreur de connexion: $e"};
     }
   }
-  // FIN MODIFICATION
 
   Future<bool> terminerPrevente(String venteId) async {
     try {
@@ -702,7 +701,7 @@ class ApiService {
         '/client/all',
         queryParameters: {
           'query': query,
-          'typeClientId': '1', // 1 = Client Assurance
+          'typeClientId': '1',
           'page': 1,
           'start': 0,
           'limit': 25
@@ -1112,4 +1111,108 @@ class ApiService {
       return false;
     }
   }
+
+  // ======================================================
+  // NOUVELLES MÉTHODES POUR GESTION PÉRIMÉS
+  // ======================================================
+
+  Future<Map<String, dynamic>> getProduitsPerimes(int nbreMois) async {
+    try {
+      final response = await _dio.get(
+        '/fichearticle/perimes',
+        queryParameters: {'nbreMois': nbreMois, 'page': 1, 'start': 0, 'limit': 9999},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        final data = (response.data['data'] as List)
+            .map((item) => ProduitPerime.fromJson(item))
+            .toList();
+        final metaData = PerimeMetaData.fromJson(response.data['metaData'] ?? {});
+        return {'data': data, 'metaData': metaData};
+      }
+      return {'data': <ProduitPerime>[], 'metaData': null};
+    } catch (e) {
+      print("Error fetching produits perimes: $e");
+      return {'data': <ProduitPerime>[], 'metaData': null};
+    }
+  }
+
+  Future<List<SaisiePerimeItem>> getSaisiePerimesHistory() async {
+    try {
+      final response = await _dio.get(
+        '/fichearticle/saisieperimes',
+        queryParameters: {'page': 1, 'start': 0, 'limit': 100}, // Limite à 100
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List)
+            .map((item) => SaisiePerimeItem.fromJson(item))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching saisie perimes history: $e");
+      return [];
+    }
+  }
+
+  Future<List<SaisieEnCoursItem>> getSaisiePerimesEnCours() async {
+    try {
+      final response = await _dio.get(
+        '/gestionperime/saisie-encours',
+        queryParameters: {'page': 1, 'start': 0, 'limit': 20},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List)
+            .map((item) => SaisieEnCoursItem.fromJson(item))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching saisie en cours: $e");
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> addPerimeItem({
+    required String produitId,
+    required String datePeremption, // Format AAAA-MM-JJ
+    required String lot,
+    required int quantite,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/gestionperime/add',
+        data: {
+          "ref": produitId,
+          "refParent": datePeremption,
+          "refTwo": lot,
+          "value": quantite
+        },
+      );
+      return response.data; // Renvoie {"success": true} ou {"success": false, "message": "..."}
+    } catch (e) {
+      print("Error adding perime item: $e");
+      return {"success": false, "message": "Erreur de connexion"};
+    }
+  }
+
+  Future<bool> deletePerimeItem(String itemId) async {
+    try {
+      final response = await _dio.delete('/gestionperime/$itemId');
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (e) {
+      print("Error deleting perime item: $e");
+      return false;
+    }
+  }
+
+  Future<bool> closeSaisiePerimes(String batchId) async {
+    try {
+      final response = await _dio.put('/gestionperime/close/$batchId');
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) {
+      print("Error closing saisie perimes: $e");
+      return false;
+    }
+  }
+
 }

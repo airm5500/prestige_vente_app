@@ -1,5 +1,5 @@
 // lib/screens/home/home_screen.dart
-// 09/11/2025 01:30 (Ajout Gestion Caisse)
+// 09/11/2025 17:30 (Ajout Gestion Périmés)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -20,9 +20,10 @@ import 'package:prestige_vente_app/widgets/menu_button.dart';
 import 'package:prestige_vente_app/screens/product_update/ean_update_screen.dart';
 import 'package:prestige_vente_app/screens/product_update/emplacement_update_screen.dart';
 import 'package:prestige_vente_app/screens/assurance_sale/assurance_sale_screen.dart';
+import 'package:prestige_vente_app/screens/caisse/caisse_screen.dart';
 
 // AJOUT : Import pour le nouvel écran
-import 'package:prestige_vente_app/screens/caisse/caisse_screen.dart';
+import 'package:prestige_vente_app/screens/perimes/perime_main_screen.dart';
 
 
 class MenuItem {
@@ -143,13 +144,19 @@ class _HomeScreenState extends State<HomeScreen> {
         color: Colors.red.shade700,
         onTap: () => navigate(const AssuranceSaleScreen()),
       ),
-
-      // AJOUT : Le nouveau menu pour la Caisse
       MenuItem(
         label: 'Gestion Caisse',
-        icon: Icons.calculate, // Icône pour la caisse
-        color: Colors.lime.shade700, // Une nouvelle couleur
-        onTap: () => navigate(const CaisseScreen()), // Vers le nouvel écran
+        icon: Icons.calculate,
+        color: Colors.lime.shade700,
+        onTap: () => navigate(const CaisseScreen()),
+      ),
+
+      // AJOUT : Le nouveau menu pour les Périmés
+      MenuItem(
+        label: 'Gestion Périmés',
+        icon: Icons.dangerous, // Icône pour le danger/périmé
+        color: Colors.deepOrange.shade600, // Une nouvelle couleur
+        onTap: () => navigate(const PerimeMainScreen()), // Vers le nouvel écran
       ),
 
       MenuItem( label: 'Évaluation Vente', icon: Icons.bar_chart, color: Colors.green.shade700, onTap: () => navigate(const ProductEvaluationScreen())),
