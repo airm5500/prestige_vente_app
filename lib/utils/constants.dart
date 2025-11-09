@@ -1,7 +1,9 @@
 // lib/utils/constants.dart
-// 29/09/2025 02:10
+// 09/11/2025 03:00 (Gestion Erreur Caisse Fermée)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/providers/caisse_provider.dart';
+import 'package:provider/provider.dart';
 
 class AppColors {
   static const Color primary = Color(0xFF003366);
@@ -61,8 +63,7 @@ class Constants {
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? AppColors.error : AppColors.secondary,
-        // MODIFICATION : Durée d'affichage réduite à 2 secondes
-        duration: const Duration(seconds: 1),
+        duration: const Duration(seconds: 2), // Remis à 2s pour les erreurs
       ),
     );
   }
@@ -71,4 +72,58 @@ class Constants {
     final formatter = NumberFormat("#,##0", "fr_FR");
     return formatter.format(value);
   }
+
+  // MODIFICATION : Ajout de la fonction de vérification de caisse
+  /// Vérifie si une réponse API indique que la caisse est fermée
+  /// et propose à l'utilisateur de l'ouvrir.
+  ///
+  /// Renvoie `true` si l'erreur "caisse fermée" a été détectée et gérée.
+  /// Renvoie `false` s'il n'y avait pas d'erreur ou si c'était une autre erreur.
+  static Future<bool> checkAndOpenCaisse(BuildContext context, Map<String, dynamic> apiResult) async {
+
+    // 1. Vérifie si l'erreur est la bonne
+    if (apiResult['success'] == false && (apiResult['msg'] as String? ?? '').contains("caisse est fermée")) {
+
+      // 2. Propose à l'utilisateur d'ouvrir la caisse
+      final bool? openCaisse = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Caisse Fermée'),
+          content: const Text("Votre caisse est fermée. Voulez-vous l'ouvrir maintenant (Fond de caisse 0) ?"),
+          actions: [
+            TextButton(
+              child: const Text('Non'),
+              onPressed: () => Navigator.of(ctx).pop(false),
+            ),
+            ElevatedButton(
+              child: const Text('Oui, Ouvrir'),
+              onPressed: () => Navigator.of(ctx).pop(true),
+            ),
+          ],
+        ),
+      );
+
+      // 3. Si l'utilisateur clique "Oui"
+      if (openCaisse == true) {
+        final caisseProvider = Provider.of<CaisseProvider>(context, listen: false);
+        // Affiche un indicateur de chargement
+        showDialog(context: context, barrierDismissible: false, builder: (ctx) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text("Ouverture...")])));
+
+        final success = await caisseProvider.ouvrirCaisse();
+
+        Navigator.of(context).pop(); // Ferme l'indicateur
+
+        if (success) {
+          Constants.showSnackBar(context, "Caisse ouverte. Veuillez valider la vente à nouveau.");
+        } else {
+          Constants.showSnackBar(context, caisseProvider.errorMessage ?? "Échec de l'ouverture de la caisse.", isError: true);
+        }
+      }
+      return true; // L'erreur a été gérée
+    }
+
+    return false; // Pas d'erreur "caisse fermée"
+  }
+// FIN MODIFICATION
 }

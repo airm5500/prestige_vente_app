@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 30/10/2025 01:30
+// 09/11/2025 03:30 (Correction BuildContext Caisse Fermée)
 import 'dart:async';
 //import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -15,6 +15,9 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 //import 'package:qr_flutter/qr_flutter.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
+
+//import 'package:prestige_vente_app/providers/caisse_provider.dart';
+
 
 class VenteTab extends StatefulWidget {
   final bool isPrevente;
@@ -33,25 +36,26 @@ class _VenteTabState extends State<VenteTab> {
   void _showQuantityDialog(ProductSearchResult product) { final qteController = TextEditingController(text: '1'); void submitQuantity() { final quantity = int.tryParse(qteController.text) ?? 0; Navigator.of(context).pop(); if (quantity > 0) { _checkStockAndAddProduct(product, quantity); } } showDialog( context: context, builder: (ctx) => AlertDialog( title: Text(product.strNAME), content: TextField( controller: qteController, autofocus: true, decoration: const InputDecoration(labelText: 'Quantité'), keyboardType: TextInputType.number, textInputAction: TextInputAction.done, onSubmitted: (_) => submitQuantity(), ), actions: [ TextButton( child: const Text('Annuler'), onPressed: () => Navigator.of(ctx).pop(), ), ElevatedButton( child: const Text('Ajouter'), onPressed: submitQuantity, ), ], ), ); }
   void _checkStockAndAddProduct(ProductSearchResult product, int quantity) { void _addProduct() { Provider.of<SaleProvider>(context, listen: false) .addProductToCart(product, quantity, isPrevente: widget.isPrevente); _searchController.clear(); _searchFocusNode.requestFocus(); } if (quantity > product.intNUMBERAVAILABLE) { showDialog( context: context, builder: (confirmCtx) => AlertDialog( title: const Text('Stock insuffisant'), content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'), actions: [ TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }), ElevatedButton( child: const Text('Oui'), onPressed: () { Navigator.of(confirmCtx).pop(); _addProduct(); }, ), ], ), ); } else { _addProduct(); } }
 
-  // MODIFICATION (Point 2) : Gestion de l'impression multiple
   Future<void> _showPrintDialog({
     required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser
   }) async {
-    final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
-    final saleProvider = Provider.of<SaleProvider>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    // MODIFICATION : Capture du context avant l'await
+    final BuildContext mainContext = context;
+
+    final settingsProvider = Provider.of<SettingsProvider>(mainContext, listen: false);
+    final saleProvider = Provider.of<SaleProvider>(mainContext, listen: false);
+    final authProvider = Provider.of<AuthProvider>(mainContext, listen: false);
     final receiptService = ReceiptService();
-    // On capture les données avant de fermer la popup
+
     final summaryToPrint = saleProvider.saleSummary;
     final itemsToPrint = List<SaleItemDetail>.from(saleProvider.cartItems);
-    final int numberOfTickets = isPrevente ? 1 : settingsProvider.numberOfTickets; // La prévente n'imprime qu'une fois
+    final int numberOfTickets = isPrevente ? 1 : settingsProvider.numberOfTickets;
     final String ticketCodeType = settingsProvider.ticketCodeType;
     final int paperWidth = settingsProvider.paperWidth;
     final bool isTestMode = settingsProvider.isTestPrintMode;
 
-    // 1. Première popup (Question initiale)
     final bool? printFirstTicket = await showDialog<bool>(
-      context: context,
+      context: mainContext, // Utilise mainContext
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: Text(isPrevente ? 'Prévente terminée' : 'Vente terminée'),
@@ -69,23 +73,22 @@ class _VenteTabState extends State<VenteTab> {
       ),
     );
 
-    // Fonction d'impression (pour éviter la duplication)
     Future<void> _printLogic() async {
       if (isPrevente) {
         await receiptService.printPreventeTicket(
-          context: context, officine: authProvider.officine!,
+          context: mainContext, officine: authProvider.officine!, // Utilise mainContext
           saleSummary: summaryToPrint, currentUser: currentUser,
           isTestMode: isTestMode, paperWidth: paperWidth,
-          ticketCodeType: ticketCodeType, // Point 3
+          ticketCodeType: ticketCodeType,
         );
       } else {
         await receiptService.printSaleTicket(
-          context: context, officine: authProvider.officine!,
+          context: mainContext, officine: authProvider.officine!, // Utilise mainContext
           saleSummary: summaryToPrint, items: itemsToPrint,
           paymentMethod: paymentMethod!, currentUser: currentUser,
           isTestMode: isTestMode, paperWidth: paperWidth,
           showQrCode: settingsProvider.showQrCodeOnSaleTicket,
-          ticketCodeType: ticketCodeType, // Point 3
+          ticketCodeType: ticketCodeType,
         );
       }
     }
@@ -93,13 +96,11 @@ class _VenteTabState extends State<VenteTab> {
     if (printFirstTicket == true) {
       await _printLogic();
 
-      // 2. Boucle pour les réimpressions (Point 2)
       for (int i = 1; i < numberOfTickets; i++) {
-        // Attend que le contexte soit stable
-        if (!mounted) break;
-
+        // Utilise mainContext pour vérifier 'mounted'
+        if (!mainContext.mounted) break;
         final bool? rePrint = await showDialog<bool>(
-          context: context,
+          context: mainContext, // Utilise mainContext
           barrierDismissible: false,
           builder: (ctx) => AlertDialog(
             title: const Text('Réimpression'),
@@ -116,23 +117,24 @@ class _VenteTabState extends State<VenteTab> {
             ],
           ),
         );
-
         if (rePrint == true) {
           await _printLogic();
         } else {
-          break; // L'utilisateur a cliqué "Non", on arrête la boucle
+          break;
         }
       }
     }
 
-    // 3. Quoi qu'il arrive (imprimé ou non), on commence une nouvelle vente
     saleProvider.startNewSale();
   }
 
 
   Future<void> _showQrCodeDialog(PaymentMethodQr method, SaleSummary summary, User currentUser) async {
+    // MODIFICATION : Capture du context avant l'await
+    final BuildContext mainContext = context;
+
     await showDialog(
-      context: context,
+      context: mainContext,
       barrierDismissible: false,
       builder: (ctx) {
         return AlertDialog(
@@ -156,7 +158,7 @@ class _VenteTabState extends State<VenteTab> {
               child: const Text("OK"),
               onPressed: () {
                 Navigator.of(ctx).pop();
-                _showPrintDialog( // La logique d'impression multiple est maintenant DANS _showPrintDialog
+                _showPrintDialog(
                     isPrevente: false,
                     paymentMethod: PaymentMethod(id: method.id, name: method.name),
                     currentUser: currentUser
@@ -169,56 +171,63 @@ class _VenteTabState extends State<VenteTab> {
     );
   }
 
-  // MODIFICATION (Point 1) : Utilisation des settings pour filtrer la liste
   void _showPaymentDialog() async {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final saleProvider = Provider.of<SaleProvider>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    // On récupère les settings
-    final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
+    // MODIFICATION : Capture du 'context' principal de VenteTab
+    final BuildContext mainContext = context;
+
+    final scaffoldMessenger = ScaffoldMessenger.of(mainContext);
+    final saleProvider = Provider.of<SaleProvider>(mainContext, listen: false);
+    final authProvider = Provider.of<AuthProvider>(mainContext, listen: false);
+    final settingsProvider = Provider.of<SettingsProvider>(mainContext, listen: false);
 
     final currentUser = authProvider.user;
     if (currentUser == null) {
-      Constants.showSnackBar(context, "Erreur: Utilisateur non trouvé", isError: true);
+      Constants.showSnackBar(mainContext, "Erreur: Utilisateur non trouvé", isError: true);
       return;
     }
 
-    // 1. Récupérer TOUS les modes de paiement (comme avant)
     final allPaymentMethods = await saleProvider.apiService.getPaymentMethods();
-    if (!mounted) return;
+    if (!mainContext.mounted) return;
 
-    // 2. Récupérer la liste des ID autorisés depuis les Settings
     final allowedIds = settingsProvider.enabledPaymentMethodIds;
-
-    // 3. Filtrer la liste
     final filteredMethods = allPaymentMethods
         .where((method) => allowedIds.contains(method.id))
         .toList();
 
-    // (Securité) Si la liste est vide, on affiche un message
     if (filteredMethods.isEmpty) {
-      Constants.showSnackBar(context, "Aucun mode de règlement n'est activé. Vérifiez les paramètres.", isError: true);
+      Constants.showSnackBar(mainContext, "Aucun mode de règlement n'est activé. Vérifiez les paramètres.", isError: true);
       return;
     }
 
     showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
+        context: mainContext, // Utilise mainContext
+        builder: (ctx) => AlertDialog( // 'ctx' est le contexte du dialogue
           title: const Text('Choisir un mode de règlement'),
           content: SizedBox(
             width: double.maxFinite,
             child: ListView.builder(
               shrinkWrap: true,
               itemCount: filteredMethods.length,
-              itemBuilder: (context, index) {
+              itemBuilder: (context, index) { // 'context' ici est le même que 'ctx'
                 final method = filteredMethods[index];
                 return ListTile(
                   title: Text(method.name),
                   onTap: () async {
-                    Navigator.of(ctx).pop();
-                    final success = await saleProvider.cloturerVente(method, currentUser);
+                    Navigator.of(ctx).pop(); // Ferme le dialogue (détruit 'ctx')
 
-                    if (success) {
+                    final result = await saleProvider.cloturerVente(method, currentUser);
+
+                    // MODIFICATION : Utilise 'mainContext' (qui est toujours valide)
+                    if (!mainContext.mounted) return;
+
+                    // 1. Vérifie si l'erreur "Caisse fermée" a eu lieu
+                    final bool caisseHandled = await Constants.checkAndOpenCaisse(mainContext, result);
+                    if (caisseHandled) {
+                      return; // Arrête tout, l'utilisateur doit re-valider
+                    }
+
+                    // 2. Si c'est un succès
+                    if (result['success'] == true) {
                       scaffoldMessenger.showSnackBar(const SnackBar(
                         content: Text('Vente validée avec succès !'),
                         backgroundColor: AppColors.success,
@@ -236,11 +245,11 @@ class _VenteTabState extends State<VenteTab> {
                       if (qrMethod != null && qrMethod.qrCode != null) {
                         await _showQrCodeDialog(qrMethod, saleProvider.saleSummary, currentUser);
                       } else {
-                        // Appelle la popup d'impression (qui gère maintenant les N tickets)
                         _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
                       }
 
                     } else {
+                      // 3. Si c'est une autre erreur
                       scaffoldMessenger.showSnackBar(SnackBar(
                         content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
                         backgroundColor: AppColors.error,
@@ -432,7 +441,6 @@ class _VenteTabState extends State<VenteTab> {
                         if(currentUser != null) {
                           final success = await saleProvider.terminerPrevente();
                           if (mounted && success) {
-                            // Appelle la popup (qui gère maintenant les N tickets)
                             _showPrintDialog(isPrevente: true, currentUser: currentUser);
                           }
                         }

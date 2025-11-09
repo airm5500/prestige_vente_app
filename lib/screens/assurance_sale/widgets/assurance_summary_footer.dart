@@ -1,22 +1,25 @@
 // lib/screens/assurance_sale/widgets/assurance_summary_footer.dart
-// 09/11/2025 01:00 (Ajout flux QR Code)
+// 09/11/2025 03:15 (Correction Erreurs 'mounted' et 'AssuranceSaleSummary')
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
-import 'package:prestige_vente_app/api/models/user.dart'; // Ajout
+import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
-import '../../../api/models/assurance_sale_summary.dart';
 import 'assurance_payment_dialog.dart';
 
-// Ajouts pour le dialogue QR Code
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 //import 'package:qr_flutter/qr_flutter.dart';
+
+//import 'package:prestige_vente_app/providers/caisse_provider.dart';
+
+// MODIFICATION 1 : Ajout de l'import manquant
+import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 
 
 class AssuranceSummaryFooter extends StatelessWidget {
@@ -111,9 +114,7 @@ class AssuranceSummaryFooter extends StatelessWidget {
 
     final success = await provider.terminerPrevente();
 
-    // Si échec (ex: N° Bon), le provider gère le retour à l'étape 2
     if (!success) {
-      // Le message d'erreur est déjà affiché par le provider
       if(provider.currentStep != AssuranceStep.bonAndAyantDroit) {
         scaffoldMessenger.showSnackBar(SnackBar(
           content: Text(provider.errorMessage ?? "La validation a échoué"),
@@ -131,13 +132,12 @@ class AssuranceSummaryFooter extends StatelessWidget {
     await _handlePrintAndReset(context, isPrevente: true);
   }
 
-  // MODIFICATION : Ajout de la fonction QR Code (copiée/adaptée de vente_tab.dart)
   Future<void> _showQrCodeDialog(
       BuildContext context,
       PaymentMethodQr methodQr,
-      AssuranceSaleSummary summary,
+      AssuranceSaleSummary summary, // <- Erreur ici (Ligne 135)
       User currentUser,
-      PaymentMethod originalMethod, // Le mode de paiement de base
+      PaymentMethod originalMethod,
       ) async {
     await showDialog(
       context: context,
@@ -164,7 +164,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
               child: const Text("OK"),
               onPressed: () {
                 Navigator.of(ctx).pop();
-                // Appelle le dialogue d'impression
                 _handlePrintAndReset(
                     context,
                     isPrevente: false,
@@ -180,19 +179,15 @@ class AssuranceSummaryFooter extends StatelessWidget {
 
 
   Future<void> _validerVenteAvecPaiement(BuildContext context) async {
-    // 1. Ouvre le dialogue de paiement et attend le choix
     final paymentMethod = await showDialog<PaymentMethod>(
       context: context,
       builder: (ctx) => const AssurancePaymentDialog(),
     );
 
-    // 2. Si l'utilisateur annule OU si la validation échoue (ex: N° Bon),
-    // le dialogue renvoie null (ou est fermé) et on s'arrête là.
     if (paymentMethod == null) {
       return;
     }
 
-    // 3. La vente a réussi. On vérifie s'il faut afficher un QR Code.
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
@@ -207,7 +202,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
     }
 
     if (qrMethod != null && qrMethod.qrCode != null && provider.saleSummary != null && auth.user != null) {
-      // 4a. Afficher le dialogue QR Code
       await _showQrCodeDialog(
           context,
           qrMethod,
@@ -216,7 +210,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
           paymentMethod
       );
     } else {
-      // 4b. Afficher le dialogue d'impression directement
       await _handlePrintAndReset(context, isPrevente: false, paymentMethod: paymentMethod);
     }
   }
@@ -225,9 +218,27 @@ class AssuranceSummaryFooter extends StatelessWidget {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
 
-    final success = await provider.cloturerVente(null); // Envoie null
+    final result = await provider.cloturerVente(null); // Envoie null
 
-    if (!success) {
+    // MODIFICATION 2 : Remplacement de 'mounted' par 'context.mounted'
+    if (!context.mounted) return; // <- Erreur ici (Ligne 221)
+
+    // 1. Vérifie si l'erreur "Caisse fermée" a eu lieu
+    final bool caisseHandled = await Constants.checkAndOpenCaisse(context, result);
+    if (caisseHandled) {
+      return; // Arrête tout, l'utilisateur doit re-valider
+    }
+
+    // 2. Si c'est un succès
+    if (result['success'] == true) {
+      scaffoldMessenger.showSnackBar(const SnackBar(
+        content: Text('Vente validée avec succès !'),
+        backgroundColor: AppColors.success,
+      ));
+      await _handlePrintAndReset(context, isPrevente: false, paymentMethod: null);
+
+    } else {
+      // 3. Si c'est une autre erreur (ex: N° Bon utilisé)
       final currentStep = provider.currentStep;
       final errorMsg = provider.errorMessage;
 
@@ -244,13 +255,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
       }
       return;
     }
-
-    scaffoldMessenger.showSnackBar(const SnackBar(
-      content: Text('Vente validée avec succès !'),
-      backgroundColor: AppColors.success,
-    ));
-
-    await _handlePrintAndReset(context, isPrevente: false, paymentMethod: null);
   }
 
 

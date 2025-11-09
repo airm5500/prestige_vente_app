@@ -1,10 +1,14 @@
 // lib/screens/assurance_sale/widgets/assurance_payment_dialog.dart
-// 09/11/2025 00:30 (Gestion Erreur N° Bon)
+// 09/11/2025 03:00 (Gestion Erreur Caisse Fermée)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
+
+// AJOUT : Import pour le CaisseProvider
+//import 'package:prestige_vente_app/providers/caisse_provider.dart';
+
 
 class AssurancePaymentDialog extends StatefulWidget {
   const AssurancePaymentDialog({super.key});
@@ -36,19 +40,33 @@ class _AssurancePaymentDialogState extends State<AssurancePaymentDialog> {
       builder: (ctx) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text("Validation...")])),
     );
 
-    final success = await provider.cloturerVente(method);
+    final result = await provider.cloturerVente(method);
 
     navigator.pop(); // Ferme le dialogue de chargement
+    if (!mounted) return;
 
-    if (!success) {
-      // MODIFICATION (Gestion Erreur N° Bon)
-      // On lit l'étape actuelle du provider (il a peut-être changé)
+    // 1. Vérifie si l'erreur "Caisse fermée" a eu lieu
+    final bool caisseHandled = await Constants.checkAndOpenCaisse(context, result);
+    if (caisseHandled) {
+      navigator.pop(); // Ferme le dialogue de paiement
+      return; // Arrête tout, l'utilisateur doit re-valider
+    }
+
+    // 2. Si c'est un succès
+    if (result['success'] == true) {
+      scaffoldMessenger.showSnackBar(const SnackBar(
+        content: Text('Vente validée avec succès !'),
+        backgroundColor: AppColors.success,
+      ));
+      navigator.pop(method); // Ferme le dialogue de paiement avec succès
+
+    } else {
+      // 3. Si c'est une autre erreur (ex: N° Bon utilisé)
       final currentStep = provider.currentStep;
-      final errorMsg = provider.errorMessage;
+      final errorMsg = provider.errorMessage; // Le provider a déjà mis à jour l'erreur
 
       if (currentStep == AssuranceStep.bonAndAyantDroit) {
-        // L'erreur était un N° de bon. On ferme ce dialogue de paiement
-        // pour que l'écran principal affiche l'étape 2 (avec l'erreur).
+        // L'erreur était un N° de bon. On ferme ce dialogue
         navigator.pop();
       } else {
         // C'était une autre erreur, on reste sur le dialogue de paiement
@@ -57,15 +75,6 @@ class _AssurancePaymentDialogState extends State<AssurancePaymentDialog> {
           backgroundColor: AppColors.error,
         ));
       }
-      // FIN MODIFICATION
-    } else {
-      scaffoldMessenger.showSnackBar(const SnackBar(
-        content: Text('Vente validée avec succès !'),
-        backgroundColor: AppColors.success,
-      ));
-      // Si succès, ferme le dialogue de choix de paiement
-      // et retourne le mode de paiement utilisé
-      navigator.pop(method);
     }
   }
 

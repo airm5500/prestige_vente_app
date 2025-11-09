@@ -1,5 +1,5 @@
 // lib/providers/assurance_sale_provider.dart
-// 09/11/2025 00:45 (Correction Bug Impression Bon N°)
+// 09/11/2025 03:00 (Gestion Erreur Caisse Fermée)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
@@ -108,8 +108,7 @@ class AssuranceSaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // --- ÉTAPE 1: GESTION CLIENT ---
-
+  // --- ÉTAPE 1: GESTION CLIENT (Inchangé) ---
   Future<void> searchClient(String query) async {
     if (query.length < 2) {
       _clientSearchResults = [];
@@ -227,8 +226,7 @@ class AssuranceSaleProvider with ChangeNotifier {
     }
   }
 
-  // --- ÉTAPE 2: GESTION AYANT DROIT ET BONS ---
-
+  // --- ÉTAPE 2: GESTION AYANT DROIT ET BONS (Inchangé) ---
   Future<void> loadAyantDroits() async {
     if (_selectedClient == null) return;
     _setLoading(true);
@@ -312,12 +310,11 @@ class AssuranceSaleProvider with ChangeNotifier {
 
   void returnToBonStep() {
     _currentStep = AssuranceStep.bonAndAyantDroit;
-    _saleSummary = null; // <-- ICI ! On efface le résumé
+    _saleSummary = null;
     notifyListeners();
   }
 
-  // --- ÉTAPE 3: GESTION DU PANIER ---
-
+  // --- ÉTAPE 3: GESTION DU PANIER (Inchangé) ---
   Future<void> searchProducts(String query) async {
     if (query.length < 3) {
       _productSearchResults = [];
@@ -418,8 +415,7 @@ class AssuranceSaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  // --- ÉTAPE 4: CALCUL NET ---
-
+  // --- ÉTAPE 4: CALCUL NET (Inchangé) ---
   Future<void> calculateNet() async {
     if (_currentVenteId == null) return;
 
@@ -443,15 +439,17 @@ class AssuranceSaleProvider with ChangeNotifier {
   }
 
   // --- ÉTAPE 5 & 6: VALIDATION ---
-
   Future<bool> terminerPrevente() async {
     if (_currentVenteId == null) return false;
     _setLoading(true);
     _setError(null);
+
+    // NOTE: La validation du N° Bon n'est pas gérée ici,
+    // l'API 'terminerPrevente' ne semble pas la supporter.
     final success = await _apiService.terminerPrevente(_currentVenteId!);
     if (!success) {
       _setError("La finalisation de la prévente a échoué.");
-      _saleSummary = null; // On efface le résumé en cas d'échec
+      _saleSummary = null;
     }
     _setLoading(false);
     return success;
@@ -463,10 +461,11 @@ class AssuranceSaleProvider with ChangeNotifier {
     return allMethods.where((m) => allowedIds.contains(m.id)).toList();
   }
 
-  Future<bool> cloturerVente(PaymentMethod? paymentMethod) async {
+  // MODIFICATION : Renvoie maintenant Map<String, dynamic>
+  Future<Map<String, dynamic>> cloturerVente(PaymentMethod? paymentMethod) async {
     if (_currentVenteId == null || _selectedClient == null || _selectedAyantDroit == null || _saleSummary == null) {
       _setError("Données de vente incomplètes.");
-      return false;
+      return {"success": false, "msg": "Données de vente incomplètes."};
     }
 
     final PaymentMethod finalPaymentMethod = paymentMethod ?? PaymentMethod(id: '1', name: 'ESPECES');
@@ -496,19 +495,14 @@ class AssuranceSaleProvider with ChangeNotifier {
         errorMsg = errorMsg.replaceAll(RegExp(r'<[^>]*>'), '');
         _setError(errorMsg);
         _currentStep = AssuranceStep.bonAndAyantDroit;
-
-        // MODIFICATION : C'est la correction du bug
-        _saleSummary = null; // On force la réinitialisation du résumé
+        _saleSummary = null;
 
       } else {
         _setError(errorMsg);
       }
-
-      _setLoading(false);
-      return false; // Échec
     }
 
     _setLoading(false);
-    return true; // Succès
+    return result; // Renvoie la réponse complète
   }
 }

@@ -1,5 +1,5 @@
 // lib/providers/sale_provider.dart
-// 30/10/2025 00:15
+// 09/11/2025 03:00 (Gestion Erreur Caisse Fermée)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -60,13 +60,9 @@ class SaleProvider with ChangeNotifier {
       _preventes.clear();
       notifyListeners();
 
-      // 1. On récupère toutes les préventes "is_Process"
       List<PreventeListItem> fetchedPreventes = await _apiService.getPreventes();
-
-      // 2. MODIFICATION : On filtre localement pour ne garder que le type "1"
       fetchedPreventes = fetchedPreventes.where((p) => p.lgTYPEVENTEID == "1").toList();
 
-      // 3. On continue avec la liste filtrée
       final uniquePreventesMap = <String, PreventeListItem>{};
       for (final prevente in fetchedPreventes) {
         uniquePreventesMap.putIfAbsent(prevente.lgPREENREGISTREMENTID, () => prevente);
@@ -157,15 +153,16 @@ class SaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  Future<bool> cloturerVente(PaymentMethod paymentMethod, User currentUser) async {
-    if (_currentVenteId == null) return false;
+  // MODIFICATION : Renvoie maintenant Map<String, dynamic>
+  Future<Map<String, dynamic>> cloturerVente(PaymentMethod paymentMethod, User currentUser) async {
+    if (_currentVenteId == null) return {"success": false, "msg": "ID de vente manquant."};
     _setLoading(true);
 
     final clientId = paymentMethod.name.toLowerCase().replaceAll(' ', '').replaceAll('é', 'e');
 
     await _apiService.updateClientForSale(_currentVenteId!, clientId);
 
-    final success = await _apiService.cloturerVente(
+    final result = await _apiService.cloturerVente(
       venteId: _currentVenteId!,
       summary: _saleSummary,
       typeReglementId: paymentMethod.id,
@@ -173,13 +170,14 @@ class SaleProvider with ChangeNotifier {
       userVendeurId: currentUser.userId,
     );
 
-    if (!success) {
-      _errorMessage = "La clôture de la vente a échoué. Vérifiez les logs du serveur.";
+    if (result['success'] == false) {
+      _errorMessage = result['msg'] ?? "La clôture de la vente a échoué.";
     }
 
     _setLoading(false);
-    return success;
+    return result; // Renvoie la réponse complète
   }
+  // FIN MODIFICATION
 
   Future<bool> terminerPrevente() async {
     if (_currentVenteId == null) return false;

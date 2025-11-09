@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 09/11/2025 01:30 (Ajout Billetage)
+// 09/11/2025 03:00 (Gestion Erreur Caisse Fermée)
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -22,8 +22,6 @@ import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
-
-// AJOUT : Import des nouveaux modèles
 import 'package:prestige_vente_app/api/models/caisse_models.dart';
 
 
@@ -71,7 +69,7 @@ class ApiService {
     }
   }
 
-  // --- VENTE COMPTANT / PREVENTE (Inchangé) ---
+  // --- VENTE COMPTANT / PREVENTE ---
   Future<List<ProductSearchResult>> searchProducts(String query) async {
     try {
       final response = await _dio.get(
@@ -230,7 +228,8 @@ class ApiService {
     }
   }
 
-  Future<bool> cloturerVente({
+  // MODIFICATION : Renvoie maintenant Map<String, dynamic>
+  Future<Map<String, dynamic>> cloturerVente({
     required String venteId,
     required SaleSummary summary,
     required String typeReglementId,
@@ -267,12 +266,15 @@ class ApiService {
         "userVendeurId": userVendeurId,
         "venteId": venteId
       });
-      return response.statusCode == 200 && response.data['success'] == true;
+      // Renvoie la réponse JSON complète
+      return response.data;
     } catch (e) {
       print("Error closing sale: $e");
-      return false;
+      // Renvoie une réponse d'erreur formatée
+      return {"success": false, "msg": "Erreur de connexion: $e"};
     }
   }
+  // FIN MODIFICATION
 
   Future<bool> terminerPrevente(String venteId) async {
     try {
@@ -1049,10 +1051,7 @@ class ApiService {
     }
   }
 
-  // ======================================================
-  // NOUVELLES MÉTHODES POUR GESTION CAISSE
-  // ======================================================
-
+  // --- GESTION CAISSE (Inchangé) ---
   Future<OuvertureData?> getOuvertureData() async {
     try {
       final response = await _dio.get('/billetage/ouventure-data');
@@ -1072,7 +1071,6 @@ class ApiService {
         '/caisse/ouvrir-caisse',
         data: {"amount": "0", "id": ""},
       );
-      // Réponse succès si mvtId existe
       return response.statusCode == 200 && response.data['mvtId'] != null;
     } catch (e) {
       print("Error opening caisse: $e");
@@ -1098,7 +1096,6 @@ class ApiService {
     required Map<String, int> billetage,
   }) async {
     try {
-      // Ajoute le resumeCaisseId au map de billetage
       final payload = {
         ...billetage,
         "resumeCaisseId": resumeCaisseId,
