@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 09/11/2025 00:30 (Gestion Erreur N° Bon)
+// 09/11/2025 01:30 (Ajout Billetage)
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -16,13 +16,16 @@ import 'package:prestige_vente_app/api/models/rayon.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product_info.dart';
 
-// NOUVEAUX IMPORTS POUR L'ASSURANCE
 import 'package:prestige_vente_app/api/models/nature_vente.dart';
 import 'package:prestige_vente_app/api/models/type_vente.dart';
 import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
+
+// AJOUT : Import des nouveaux modèles
+import 'package:prestige_vente_app/api/models/caisse_models.dart';
+
 
 class ApiService {
   late Dio _dio;
@@ -654,10 +657,7 @@ class ApiService {
     }
   }
 
-  // ======================================================
-  // NOUVELLES MÉTHODES POUR VENTE ASSURANCE
-  // ======================================================
-
+  // --- VENTE ASSURANCE (Inchangé) ---
   Future<List<NatureVente>> getNaturesVente() async {
     try {
       final response = await _dio.get(
@@ -780,19 +780,16 @@ class ApiService {
     }
   }
 
-  // MODIFICATION (Correction Ajout TP multiple)
   Future<ClientAssurance?> addTiersPayantToClient({
     required ClientAssurance existingClient,
     required Map<String, dynamic> newTiersPayantPayload,
   }) async {
     try {
-      // 1. Récupère le tiers payant principal
       final mainTp = existingClient.tiersPayants.firstWhere(
               (tp) => tp.principal || tp.order == 1,
           orElse: () => existingClient.tiersPayants.first
       );
 
-      // 2. Construit le payload principal
       final response = await _dio.post(
         '/client/add/assurance',
         data: {
@@ -816,7 +813,6 @@ class ApiService {
           "strLASTNAME": existingClient.strLASTNAME,
           "strNUMEROSECURITESOCIAL": mainTp.numSecurity,
           "strSEXE": "",
-          // 3. Envoie SEULEMENT LE NOUVEAU TP dans la liste
           "tiersPayants": [
             newTiersPayantPayload
           ]
@@ -832,7 +828,6 @@ class ApiService {
       return null;
     }
   }
-
 
   Future<List<AyantDroit>> getAyantDroits(String clientId) async {
     try {
@@ -986,8 +981,6 @@ class ApiService {
     }
   }
 
-  // MODIFICATION (Gestion Erreur N° Bon)
-  // Renvoie maintenant une Map<String, dynamic>
   Future<Map<String, dynamic>> cloturerVenteAssurance({
     required String venteId,
     required String clientId,
@@ -1049,7 +1042,6 @@ class ApiService {
           "venteId": venteId
         },
       );
-      // Renvoie la réponse JSON complète (ex: {"success": true} ou {"success": false, "msg": "..."})
       return response.data;
     } catch (e) {
       print("Error closing assurance sale: $e");
@@ -1057,4 +1049,70 @@ class ApiService {
     }
   }
 
+  // ======================================================
+  // NOUVELLES MÉTHODES POUR GESTION CAISSE
+  // ======================================================
+
+  Future<OuvertureData?> getOuvertureData() async {
+    try {
+      final response = await _dio.get('/billetage/ouventure-data');
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return OuvertureData.fromJson(response.data['data']);
+      }
+      return null;
+    } catch (e) {
+      print("Error fetching ouverture data: $e");
+      return null;
+    }
+  }
+
+  Future<bool> ouvrirCaisse() async {
+    try {
+      final response = await _dio.post(
+        '/caisse/ouvrir-caisse',
+        data: {"amount": "0", "id": ""},
+      );
+      // Réponse succès si mvtId existe
+      return response.statusCode == 200 && response.data['mvtId'] != null;
+    } catch (e) {
+      print("Error opening caisse: $e");
+      return false;
+    }
+  }
+
+  Future<ClotureData?> getClotureData() async {
+    try {
+      final response = await _dio.get('/billetage/cloture-data');
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return ClotureData.fromJson(response.data['data']);
+      }
+      return null;
+    } catch (e) {
+      print("Error fetching cloture data: $e");
+      return null;
+    }
+  }
+
+  Future<bool> cloturerCaisse({
+    required String resumeCaisseId,
+    required Map<String, int> billetage,
+  }) async {
+    try {
+      // Ajoute le resumeCaisseId au map de billetage
+      final payload = {
+        ...billetage,
+        "resumeCaisseId": resumeCaisseId,
+      };
+
+      final response = await _dio.post(
+        '/billetage/cloture',
+        data: payload,
+      );
+
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) {
+      print("Error closing caisse: $e");
+      return false;
+    }
+  }
 }

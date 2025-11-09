@@ -1,5 +1,5 @@
 // lib/main.dart
-// 02/11/2025 15:30
+// 09/11/2025 01:30 (Ajout CaisseProvider)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:provider/provider.dart';
@@ -17,9 +17,10 @@ import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
 import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
 import 'package:prestige_vente_app/providers/product_update_provider.dart';
+import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 
 // AJOUT : Import du nouveau provider
-import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
+import 'package:prestige_vente_app/providers/caisse_provider.dart';
 
 
 Future<void> main() async {
@@ -81,18 +82,22 @@ class MyApp extends StatelessWidget {
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
 
-        // AJOUT : Enregistrement du nouveau provider pour l'assurance
-        // Il dépend de ApiService et AuthProvider (pour l'ID utilisateur)
         ChangeNotifierProxyProvider2<ApiService, AuthProvider, AssuranceSaleProvider>(
           create: (context) => AssuranceSaleProvider(
             Provider.of<ApiService>(context, listen: false),
-            Provider.of<AuthProvider>(context, listen: false).user?.userId ?? "", // Fournit l'ID utilisateur
+            Provider.of<AuthProvider>(context, listen: false).user?.userId ?? "",
           ),
           update: (context, apiService, auth, previousProvider) =>
               AssuranceSaleProvider(
                 apiService,
-                auth.user?.userId ?? "", // Met à jour l'ID en cas de reconnexion
+                auth.user?.userId ?? "",
               ),
+        ),
+
+        // AJOUT : Enregistrement du nouveau provider pour la Caisse
+        ChangeNotifierProxyProvider<ApiService, CaisseProvider>(
+          create: (context) => CaisseProvider(Provider.of<ApiService>(context, listen: false)),
+          update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
       ],
       child: MaterialApp(

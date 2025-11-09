@@ -1,5 +1,5 @@
 // lib/screens/home/home_screen.dart
-// 02/11/2025 15:30
+// 09/11/2025 01:30 (Ajout Gestion Caisse)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -19,9 +19,10 @@ import 'package:prestige_vente_app/utils/responsive.dart';
 import 'package:prestige_vente_app/widgets/menu_button.dart';
 import 'package:prestige_vente_app/screens/product_update/ean_update_screen.dart';
 import 'package:prestige_vente_app/screens/product_update/emplacement_update_screen.dart';
-
-// AJOUT : Import pour le nouvel écran (que nous créerons à l'étape suivante)
 import 'package:prestige_vente_app/screens/assurance_sale/assurance_sale_screen.dart';
+
+// AJOUT : Import pour le nouvel écran
+import 'package:prestige_vente_app/screens/caisse/caisse_screen.dart';
 
 
 class MenuItem {
@@ -136,13 +137,19 @@ class _HomeScreenState extends State<HomeScreen> {
   void _buildMenuItems(BuildContext context) {
     _menuItems = [
       MenuItem( label: 'Pre/Vente', icon: Icons.point_of_sale, color: Colors.blue.shade700, onTap: () => navigate(const PreVenteScreen())),
-
-      // AJOUT : Le nouveau menu pour l'assurance
       MenuItem(
         label: 'Pre/Vente Assurance',
-        icon: Icons.health_and_safety, // Icône pour la santé/assurance
-        color: Colors.red.shade700, // Une nouvelle couleur
-        onTap: () => navigate(const AssuranceSaleScreen()), // Vers le nouvel écran
+        icon: Icons.health_and_safety,
+        color: Colors.red.shade700,
+        onTap: () => navigate(const AssuranceSaleScreen()),
+      ),
+
+      // AJOUT : Le nouveau menu pour la Caisse
+      MenuItem(
+        label: 'Gestion Caisse',
+        icon: Icons.calculate, // Icône pour la caisse
+        color: Colors.lime.shade700, // Une nouvelle couleur
+        onTap: () => navigate(const CaisseScreen()), // Vers le nouvel écran
       ),
 
       MenuItem( label: 'Évaluation Vente', icon: Icons.bar_chart, color: Colors.green.shade700, onTap: () => navigate(const ProductEvaluationScreen())),
@@ -165,8 +172,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     _pages = [];
-    // La pagination est gérée automatiquement (6 par page)
-    // Nous avons maintenant 9 items, donc il y aura 2 pages (6 + 3)
+    // Gère la pagination (6 par page)
     for (var i = 0; i < _menuItems.length; i += 6) {
       _pages.add(_menuItems.sublist(i, i + 6 > _menuItems.length ? _menuItems.length : i + 6));
     }
