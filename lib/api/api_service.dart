@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 09/11/2025 18:45 (Ajout filtres date Pémimés)
+// 09/11/2025 19:00 (Ajout Vente Carnet)
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -916,13 +916,14 @@ class ApiService {
     required String clientId,
     required String ayantDroitId,
     required String natureVenteId, // "1"
-    required String typeVenteId,   // "2"
+    required String typeVenteId,   // "2" (ou "3" pour carnet)
     required String? userVendeurId,
     required List<Map<String, dynamic>> tierspayants,
     String? venteId,
   }) async {
     try {
       final bool isFirstItem = venteId == null;
+      // Cet endpoint gère Assurance et Carnet
       final String endpoint = isFirstItem
           ? '/vente/add/assurance'
           : '/vente/add/item';
@@ -958,7 +959,7 @@ class ApiService {
   }) async {
     try {
       final response = await _dio.post(
-        '/vente/net/assurance',
+        '/vente/net/assurance', // Cet endpoint gère Assurance et Carnet
         data: {
           "remiseId": null,
           "tierspayants": tierspayants.map((tp) => {
@@ -985,7 +986,7 @@ class ApiService {
     required String clientId,
     required String ayantDroitId,
     required String natureVenteId, // "1"
-    required String typeVenteId,   // "2"
+    required String typeVenteId,   // "2" (ou "3" pour carnet)
     required String? userVendeurId,
     required AssuranceSaleSummary summary,
     required String typeReglementId,
@@ -993,7 +994,7 @@ class ApiService {
   }) async {
     try {
       final response = await _dio.post(
-        '/vente/cloturer/assurance',
+        '/vente/cloturer/assurance', // Cet endpoint gère Assurance et Carnet
         data: {
           "ayantDroitId": ayantDroitId,
           "banque": "",
@@ -1131,13 +1132,12 @@ class ApiService {
     }
   }
 
-  // MODIFICATION : Ajout des filtres de date
   Future<List<SaisiePerimeItem>> getSaisiePerimesHistory({String? dtStart, String? dtEnd}) async {
     try {
       final params = <String, dynamic>{
         'page': 1,
         'start': 0,
-        'limit': 100, // Limite à 100
+        'limit': 100,
       };
       if (dtStart != null) params['dtStart'] = dtStart;
       if (dtEnd != null) params['dtEnd'] = dtEnd;
@@ -1157,7 +1157,6 @@ class ApiService {
       return [];
     }
   }
-  // FIN MODIFICATION
 
   Future<List<SaisieEnCoursItem>> getSaisiePerimesEnCours() async {
     try {
@@ -1193,7 +1192,7 @@ class ApiService {
           "value": quantite
         },
       );
-      return response.data; // Renvoie {"success": true} ou {"success": false, "message": "..."}
+      return response.data;
     } catch (e) {
       print("Error adding perime item: $e");
       return {"success": false, "message": "Erreur de connexion"};
@@ -1220,4 +1219,94 @@ class ApiService {
     }
   }
 
+  // ======================================================
+  // NOUVELLES MÉTHODES POUR VENTE CARNET
+  // ======================================================
+
+  Future<List<ClientAssurance>> searchClientCarnet(String query) async {
+    try {
+      final response = await _dio.get(
+        '/client/all',
+        queryParameters: {
+          'query': query,
+          'typeClientId': '2', // Client Carnet
+          'page': 1,
+          'start': 0,
+          'limit': 25
+        },
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        // On réutilise le même modèle que ClientAssurance car la structure est identique
+        return (response.data['data'] as List)
+            .map((e) => ClientAssurance.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error searching client carnet: $e");
+      return [];
+    }
+  }
+
+  Future<List<TiersPayantAssurance>> searchTiersPayantCarnet(String query) async {
+    try {
+      final response = await _dio.get(
+        '/client/tiers-payants/carnet',
+        queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 25},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        // On réutilise le même modèle que TiersPayantAssurance
+        return (response.data['data'] as List)
+            .map((e) => TiersPayantAssurance.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error searching tiers payants carnet: $e");
+      return [];
+    }
+  }
+
+  Future<ClientAssurance?> createClientCarnet({
+    required String firstName,
+    required String lastName,
+    required String numSecu,
+    required String tiersPayantId,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/client/add/carnet',
+        data: {
+          "bIsAbsolute": false,
+          "compteTp": "",
+          "dblQUOTACONSOMENSUELLE": 0,
+          "dbPLAFONDENCOURS": 0,
+          "dtNAISSANCE": "",
+          "intPOURCENTAGE": 100, // Fixé à 100%
+          "intPRIORITY": 1,
+          "lgCATEGORIEAYANTDROITID": "",
+          "lgCLIENTID": "",
+          "lgCOMPANYID": "",
+          "lgRISQUEID": "",
+          "lgTIERSPAYANTID": tiersPayantId,
+          "lgTYPECLIENTID": "2", // Fixé à 2
+          "lgVILLEID": "",
+          "remiseId": "",
+          "strADRESSE": "",
+          "strCODEPOSTAL": "",
+          "strFIRSTNAME": firstName, // Nom
+          "strLASTNAME": lastName,   // Prénom
+          "strNUMEROSECURITESOCIAL": numSecu,
+          "strSEXE": ""
+        },
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return ClientAssurance.fromJson(response.data['data']);
+      }
+      return null;
+    } catch (e) {
+      print("Error creating client carnet: $e");
+      return null;
+    }
+  }
 }

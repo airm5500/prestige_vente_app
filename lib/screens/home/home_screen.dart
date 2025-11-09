@@ -1,5 +1,5 @@
 // lib/screens/home/home_screen.dart
-// 09/11/2025 17:30 (Ajout Gestion Périmés)
+// 09/11/2025 19:00 (Ajout Vente Carnet)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -21,9 +21,10 @@ import 'package:prestige_vente_app/screens/product_update/ean_update_screen.dart
 import 'package:prestige_vente_app/screens/product_update/emplacement_update_screen.dart';
 import 'package:prestige_vente_app/screens/assurance_sale/assurance_sale_screen.dart';
 import 'package:prestige_vente_app/screens/caisse/caisse_screen.dart';
+import 'package:prestige_vente_app/screens/perimes/perime_main_screen.dart';
 
 // AJOUT : Import pour le nouvel écran
-import 'package:prestige_vente_app/screens/perimes/perime_main_screen.dart';
+import 'package:prestige_vente_app/screens/carnet_sale/carnet_sale_screen.dart';
 
 
 class MenuItem {
@@ -144,21 +145,27 @@ class _HomeScreenState extends State<HomeScreen> {
         color: Colors.red.shade700,
         onTap: () => navigate(const AssuranceSaleScreen()),
       ),
+
+      // AJOUT : Le nouveau menu pour le Carnet
+      MenuItem(
+        label: 'Vente Carnet',
+        icon: Icons.book, // Icône pour le carnet
+        color: Colors.green.shade800, // Une nouvelle couleur
+        onTap: () => navigate(const CarnetSaleScreen()), // Vers le nouvel écran
+      ),
+
       MenuItem(
         label: 'Gestion Caisse',
         icon: Icons.calculate,
         color: Colors.lime.shade700,
         onTap: () => navigate(const CaisseScreen()),
       ),
-
-      // AJOUT : Le nouveau menu pour les Périmés
       MenuItem(
         label: 'Gestion Périmés',
-        icon: Icons.dangerous, // Icône pour le danger/périmé
-        color: Colors.deepOrange.shade600, // Une nouvelle couleur
-        onTap: () => navigate(const PerimeMainScreen()), // Vers le nouvel écran
+        icon: Icons.dangerous,
+        color: Colors.deepOrange.shade600,
+        onTap: () => navigate(const PerimeMainScreen()),
       ),
-
       MenuItem( label: 'Évaluation Vente', icon: Icons.bar_chart, color: Colors.green.shade700, onTap: () => navigate(const ProductEvaluationScreen())),
       MenuItem( label: 'Recherche Article', icon: Icons.search, color: Colors.orange.shade700, onTap: () => navigate(const ProductSearchScreen())),
       MenuItem( label: 'Mise à jour Péremption', icon: Icons.date_range, color: Colors.purple.shade700, onTap: () => navigate(const ExpirationUpdateScreen())),
