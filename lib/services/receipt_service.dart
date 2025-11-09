@@ -370,7 +370,7 @@ class ReceiptService {
 
   // --- LOGIQUE D'APERÇU (Mode Test) ---
 
-  Future<void> _showTestTicketDialog(BuildContext context, Widget ticketContent, int paperWidth) async { await showDialog( context: context, builder: (ctx) => AlertDialog( title: const Text("Aperçu du Ticket"), content: Container( width: paperWidth == 58 ? 300 : 420, child: SingleChildScrollView(child: ticketContent), ), actions: [ TextButton( child: const Text("Fermer"), onPressed: () => Navigator.of(ctx).pop(), ) ], ), ); }
+  Future<void> _showTestTicketDialog(BuildContext context, Widget ticketContent, int paperWidth) async { await showDialog( context: context, builder: (ctx) => AlertDialog( title: const Text("Aperçu du Ticket"), content: SizedBox( width: paperWidth == 58 ? 300 : 420, child: SingleChildScrollView(child: ticketContent), ), actions: [ TextButton( child: const Text("Fermer"), onPressed: () => Navigator.of(ctx).pop(), ) ], ), ); }
 
   Widget _buildSaleTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
@@ -394,7 +394,7 @@ class ReceiptService {
           ),
         ),
         Text(line(), style: textStyle),
-        Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
+        const Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
         Text(line('.'), style: textStyle),
         ...items.map((item) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -511,13 +511,13 @@ class ReceiptService {
             ],
           ),
         ),
-        Center(child: Text('VENTE ASSURANCE', style: boldStyle)),
+        const Center(child: Text('VENTE ASSURANCE', style: boldStyle)),
         Text(line(), style: textStyle),
         Text('Client: ${client.fullName}', style: textStyle),
         Text('Patient: ${ayantDroit.fullName}', style: textStyle),
         Text('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}', style: textStyle),
         Text(line(), style: textStyle),
-        Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
+        const Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
         Text(line('.'), style: textStyle),
 
         // MODIFICATION (Point 1.3)
@@ -586,7 +586,7 @@ class ReceiptService {
             ],
           ),
         ),
-        Center(child: Text('PRE-VENTE ASSURANCE', style: boldStyle)),
+        const Center(child: Text('PRE-VENTE ASSURANCE', style: boldStyle)),
         Center(child: Text(DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now()), style: textStyle)),
         Text(line(), style: textStyle),
         Text('Client: ${client.fullName}', style: textStyle),
@@ -594,7 +594,7 @@ class ReceiptService {
         Text('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}', style: textStyle),
         Text(line(), style: textStyle),
 
-        Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
+        const Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
         Text(line('.'), style: textStyle),
         ...items.map((item) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,

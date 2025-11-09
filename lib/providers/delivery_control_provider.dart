@@ -15,7 +15,7 @@ class DeliveryControlProvider with ChangeNotifier {
   Commande? _selectedCommande;
   List<CommandeItem> _items = [];
 
-  Map<String, Map<String, int>> _checkedQuantitiesPerOrder = {};
+  final Map<String, Map<String, int>> _checkedQuantitiesPerOrder = {};
 
   bool get isLoading => _isLoading;
   List<Commande> get commandes => _commandes;

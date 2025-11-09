@@ -33,8 +33,8 @@ class _VenteTabState extends State<VenteTab> {
   @override void initState() { super.initState(); _searchController.addListener(_onSearchChanged); WidgetsBinding.instance.addPostFrameCallback((_) { FocusScope.of(context).requestFocus(_searchFocusNode); }); }
   @override void dispose() { _searchController.removeListener(_onSearchChanged); _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel(); super.dispose(); }
   void _onSearchChanged() { if (_debounce?.isActive ?? false) _debounce!.cancel(); _debounce = Timer(const Duration(milliseconds: 500), () { Provider.of<SaleProvider>(context, listen: false) .searchProducts(_searchController.text); }); }
-  void _showQuantityDialog(ProductSearchResult product) { final qteController = TextEditingController(text: '1'); void submitQuantity() { final quantity = int.tryParse(qteController.text) ?? 0; Navigator.of(context).pop(); if (quantity > 0) { _checkStockAndAddProduct(product, quantity); } } showDialog( context: context, builder: (ctx) => AlertDialog( title: Text(product.strNAME), content: TextField( controller: qteController, autofocus: true, decoration: const InputDecoration(labelText: 'Quantité'), keyboardType: TextInputType.number, textInputAction: TextInputAction.done, onSubmitted: (_) => submitQuantity(), ), actions: [ TextButton( child: const Text('Annuler'), onPressed: () => Navigator.of(ctx).pop(), ), ElevatedButton( child: const Text('Ajouter'), onPressed: submitQuantity, ), ], ), ); }
-  void _checkStockAndAddProduct(ProductSearchResult product, int quantity) { void _addProduct() { Provider.of<SaleProvider>(context, listen: false) .addProductToCart(product, quantity, isPrevente: widget.isPrevente); _searchController.clear(); _searchFocusNode.requestFocus(); } if (quantity > product.intNUMBERAVAILABLE) { showDialog( context: context, builder: (confirmCtx) => AlertDialog( title: const Text('Stock insuffisant'), content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'), actions: [ TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }), ElevatedButton( child: const Text('Oui'), onPressed: () { Navigator.of(confirmCtx).pop(); _addProduct(); }, ), ], ), ); } else { _addProduct(); } }
+  void _showQuantityDialog(ProductSearchResult product) { final qteController = TextEditingController(text: '1'); void submitQuantity() { final quantity = int.tryParse(qteController.text) ?? 0; Navigator.of(context).pop(); if (quantity > 0) { _checkStockAndAddProduct(product, quantity); } } showDialog( context: context, builder: (ctx) => AlertDialog( title: Text(product.strNAME), content: TextField( controller: qteController, autofocus: true, decoration: const InputDecoration(labelText: 'Quantité'), keyboardType: TextInputType.number, textInputAction: TextInputAction.done, onSubmitted: (_) => submitQuantity(), ), actions: [ TextButton( child: const Text('Annuler'), onPressed: () => Navigator.of(ctx).pop(), ), ElevatedButton( onPressed: submitQuantity, child: const Text('Ajouter'), ), ], ), ); }
+  void _checkStockAndAddProduct(ProductSearchResult product, int quantity) { void addProduct() { Provider.of<SaleProvider>(context, listen: false) .addProductToCart(product, quantity, isPrevente: widget.isPrevente); _searchController.clear(); _searchFocusNode.requestFocus(); } if (quantity > product.intNUMBERAVAILABLE) { showDialog( context: context, builder: (confirmCtx) => AlertDialog( title: const Text('Stock insuffisant'), content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'), actions: [ TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }), ElevatedButton( child: const Text('Oui'), onPressed: () { Navigator.of(confirmCtx).pop(); addProduct(); }, ), ], ), ); } else { addProduct(); } }
 
   Future<void> _showPrintDialog({
     required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser
@@ -73,7 +73,7 @@ class _VenteTabState extends State<VenteTab> {
       ),
     );
 
-    Future<void> _printLogic() async {
+    Future<void> printLogic() async {
       if (isPrevente) {
         await receiptService.printPreventeTicket(
           context: mainContext, officine: authProvider.officine!, // Utilise mainContext
@@ -94,7 +94,7 @@ class _VenteTabState extends State<VenteTab> {
     }
 
     if (printFirstTicket == true) {
-      await _printLogic();
+      await printLogic();
 
       for (int i = 1; i < numberOfTickets; i++) {
         // Utilise mainContext pour vérifier 'mounted'
@@ -118,7 +118,7 @@ class _VenteTabState extends State<VenteTab> {
           ),
         );
         if (rePrint == true) {
-          await _printLogic();
+          await printLogic();
         } else {
           break;
         }
@@ -369,7 +369,7 @@ class _VenteTabState extends State<VenteTab> {
                                   ),
                                 ),
 
-                                TextSpan(text: ' | Prix: '),
+                                const TextSpan(text: ' | Prix: '),
 
                                 TextSpan(
                                   text: Constants.formatNumber(product.intPRICE),
@@ -433,7 +433,6 @@ class _VenteTabState extends State<VenteTab> {
                       padding: EdgeInsets.zero,
                       backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success,
                     ),
-                    child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
                     onPressed: saleProvider.cartItems.isEmpty ? null : () async {
                       if (widget.isPrevente) {
                         final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -448,6 +447,7 @@ class _VenteTabState extends State<VenteTab> {
                         _showPaymentDialog();
                       }
                     },
+                    child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
                   ),
                 ),
               ],

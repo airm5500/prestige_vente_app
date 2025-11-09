@@ -11,12 +11,12 @@ class MenuButton extends StatelessWidget {
   final Color color;
 
   const MenuButton({
-    Key? key,
+    super.key,
     required this.icon,
     required this.label,
     required this.onTap,
     this.color = AppColors.primary, // Couleur par défaut si non fournie
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

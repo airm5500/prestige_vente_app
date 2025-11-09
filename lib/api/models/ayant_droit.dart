@@ -1,6 +1,6 @@
 // lib/api/models/ayant_droit.dart
 // 05/11/2025 02:10 (Corrigé)
-import 'package:flutter/foundation.dart'; // Import pour @override
+// Import pour @override
 
 class AyantDroit {
   final String lgAYANTSDROITSID;

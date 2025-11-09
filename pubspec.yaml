@@ -38,6 +38,7 @@ dependencies:
   # Icônes
   cupertino_icons: ^1.0.6
 
+  collection: any
 dev_dependencies:
   flutter_test:
     sdk: flutter

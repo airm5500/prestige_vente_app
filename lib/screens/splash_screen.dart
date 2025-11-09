@@ -30,11 +30,11 @@ class _SplashScreenState extends State<SplashScreen> {
     if (mounted) {
       if (settingsProvider.localIp.isEmpty) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => SettingsScreen()),
+          MaterialPageRoute(builder: (_) => const SettingsScreen()),
         );
       } else {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => LoginScreen()),
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
         );
       }
     }

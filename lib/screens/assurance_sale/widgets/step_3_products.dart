@@ -80,8 +80,8 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             onPressed: () => Navigator.of(ctx).pop(),
           ),
           ElevatedButton(
-            child: const Text('Ajouter'),
             onPressed: submitQuantity,
+            child: const Text('Ajouter'),
           ),
         ],
       ),

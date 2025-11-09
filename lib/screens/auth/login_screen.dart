@@ -127,7 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   IconButton(
                     icon: const Icon(Icons.settings),
                     onPressed: () {
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsScreen()));
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
                     },
                     tooltip: 'Configuration',
                   ),
@@ -148,7 +148,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(Icons.lock_open, size: 60, color: AppColors.primary),
+                  const Icon(Icons.lock_open, size: 60, color: AppColors.primary),
                   const SizedBox(height: 20),
                   const SizedBox(height: 30),
                   TextFormField(

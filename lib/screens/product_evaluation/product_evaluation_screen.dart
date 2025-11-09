@@ -179,7 +179,7 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
           runSpacing: 4.0,
           children: product.monthlySales.entries.map((entry) {
             return Chip(
-              label: Text('${entry.key}: ${entry.value}', style: TextStyle(fontWeight: FontWeight.bold)),
+              label: Text('${entry.key}: ${entry.value}', style: const TextStyle(fontWeight: FontWeight.bold)),
               backgroundColor: Colors.blue.shade50,
               visualDensity: VisualDensity.compact,
             );
@@ -228,9 +228,9 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
           height: 300,
           child: LineChart(
             LineChartData(
-              gridData: FlGridData(show: true),
+              gridData: const FlGridData(show: true),
               titlesData: FlTitlesData(
-                leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+                leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
                 bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (value, meta) {
                   const months = ['Jan', 'Fev', 'Mar', 'Avr', 'Mai', 'Jui', 'Jui', 'Aou', 'Sep', 'Oct', 'Nov', 'Dec'];
                   return Text(months[value.toInt()]);

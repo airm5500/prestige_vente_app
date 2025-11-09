@@ -261,7 +261,7 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
                     value: value,
                     child: Text(value, overflow: TextOverflow.ellipsis),
                   );
-                }).toList(),
+                }),
               ],
               onChanged: (String? newValue) {
                 setState(() {

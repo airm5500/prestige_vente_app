@@ -15,7 +15,7 @@ class BlControlProvider with ChangeNotifier {
   BonLivraison? _selectedBonLivraison;
   List<BonLivraisonItem> _items = [];
 
-  Map<String, Map<String, int>> _checkedQuantitiesPerBl = {};
+  final Map<String, Map<String, int>> _checkedQuantitiesPerBl = {};
 
   String _currentBlQuery = '';
   String? _currentBlDtStart;

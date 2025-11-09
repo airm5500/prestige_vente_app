@@ -90,7 +90,7 @@ class _AssuranceSaleScreenState extends State<AssuranceSaleScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Vente Assurance'),
-          actions: [
+          actions: const [
             // MODIFICATION (1a) : Bouton (+) "Nouvelle Vente" supprimé
             /*
             IconButton(
