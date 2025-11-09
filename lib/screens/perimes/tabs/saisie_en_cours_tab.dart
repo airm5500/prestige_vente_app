@@ -1,10 +1,10 @@
 // lib/screens/perimes/tabs/saisie_en_cours_tab.dart
-// 09/11/2025 18:30 (Amélioration Focus et Saisie)
+// 09/11/2025 18:15 (Correction Bug affichage recherche)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:prestige_vente_app/api/models/product.dart';
+//import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/perime_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -35,11 +35,6 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<PerimeProvider>(context, listen: false).loadSaisieEnCours();
-
-      // MODIFICATION (Req 1) : Focus automatique sur la recherche
-      if (mounted) {
-        FocusScope.of(context).requestFocus(_searchFocusNode);
-      }
     });
     _searchController.addListener(_onSearchChanged);
   }
@@ -99,11 +94,7 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
       final formattedDate = '$day/$month/$year';
       // Valide si la date est réelle
       DateFormat('dd/MM/yyyy').parseLoose(formattedDate);
-
-      // MODIFICATION (Req 3) : Met à jour le texte du controller
-      _dateController.text = formattedDate;
-      _dateController.selection = TextSelection.fromPosition(TextPosition(offset: _dateController.text.length));
-
+      _dateController.text = formattedDate; // Met à jour le champ
       return true;
     } catch (e) {
       print("Date invalide: $e");
@@ -176,11 +167,13 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
   Widget build(BuildContext context) {
     final provider = Provider.of<PerimeProvider>(context);
 
+    // MODIFICATION : Utilisation d'un Stack à la racine
     return Stack(
       children: [
         // 1. Contenu principal (Formulaire + Liste)
         Column(
           children: [
+            // 1a. Zone de Saisie (n'est plus un Stack)
             Padding(
               padding: const EdgeInsets.all(8.0),
               child: provider.selectedProduct == null
@@ -188,6 +181,7 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
                   : _buildEntryForm(provider), // Etape 2: Saisie
             ),
 
+            // 1b. Liste des produits en cours
             if (provider.isLoading && provider.saisieEnCoursList.isEmpty)
               const LinearProgressIndicator(),
 
@@ -213,6 +207,7 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
               ),
             ),
 
+            // 1c. Bouton de validation
             if (provider.saisieEnCoursList.isNotEmpty)
               Container(
                 width: double.infinity,
@@ -228,12 +223,34 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
         ),
 
         // 2. Overlay de recherche
+        // Affiche la liste des résultats de recherche par-dessus
         if (provider.productSearchResults.isNotEmpty)
           _buildSearchResults(provider),
       ],
     );
   }
 
+  // CETTE FONCTION N'EST PLUS UTILISEE
+  /*
+  Widget _buildSaisieForm(PerimeProvider provider) {
+    // MODIFICATION : Ajout de 'clipBehavior: Clip.none'
+    return Stack(
+      clipBehavior: Clip.none, // Permet à la liste de "dépasser"
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: provider.selectedProduct == null
+              ? _buildSearchField(provider) // Etape 1: Recherche
+              : _buildEntryForm(provider), // Etape 2: Saisie
+        ),
+
+        // Affiche la liste des résultats de recherche par-dessus
+        if (provider.productSearchResults.isNotEmpty)
+          _buildSearchResults(provider),
+      ],
+    );
+  }
+  */
 
   Widget _buildSearchField(PerimeProvider provider) {
     return TextField(
@@ -285,18 +302,31 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
                 style: const TextStyle(color: Colors.black54),
               ),
               const Divider(),
-
-              // MODIFICATION (Req 3) : Ordre des champs inversé (Lot en premier)
+              TextFormField(
+                controller: _dateController,
+                focusNode: _dateFocusNode,
+                decoration: const InputDecoration(labelText: 'Date Péremption (JJMMYY ou MMYY) *'),
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next,
+                validator: (value) {
+                  if (!_formatAndValidateDate(value ?? '')) {
+                    return 'Date invalide (JJMMYY ou MMYY)';
+                  }
+                  return null;
+                },
+                onFieldSubmitted: (_) => FocusScope.of(context).requestFocus(_lotFocusNode),
+              ),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
                     child: TextFormField(
                       controller: _lotController,
-                      focusNode: _lotFocusNode, // Focus N°2
+                      focusNode: _lotFocusNode,
                       decoration: const InputDecoration(labelText: 'N° Lot *'),
                       textInputAction: TextInputAction.next,
                       validator: (val) => (val?.isEmpty ?? true) ? 'Requis' : null,
-                      onFieldSubmitted: (_) => FocusScope.of(context).requestFocus(_dateFocusNode),
+                      onFieldSubmitted: (_) => FocusScope.of(context).requestFocus(_qteFocusNode),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -304,7 +334,7 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
                     width: 100,
                     child: TextFormField(
                       controller: _qteController,
-                      focusNode: _qteFocusNode, // Focus N°4
+                      focusNode: _qteFocusNode,
                       decoration: const InputDecoration(labelText: 'Quantité *'),
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -319,26 +349,6 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _dateController,
-                focusNode: _dateFocusNode, // Focus N°3
-                decoration: const InputDecoration(labelText: 'Date Péremption (JJMMYY ou MMYY) *'),
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next,
-                validator: (value) {
-                  if (!_formatAndValidateDate(value ?? '')) {
-                    return 'Date invalide (JJMMYY ou MMYY)';
-                  }
-                  return null;
-                },
-                // MODIFICATION (Req 3) : Formatage au 'onSubmitted'
-                onFieldSubmitted: (_) {
-                  _formatAndValidateDate(_dateController.text);
-                  FocusScope.of(context).requestFocus(_qteFocusNode);
-                },
-              ),
-
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
@@ -356,11 +366,13 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
   }
 
   Widget _buildSearchResults(PerimeProvider provider) {
+    // MODIFICATION : Positionné par rapport au Stack racine
     return Positioned(
-      top: 65,
+      top: 65, // En dessous de la barre de recherche
       left: 8,
       right: 8,
       child: Container(
+        // S'assure que le 'z-index' est élevé
         decoration: BoxDecoration(
           boxShadow: [
             BoxShadow(
@@ -374,7 +386,7 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
           maxHeight: MediaQuery.of(context).size.height * 0.4,
         ),
         child: Card(
-          elevation: 0,
+          elevation: 0, // Géré par le BoxDecoration au-dessus
           child: ListView.builder(
             shrinkWrap: true,
             itemCount: provider.productSearchResults.length,
@@ -386,10 +398,10 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> {
                 onTap: () {
                   _searchFocusNode.unfocus();
                   provider.selectProduct(product);
-                  // MODIFICATION (Req 2) : Focus sur le champ "Lot"
+                  // Met le focus sur le premier champ du formulaire
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) {
-                      FocusScope.of(context).requestFocus(_lotFocusNode);
+                      FocusScope.of(context).requestFocus(_dateFocusNode);
                     }
                   });
                 },

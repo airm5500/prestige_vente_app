@@ -1,5 +1,5 @@
 // lib/providers/perime_provider.dart
-// 09/11/2025 18:00 (Correction bug recherche périmés)
+// 09/11/2025 18:45 (Ajout filtres date Pémimés)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/perime_models.dart';
@@ -17,7 +17,7 @@ class PerimeProvider with ChangeNotifier {
   // --- Etat pour l'onglet "Recherche Périmés" ---
   List<ProduitPerime> _produitsPerimesList = [];
   PerimeMetaData? _metaData;
-  int _nbreMoisFilter = 3; // Défaut 3 mois
+  int _nbreMoisFilter = 3;
 
   // --- Etat pour l'onglet "Saisie" ---
   List<ProductSearchResult> _productSearchResults = [];
@@ -58,7 +58,6 @@ class PerimeProvider with ChangeNotifier {
   void clearMessages() {
     _errorMessage = null;
     _successMessage = '';
-    // Ne notifie pas, pour que le message reste jusqu'à la prochaine action
   }
 
   // --- Méthodes pour "Recherche Périmés" ---
@@ -83,11 +82,16 @@ class PerimeProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  Future<void> loadSaisieHistory() async {
+  // MODIFICATION : Accepte les filtres de date
+  Future<void> loadSaisieHistory({String? dtStart, String? dtEnd}) async {
     _setLoading(true);
-    _saisieHistoryList = await _apiService.getSaisiePerimesHistory();
+    _saisieHistoryList = await _apiService.getSaisiePerimesHistory(
+      dtStart: dtStart,
+      dtEnd: dtEnd,
+    );
     _setLoading(false);
   }
+  // FIN MODIFICATION
 
   Future<void> searchProduct(String query) async {
     if (query.length < 3) {
@@ -97,11 +101,8 @@ class PerimeProvider with ChangeNotifier {
     }
     _setLoading(true);
     _productSearchResults = await _apiService.searchProducts(query);
-
-    // MODIFICATION : J'ai ajouté le notifyListeners() manquant
     _isLoading = false;
     notifyListeners();
-    // FIN MODIFICATION
   }
 
   void selectProduct(ProductSearchResult product) {
@@ -137,13 +138,11 @@ class PerimeProvider with ChangeNotifier {
       _setSuccess('Produit ajouté.');
       await loadSaisieEnCours(); // Recharge la liste
     } else {
-      // Nettoie le message d'erreur de l'API
       String msg = result['message'] ?? 'Erreur inconnue';
       msg = msg.replaceAll(RegExp(r'<[^>]*>'), ' '); // Retire HTML
       _setError(msg);
     }
 
-    // On garde le produit sélectionné mais on quitte le chargement
     _isLoading = false;
     notifyListeners();
   }
@@ -166,7 +165,6 @@ class PerimeProvider with ChangeNotifier {
       return false;
     }
 
-    // Hypothèse : l'ID de validation est l'ID du premier item de la liste
     final String batchId = _saisieEnCoursList.first.id;
 
     _setLoading(true);

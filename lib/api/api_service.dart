@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 09/11/2025 17:30 (Ajout Gestion Périmés)
+// 09/11/2025 18:45 (Ajout filtres date Pémimés)
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -23,8 +23,6 @@ import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/caisse_models.dart';
-
-// AJOUT : Import des nouveaux modèles
 import 'package:prestige_vente_app/api/models/perime_models.dart';
 
 
@@ -72,7 +70,7 @@ class ApiService {
     }
   }
 
-  // --- VENTE COMPTANT / PREVENTE ---
+  // --- VENTE COMPTANT / PREVENTE (Inchangé) ---
   Future<List<ProductSearchResult>> searchProducts(String query) async {
     try {
       final response = await _dio.get(
@@ -1112,10 +1110,7 @@ class ApiService {
     }
   }
 
-  // ======================================================
-  // NOUVELLES MÉTHODES POUR GESTION PÉRIMÉS
-  // ======================================================
-
+  // --- GESTION PÉRIMÉS (Inchangé) ---
   Future<Map<String, dynamic>> getProduitsPerimes(int nbreMois) async {
     try {
       final response = await _dio.get(
@@ -1136,11 +1131,20 @@ class ApiService {
     }
   }
 
-  Future<List<SaisiePerimeItem>> getSaisiePerimesHistory() async {
+  // MODIFICATION : Ajout des filtres de date
+  Future<List<SaisiePerimeItem>> getSaisiePerimesHistory({String? dtStart, String? dtEnd}) async {
     try {
+      final params = <String, dynamic>{
+        'page': 1,
+        'start': 0,
+        'limit': 100, // Limite à 100
+      };
+      if (dtStart != null) params['dtStart'] = dtStart;
+      if (dtEnd != null) params['dtEnd'] = dtEnd;
+
       final response = await _dio.get(
         '/fichearticle/saisieperimes',
-        queryParameters: {'page': 1, 'start': 0, 'limit': 100}, // Limite à 100
+        queryParameters: params,
       );
       if (response.statusCode == 200 && response.data['data'] is List) {
         return (response.data['data'] as List)
@@ -1153,6 +1157,7 @@ class ApiService {
       return [];
     }
   }
+  // FIN MODIFICATION
 
   Future<List<SaisieEnCoursItem>> getSaisiePerimesEnCours() async {
     try {
