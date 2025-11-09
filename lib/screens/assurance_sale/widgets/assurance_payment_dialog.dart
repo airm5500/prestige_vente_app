@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/assurance_payment_dialog.dart
-// 05/11/2025 02:10 (Corrigé)
+// 09/11/2025 00:30 (Gestion Erreur N° Bon)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
@@ -24,8 +24,6 @@ class _AssurancePaymentDialogState extends State<AssurancePaymentDialog> {
             .getFilteredPaymentMethods();
   }
 
-  // MODIFICATION (Point 2)
-  // Cette méthode gère la validation et ferme le dialogue en retournant un succès/échec
   Future<void> _handlePayment(PaymentMethod method) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
@@ -43,11 +41,23 @@ class _AssurancePaymentDialogState extends State<AssurancePaymentDialog> {
     navigator.pop(); // Ferme le dialogue de chargement
 
     if (!success) {
-      scaffoldMessenger.showSnackBar(SnackBar(
-        content: Text(provider.errorMessage ?? "La validation a échoué"),
-        backgroundColor: AppColors.error,
-      ));
-      // Ne ferme pas le dialogue de paiement, l'utilisateur peut réessayer
+      // MODIFICATION (Gestion Erreur N° Bon)
+      // On lit l'étape actuelle du provider (il a peut-être changé)
+      final currentStep = provider.currentStep;
+      final errorMsg = provider.errorMessage;
+
+      if (currentStep == AssuranceStep.bonAndAyantDroit) {
+        // L'erreur était un N° de bon. On ferme ce dialogue de paiement
+        // pour que l'écran principal affiche l'étape 2 (avec l'erreur).
+        navigator.pop();
+      } else {
+        // C'était une autre erreur, on reste sur le dialogue de paiement
+        scaffoldMessenger.showSnackBar(SnackBar(
+          content: Text(errorMsg ?? "La validation a échoué"),
+          backgroundColor: AppColors.error,
+        ));
+      }
+      // FIN MODIFICATION
     } else {
       scaffoldMessenger.showSnackBar(const SnackBar(
         content: Text('Vente validée avec succès !'),

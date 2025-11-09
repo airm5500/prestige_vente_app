@@ -1,5 +1,5 @@
 // lib/providers/assurance_sale_provider.dart
-// 08/11/2025 22:15 (Correction Bug 'Map<String, Object>')
+// 09/11/2025 00:45 (Correction Bug Impression Bon N°)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
@@ -201,26 +201,7 @@ class AssuranceSaleProvider with ChangeNotifier {
     _setLoading(true);
     _setError(null);
 
-    // MODIFICATION : Correction du bug de type
-    // On s'assure que la liste est bien de type List<Map<String, dynamic>>
-    final List<Map<String, dynamic>> tiersPayantsPayload = _selectedClient!.tiersPayants.map((tp) {
-      // On force le cast en Map<String, dynamic>
-      return {
-        "bIsAbsolute": false,
-        "compteTp": tp.compteTp,
-        "dbPLAFONDENCOURS": 0,
-        "lgTIERSPAYANTID": tp.lgTIERSPAYANTID,
-        "numSecurity": tp.numSecurity,
-        "order": tp.order,
-        "taux": tp.taux,
-        "tpFullName": tp.tpFullName
-      } as Map<String, dynamic>; // <-- Cast explicite
-    }).toList();
-    // FIN MODIFICATION
-
-    // 3. Ajoute le nouveau TP à la liste
-    // (celui-ci est déjà un Map<String, dynamic> par défaut)
-    tiersPayantsPayload.add({
+    final Map<String, dynamic> newTpPayload = {
       "bIsAbsolute": false,
       "compteTp": "",
       "dbPLAFONDENCOURS": 0,
@@ -229,16 +210,14 @@ class AssuranceSaleProvider with ChangeNotifier {
       "order": _selectedClient!.tiersPayants.length + 1,
       "taux": pourcentage,
       "tpFullName": tiersPayant.strFULLNAME
-    });
+    };
 
-    // 4. Appelle l'API avec la liste complète
-    final updatedClient = await _apiService.updateClientTiersPayants(
+    final updatedClient = await _apiService.addTiersPayantToClient(
         existingClient: _selectedClient!,
-        tiersPayantsPayload: tiersPayantsPayload
+        newTiersPayantPayload: newTpPayload
     );
 
     if (updatedClient != null) {
-      // Recharge le client sélectionné avec les nouvelles données
       await selectClient(updatedClient);
       return true;
     } else {
@@ -333,7 +312,7 @@ class AssuranceSaleProvider with ChangeNotifier {
 
   void returnToBonStep() {
     _currentStep = AssuranceStep.bonAndAyantDroit;
-    _saleSummary = null;
+    _saleSummary = null; // <-- ICI ! On efface le résumé
     notifyListeners();
   }
 
@@ -472,6 +451,7 @@ class AssuranceSaleProvider with ChangeNotifier {
     final success = await _apiService.terminerPrevente(_currentVenteId!);
     if (!success) {
       _setError("La finalisation de la prévente a échoué.");
+      _saleSummary = null; // On efface le résumé en cas d'échec
     }
     _setLoading(false);
     return success;
@@ -493,10 +473,11 @@ class AssuranceSaleProvider with ChangeNotifier {
 
     _setLoading(true);
     _setError(null);
+    notifyListeners();
 
     final tiersPayantPayload = _buildTiersPayantPayload();
 
-    final success = await _apiService.cloturerVenteAssurance(
+    final Map<String, dynamic> result = await _apiService.cloturerVenteAssurance(
       venteId: _currentVenteId!,
       clientId: _selectedClient!.lgCLIENTID,
       ayantDroitId: _selectedAyantDroit!.lgAYANTSDROITSID,
@@ -508,10 +489,26 @@ class AssuranceSaleProvider with ChangeNotifier {
       tierspayants: tiersPayantPayload,
     );
 
-    if (!success) {
-      _setError("La clôture de la vente a échoué.");
+    if (result['success'] == false) {
+      String errorMsg = result['msg'] ?? "La clôture de la vente a échoué.";
+
+      if (errorMsg.contains("est déjà utilisé")) {
+        errorMsg = errorMsg.replaceAll(RegExp(r'<[^>]*>'), '');
+        _setError(errorMsg);
+        _currentStep = AssuranceStep.bonAndAyantDroit;
+
+        // MODIFICATION : C'est la correction du bug
+        _saleSummary = null; // On force la réinitialisation du résumé
+
+      } else {
+        _setError(errorMsg);
+      }
+
+      _setLoading(false);
+      return false; // Échec
     }
+
     _setLoading(false);
-    return success;
+    return true; // Succès
   }
 }

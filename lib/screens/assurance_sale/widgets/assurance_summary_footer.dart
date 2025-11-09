@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/assurance_summary_footer.dart
-// 05/11/2025 02:10 (Corrigé)
+// 09/11/2025 00:30 (Gestion Erreur N° Bon)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -30,7 +30,7 @@ class AssuranceSummaryFooter extends StatelessWidget {
     final itemsToPrint = List<SaleItemDetail>.from(provider.cartItems);
     final clientToPrint = provider.selectedClient!;
     final ayantDroitToPrint = provider.selectedAyantDroit!;
-    final copies = settings.numberOfTicketsAssurance; // (Point 7)
+    final copies = settings.numberOfTicketsAssurance;
 
     final bool? printTicket = await showDialog<bool>(
       context: context,
@@ -74,7 +74,7 @@ class AssuranceSummaryFooter extends StatelessWidget {
           items: itemsToPrint,
           client: clientToPrint,
           ayantDroit: ayantDroitToPrint,
-          paymentMethod: paymentMethod ?? PaymentMethod(id: '0', name: 'COMPTANT'), // (Point 3)
+          paymentMethod: paymentMethod ?? PaymentMethod(id: '0', name: 'COMPTANT'),
           currentUser: auth.user!,
           isTestMode: settings.isTestPrintMode,
           paperWidth: settings.paperWidth,
@@ -84,7 +84,7 @@ class AssuranceSummaryFooter extends StatelessWidget {
       }
     }
 
-    provider.startNewAssuranceSale(); // (Point 1.1)
+    provider.startNewAssuranceSale();
   }
 
 
@@ -109,7 +109,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
     await _handlePrintAndReset(context, isPrevente: true);
   }
 
-  // MODIFICATION (Point 2)
   Future<void> _validerVenteAvecPaiement(BuildContext context) async {
     // Affiche le dialogue et ATTEND son résultat
     final paymentMethod = await showDialog<PaymentMethod>(
@@ -124,7 +123,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
     }
   }
 
-  // MODIFICATION (Point 3)
   Future<void> _validerVenteSansPaiement(BuildContext context) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
@@ -132,11 +130,27 @@ class AssuranceSummaryFooter extends StatelessWidget {
     final success = await provider.cloturerVente(null); // Envoie null
 
     if (!success) {
-      scaffoldMessenger.showSnackBar(SnackBar(
-        content: Text(provider.errorMessage ?? "La validation a échoué"),
-        backgroundColor: AppColors.error,
-      ));
+      // MODIFICATION (Gestion Erreur N° Bon)
+      // On vérifie si le provider est revenu à l'étape 2
+      final currentStep = provider.currentStep;
+      final errorMsg = provider.errorMessage;
+
+      if (currentStep == AssuranceStep.bonAndAyantDroit) {
+        // L'erreur (ex: N° Bon) s'affichera automatiquement en haut
+        // On peut ajouter un SnackBar en plus si on veut
+        scaffoldMessenger.showSnackBar(SnackBar(
+          content: Text(errorMsg ?? "Erreur de N° de Bon"),
+          backgroundColor: AppColors.error,
+        ));
+      } else {
+        // Autre erreur
+        scaffoldMessenger.showSnackBar(SnackBar(
+          content: Text(errorMsg ?? "La validation a échoué"),
+          backgroundColor: AppColors.error,
+        ));
+      }
       return;
+      // FIN MODIFICATION
     }
 
     scaffoldMessenger.showSnackBar(const SnackBar(
@@ -181,7 +195,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
                   _buildSummaryRow(
                       'Part Tiers Payant:', summary.montantTp, Colors.red),
 
-                  // MODIFICATION (Point 6)
                   ...summary.tierspayants.map((tp) {
                     final tpClientInfo = client.tiersPayants.firstWhere(
                             (c) => c.compteTp == tp.compteTp,
@@ -189,7 +202,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
                     );
                     return Padding(
                       padding: const EdgeInsets.only(left: 16.0),
-                      // Libellé amélioré
                       child: _buildSummaryRow(
                           '∙ ${tpClientInfo.tpFullName} N°Bon: ${tp.numBon} (${tp.taux}%)', tp.tpnet),
                     );
@@ -221,7 +233,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.success,
                     ),
-                    // MODIFICATION (Point 3)
                     onPressed: canValidate && (summary.montantNet > 0)
                         ? () => _validerVenteAvecPaiement(context)
                         : null,
@@ -241,7 +252,7 @@ class AssuranceSummaryFooter extends StatelessWidget {
                       backgroundColor: AppColors.success,
                     ),
                     onPressed: canValidate
-                        ? () => _validerVenteSansPaiement(context) // (Point 3)
+                        ? () => _validerVenteSansPaiement(context)
                         : null,
                     child: const Text('Valider Vente (Part Client 0)'),
                   ),

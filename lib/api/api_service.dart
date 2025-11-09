@@ -1,5 +1,5 @@
 // lib/api/api_service.dart
-// 08/11/2025 22:00 (Correction Ajout TP multiple)
+// 09/11/2025 00:30 (Gestion Erreur N° Bon)
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -781,15 +781,14 @@ class ApiService {
   }
 
   // MODIFICATION (Correction Ajout TP multiple)
-  // La méthode prend maintenant la liste complète des TPs à envoyer
-  Future<ClientAssurance?> updateClientTiersPayants({
+  Future<ClientAssurance?> addTiersPayantToClient({
     required ClientAssurance existingClient,
-    required List<Map<String, dynamic>> tiersPayantsPayload,
+    required Map<String, dynamic> newTiersPayantPayload,
   }) async {
     try {
-      // 1. Récupère le premier (principal) tiers payant existant
+      // 1. Récupère le tiers payant principal
       final mainTp = existingClient.tiersPayants.firstWhere(
-              (tp) => tp.principal,
+              (tp) => tp.principal || tp.order == 1,
           orElse: () => existingClient.tiersPayants.first
       );
 
@@ -817,16 +816,19 @@ class ApiService {
           "strLASTNAME": existingClient.strLASTNAME,
           "strNUMEROSECURITESOCIAL": mainTp.numSecurity,
           "strSEXE": "",
-          // 3. Envoie la LISTE COMPLETE des TPs
-          "tiersPayants": tiersPayantsPayload
+          // 3. Envoie SEULEMENT LE NOUVEAU TP dans la liste
+          "tiersPayants": [
+            newTiersPayantPayload
+          ]
         },
       );
       if (response.statusCode == 200 && response.data['success'] == true) {
         return ClientAssurance.fromJson(response.data['data']);
       }
+      print("Error adding tiers payant (API): ${response.data['msg']}");
       return null;
     } catch (e) {
-      print("Error updating client tiers payants: $e");
+      print("Error adding tiers payant to client: $e");
       return null;
     }
   }
@@ -984,7 +986,9 @@ class ApiService {
     }
   }
 
-  Future<bool> cloturerVenteAssurance({
+  // MODIFICATION (Gestion Erreur N° Bon)
+  // Renvoie maintenant une Map<String, dynamic>
+  Future<Map<String, dynamic>> cloturerVenteAssurance({
     required String venteId,
     required String clientId,
     required String ayantDroitId,
@@ -1045,10 +1049,11 @@ class ApiService {
           "venteId": venteId
         },
       );
-      return response.statusCode == 200 && response.data['success'] == true;
+      // Renvoie la réponse JSON complète (ex: {"success": true} ou {"success": false, "msg": "..."})
+      return response.data;
     } catch (e) {
       print("Error closing assurance sale: $e");
-      return false;
+      return {"success": false, "msg": "Erreur de connexion: $e"};
     }
   }
 
