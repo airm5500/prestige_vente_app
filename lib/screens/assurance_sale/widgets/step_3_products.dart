@@ -1,11 +1,10 @@
 // lib/screens/assurance_sale/widgets/step_3_products.dart
-// 05/11/2025 00:30 (Corrigé)
+// 09/11/2025 20:15 (Harmonisation UI Recherche)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
-import 'package:prestige_vente_app/utils/responsive.dart';
 import 'package:provider/provider.dart';
 import 'assurance_cart_widget.dart';
 import 'assurance_summary_footer.dart';
@@ -49,16 +48,46 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   }
 
   void _showQuantityDialog(ProductSearchResult product) {
-    final qteController = TextEditingController(text: '1');
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
+    final qteController = TextEditingController(text: '1');
+
+    void _addProduct(int quantity) {
+      provider.addProductToCart(product, quantity);
+      _searchController.clear();
+      _searchFocusNode.requestFocus();
+    }
 
     void submitQuantity() {
       final quantity = int.tryParse(qteController.text) ?? 0;
       Navigator.of(context).pop();
-      if (quantity > 0) {
-        provider.addProductToCart(product, quantity);
-        _searchController.clear();
-        _searchFocusNode.requestFocus();
+      if (quantity <= 0) return;
+
+      if (quantity > product.intNUMBERAVAILABLE) {
+        showDialog(
+          context: context,
+          builder: (confirmCtx) => AlertDialog(
+            title: const Text('Stock insuffisant'),
+            content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
+            actions: [
+              TextButton(
+                  child: const Text('Non'),
+                  onPressed: () {
+                    Navigator.of(confirmCtx).pop();
+                    _searchFocusNode.requestFocus();
+                  }
+              ),
+              ElevatedButton(
+                child: const Text('Oui'),
+                onPressed: () {
+                  Navigator.of(confirmCtx).pop();
+                  _addProduct(quantity);
+                },
+              ),
+            ],
+          ),
+        );
+      } else {
+        _addProduct(quantity);
       }
     }
 
@@ -80,8 +109,8 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             onPressed: () => Navigator.of(ctx).pop(),
           ),
           ElevatedButton(
-            onPressed: submitQuantity,
             child: const Text('Ajouter'),
+            onPressed: submitQuantity,
           ),
         ],
       ),
@@ -91,12 +120,10 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<AssuranceSaleProvider>(context);
-
-    final bool isTabletLandscape = Responsive.isTablet(context) || Responsive.isDesktop(context);
+    final isTabletLandscape = MediaQuery.of(context).size.width > 800;
 
     return Column(
       children: [
-        // Header pour revenir à l'étape 2
         Material(
           color: Colors.grey[100],
           child: ListTile(
@@ -105,7 +132,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             subtitle: Text(provider.selectedAyantDroit?.fullName ?? 'Ayant droit'),
             trailing: TextButton.icon(
               icon: const Icon(Icons.edit, size: 18),
-              // MODIFICATION (Point 8) - Libellé plus clair
               label: const Text('Modif. Bon/Patient'),
               onPressed: () => provider.returnToBonStep(),
             ),
@@ -158,12 +184,9 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
           ),
         ),
         const VerticalDivider(width: 1),
-        Expanded(
+        const Expanded(
           flex: 6,
-          child: Container(
-            color: Colors.black.withOpacity(0.03),
-            child: const AssuranceCartWidget(),
-          ),
+          child: AssuranceCartWidget(),
         ),
       ],
     );
@@ -214,8 +237,41 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             child: ListTile(
               title: Text(product.strNAME,
                   style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(
-                  'CIP: ${product.intCIP} | Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}'),
+
+              // MODIFICATION : Remplacement du Text par RichText
+              subtitle: RichText(
+                text: TextSpan(
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.black54),
+                  children: [
+                    TextSpan(text: 'CIP: ${product.intCIP} | Stock: '),
+                    TextSpan(
+                      text: product.intNUMBERAVAILABLE.toString(),
+                      style: const TextStyle(
+                        color: AppColors.secondary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    TextSpan(text: ' | Prix: '),
+                    TextSpan(
+                      text: Constants.formatNumber(product.intPRICE),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                    if (product.strLIBELLEE.isNotEmpty)
+                      TextSpan(
+                        text: ' (${product.strLIBELLEE})',
+                        style: const TextStyle(fontStyle: FontStyle.italic),
+                      ),
+                  ],
+                ),
+              ),
+              // FIN MODIFICATION
+
               onTap: () => _showQuantityDialog(product),
             ),
           );

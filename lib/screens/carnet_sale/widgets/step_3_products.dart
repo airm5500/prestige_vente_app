@@ -1,5 +1,5 @@
 // lib/screens/carnet_sale/widgets/step_3_products.dart
-// 09/11/2025 19:15
+// 09/11/2025 20:15 (Harmonisation UI Recherche)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -51,13 +51,43 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
     final qteController = TextEditingController(text: '1');
 
+    void _addProduct(int quantity) {
+      provider.addProductToCart(product, quantity);
+      _searchController.clear();
+      _searchFocusNode.requestFocus();
+    }
+
     void submitQuantity() {
       final quantity = int.tryParse(qteController.text) ?? 0;
       Navigator.of(context).pop();
-      if (quantity > 0) {
-        provider.addProductToCart(product, quantity);
-        _searchController.clear();
-        _searchFocusNode.requestFocus();
+      if (quantity <= 0) return;
+
+      if (quantity > product.intNUMBERAVAILABLE) {
+        showDialog(
+          context: context,
+          builder: (confirmCtx) => AlertDialog(
+            title: const Text('Stock insuffisant'),
+            content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
+            actions: [
+              TextButton(
+                  child: const Text('Non'),
+                  onPressed: () {
+                    Navigator.of(confirmCtx).pop();
+                    _searchFocusNode.requestFocus();
+                  }
+              ),
+              ElevatedButton(
+                child: const Text('Oui'),
+                onPressed: () {
+                  Navigator.of(confirmCtx).pop();
+                  _addProduct(quantity);
+                },
+              ),
+            ],
+          ),
+        );
+      } else {
+        _addProduct(quantity);
       }
     }
 
@@ -89,22 +119,55 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final provider = Provider.of<CarnetSaleProvider>(context);
     final isTabletLandscape = MediaQuery.of(context).size.width > 800;
-    return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout();
-  }
 
-  Widget _buildMobileLayout() {
     return Column(
       children: [
-        _buildSearchArea(),
-        const Divider(height: 1),
-        Expanded(child: _buildCartAndResultsOverlay()),
+        Material(
+          color: Colors.grey[100],
+          child: ListTile(
+            leading: const Icon(Icons.person_pin),
+            title: Text(provider.selectedClient?.fullName ?? 'Client'),
+            subtitle: Text(provider.selectedAyantDroit?.fullName ?? 'Patient (Client)'),
+            trailing: TextButton.icon(
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('Modif. Bon'),
+              onPressed: () => provider.returnToBonStep(),
+            ),
+          ),
+        ),
+
+        Expanded(
+          child: isTabletLandscape
+              ? _buildTabletLayout(provider)
+              : _buildMobileLayout(provider),
+        ),
+
         const CarnetSummaryFooter(),
       ],
     );
   }
 
-  Widget _buildTabletLayout() {
+  Widget _buildMobileLayout(CarnetSaleProvider provider) {
+    return Column(
+      children: [
+        _buildSearchArea(provider),
+        const Divider(height: 1),
+        Expanded(
+          child: Stack(
+            children: [
+              const CarnetCartWidget(),
+              if (provider.productSearchResults.isNotEmpty)
+                _buildSearchResultsOverlay(provider),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTabletLayout(CarnetSaleProvider provider) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -112,10 +175,11 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
           flex: 4,
           child: Column(
             children: [
-              _buildSearchArea(),
+              _buildSearchArea(provider),
               const Divider(height: 1),
-              Expanded(child: _buildCartAndResultsOverlay()),
-              const CarnetSummaryFooter(),
+              Expanded(
+                child: _buildSearchResultsList(provider),
+              ),
             ],
           ),
         ),
@@ -128,112 +192,91 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     );
   }
 
-  Widget _buildSearchArea() {
-    final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
+  Widget _buildSearchArea(CarnetSaleProvider provider) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back),
+      child: TextField(
+        controller: _searchController,
+        focusNode: _searchFocusNode,
+        decoration: InputDecoration(
+          labelText: 'Rechercher un produit (CIP ou Nom)',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+            icon: const Icon(Icons.clear),
             onPressed: () {
-              provider.returnToBonStep();
+              _searchController.clear();
+              provider.clearProductSearch();
             },
-          ),
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              focusNode: _searchFocusNode,
-              decoration: InputDecoration(
-                labelText: 'Rechercher un produit (CIP ou Nom)',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    provider.clearProductSearch();
-                  },
-                )
-                    : null,
-              ),
-            ),
-          ),
-        ],
+          )
+              : null,
+        ),
       ),
     );
   }
 
-  Widget _buildCartAndResultsOverlay() {
-    return Consumer<CarnetSaleProvider>(
-      builder: (context, provider, child) {
-        final bool isTabletLandscape =
-            MediaQuery.of(context).size.width > 800;
+  Widget _buildSearchResultsOverlay(CarnetSaleProvider provider) {
+    return Container(
+      color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242),
+      child: _buildSearchResultsList(provider),
+    );
+  }
 
-        return Stack(
-          children: [
-            if (!isTabletLandscape)
-              const CarnetCartWidget(),
+  Widget _buildSearchResultsList(CarnetSaleProvider provider) {
+    if (provider.productSearchResults.isEmpty && _searchController.text.isNotEmpty && !provider.isLoading) {
+      return const Center(child: Text('Aucun produit trouvé.'));
+    }
 
-            // --- Product Search Results Overlay ---
-            if (provider.productSearchResults.isNotEmpty)
-              Container(
-                color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242),
-                child: Scrollbar(
-                  child: ListView.builder(
-                    itemCount: provider.productSearchResults.length,
-                    itemBuilder: (context, index) {
-                      final product = provider.productSearchResults[index];
-                      return Card(
-                        margin: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        child: ListTile(
-                          title: Text(product.strNAME,
-                              style:
-                              const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: RichText(
-                            text: TextSpan(
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: Colors.black54),
-                              children: [
-                                TextSpan(
-                                    text: 'CIP: ${product.intCIP} | Stock: '),
-                                TextSpan(
-                                  text: product.intNUMBERAVAILABLE.toString(),
-                                  style: const TextStyle(
-                                    color: AppColors.secondary,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                TextSpan(text: ' | Prix: '),
-                                TextSpan(
-                                  text: Constants.formatNumber(product.intPRICE),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black,
-                                  ),
-                                ),
-                                if (product.strLIBELLEE.isNotEmpty)
-                                  TextSpan(
-                                    text: ' (${product.strLIBELLEE})',
-                                    style: const TextStyle(
-                                        fontStyle: FontStyle.italic),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          onTap: () => _showQuantityDialog(product),
-                        ),
-                      );
-                    },
-                  ),
+    return Scrollbar(
+      child: ListView.builder(
+        itemCount: provider.productSearchResults.length,
+        itemBuilder: (context, index) {
+          final product = provider.productSearchResults[index];
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: ListTile(
+              title: Text(product.strNAME,
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+
+              // MODIFICATION : Remplacement du Text par RichText
+              subtitle: RichText(
+                text: TextSpan(
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.black54),
+                  children: [
+                    TextSpan(text: 'CIP: ${product.intCIP} | Stock: '),
+                    TextSpan(
+                      text: product.intNUMBERAVAILABLE.toString(),
+                      style: const TextStyle(
+                        color: AppColors.secondary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    TextSpan(text: ' | Prix: '),
+                    TextSpan(
+                      text: Constants.formatNumber(product.intPRICE),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                    if (product.strLIBELLEE.isNotEmpty)
+                      TextSpan(
+                        text: ' (${product.strLIBELLEE})',
+                        style: const TextStyle(fontStyle: FontStyle.italic),
+                      ),
+                  ],
                 ),
               ),
-          ],
-        );
-      },
+              // FIN MODIFICATION
+
+              onTap: () => _showQuantityDialog(product),
+            ),
+          );
+        },
+      ),
     );
   }
 }
