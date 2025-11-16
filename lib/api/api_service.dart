@@ -75,7 +75,7 @@ class ApiService {
     try {
       final response = await _dio.get(
         '/vente/search',
-        queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 10},
+        queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 15},
       );
       if (response.statusCode == 200 && response.data['data'] is List) {
         return (response.data['data'] as List)

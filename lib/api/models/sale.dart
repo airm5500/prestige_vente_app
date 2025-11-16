@@ -1,5 +1,5 @@
 // lib/api/models/sale.dart
-// 30/10/2025 00:15
+// 09/11/2025 20:45 (Ajout strREF manquant)
 class SaleItemDetail {
   final String lgPREENREGISTREMENTDETAILID;
   final String lgFAMILLEID;
@@ -8,6 +8,8 @@ class SaleItemDetail {
   final int intQUANTITY;
   final int intPRICEUNITAIR;
   final int intPRICE;
+  // MODIFICATION : Ajout du champ de référence
+  final String strREF;
 
   SaleItemDetail({
     required this.lgPREENREGISTREMENTDETAILID,
@@ -17,6 +19,8 @@ class SaleItemDetail {
     required this.intQUANTITY,
     required this.intPRICEUNITAIR,
     required this.intPRICE,
+    // MODIFICATION : Ajout au constructeur
+    required this.strREF,
   });
 
   factory SaleItemDetail.fromJson(Map<String, dynamic> json) {
@@ -28,6 +32,8 @@ class SaleItemDetail {
       intQUANTITY: json['intQUANTITY'] ?? 0,
       intPRICEUNITAIR: json['intPRICEUNITAIR'] ?? 0,
       intPRICE: json['intPRICE'] ?? 0,
+      // MODIFICATION : Lecture depuis le JSON
+      strREF: json['strREF'] ?? '',
     );
   }
 }
@@ -84,7 +90,6 @@ class PreventeListItem {
   final int intPRICE;
   final String strREF;
   final String userFullName;
-  // MODIFICATION : Ajout du champ pour le filtre
   final String lgTYPEVENTEID;
 
   PreventeListItem({
@@ -94,7 +99,6 @@ class PreventeListItem {
     required this.intPRICE,
     required this.strREF,
     required this.userFullName,
-    // MODIFICATION : Ajout au constructeur
     required this.lgTYPEVENTEID,
   });
 
@@ -106,7 +110,6 @@ class PreventeListItem {
       intPRICE: json['intPRICE'] ?? 0,
       strREF: json['strREF'] ?? '',
       userFullName: json['userFullName'] ?? '',
-      // MODIFICATION : Lecture du champ depuis l'API
       lgTYPEVENTEID: json['lgTYPEVENTEID'] ?? '',
     );
   }
