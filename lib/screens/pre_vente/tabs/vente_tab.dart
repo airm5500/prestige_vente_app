@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 09/11/2025 03:30 (Correction BuildContext Caisse Fermée)
+// 09/11/2025 20:15 (Correction Focus + Stock + Caisse)
 import 'dart:async';
 //import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -28,18 +28,111 @@ class VenteTab extends StatefulWidget {
 }
 
 class _VenteTabState extends State<VenteTab> {
-  // ... (initState, dispose, _onSearchChanged, _showQuantityDialog, _checkStockAndAddProduct restent inchangés)
-  final _searchController = TextEditingController(); final _searchFocusNode = FocusNode(); Timer? _debounce;
-  @override void initState() { super.initState(); _searchController.addListener(_onSearchChanged); WidgetsBinding.instance.addPostFrameCallback((_) { FocusScope.of(context).requestFocus(_searchFocusNode); }); }
-  @override void dispose() { _searchController.removeListener(_onSearchChanged); _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel(); super.dispose(); }
-  void _onSearchChanged() { if (_debounce?.isActive ?? false) _debounce!.cancel(); _debounce = Timer(const Duration(milliseconds: 500), () { Provider.of<SaleProvider>(context, listen: false) .searchProducts(_searchController.text); }); }
-  void _showQuantityDialog(ProductSearchResult product) { final qteController = TextEditingController(text: '1'); void submitQuantity() { final quantity = int.tryParse(qteController.text) ?? 0; Navigator.of(context).pop(); if (quantity > 0) { _checkStockAndAddProduct(product, quantity); } } showDialog( context: context, builder: (ctx) => AlertDialog( title: Text(product.strNAME), content: TextField( controller: qteController, autofocus: true, decoration: const InputDecoration(labelText: 'Quantité'), keyboardType: TextInputType.number, textInputAction: TextInputAction.done, onSubmitted: (_) => submitQuantity(), ), actions: [ TextButton( child: const Text('Annuler'), onPressed: () => Navigator.of(ctx).pop(), ), ElevatedButton( onPressed: submitQuantity, child: const Text('Ajouter'), ), ], ), ); }
-  void _checkStockAndAddProduct(ProductSearchResult product, int quantity) { void addProduct() { Provider.of<SaleProvider>(context, listen: false) .addProductToCart(product, quantity, isPrevente: widget.isPrevente); _searchController.clear(); _searchFocusNode.requestFocus(); } if (quantity > product.intNUMBERAVAILABLE) { showDialog( context: context, builder: (confirmCtx) => AlertDialog( title: const Text('Stock insuffisant'), content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'), actions: [ TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }), ElevatedButton( child: const Text('Oui'), onPressed: () { Navigator.of(confirmCtx).pop(); addProduct(); }, ), ], ), ); } else { addProduct(); } }
+  final _searchController = TextEditingController();
+  final _searchFocusNode = FocusNode();
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(_onSearchChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusScope.of(context).requestFocus(_searchFocusNode);
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      Provider.of<SaleProvider>(context, listen: false).searchProducts(_searchController.text);
+    });
+  }
+
+  void _showQuantityDialog(ProductSearchResult product) {
+    final qteController = TextEditingController(text: '1');
+
+    // 1. Logique d'ajout
+    void _addProduct(int quantity) {
+      Provider.of<SaleProvider>(context, listen: false)
+          .addProductToCart(product, quantity, isPrevente: widget.isPrevente);
+      _searchController.clear();
+      _searchFocusNode.requestFocus();
+    }
+
+    // 2. Logique de soumission
+    void submitQuantity() {
+      final quantity = int.tryParse(qteController.text) ?? 0;
+      Navigator.of(context).pop();
+      if (quantity > 0) {
+        // 3. Vérification du stock
+        if (quantity > product.intNUMBERAVAILABLE) {
+          showDialog(
+            context: context,
+            builder: (confirmCtx) => AlertDialog(
+              title: const Text('Stock insuffisant'),
+              content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
+              actions: [
+                TextButton(
+                    child: const Text('Non'),
+                    onPressed: () {
+                      Navigator.of(confirmCtx).pop();
+                      _searchFocusNode.requestFocus();
+                    }
+                ),
+                ElevatedButton(
+                  child: const Text('Oui'),
+                  onPressed: () {
+                    Navigator.of(confirmCtx).pop();
+                    _addProduct(quantity); // Ajoute quand même
+                  },
+                ),
+              ],
+            ),
+          );
+        } else {
+          _addProduct(quantity); // Stock suffisant
+        }
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(product.strNAME),
+        content: TextField(
+          controller: qteController,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Quantité'),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => submitQuantity(),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Annuler'),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+          ElevatedButton(
+            child: const Text('Ajouter'),
+            onPressed: submitQuantity,
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _showPrintDialog({
     required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser
   }) async {
-    // MODIFICATION : Capture du context avant l'await
     final BuildContext mainContext = context;
 
     final settingsProvider = Provider.of<SettingsProvider>(mainContext, listen: false);
@@ -55,7 +148,7 @@ class _VenteTabState extends State<VenteTab> {
     final bool isTestMode = settingsProvider.isTestPrintMode;
 
     final bool? printFirstTicket = await showDialog<bool>(
-      context: mainContext, // Utilise mainContext
+      context: mainContext,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: Text(isPrevente ? 'Prévente terminée' : 'Vente terminée'),
@@ -73,17 +166,17 @@ class _VenteTabState extends State<VenteTab> {
       ),
     );
 
-    Future<void> printLogic() async {
+    Future<void> _printLogic() async {
       if (isPrevente) {
         await receiptService.printPreventeTicket(
-          context: mainContext, officine: authProvider.officine!, // Utilise mainContext
+          context: mainContext, officine: authProvider.officine!,
           saleSummary: summaryToPrint, currentUser: currentUser,
           isTestMode: isTestMode, paperWidth: paperWidth,
           ticketCodeType: ticketCodeType,
         );
       } else {
         await receiptService.printSaleTicket(
-          context: mainContext, officine: authProvider.officine!, // Utilise mainContext
+          context: mainContext, officine: authProvider.officine!,
           saleSummary: summaryToPrint, items: itemsToPrint,
           paymentMethod: paymentMethod!, currentUser: currentUser,
           isTestMode: isTestMode, paperWidth: paperWidth,
@@ -94,13 +187,12 @@ class _VenteTabState extends State<VenteTab> {
     }
 
     if (printFirstTicket == true) {
-      await printLogic();
+      await _printLogic();
 
       for (int i = 1; i < numberOfTickets; i++) {
-        // Utilise mainContext pour vérifier 'mounted'
         if (!mainContext.mounted) break;
         final bool? rePrint = await showDialog<bool>(
-          context: mainContext, // Utilise mainContext
+          context: mainContext,
           barrierDismissible: false,
           builder: (ctx) => AlertDialog(
             title: const Text('Réimpression'),
@@ -118,7 +210,7 @@ class _VenteTabState extends State<VenteTab> {
           ),
         );
         if (rePrint == true) {
-          await printLogic();
+          await _printLogic();
         } else {
           break;
         }
@@ -130,7 +222,6 @@ class _VenteTabState extends State<VenteTab> {
 
 
   Future<void> _showQrCodeDialog(PaymentMethodQr method, SaleSummary summary, User currentUser) async {
-    // MODIFICATION : Capture du context avant l'await
     final BuildContext mainContext = context;
 
     await showDialog(
@@ -172,7 +263,6 @@ class _VenteTabState extends State<VenteTab> {
   }
 
   void _showPaymentDialog() async {
-    // MODIFICATION : Capture du 'context' principal de VenteTab
     final BuildContext mainContext = context;
 
     final scaffoldMessenger = ScaffoldMessenger.of(mainContext);
@@ -200,33 +290,30 @@ class _VenteTabState extends State<VenteTab> {
     }
 
     showDialog(
-        context: mainContext, // Utilise mainContext
-        builder: (ctx) => AlertDialog( // 'ctx' est le contexte du dialogue
+        context: mainContext,
+        builder: (ctx) => AlertDialog(
           title: const Text('Choisir un mode de règlement'),
           content: SizedBox(
             width: double.maxFinite,
             child: ListView.builder(
               shrinkWrap: true,
               itemCount: filteredMethods.length,
-              itemBuilder: (context, index) { // 'context' ici est le même que 'ctx'
+              itemBuilder: (context, index) {
                 final method = filteredMethods[index];
                 return ListTile(
                   title: Text(method.name),
                   onTap: () async {
-                    Navigator.of(ctx).pop(); // Ferme le dialogue (détruit 'ctx')
+                    Navigator.of(ctx).pop();
 
                     final result = await saleProvider.cloturerVente(method, currentUser);
 
-                    // MODIFICATION : Utilise 'mainContext' (qui est toujours valide)
                     if (!mainContext.mounted) return;
 
-                    // 1. Vérifie si l'erreur "Caisse fermée" a eu lieu
                     final bool caisseHandled = await Constants.checkAndOpenCaisse(mainContext, result);
                     if (caisseHandled) {
-                      return; // Arrête tout, l'utilisateur doit re-valider
+                      return;
                     }
 
-                    // 2. Si c'est un succès
                     if (result['success'] == true) {
                       scaffoldMessenger.showSnackBar(const SnackBar(
                         content: Text('Vente validée avec succès !'),
@@ -249,7 +336,6 @@ class _VenteTabState extends State<VenteTab> {
                       }
 
                     } else {
-                      // 3. Si c'est une autre erreur
                       scaffoldMessenger.showSnackBar(SnackBar(
                         content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
                         backgroundColor: AppColors.error,
@@ -323,6 +409,8 @@ class _VenteTabState extends State<VenteTab> {
             onPressed: () {
               _searchController.clear();
               Provider.of<SaleProvider>(context, listen: false).searchProducts('');
+              // **LA CORRECTION EST ICI**
+              _searchFocusNode.requestFocus();
             },
           )
               : null,
@@ -354,13 +442,11 @@ class _VenteTabState extends State<VenteTab> {
                         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         child: ListTile(
                           title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-
                           subtitle: RichText(
                             text: TextSpan(
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
                               children: [
                                 TextSpan(text: 'CIP: ${product.intCIP} | Stock: '),
-
                                 TextSpan(
                                   text: product.intNUMBERAVAILABLE.toString(),
                                   style: const TextStyle(
@@ -368,9 +454,7 @@ class _VenteTabState extends State<VenteTab> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-
-                                const TextSpan(text: ' | Prix: '),
-
+                                TextSpan(text: ' | Prix: '),
                                 TextSpan(
                                   text: Constants.formatNumber(product.intPRICE),
                                   style: const TextStyle(
@@ -378,7 +462,6 @@ class _VenteTabState extends State<VenteTab> {
                                     color: Colors.black,
                                   ),
                                 ),
-
                                 if (product.strLIBELLEE.isNotEmpty)
                                   TextSpan(
                                     text: ' (${product.strLIBELLEE})',
@@ -433,6 +516,7 @@ class _VenteTabState extends State<VenteTab> {
                       padding: EdgeInsets.zero,
                       backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success,
                     ),
+                    child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
                     onPressed: saleProvider.cartItems.isEmpty ? null : () async {
                       if (widget.isPrevente) {
                         final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -447,7 +531,6 @@ class _VenteTabState extends State<VenteTab> {
                         _showPaymentDialog();
                       }
                     },
-                    child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
                   ),
                 ),
               ],

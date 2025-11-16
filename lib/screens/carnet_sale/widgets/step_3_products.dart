@@ -1,5 +1,5 @@
 // lib/screens/carnet_sale/widgets/step_3_products.dart
-// 09/11/2025 20:15 (Harmonisation UI Recherche)
+// 09/11/2025 20:15 (Correction Focus)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -207,6 +207,8 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             onPressed: () {
               _searchController.clear();
               provider.clearProductSearch();
+              // **LA CORRECTION EST ICI**
+              _searchFocusNode.requestFocus();
             },
           )
               : null,
@@ -237,8 +239,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             child: ListTile(
               title: Text(product.strNAME,
                   style: const TextStyle(fontWeight: FontWeight.bold)),
-
-              // MODIFICATION : Remplacement du Text par RichText
               subtitle: RichText(
                 text: TextSpan(
                   style: Theme.of(context)
@@ -270,8 +270,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                   ],
                 ),
               ),
-              // FIN MODIFICATION
-
               onTap: () => _showQuantityDialog(product),
             ),
           );
