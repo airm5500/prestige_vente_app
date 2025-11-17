@@ -1,5 +1,5 @@
 // lib/providers/sale_provider.dart
-// 09/11/2025 03:00 (Gestion Erreur Caisse Fermée)
+// 09/11/2025 21:00 (Gestion Montant Versé)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -153,8 +153,13 @@ class SaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  // MODIFICATION : Renvoie maintenant Map<String, dynamic>
-  Future<Map<String, dynamic>> cloturerVente(PaymentMethod paymentMethod, User currentUser) async {
+  // MODIFICATION : Ajout de montantRecu et montantRemis
+  Future<Map<String, dynamic>> cloturerVente(
+      PaymentMethod paymentMethod,
+      User currentUser, {
+        int? montantRecu,
+        int? montantRemis,
+      }) async {
     if (_currentVenteId == null) return {"success": false, "msg": "ID de vente manquant."};
     _setLoading(true);
 
@@ -168,6 +173,8 @@ class SaleProvider with ChangeNotifier {
       typeReglementId: paymentMethod.id,
       clientId: clientId,
       userVendeurId: currentUser.userId,
+      montantRecu: montantRecu, // Transmis ici
+      montantRemis: montantRemis, // Transmis ici
     );
 
     if (result['success'] == false) {
@@ -175,7 +182,7 @@ class SaleProvider with ChangeNotifier {
     }
 
     _setLoading(false);
-    return result; // Renvoie la réponse complète
+    return result;
   }
   // FIN MODIFICATION
 

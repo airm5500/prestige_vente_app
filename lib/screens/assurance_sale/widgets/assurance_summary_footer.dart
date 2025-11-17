@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/assurance_summary_footer.dart
-// 09/11/2025 03:15 (Correction Erreurs 'mounted' et 'AssuranceSaleSummary')
+// 09/11/2025 21:00 (Gestion Montant Versé)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -17,18 +17,19 @@ import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 //import 'package:qr_flutter/qr_flutter.dart';
 
 //import 'package:prestige_vente_app/providers/caisse_provider.dart';
-
-// MODIFICATION 1 : Ajout de l'import manquant
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 
 
 class AssuranceSummaryFooter extends StatelessWidget {
   const AssuranceSummaryFooter({super.key});
 
+  // MODIFICATION : Ajout de montantVerse et monnaie
   Future<void> _handlePrintAndReset(
       BuildContext context, {
         required bool isPrevente,
         PaymentMethod? paymentMethod,
+        int? montantVerse,
+        int? monnaie,
       }) async {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
     if (provider.isLoading) return;
@@ -37,9 +38,8 @@ class AssuranceSummaryFooter extends StatelessWidget {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final receiptService = ReceiptService();
 
-    // S'assure que les données existent toujours avant d'imprimer
     if (provider.saleSummary == null || provider.selectedClient == null || provider.selectedAyantDroit == null || auth.user == null || auth.officine == null) {
-      provider.startNewAssuranceSale(); // Réinitialise en cas d'erreur
+      provider.startNewAssuranceSale();
       return;
     }
 
@@ -100,10 +100,12 @@ class AssuranceSummaryFooter extends StatelessWidget {
           paperWidth: settings.paperWidth,
           ticketCodeType: settings.ticketCodeType,
           numberOfCopies: copies,
+          // MODIFICATION : Passe les montants au service d'impression
+          montantVerse: montantVerse,
+          monnaie: monnaie,
         );
       }
     }
-
     provider.startNewAssuranceSale();
   }
 
@@ -111,9 +113,7 @@ class AssuranceSummaryFooter extends StatelessWidget {
   Future<void> _terminerPrevente(BuildContext context) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-
     final success = await provider.terminerPrevente();
-
     if (!success) {
       if(provider.currentStep != AssuranceStep.bonAndAyantDroit) {
         scaffoldMessenger.showSnackBar(SnackBar(
@@ -123,19 +123,17 @@ class AssuranceSummaryFooter extends StatelessWidget {
       }
       return;
     }
-
     scaffoldMessenger.showSnackBar(const SnackBar(
       content: Text('Prévente assurance validée !'),
       backgroundColor: AppColors.success,
     ));
-
     await _handlePrintAndReset(context, isPrevente: true);
   }
 
   Future<void> _showQrCodeDialog(
       BuildContext context,
       PaymentMethodQr methodQr,
-      AssuranceSaleSummary summary, // <- Erreur ici (Ligne 135)
+      AssuranceSaleSummary summary,
       User currentUser,
       PaymentMethod originalMethod,
       ) async {
@@ -178,16 +176,27 @@ class AssuranceSummaryFooter extends StatelessWidget {
   }
 
 
+  // MODIFICATION : Gère la nouvelle réponse (Map) du dialogue de paiement
   Future<void> _validerVenteAvecPaiement(BuildContext context) async {
-    final paymentMethod = await showDialog<PaymentMethod>(
+    // 1. Attend une Map contenant la méthode et potentiellement les montants
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => const AssurancePaymentDialog(),
     );
 
-    if (paymentMethod == null) {
+    // 2. Si l'utilisateur annule OU si la validation échoue (ex: N° Bon, Caisse)
+    if (result == null) {
       return;
     }
 
+    // 3. Extrait les données de la Map
+    final paymentMethod = result['method'] as PaymentMethod?;
+    final montantVerse = result['verse'] as int?;
+    final monnaie = result['monnaie'] as int?;
+
+    if (paymentMethod == null) return; // Sécurité
+
+    // 4. La vente a réussi. On vérifie le QR Code.
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
@@ -210,26 +219,31 @@ class AssuranceSummaryFooter extends StatelessWidget {
           paymentMethod
       );
     } else {
-      await _handlePrintAndReset(context, isPrevente: false, paymentMethod: paymentMethod);
+      // 5. Passe les montants (verse/monnaie) à l'impression
+      await _handlePrintAndReset(
+        context,
+        isPrevente: false,
+        paymentMethod: paymentMethod,
+        montantVerse: montantVerse,
+        monnaie: monnaie,
+      );
     }
   }
 
+  // Logique de validation pour part client = 0 (inchangée, mais vérifie caisse)
   Future<void> _validerVenteSansPaiement(BuildContext context) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
 
-    final result = await provider.cloturerVente(null); // Envoie null
+    final result = await provider.cloturerVente(null);
 
-    // MODIFICATION 2 : Remplacement de 'mounted' par 'context.mounted'
-    if (!context.mounted) return; // <- Erreur ici (Ligne 221)
+    if (!context.mounted) return;
 
-    // 1. Vérifie si l'erreur "Caisse fermée" a eu lieu
     final bool caisseHandled = await Constants.checkAndOpenCaisse(context, result);
     if (caisseHandled) {
-      return; // Arrête tout, l'utilisateur doit re-valider
+      return;
     }
 
-    // 2. Si c'est un succès
     if (result['success'] == true) {
       scaffoldMessenger.showSnackBar(const SnackBar(
         content: Text('Vente validée avec succès !'),
@@ -238,7 +252,6 @@ class AssuranceSummaryFooter extends StatelessWidget {
       await _handlePrintAndReset(context, isPrevente: false, paymentMethod: null);
 
     } else {
-      // 3. Si c'est une autre erreur (ex: N° Bon utilisé)
       final currentStep = provider.currentStep;
       final errorMsg = provider.errorMessage;
 
@@ -260,6 +273,7 @@ class AssuranceSummaryFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ... (Reste du build inchangé) ...
     final provider = Provider.of<AssuranceSaleProvider>(context);
     final summary = provider.saleSummary;
     final client = provider.selectedClient;

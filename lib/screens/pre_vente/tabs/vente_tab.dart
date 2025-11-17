@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 09/11/2025 20:15 (Correction Focus + Stock + Caisse)
+// 09/11/2025 21:00 (Gestion Montant Versé)
 import 'dart:async';
 //import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -17,6 +17,8 @@ import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 
 //import 'package:prestige_vente_app/providers/caisse_provider.dart';
+// AJOUT : Import du nouveau dialogue
+import 'package:prestige_vente_app/widgets/cash_payment_dialog.dart';
 
 
 class VenteTab extends StatefulWidget {
@@ -33,105 +35,17 @@ class _VenteTabState extends State<VenteTab> {
   Timer? _debounce;
 
   @override
-  void initState() {
-    super.initState();
-    _searchController.addListener(_onSearchChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      FocusScope.of(context).requestFocus(_searchFocusNode);
-    });
-  }
-
+  void initState() { super.initState(); _searchController.addListener(_onSearchChanged); WidgetsBinding.instance.addPostFrameCallback((_) { FocusScope.of(context).requestFocus(_searchFocusNode); }); }
   @override
-  void dispose() {
-    _searchController.removeListener(_onSearchChanged);
-    _searchController.dispose();
-    _searchFocusNode.dispose();
-    _debounce?.cancel();
-    super.dispose();
-  }
+  void dispose() { _searchController.removeListener(_onSearchChanged); _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel(); super.dispose(); }
+  void _onSearchChanged() { if (_debounce?.isActive ?? false) _debounce!.cancel(); _debounce = Timer(const Duration(milliseconds: 500), () { Provider.of<SaleProvider>(context, listen: false).searchProducts(_searchController.text); }); }
+  void _showQuantityDialog(ProductSearchResult product) { final qteController = TextEditingController(text: '1'); void _addProduct(int quantity) { Provider.of<SaleProvider>(context, listen: false) .addProductToCart(product, quantity, isPrevente: widget.isPrevente); _searchController.clear(); _searchFocusNode.requestFocus(); } void submitQuantity() { final quantity = int.tryParse(qteController.text) ?? 0; Navigator.of(context).pop(); if (quantity > 0) { if (quantity > product.intNUMBERAVAILABLE) { showDialog( context: context, builder: (confirmCtx) => AlertDialog( title: const Text('Stock insuffisant'), content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'), actions: [ TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }), ElevatedButton( child: const Text('Oui'), onPressed: () { Navigator.of(confirmCtx).pop(); _addProduct(quantity); }, ), ], ), ); } else { _addProduct(quantity); } } } showDialog( context: context, builder: (ctx) => AlertDialog( title: Text(product.strNAME), content: TextField( controller: qteController, autofocus: true, decoration: const InputDecoration(labelText: 'Quantité'), keyboardType: TextInputType.number, textInputAction: TextInputAction.done, onSubmitted: (_) => submitQuantity(), ), actions: [ TextButton( child: const Text('Annuler'), onPressed: () => Navigator.of(ctx).pop(), ), ElevatedButton( child: const Text('Ajouter'), onPressed: submitQuantity, ), ], ), ); }
 
-  void _onSearchChanged() {
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      Provider.of<SaleProvider>(context, listen: false).searchProducts(_searchController.text);
-    });
-  }
-
-  void _showQuantityDialog(ProductSearchResult product) {
-    final qteController = TextEditingController(text: '1');
-
-    // 1. Logique d'ajout
-    void _addProduct(int quantity) {
-      Provider.of<SaleProvider>(context, listen: false)
-          .addProductToCart(product, quantity, isPrevente: widget.isPrevente);
-      _searchController.clear();
-      _searchFocusNode.requestFocus();
-    }
-
-    // 2. Logique de soumission
-    void submitQuantity() {
-      final quantity = int.tryParse(qteController.text) ?? 0;
-      Navigator.of(context).pop();
-      if (quantity > 0) {
-        // 3. Vérification du stock
-        if (quantity > product.intNUMBERAVAILABLE) {
-          showDialog(
-            context: context,
-            builder: (confirmCtx) => AlertDialog(
-              title: const Text('Stock insuffisant'),
-              content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
-              actions: [
-                TextButton(
-                    child: const Text('Non'),
-                    onPressed: () {
-                      Navigator.of(confirmCtx).pop();
-                      _searchFocusNode.requestFocus();
-                    }
-                ),
-                ElevatedButton(
-                  child: const Text('Oui'),
-                  onPressed: () {
-                    Navigator.of(confirmCtx).pop();
-                    _addProduct(quantity); // Ajoute quand même
-                  },
-                ),
-              ],
-            ),
-          );
-        } else {
-          _addProduct(quantity); // Stock suffisant
-        }
-      }
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(product.strNAME),
-        content: TextField(
-          controller: qteController,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Quantité'),
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => submitQuantity(),
-        ),
-        actions: [
-          TextButton(
-            child: const Text('Annuler'),
-            onPressed: () => Navigator.of(ctx).pop(),
-          ),
-          ElevatedButton(
-            child: const Text('Ajouter'),
-            onPressed: submitQuantity,
-          ),
-        ],
-      ),
-    );
-  }
-
+  // MODIFICATION : Ajout de montantVerse et monnaie
   Future<void> _showPrintDialog({
-    required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser
+    required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser,
+    int? montantVerse,
+    int? monnaie,
   }) async {
     final BuildContext mainContext = context;
 
@@ -182,13 +96,15 @@ class _VenteTabState extends State<VenteTab> {
           isTestMode: isTestMode, paperWidth: paperWidth,
           showQrCode: settingsProvider.showQrCodeOnSaleTicket,
           ticketCodeType: ticketCodeType,
+          // MODIFICATION : Passe les montants au service d'impression
+          montantVerse: montantVerse,
+          monnaie: monnaie,
         );
       }
     }
 
     if (printFirstTicket == true) {
       await _printLogic();
-
       for (int i = 1; i < numberOfTickets; i++) {
         if (!mainContext.mounted) break;
         final bool? rePrint = await showDialog<bool>(
@@ -223,7 +139,6 @@ class _VenteTabState extends State<VenteTab> {
 
   Future<void> _showQrCodeDialog(PaymentMethodQr method, SaleSummary summary, User currentUser) async {
     final BuildContext mainContext = context;
-
     await showDialog(
       context: mainContext,
       barrierDismissible: false,
@@ -262,9 +177,72 @@ class _VenteTabState extends State<VenteTab> {
     );
   }
 
+  // MODIFICATION : Création d'une fonction séparée pour "ESPECES"
+  Future<void> _showCashPaymentDialog(PaymentMethod method, User currentUser) async {
+    final BuildContext mainContext = context;
+    final scaffoldMessenger = ScaffoldMessenger.of(mainContext);
+    final saleProvider = Provider.of<SaleProvider>(mainContext, listen: false);
+
+    // 1. Ouvre le nouveau dialogue
+    final result = await showDialog<Map<String, int>>(
+      context: mainContext,
+      builder: (ctx) => CashPaymentDialog(
+        montantNet: saleProvider.saleSummary.montantNet,
+      ),
+    );
+
+    // 2. Si l'utilisateur a validé (n'a pas annulé)
+    if (result != null) {
+      final int montantVerse = result['verse']!;
+      final int monnaie = result['monnaie']!;
+
+      // 3. Appelle la validation avec les nouveaux montants
+      final apiResult = await saleProvider.cloturerVente(
+        method,
+        currentUser,
+        montantRecu: montantVerse,
+        montantRemis: monnaie,
+      );
+
+      if (!mainContext.mounted) return;
+
+      // 4. Gère les erreurs (ex: caisse fermée)
+      final bool caisseHandled = await Constants.checkAndOpenCaisse(mainContext, apiResult);
+      if (caisseHandled) {
+        return; // L'utilisateur doit réessayer
+      }
+
+      // 5. Si succès, on passe à l'impression
+      if (apiResult['success'] == true) {
+        scaffoldMessenger.showSnackBar(const SnackBar(
+          content: Text('Vente validée avec succès !'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 2),
+        ));
+
+        // Appelle l'impression en passant les montants
+        _showPrintDialog(
+          isPrevente: false,
+          paymentMethod: method,
+          currentUser: currentUser,
+          montantVerse: montantVerse,
+          monnaie: monnaie,
+        );
+
+      } else {
+        // Autre erreur
+        scaffoldMessenger.showSnackBar(SnackBar(
+          content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
+          backgroundColor: AppColors.error,
+          duration: const Duration(seconds: 2),
+        ));
+      }
+    }
+    // Si result == null, l'utilisateur a cliqué "Annuler", on ne fait rien.
+  }
+
   void _showPaymentDialog() async {
     final BuildContext mainContext = context;
-
     final scaffoldMessenger = ScaffoldMessenger.of(mainContext);
     final saleProvider = Provider.of<SaleProvider>(mainContext, listen: false);
     final authProvider = Provider.of<AuthProvider>(mainContext, listen: false);
@@ -303,45 +281,49 @@ class _VenteTabState extends State<VenteTab> {
                 return ListTile(
                   title: Text(method.name),
                   onTap: () async {
-                    Navigator.of(ctx).pop();
+                    Navigator.of(ctx).pop(); // Ferme le choix du paiement
 
-                    final result = await saleProvider.cloturerVente(method, currentUser);
-
-                    if (!mainContext.mounted) return;
-
-                    final bool caisseHandled = await Constants.checkAndOpenCaisse(mainContext, result);
-                    if (caisseHandled) {
-                      return;
-                    }
-
-                    if (result['success'] == true) {
-                      scaffoldMessenger.showSnackBar(const SnackBar(
-                        content: Text('Vente validée avec succès !'),
-                        backgroundColor: AppColors.success,
-                        duration: Duration(seconds: 2),
-                      ));
-
-                      final paymentQrMethods = saleProvider.paymentMethodsWithQr;
-                      PaymentMethodQr? qrMethod;
-                      try {
-                        qrMethod = paymentQrMethods.firstWhere((m) => m.id == method.id);
-                      } catch (e) {
-                        qrMethod = null;
-                      }
-
-                      if (qrMethod != null && qrMethod.qrCode != null) {
-                        await _showQrCodeDialog(qrMethod, saleProvider.saleSummary, currentUser);
-                      } else {
-                        _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
-                      }
-
+                    // MODIFICATION : Logique conditionnelle pour "ESPECES"
+                    if (method.id == '1') { // "1" est l'ID standard pour ESPECES
+                      _showCashPaymentDialog(method, currentUser);
                     } else {
-                      scaffoldMessenger.showSnackBar(SnackBar(
-                        content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
-                        backgroundColor: AppColors.error,
-                        duration: const Duration(seconds: 2),
-                      ));
+                      // Logique existante pour les autres paiements (QR Code, etc.)
+                      final result = await saleProvider.cloturerVente(method, currentUser);
+                      if (!mainContext.mounted) return;
+
+                      final bool caisseHandled = await Constants.checkAndOpenCaisse(mainContext, result);
+                      if (caisseHandled) { return; }
+
+                      if (result['success'] == true) {
+                        scaffoldMessenger.showSnackBar(const SnackBar(
+                          content: Text('Vente validée avec succès !'),
+                          backgroundColor: AppColors.success,
+                          duration: Duration(seconds: 2),
+                        ));
+
+                        final paymentQrMethods = saleProvider.paymentMethodsWithQr;
+                        PaymentMethodQr? qrMethod;
+                        try {
+                          qrMethod = paymentQrMethods.firstWhere((m) => m.id == method.id);
+                        } catch (e) {
+                          qrMethod = null;
+                        }
+
+                        if (qrMethod != null && qrMethod.qrCode != null) {
+                          await _showQrCodeDialog(qrMethod, saleProvider.saleSummary, currentUser);
+                        } else {
+                          _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
+                        }
+
+                      } else {
+                        scaffoldMessenger.showSnackBar(SnackBar(
+                          content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
+                          backgroundColor: AppColors.error,
+                          duration: const Duration(seconds: 2),
+                        ));
+                      }
                     }
+                    // FIN MODIFICATION
                   },
                 );
               },
@@ -350,74 +332,11 @@ class _VenteTabState extends State<VenteTab> {
         ));
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
-    return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout();
-  }
-
-  Widget _buildMobileLayout() {
-    return Column(
-      children: [
-        _buildSearchArea(),
-        const Divider(height: 1),
-        Expanded(child: _buildCartAndResultsOverlay()),
-        _buildSummaryFooter(),
-      ],
-    );
-  }
-
-  Widget _buildTabletLayout() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          flex: 4,
-          child: Column(
-            children: [
-              _buildSearchArea(),
-              const Divider(height: 1),
-              Expanded(child: _buildCartAndResultsOverlay()),
-              _buildSummaryFooter(),
-            ],
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        Expanded(
-          flex: 6,
-          child: Container(
-            color: Colors.black.withOpacity(0.03),
-            child: const SaleCartWidget(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSearchArea() {
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: TextField(
-        controller: _searchController,
-        focusNode: _searchFocusNode,
-        decoration: InputDecoration(
-          labelText: 'Rechercher un produit (CIP ou Nom)',
-          prefixIcon: const Icon(Icons.search),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-            icon: const Icon(Icons.clear),
-            onPressed: () {
-              _searchController.clear();
-              Provider.of<SaleProvider>(context, listen: false).searchProducts('');
-              // **LA CORRECTION EST ICI**
-              _searchFocusNode.requestFocus();
-            },
-          )
-              : null,
-        ),
-      ),
-    );
-  }
+  // ... (build, buildMobileLayout, buildTabletLayout, _buildSearchArea restent inchangés) ...
+  @override Widget build(BuildContext context) { final bool isTabletLandscape = MediaQuery.of(context).size.width > 800; return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout(); }
+  Widget _buildMobileLayout() { return Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ); }
+  Widget _buildTabletLayout() { return Row( crossAxisAlignment: CrossAxisAlignment.start, children: [ Expanded( flex: 4, child: Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ), ), const VerticalDivider(width: 1), Expanded( flex: 6, child: Container( color: Colors.black.withOpacity(0.03), child: const SaleCartWidget(), ), ), ], ); }
+  Widget _buildSearchArea() { return Padding( padding: const EdgeInsets.all(8.0), child: TextField( controller: _searchController, focusNode: _searchFocusNode, decoration: InputDecoration( labelText: 'Rechercher un produit (CIP ou Nom)', prefixIcon: const Icon(Icons.search), suffixIcon: _searchController.text.isNotEmpty ? IconButton( icon: const Icon(Icons.clear), onPressed: () { _searchController.clear(); Provider.of<SaleProvider>(context, listen: false).searchProducts(''); _searchFocusNode.requestFocus(); }, ) : null, ), ), ); }
 
   Widget _buildCartAndResultsOverlay() {
     return Consumer<SaleProvider>(
