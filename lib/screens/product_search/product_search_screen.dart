@@ -1,5 +1,5 @@
 // lib/screens/product_search/product_search_screen.dart
-// 09/11/2025 20:30 (Correction Focus)
+// 09/11/2025 21:00 (Standardisation de la recherche)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -78,8 +78,7 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
             onPressed: () {
               _searchController.clear();
               provider.clear();
-              // MODIFICATION : Ajout du Focus
-              _searchFocusNode.requestFocus();
+              _searchFocusNode.requestFocus(); // Garde le focus
             },
           ),
         ),
@@ -89,6 +88,7 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
     );
   }
 
+  // MODIFICATION : Utilise ProductSearchResult et RichText
   Widget _buildSearchResults(ProductSearchProvider provider) {
     if (provider.searchResults.isEmpty && _searchController.text.isNotEmpty) {
       return const Center(child: Text('Aucun résultat'));
@@ -99,8 +99,38 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
         final product = provider.searchResults[index];
         return Card(
           child: ListTile(
-            title: Text(product.libelle, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('CIP: ${product.codeCip} | Prix: ${Constants.formatNumber(product.prixVente)} | Stock: ${product.stock}'),
+            title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: RichText(
+              text: TextSpan(
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: Colors.black54),
+                children: [
+                  TextSpan(text: 'CIP: ${product.intCIP} | Stock: '),
+                  TextSpan(
+                    text: product.intNUMBERAVAILABLE.toString(),
+                    style: const TextStyle(
+                      color: AppColors.secondary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  TextSpan(text: ' | Prix: '),
+                  TextSpan(
+                    text: Constants.formatNumber(product.intPRICE),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  if (product.strLIBELLEE.isNotEmpty)
+                    TextSpan(
+                      text: ' (${product.strLIBELLEE})',
+                      style: const TextStyle(fontStyle: FontStyle.italic),
+                    ),
+                ],
+              ),
+            ),
             onTap: () {
               _searchFocusNode.unfocus();
               provider.selectProduct(product);
@@ -110,10 +140,11 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
       },
     );
   }
+  // FIN MODIFICATION
 
   Widget _buildDetailsView(ProductSearchProvider provider) {
     final info = provider.selectedProductInfo!;
-    final details = provider.selectedProductDetails; // Peut être null pendant le chargement
+    // final details = provider.selectedProductDetails; // (Peut être null)
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),

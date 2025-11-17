@@ -1,5 +1,5 @@
 // lib/screens/product_evaluation/product_evaluation_screen.dart
-// 09/11/2025 20:30 (Correction Focus)
+// 09/11/2025 21:00 (Standardisation de la recherche)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -87,8 +87,7 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
             onPressed: () {
               _searchController.clear();
               provider.clear();
-              // MODIFICATION : Ajout du Focus
-              _searchFocusNode.requestFocus();
+              _searchFocusNode.requestFocus(); // Garde le focus
             },
           ),
         ),
@@ -96,6 +95,7 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
     );
   }
 
+  // MODIFICATION : Utilise ProductSearchResult et RichText
   Widget _buildSearchResults(ProductStatsProvider provider) {
     if (provider.searchResults.isEmpty && _searchController.text.length > 1) {
       return const Center(child: Text('Aucun produit trouvé.'));
@@ -104,21 +104,56 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
       itemCount: provider.searchResults.length,
       itemBuilder: (context, index) {
         final product = provider.searchResults[index];
-        return ListTile(
-          title: Text(product.libelle),
-          subtitle: Text('CIP: ${product.codeCip}'),
-          onTap: () {
-            provider.selectProduct(product);
-            _searchController.clear();
-          },
+        return Card(
+          child: ListTile(
+            title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: RichText(
+              text: TextSpan(
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: Colors.black54),
+                children: [
+                  TextSpan(text: 'CIP: ${product.intCIP} | Stock: '),
+                  TextSpan(
+                    text: product.intNUMBERAVAILABLE.toString(),
+                    style: const TextStyle(
+                      color: AppColors.secondary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  TextSpan(text: ' | Prix: '),
+                  TextSpan(
+                    text: Constants.formatNumber(product.intPRICE),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  if (product.strLIBELLEE.isNotEmpty)
+                    TextSpan(
+                      text: ' (${product.strLIBELLEE})',
+                      style: const TextStyle(fontStyle: FontStyle.italic),
+                    ),
+                ],
+              ),
+            ),
+            onTap: () {
+              provider.selectProduct(product);
+              _searchController.clear();
+              _searchFocusNode.unfocus();
+            },
+          ),
         );
       },
     );
   }
+  // FIN MODIFICATION
 
   Widget _buildProductDetailsLayout(ProductStatsProvider provider) {
     final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
 
+    // Le reste de la vue (détails, stats) ne change pas
     final details = _buildDetailsColumn(provider);
     final consumption = _buildConsumptionColumn(provider);
     final comparison = _buildComparisonSection(provider);
@@ -153,8 +188,8 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
   }
 
   Widget _buildDetailsColumn(ProductStatsProvider provider) {
-    final product = provider.selectedProductSales!;
-    final info = provider.selectedProductInfo;
+    final product = provider.selectedProductSales!; // Stats (pour le nom)
+    final info = provider.selectedProductInfo; // Infos (pour le reste)
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
