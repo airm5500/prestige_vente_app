@@ -1,5 +1,5 @@
 // lib/screens/product_update/emplacement_update_screen.dart
-// 29/10/2025 22:55
+// 09/11/2025 20:30 (Correction Focus)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/rayon.dart';
@@ -22,7 +22,6 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> {
   String? _selectedRayonId;
   final _rayonFocusNode = FocusNode();
 
-  // MODIFICATION : Fonction helper pour ajouter le listener de sélection
   void _setupFocusNodeSelection(FocusNode node, TextEditingController controller) {
     node.addListener(() {
       if (node.hasFocus) {
@@ -46,8 +45,6 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     });
     _searchController.addListener(_onSearchChanged);
-
-    // MODIFICATION : Ajout du listener pour la pré-sélection
     _setupFocusNodeSelection(_rayonFocusNode, _rayonController);
   }
 
@@ -136,7 +133,12 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> {
           prefixIcon: const Icon(Icons.search),
           suffixIcon: IconButton(
             icon: const Icon(Icons.clear),
-            onPressed: () { _searchController.clear(); provider.clearAll(); },
+            onPressed: () {
+              _searchController.clear();
+              provider.clearAll();
+              // MODIFICATION : Ajout du Focus
+              _searchFocusNode.requestFocus();
+            },
           ),
         ),
         onSubmitted: (_) => _onSearchChanged(),

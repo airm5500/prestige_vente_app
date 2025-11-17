@@ -1,12 +1,12 @@
 // lib/screens/product_evaluation/product_evaluation_screen.dart
-// 20/10/2025 10:19
+// 09/11/2025 20:30 (Correction Focus)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 //import 'package:prestige_vente_app/api/models/product_info.dart';
 //import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/providers/product_stats_provider.dart';
-//import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 
@@ -87,6 +87,8 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
             onPressed: () {
               _searchController.clear();
               provider.clear();
+              // MODIFICATION : Ajout du Focus
+              _searchFocusNode.requestFocus();
             },
           ),
         ),
@@ -158,9 +160,8 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
       children: [
         _buildDetailRow('CIP:', product.codeCip, isBold: true),
         _buildDetailRow('Désignation:', product.libelle, isBold: true),
-        // MODIFICATION : Ajout de .toString()
-        _buildDetailRow('Prix Achat:', info?.prixAchat.toString() ?? 'N/A'),
-        _buildDetailRow('Prix Vente:', info?.prixVente.toString() ?? 'N/A'),
+        _buildDetailRow('Prix Achat:', Constants.formatNumber(info?.prixAchat ?? 0)),
+        _buildDetailRow('Prix Vente:', Constants.formatNumber(info?.prixVente ?? 0)),
         _buildDetailRow('Emplacement:', info?.emplacement ?? 'N/A'),
         _buildDetailRow('Grossiste:', info?.grossiste ?? 'N/A'),
       ],
@@ -179,7 +180,7 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
           runSpacing: 4.0,
           children: product.monthlySales.entries.map((entry) {
             return Chip(
-              label: Text('${entry.key}: ${entry.value}', style: const TextStyle(fontWeight: FontWeight.bold)),
+              label: Text('${entry.key}: ${entry.value}', style: TextStyle(fontWeight: FontWeight.bold)),
               backgroundColor: Colors.blue.shade50,
               visualDensity: VisualDensity.compact,
             );
@@ -228,9 +229,9 @@ class _ProductEvaluationScreenState extends State<ProductEvaluationScreen> {
           height: 300,
           child: LineChart(
             LineChartData(
-              gridData: const FlGridData(show: true),
+              gridData: FlGridData(show: true),
               titlesData: FlTitlesData(
-                leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+                leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
                 bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (value, meta) {
                   const months = ['Jan', 'Fev', 'Mar', 'Avr', 'Mai', 'Jui', 'Jui', 'Aou', 'Sep', 'Oct', 'Nov', 'Dec'];
                   return Text(months[value.toInt()]);

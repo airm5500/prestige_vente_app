@@ -1,5 +1,5 @@
 // lib/screens/expiration_update/expiration_update_screen.dart
-// 29/10/2025 22:55
+// 09/11/2025 20:30 (Correction Focus)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -28,7 +28,6 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   final _lotFocusNode = FocusNode();
   final _quantityFocusNode = FocusNode();
 
-  // MODIFICATION : Fonction helper pour ajouter le listener de sélection
   void _setupFocusNodeSelection(FocusNode node, TextEditingController controller) {
     node.addListener(() {
       if (node.hasFocus) {
@@ -50,7 +49,6 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     });
     _searchController.addListener(_onSearchChanged);
 
-    // MODIFICATION : Ajout des listeners pour la pré-sélection
     _setupFocusNodeSelection(_dateFocusNode, _dateController);
     _setupFocusNodeSelection(_lotFocusNode, _lotController);
     _setupFocusNodeSelection(_quantityFocusNode, _quantityController);
@@ -166,6 +164,8 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
             onPressed: () {
               _searchController.clear();
               provider.clearSearch();
+              // MODIFICATION : Ajout du Focus
+              _searchFocusNode.requestFocus();
             },
           ),
         ),

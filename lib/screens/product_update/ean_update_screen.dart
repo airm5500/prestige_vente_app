@@ -1,8 +1,8 @@
 // lib/screens/product_update/ean_update_screen.dart
-// 30/10/2025 00:00
+// 09/11/2025 20:30 (Correction Focus)
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Import pour le filtre de saisie
+import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/providers/product_update_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -116,7 +116,12 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
           prefixIcon: const Icon(Icons.search),
           suffixIcon: IconButton(
             icon: const Icon(Icons.clear),
-            onPressed: () { _searchController.clear(); provider.clearAll(); },
+            onPressed: () {
+              _searchController.clear();
+              provider.clearAll();
+              // MODIFICATION : Ajout du Focus
+              _searchFocusNode.requestFocus();
+            },
           ),
         ),
         onSubmitted: (_) => _onSearchChanged(),
@@ -158,18 +163,12 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
       }
     }
 
-    // --- MODIFICATION : Logique d'affichage EAN ---
     String eanDisplay = "";
     if (provider.isLoading && details == null) {
-      // Cas 1 : Chargement des détails en cours
       eanDisplay = ' (EAN Fabricant: ...)';
     } else if (details != null && details.intEan13.isNotEmpty && details.intEan13 != 'N/A') {
-      // Cas 2 : Les détails sont chargés et l'EAN existe
       eanDisplay = ' (EAN Fabricant: ${details.intEan13})';
     }
-    // Cas 3 : Détails chargés mais pas d'EAN (eanDisplay reste "")
-    // --- FIN MODIFICATION ---
-
 
     if (!provider.isLoading) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -194,7 +193,6 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
                     IconButton(icon: const Icon(Icons.close), onPressed: _resetForm),
                   ],
                 ),
-                // MODIFICATION : Affichage du CIP + EAN
                 Text('CIP: ${product.intCIP}$eanDisplay'),
                 const Divider(height: 30),
                 TextFormField(

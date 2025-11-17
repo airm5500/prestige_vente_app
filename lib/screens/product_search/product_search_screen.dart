@@ -1,5 +1,5 @@
 // lib/screens/product_search/product_search_screen.dart
-// 20/10/2025 10:18
+// 09/11/2025 20:30 (Correction Focus)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -75,7 +75,12 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
           prefixIcon: const Icon(Icons.search),
           suffixIcon: IconButton(
             icon: const Icon(Icons.clear),
-            onPressed: () { _searchController.clear(); provider.clear(); },
+            onPressed: () {
+              _searchController.clear();
+              provider.clear();
+              // MODIFICATION : Ajout du Focus
+              _searchFocusNode.requestFocus();
+            },
           ),
         ),
         onSubmitted: (_) => _onSearchChanged(),
@@ -128,8 +133,6 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> {
                   _detailRow("Stock Actuel:", info.stock.toString()),
                   _detailRow("Emplacement:", info.emplacement),
                   _detailRow("Grossiste:", info.grossiste),
-
-
                 ],
               ),
             ),
