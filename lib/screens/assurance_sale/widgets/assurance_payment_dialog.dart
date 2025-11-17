@@ -6,7 +6,7 @@ import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 
-import 'package:prestige_vente_app/providers/caisse_provider.dart';
+//import 'package:prestige_vente_app/providers/caisse_provider.dart';
 import 'package:prestige_vente_app/widgets/cash_payment_dialog.dart';
 
 // MODIFICATION : Import des Settings
