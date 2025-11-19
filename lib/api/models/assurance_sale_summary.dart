@@ -1,5 +1,6 @@
 // lib/api/models/assurance_sale_summary.dart
-// 02/11/2025 15:20
+// 10/11/2025 10:00 (Correction: Ajout toJson)
+
 // Modèle pour POST /vente/net/assurance
 class TiersPayantSummary {
   final String numBon;
@@ -21,6 +22,16 @@ class TiersPayantSummary {
       compteTp: json['compteTp'] ?? '',
       tpnet: json['tpnet'] ?? 0,
     );
+  }
+
+  // MODIFICATION : Ajout de la méthode toJson
+  Map<String, dynamic> toJson() {
+    return {
+      'numBon': numBon,
+      'taux': taux,
+      'compteTp': compteTp,
+      'tpnet': tpnet,
+    };
   }
 }
 
@@ -59,5 +70,17 @@ class AssuranceSaleSummary {
       marge: data['marge'] ?? 0,
       tierspayants: tpList,
     );
+  }
+
+  // MODIFICATION : Ajout de la méthode toJson
+  Map<String, dynamic> toJson() {
+    return {
+      'montant': montant,
+      'remise': remise,
+      'montantNet': montantNet,
+      'montantTp': montantTp,
+      'marge': marge,
+      'tierspayants': tierspayants.map((tp) => tp.toJson()).toList(),
+    };
   }
 }

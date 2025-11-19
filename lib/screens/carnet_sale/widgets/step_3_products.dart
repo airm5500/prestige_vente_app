@@ -51,6 +51,11 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
     final qteController = TextEditingController(text: '1');
 
+    qteController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: qteController.text.length,
+    );
+
     void _addProduct(int quantity) {
       provider.addProductToCart(product, quantity);
       _searchController.clear();
