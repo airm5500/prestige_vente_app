@@ -11,7 +11,7 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 import 'add_tiers_payant_dialog.dart';
 import 'create_ayant_droit_dialog.dart';
-import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
+//import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
 
 class Step2BonAyantDroitWidget extends StatefulWidget {
   const Step2BonAyantDroitWidget({super.key});
