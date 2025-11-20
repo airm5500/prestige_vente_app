@@ -1,5 +1,5 @@
 // lib/screens/product_update/ean_update_screen.dart
-// 09/11/2025 20:30 (Correction Focus)
+// 11/11/2025 12:00 (Ajout Auto-Open & Focus)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -53,10 +53,22 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
     super.dispose();
   }
 
+  // MODIFICATION : Logique Auto-Open
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      Provider.of<ProductUpdateProvider>(context, listen: false).search(_searchController.text);
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      final provider = Provider.of<ProductUpdateProvider>(context, listen: false);
+      final query = _searchController.text;
+
+      if (query.isEmpty) return;
+
+      await provider.search(query);
+
+      if (mounted && provider.searchResults.length == 1) {
+        final product = provider.searchResults.first;
+        provider.selectProduct(product);
+        _searchController.clear();
+      }
     });
   }
 
@@ -119,7 +131,7 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
             onPressed: () {
               _searchController.clear();
               provider.clearAll();
-              // MODIFICATION : Ajout du Focus
+              // MODIFICATION : Maintien du Focus
               _searchFocusNode.requestFocus();
             },
           ),
@@ -146,6 +158,7 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
               _searchFocusNode.unfocus();
               _eanController.clear();
               provider.selectProduct(product);
+              _searchController.clear(); // Nettoyage manuel
             },
           ),
         );

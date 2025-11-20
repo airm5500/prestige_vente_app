@@ -1,5 +1,5 @@
 // lib/screens/expiration_update/expiration_update_screen.dart
-// 09/11/2025 20:30 (Correction Focus)
+// 11/11/2025 12:00 (Ajout Auto-Open & Focus)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -62,10 +62,26 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     super.dispose();
   }
 
+  // MODIFICATION : Logique Auto-Open
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      Provider.of<ExpirationUpdateProvider>(context, listen: false).search(_searchController.text);
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      final provider = Provider.of<ExpirationUpdateProvider>(context, listen: false);
+      final query = _searchController.text;
+
+      if (query.isEmpty) return;
+
+      // 1. Lance la recherche
+      await provider.search(query);
+
+      // 2. Si résultat unique, on sélectionne automatiquement
+      if (mounted && provider.searchResults.length == 1) {
+        final product = provider.searchResults.first;
+
+        provider.selectProduct(product);
+        _searchController.clear(); // Nettoyage immédiat
+        // Le focus ira sur le formulaire grâce au bloc 'else' du build (via selectProduct)
+      }
     });
   }
 
@@ -164,7 +180,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
             onPressed: () {
               _searchController.clear();
               provider.clearSearch();
-              // MODIFICATION : Ajout du Focus
+              // MODIFICATION : Maintien du focus
               _searchFocusNode.requestFocus();
             },
           ),
@@ -190,6 +206,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
             onTap: () {
               _searchFocusNode.unfocus();
               provider.selectProduct(product);
+              _searchController.clear(); // Nettoyage manuel si clic
             },
           ),
         );

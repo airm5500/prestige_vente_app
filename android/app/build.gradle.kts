@@ -33,7 +33,7 @@ android {
         // MODIFICATION : Ces lignes DOIVENT être décommentées.
         // Flutter les remplit automatiquement pendant la compilation.
         versionCode = flutter.versionCode
-        versionName = "1.4.2"
+        versionName = "1.5.0"
     }
 
     buildTypes {
