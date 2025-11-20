@@ -1,5 +1,5 @@
 // lib/providers/sale_provider.dart
-// 09/11/2025 21:00 (Gestion Montant Versé)
+// 11/11/2025 10:00 (Version Complete: Stock, Caisse, Focus, Auto-Open)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -98,6 +98,12 @@ class SaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  // MODIFICATION : Méthode pour vider explicitement les résultats
+  void clearSearchResults() {
+    _searchResults = [];
+    notifyListeners();
+  }
+
   Future<void> searchProducts(String query) async {
     if (query.length < 3) {
       _searchResults = [];
@@ -153,7 +159,6 @@ class SaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  // MODIFICATION : Ajout de montantRecu et montantRemis
   Future<Map<String, dynamic>> cloturerVente(
       PaymentMethod paymentMethod,
       User currentUser, {
@@ -173,8 +178,8 @@ class SaleProvider with ChangeNotifier {
       typeReglementId: paymentMethod.id,
       clientId: clientId,
       userVendeurId: currentUser.userId,
-      montantRecu: montantRecu, // Transmis ici
-      montantRemis: montantRemis, // Transmis ici
+      montantRecu: montantRecu,
+      montantRemis: montantRemis,
     );
 
     if (result['success'] == false) {
@@ -184,7 +189,6 @@ class SaleProvider with ChangeNotifier {
     _setLoading(false);
     return result;
   }
-  // FIN MODIFICATION
 
   Future<bool> terminerPrevente() async {
     if (_currentVenteId == null) return false;

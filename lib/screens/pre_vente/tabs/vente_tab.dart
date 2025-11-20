@@ -1,7 +1,7 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 09/11/2025 21:00 (Gestion Montant Versé)
+// 11/11/2025 10:00 (Version Complete: Stock, Caisse, Focus, Auto-Open)
 import 'dart:async';
-//import 'dart:typed_data';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -13,11 +13,10 @@ import 'package:prestige_vente_app/screens/pre_vente/widgets/sale_cart_widget.da
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
-//import 'package:qr_flutter/qr_flutter.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 
-//import 'package:prestige_vente_app/providers/caisse_provider.dart';
-// AJOUT : Import du nouveau dialogue
+import 'package:prestige_vente_app/providers/caisse_provider.dart';
 import 'package:prestige_vente_app/widgets/cash_payment_dialog.dart';
 
 
@@ -35,16 +34,122 @@ class _VenteTabState extends State<VenteTab> {
   Timer? _debounce;
 
   @override
-  void initState() { super.initState(); _searchController.addListener(_onSearchChanged); WidgetsBinding.instance.addPostFrameCallback((_) { FocusScope.of(context).requestFocus(_searchFocusNode); }); }
-  @override
-  void dispose() { _searchController.removeListener(_onSearchChanged); _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel(); super.dispose(); }
-  void _onSearchChanged() { if (_debounce?.isActive ?? false) _debounce!.cancel(); _debounce = Timer(const Duration(milliseconds: 500), () { Provider.of<SaleProvider>(context, listen: false).searchProducts(_searchController.text); }); }
-  void _showQuantityDialog(ProductSearchResult product) { final qteController = TextEditingController(text: '1'); qteController.selection = TextSelection(
-    baseOffset: 0,
-    extentOffset: qteController.text.length,
-  );void _addProduct(int quantity) { Provider.of<SaleProvider>(context, listen: false) .addProductToCart(product, quantity, isPrevente: widget.isPrevente); _searchController.clear(); _searchFocusNode.requestFocus(); } void submitQuantity() { final quantity = int.tryParse(qteController.text) ?? 0; Navigator.of(context).pop(); if (quantity > 0) { if (quantity > product.intNUMBERAVAILABLE) { showDialog( context: context, builder: (confirmCtx) => AlertDialog( title: const Text('Stock insuffisant'), content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'), actions: [ TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }), ElevatedButton( child: const Text('Oui'), onPressed: () { Navigator.of(confirmCtx).pop(); _addProduct(quantity); }, ), ], ), ); } else { _addProduct(quantity); } } } showDialog( context: context, builder: (ctx) => AlertDialog( title: Text(product.strNAME), content: TextField( controller: qteController, autofocus: true, decoration: const InputDecoration(labelText: 'Quantité'), keyboardType: TextInputType.number, textInputAction: TextInputAction.done, onSubmitted: (_) => submitQuantity(), ), actions: [ TextButton( child: const Text('Annuler'), onPressed: () => Navigator.of(ctx).pop(), ), ElevatedButton( child: const Text('Ajouter'), onPressed: submitQuantity, ), ], ), ); }
+  void initState() {
+    super.initState();
+    _searchController.addListener(_onSearchChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusScope.of(context).requestFocus(_searchFocusNode);
+    });
+  }
 
-  // MODIFICATION : Ajout de montantVerse et monnaie
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  // Logique d'ouverture automatique (Scan)
+  void _onSearchChanged() {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      final provider = Provider.of<SaleProvider>(context, listen: false);
+      final query = _searchController.text;
+
+      if (query.isEmpty) return;
+
+      // 1. Lance la recherche
+      await provider.searchProducts(query);
+
+      // 2. Si un seul résultat, ouvre le dialogue
+      if (mounted && provider.searchResults.length == 1) {
+        final product = provider.searchResults.first;
+        _showQuantityDialog(product);
+      }
+    });
+  }
+
+  void _showQuantityDialog(ProductSearchResult product) {
+    final qteController = TextEditingController(text: '1');
+
+    // Pré-sélection de la quantité pour saisie rapide
+    qteController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: qteController.text.length,
+    );
+
+    void _addProduct(int quantity) {
+      final provider = Provider.of<SaleProvider>(context, listen: false);
+      provider.addProductToCart(product, quantity, isPrevente: widget.isPrevente);
+      // Nettoyage immédiat de la liste
+      provider.clearSearchResults();
+      _searchController.clear();
+      _searchFocusNode.requestFocus();
+    }
+
+    void submitQuantity() {
+      final quantity = int.tryParse(qteController.text) ?? 0;
+      Navigator.of(context).pop();
+      if (quantity > 0) {
+        // Vérification du stock
+        if (quantity > product.intNUMBERAVAILABLE) {
+          showDialog(
+            context: context,
+            builder: (confirmCtx) => AlertDialog(
+              title: const Text('Stock insuffisant'),
+              content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
+              actions: [
+                TextButton(
+                    child: const Text('Non'),
+                    onPressed: () {
+                      Navigator.of(confirmCtx).pop();
+                      _searchFocusNode.requestFocus();
+                    }
+                ),
+                ElevatedButton(
+                  child: const Text('Oui'),
+                  onPressed: () {
+                    Navigator.of(confirmCtx).pop();
+                    _addProduct(quantity);
+                  },
+                ),
+              ],
+            ),
+          );
+        } else {
+          _addProduct(quantity);
+        }
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(product.strNAME),
+        content: TextField(
+          controller: qteController,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Quantité'),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => submitQuantity(),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Annuler'),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+          ElevatedButton(
+            child: const Text('Ajouter'),
+            onPressed: submitQuantity,
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showPrintDialog({
     required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser,
     int? montantVerse,
@@ -99,7 +204,6 @@ class _VenteTabState extends State<VenteTab> {
           isTestMode: isTestMode, paperWidth: paperWidth,
           showQrCode: settingsProvider.showQrCodeOnSaleTicket,
           ticketCodeType: ticketCodeType,
-          // MODIFICATION : Passe les montants au service d'impression
           montantVerse: montantVerse,
           monnaie: monnaie,
         );
@@ -108,6 +212,7 @@ class _VenteTabState extends State<VenteTab> {
 
     if (printFirstTicket == true) {
       await _printLogic();
+
       for (int i = 1; i < numberOfTickets; i++) {
         if (!mainContext.mounted) break;
         final bool? rePrint = await showDialog<bool>(
@@ -142,6 +247,7 @@ class _VenteTabState extends State<VenteTab> {
 
   Future<void> _showQrCodeDialog(PaymentMethodQr method, SaleSummary summary, User currentUser) async {
     final BuildContext mainContext = context;
+
     await showDialog(
       context: mainContext,
       barrierDismissible: false,
@@ -180,13 +286,11 @@ class _VenteTabState extends State<VenteTab> {
     );
   }
 
-  // MODIFICATION : Création d'une fonction séparée pour "ESPECES"
   Future<void> _showCashPaymentDialog(PaymentMethod method, User currentUser) async {
     final BuildContext mainContext = context;
     final scaffoldMessenger = ScaffoldMessenger.of(mainContext);
     final saleProvider = Provider.of<SaleProvider>(mainContext, listen: false);
 
-    // 1. Ouvre le nouveau dialogue
     final result = await showDialog<Map<String, int>>(
       context: mainContext,
       builder: (ctx) => CashPaymentDialog(
@@ -194,12 +298,10 @@ class _VenteTabState extends State<VenteTab> {
       ),
     );
 
-    // 2. Si l'utilisateur a validé (n'a pas annulé)
     if (result != null) {
       final int montantVerse = result['verse']!;
       final int monnaie = result['monnaie']!;
 
-      // 3. Appelle la validation avec les nouveaux montants
       final apiResult = await saleProvider.cloturerVente(
         method,
         currentUser,
@@ -209,13 +311,11 @@ class _VenteTabState extends State<VenteTab> {
 
       if (!mainContext.mounted) return;
 
-      // 4. Gère les erreurs (ex: caisse fermée)
       final bool caisseHandled = await Constants.checkAndOpenCaisse(mainContext, apiResult);
       if (caisseHandled) {
-        return; // L'utilisateur doit réessayer
+        return;
       }
 
-      // 5. Si succès, on passe à l'impression
       if (apiResult['success'] == true) {
         scaffoldMessenger.showSnackBar(const SnackBar(
           content: Text('Vente validée avec succès !'),
@@ -223,7 +323,6 @@ class _VenteTabState extends State<VenteTab> {
           duration: Duration(seconds: 2),
         ));
 
-        // Appelle l'impression en passant les montants
         _showPrintDialog(
           isPrevente: false,
           paymentMethod: method,
@@ -233,7 +332,6 @@ class _VenteTabState extends State<VenteTab> {
         );
 
       } else {
-        // Autre erreur
         scaffoldMessenger.showSnackBar(SnackBar(
           content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
           backgroundColor: AppColors.error,
@@ -241,7 +339,6 @@ class _VenteTabState extends State<VenteTab> {
         ));
       }
     }
-    // Si result == null, l'utilisateur a cliqué "Annuler", on ne fait rien.
   }
 
   void _showPaymentDialog() async {
@@ -284,13 +381,11 @@ class _VenteTabState extends State<VenteTab> {
                 return ListTile(
                   title: Text(method.name),
                   onTap: () async {
-                    Navigator.of(ctx).pop(); // Ferme le choix du paiement
+                    Navigator.of(ctx).pop();
 
-                    // MODIFICATION : Logique conditionnelle pour "ESPECES"
-                    if (method.id == '1') { // "1" est l'ID standard pour ESPECES
+                    if (method.id == '1') {
                       _showCashPaymentDialog(method, currentUser);
                     } else {
-                      // Logique existante pour les autres paiements (QR Code, etc.)
                       final result = await saleProvider.cloturerVente(method, currentUser);
                       if (!mainContext.mounted) return;
 
@@ -326,7 +421,6 @@ class _VenteTabState extends State<VenteTab> {
                         ));
                       }
                     }
-                    // FIN MODIFICATION
                   },
                 );
               },
@@ -335,11 +429,73 @@ class _VenteTabState extends State<VenteTab> {
         ));
   }
 
-  // ... (build, buildMobileLayout, buildTabletLayout, _buildSearchArea restent inchangés) ...
-  @override Widget build(BuildContext context) { final bool isTabletLandscape = MediaQuery.of(context).size.width > 800; return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout(); }
-  Widget _buildMobileLayout() { return Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ); }
-  Widget _buildTabletLayout() { return Row( crossAxisAlignment: CrossAxisAlignment.start, children: [ Expanded( flex: 4, child: Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ), ), const VerticalDivider(width: 1), Expanded( flex: 6, child: Container( color: Colors.black.withOpacity(0.03), child: const SaleCartWidget(), ), ), ], ); }
-  Widget _buildSearchArea() { return Padding( padding: const EdgeInsets.all(8.0), child: TextField( controller: _searchController, focusNode: _searchFocusNode, decoration: InputDecoration( labelText: 'Rechercher un produit (CIP ou Nom)', prefixIcon: const Icon(Icons.search), suffixIcon: _searchController.text.isNotEmpty ? IconButton( icon: const Icon(Icons.clear), onPressed: () { _searchController.clear(); Provider.of<SaleProvider>(context, listen: false).searchProducts(''); _searchFocusNode.requestFocus(); }, ) : null, ), ), ); }
+  @override
+  Widget build(BuildContext context) {
+    final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
+    return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout();
+  }
+
+  Widget _buildMobileLayout() {
+    return Column(
+      children: [
+        _buildSearchArea(),
+        const Divider(height: 1),
+        Expanded(child: _buildCartAndResultsOverlay()),
+        _buildSummaryFooter(),
+      ],
+    );
+  }
+
+  Widget _buildTabletLayout() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 4,
+          child: Column(
+            children: [
+              _buildSearchArea(),
+              const Divider(height: 1),
+              Expanded(child: _buildCartAndResultsOverlay()),
+              _buildSummaryFooter(),
+            ],
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          flex: 6,
+          child: Container(
+            color: Colors.black.withOpacity(0.03),
+            child: const SaleCartWidget(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchArea() {
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: TextField(
+        controller: _searchController,
+        focusNode: _searchFocusNode,
+        decoration: InputDecoration(
+          labelText: 'Rechercher un produit (CIP ou Nom)',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: () {
+              _searchController.clear();
+              Provider.of<SaleProvider>(context, listen: false).searchProducts('');
+              _searchFocusNode.requestFocus();
+            },
+          )
+              : null,
+        ),
+      ),
+    );
+  }
 
   Widget _buildCartAndResultsOverlay() {
     return Consumer<SaleProvider>(
@@ -359,11 +515,11 @@ class _VenteTabState extends State<VenteTab> {
                     itemCount: saleProvider.searchResults.length,
                     itemBuilder: (context, index) {
                       final product = saleProvider.searchResults[index];
-
                       return Card(
                         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         child: ListTile(
                           title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          // STYLE HARMONISÉ
                           subtitle: RichText(
                             text: TextSpan(
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),

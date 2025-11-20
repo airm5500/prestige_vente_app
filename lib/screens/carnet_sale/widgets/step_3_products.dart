@@ -1,5 +1,5 @@
 // lib/screens/carnet_sale/widgets/step_3_products.dart
-// 09/11/2025 20:15 (Correction Focus)
+// 11/11/2025 10:00 (Version Complete: Stock, Focus, Auto-Open)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -41,9 +41,18 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      Provider.of<CarnetSaleProvider>(context, listen: false)
-          .searchProducts(_searchController.text);
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
+      final query = _searchController.text;
+
+      if (query.isEmpty) return;
+
+      await provider.searchProducts(query);
+
+      if (mounted && provider.productSearchResults.length == 1) {
+        final product = provider.productSearchResults.first;
+        _showQuantityDialog(product);
+      }
     });
   }
 
@@ -58,6 +67,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
     void _addProduct(int quantity) {
       provider.addProductToCart(product, quantity);
+      provider.clearProductSearch();
       _searchController.clear();
       _searchFocusNode.requestFocus();
     }
@@ -212,7 +222,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             onPressed: () {
               _searchController.clear();
               provider.clearProductSearch();
-              // **LA CORRECTION EST ICI**
               _searchFocusNode.requestFocus();
             },
           )
