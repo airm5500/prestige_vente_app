@@ -25,6 +25,8 @@ import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/caisse_models.dart';
 import 'package:prestige_vente_app/api/models/perime_models.dart';
 
+import 'package:prestige_vente_app/api/models/stock_report_models.dart';
+
 class ApiService {
   late Dio _dio;
 
@@ -65,6 +67,65 @@ class ApiService {
   Future<ProductInfo?> getProductInfoForStats(String codeCip) async { try { final response = await _dio.get('/info', queryParameters: { 'search': codeCip }); if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) { return ProductInfo.fromJson(response.data[0]); } return null; } catch (e) { print("Error fetching product info for stats: $e"); return null; } }
   Future<List<ProductInfo>> searchProductInfoForSearch(String query) async { try { final response = await _dio.get( '/info', queryParameters: { 'search': query }, ); if (response.statusCode == 200 && response.data is List) { return (response.data as List) .map((item) => ProductInfo.fromJson(item)) .toList(); } return []; } catch (e) { print("Error in searchProductInfoForSearch: $e"); return []; } }
   Future<ProductDetails?> getProductDetailsForSearch(String codeCip) async { try { final response = await _dio.get( '/produit-search/fiche', queryParameters: { 'search_value': codeCip, 'page': 1, 'start': 0, 'limit': 1 }, ); if (response.statusCode == 200 && response.data['results'] is List) { final results = response.data['results'] as List; if (results.isNotEmpty) { return ProductDetails.fromJson(results.first); } } return null; } catch (e) { print("Error in getProductDetailsForSearch: $e"); return null; } }
+
+  Future<List<Grossiste>> getGrossistes() async {
+    try {
+      final response = await _dio.get(
+        '/common/grossiste',
+        queryParameters: {'query': '', 'page': 1, 'start': 0, 'limit': 9999},
+      );
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List).map((g) => Grossiste.fromJson(g)).toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching grossistes: $e");
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> getStockReport({
+    String query = '',
+    String codeRayon = '',
+    String codeGrossiste = '',
+    String filtreStock = '', // EQUAL, GREATER, etc.
+    String stockValue = '',  // La valeur numérique (ex: 10)
+    int page = 1,
+    int limit = 20,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/fichearticle/comparaison',
+        queryParameters: {
+          'query': query,
+          'codeRayon': codeRayon,
+          'codeGrossiste': codeGrossiste,
+          'filtreStock': filtreStock,
+          'stock': stockValue,
+          'seuil': '',
+          'filtreSeuil': '',
+          'codeFamile': '',
+          'page': page,
+          'start': (page - 1) * limit,
+          'limit': limit
+        },
+      );
+
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        final List<StockReportItem> items = (response.data['data'] as List)
+            .map((item) => StockReportItem.fromJson(item))
+            .toList();
+        return {
+          'data': items,
+          'total': response.data['total'] ?? 0,
+        };
+      }
+      return {'data': <StockReportItem>[], 'total': 0};
+    } catch (e) {
+      print("Error fetching stock report: $e");
+      return {'data': <StockReportItem>[], 'total': 0};
+    }
+  }
 
   // --- VENTE ASSURANCE / CARNET ---
   Future<List<NatureVente>> getNaturesVente() async { try { final response = await _dio.get( '/common/natures', queryParameters: { 'page': 1, 'start': 0, 'limit': 25 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List) .map((e) => NatureVente.fromJson(e)) .toList(); } return []; } catch (e) { print("Error fetching natures vente: $e"); return []; } }

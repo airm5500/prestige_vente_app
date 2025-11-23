@@ -23,7 +23,7 @@ import 'package:prestige_vente_app/providers/perime_provider.dart';
 
 // AJOUT : Import du nouveau provider
 import 'package:prestige_vente_app/providers/carnet_sale_provider.dart';
-
+import 'package:prestige_vente_app/providers/stock_report_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -116,6 +116,11 @@ class MyApp extends StatelessWidget {
 
         ChangeNotifierProxyProvider<ApiService, PerimeProvider>(
           create: (context) => PerimeProvider(Provider.of<ApiService>(context, listen: false)),
+          update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
+        ),
+
+        ChangeNotifierProxyProvider<ApiService, StockReportProvider>(
+          create: (context) => StockReportProvider(Provider.of<ApiService>(context, listen: false)),
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
       ],

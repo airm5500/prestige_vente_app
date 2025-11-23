@@ -25,7 +25,7 @@ import 'package:prestige_vente_app/screens/perimes/perime_main_screen.dart';
 
 // AJOUT : Import pour le nouvel écran
 import 'package:prestige_vente_app/screens/carnet_sale/carnet_sale_screen.dart';
-
+import 'package:prestige_vente_app/screens/stock_report/stock_report_screen.dart';
 
 class MenuItem {
   final String label;
@@ -182,6 +182,13 @@ class _HomeScreenState extends State<HomeScreen> {
         icon: Icons.location_on,
         color: Colors.brown.shade400,
         onTap: () => navigate(const EmplacementUpdateScreen()),
+      ),
+
+      MenuItem(
+        label: 'État de Stock',
+        icon: Icons.inventory, // Icône appropriée
+        color: Colors.blueGrey.shade600,
+        onTap: () => navigate(const StockReportScreen()),
       ),
     ];
 
