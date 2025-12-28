@@ -1,5 +1,5 @@
 // lib/screens/pre_vente/tabs/vente_tab.dart
-// 11/11/2025 10:00 (Version Complete: Stock, Caisse, Focus, Auto-Open)
+// 12/11/2025 17:00 (Version Finale : Scan vs Saisie)
 import 'dart:async';
 //import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -36,6 +36,7 @@ class _VenteTabState extends State<VenteTab> {
   @override
   void initState() {
     super.initState();
+    // Écouteur pour la saisie manuelle (filtrage visuel uniquement)
     _searchController.addListener(_onSearchChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
@@ -51,30 +52,38 @@ class _VenteTabState extends State<VenteTab> {
     super.dispose();
   }
 
-  // Logique d'ouverture automatique (Scan)
+  // 1. LOGIQUE SAISIE MANUELLE : Affiche les résultats, n'ouvre JAMAIS de pop-up
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () async {
-      final provider = Provider.of<SaleProvider>(context, listen: false);
+    _debounce = Timer(const Duration(milliseconds: 300), () {
       final query = _searchController.text;
-
-      if (query.isEmpty) return;
-
-      // 1. Lance la recherche
-      await provider.searchProducts(query);
-
-      // 2. Si un seul résultat, ouvre le dialogue
-      if (mounted && provider.searchResults.length == 1) {
-        final product = provider.searchResults.first;
-        _showQuantityDialog(product);
+      if (query.isNotEmpty) {
+        Provider.of<SaleProvider>(context, listen: false).searchProducts(query);
       }
     });
+  }
+
+  // 2. LOGIQUE SCAN / ENTRÉE : Force la recherche et ouvre le pop-up si unique
+  Future<void> _onSubmitted(String value) async {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    if (value.isEmpty) return;
+
+    final provider = Provider.of<SaleProvider>(context, listen: false);
+
+    // Recherche immédiate
+    await provider.searchProducts(value);
+
+    // Si résultat unique -> Ouverture automatique
+    if (mounted && provider.searchResults.length == 1) {
+      final product = provider.searchResults.first;
+      _showQuantityDialog(product);
+    }
   }
 
   void _showQuantityDialog(ProductSearchResult product) {
     final qteController = TextEditingController(text: '1');
 
-    // Pré-sélection de la quantité pour saisie rapide
+    // Sélectionne tout le texte ("1") pour remplacement rapide
     qteController.selection = TextSelection(
       baseOffset: 0,
       extentOffset: qteController.text.length,
@@ -83,7 +92,8 @@ class _VenteTabState extends State<VenteTab> {
     void _addProduct(int quantity) {
       final provider = Provider.of<SaleProvider>(context, listen: false);
       provider.addProductToCart(product, quantity, isPrevente: widget.isPrevente);
-      // Nettoyage immédiat de la liste
+
+      // Nettoyage immédiat pour revenir à la vue panier
       provider.clearSearchResults();
       _searchController.clear();
       _searchFocusNode.requestFocus();
@@ -93,7 +103,6 @@ class _VenteTabState extends State<VenteTab> {
       final quantity = int.tryParse(qteController.text) ?? 0;
       Navigator.of(context).pop();
       if (quantity > 0) {
-        // Vérification du stock
         if (quantity > product.intNUMBERAVAILABLE) {
           showDialog(
             context: context,
@@ -150,13 +159,13 @@ class _VenteTabState extends State<VenteTab> {
     );
   }
 
+  // ... (Méthodes d'impression et paiement restent identiques, je les laisse pour complétude)
   Future<void> _showPrintDialog({
     required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser,
     int? montantVerse,
     int? monnaie,
   }) async {
     final BuildContext mainContext = context;
-
     final settingsProvider = Provider.of<SettingsProvider>(mainContext, listen: false);
     final saleProvider = Provider.of<SaleProvider>(mainContext, listen: false);
     final authProvider = Provider.of<AuthProvider>(mainContext, listen: false);
@@ -176,14 +185,8 @@ class _VenteTabState extends State<VenteTab> {
         title: Text(isPrevente ? 'Prévente terminée' : 'Vente terminée'),
         content: const Text('Voulez-vous imprimer le ticket ?'),
         actions: [
-          TextButton(
-            child: const Text('Non'),
-            onPressed: () => Navigator.of(ctx).pop(false),
-          ),
-          ElevatedButton(
-            child: const Text('Oui'),
-            onPressed: () => Navigator.of(ctx).pop(true),
-          ),
+          TextButton(child: const Text('Non'), onPressed: () => Navigator.of(ctx).pop(false)),
+          ElevatedButton(child: const Text('Oui'), onPressed: () => Navigator.of(ctx).pop(true)),
         ],
       ),
     );
@@ -193,8 +196,7 @@ class _VenteTabState extends State<VenteTab> {
         await receiptService.printPreventeTicket(
           context: mainContext, officine: authProvider.officine!,
           saleSummary: summaryToPrint, currentUser: currentUser,
-          isTestMode: isTestMode, paperWidth: paperWidth,
-          ticketCodeType: ticketCodeType,
+          isTestMode: isTestMode, paperWidth: paperWidth, ticketCodeType: ticketCodeType,
         );
       } else {
         await receiptService.printSaleTicket(
@@ -202,17 +204,14 @@ class _VenteTabState extends State<VenteTab> {
           saleSummary: summaryToPrint, items: itemsToPrint,
           paymentMethod: paymentMethod!, currentUser: currentUser,
           isTestMode: isTestMode, paperWidth: paperWidth,
-          showQrCode: settingsProvider.showQrCodeOnSaleTicket,
-          ticketCodeType: ticketCodeType,
-          montantVerse: montantVerse,
-          monnaie: monnaie,
+          showQrCode: settingsProvider.showQrCodeOnSaleTicket, ticketCodeType: ticketCodeType,
+          montantVerse: montantVerse, monnaie: monnaie,
         );
       }
     }
 
     if (printFirstTicket == true) {
       await _printLogic();
-
       for (int i = 1; i < numberOfTickets; i++) {
         if (!mainContext.mounted) break;
         final bool? rePrint = await showDialog<bool>(
@@ -222,32 +221,19 @@ class _VenteTabState extends State<VenteTab> {
             title: const Text('Réimpression'),
             content: Text('Voulez-vous réimprimer le ticket ? (${i + 1}/$numberOfTickets)'),
             actions: [
-              TextButton(
-                child: const Text('Non'),
-                onPressed: () => Navigator.of(ctx).pop(false),
-              ),
-              ElevatedButton(
-                child: const Text('Oui'),
-                onPressed: () => Navigator.of(ctx).pop(true),
-              ),
+              TextButton(child: const Text('Non'), onPressed: () => Navigator.of(ctx).pop(false)),
+              ElevatedButton(child: const Text('Oui'), onPressed: () => Navigator.of(ctx).pop(true)),
             ],
           ),
         );
-        if (rePrint == true) {
-          await _printLogic();
-        } else {
-          break;
-        }
+        if (rePrint == true) { await _printLogic(); } else { break; }
       }
     }
-
     saleProvider.startNewSale();
   }
 
-
   Future<void> _showQrCodeDialog(PaymentMethodQr method, SaleSummary summary, User currentUser) async {
     final BuildContext mainContext = context;
-
     await showDialog(
       context: mainContext,
       barrierDismissible: false,
@@ -260,11 +246,8 @@ class _VenteTabState extends State<VenteTab> {
               Text("Veuillez scanner le QR code pour payer ${Constants.formatNumber(summary.montantNet)}."),
               const SizedBox(height: 20),
               SizedBox(
-                width: 250,
-                height: 250,
-                child: method.qrCode != null
-                    ? Image.memory(method.qrCode!)
-                    : const Center(child: Text("QR Code non disponible")),
+                width: 250, height: 250,
+                child: method.qrCode != null ? Image.memory(method.qrCode!) : const Center(child: Text("QR Code non disponible")),
               ),
             ],
           ),
@@ -273,11 +256,7 @@ class _VenteTabState extends State<VenteTab> {
               child: const Text("OK"),
               onPressed: () {
                 Navigator.of(ctx).pop();
-                _showPrintDialog(
-                    isPrevente: false,
-                    paymentMethod: PaymentMethod(id: method.id, name: method.name),
-                    currentUser: currentUser
-                );
+                _showPrintDialog(isPrevente: false, paymentMethod: PaymentMethod(id: method.id, name: method.name), currentUser: currentUser);
               },
             )
           ],
@@ -293,57 +272,30 @@ class _VenteTabState extends State<VenteTab> {
 
     final result = await showDialog<Map<String, int>>(
       context: mainContext,
-      builder: (ctx) => CashPaymentDialog(
-        montantNet: saleProvider.saleSummary.montantNet,
-      ),
+      builder: (ctx) => CashPaymentDialog(montantNet: saleProvider.saleSummary.montantNet),
     );
 
     if (result != null) {
       final int montantVerse = result['verse']!;
       final int monnaie = result['monnaie']!;
 
-      final apiResult = await saleProvider.cloturerVente(
-        method,
-        currentUser,
-        montantRecu: montantVerse,
-        montantRemis: monnaie,
-      );
+      final apiResult = await saleProvider.cloturerVente(method, currentUser, montantRecu: montantVerse, montantRemis: monnaie);
 
       if (!mainContext.mounted) return;
-
       final bool caisseHandled = await Constants.checkAndOpenCaisse(mainContext, apiResult);
-      if (caisseHandled) {
-        return;
-      }
+      if (caisseHandled) return;
 
       if (apiResult['success'] == true) {
-        scaffoldMessenger.showSnackBar(const SnackBar(
-          content: Text('Vente validée avec succès !'),
-          backgroundColor: AppColors.success,
-          duration: Duration(seconds: 2),
-        ));
-
-        _showPrintDialog(
-          isPrevente: false,
-          paymentMethod: method,
-          currentUser: currentUser,
-          montantVerse: montantVerse,
-          monnaie: monnaie,
-        );
-
+        scaffoldMessenger.showSnackBar(const SnackBar(content: Text('Vente validée avec succès !'), backgroundColor: AppColors.success, duration: Duration(seconds: 2)));
+        _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser, montantVerse: montantVerse, monnaie: monnaie);
       } else {
-        scaffoldMessenger.showSnackBar(SnackBar(
-          content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
-          backgroundColor: AppColors.error,
-          duration: const Duration(seconds: 2),
-        ));
+        scaffoldMessenger.showSnackBar(SnackBar(content: Text(saleProvider.errorMessage ?? "La validation a échoué"), backgroundColor: AppColors.error, duration: const Duration(seconds: 2)));
       }
     }
   }
 
   void _showPaymentDialog() async {
     final BuildContext mainContext = context;
-    final scaffoldMessenger = ScaffoldMessenger.of(mainContext);
     final saleProvider = Provider.of<SaleProvider>(mainContext, listen: false);
     final authProvider = Provider.of<AuthProvider>(mainContext, listen: false);
     final settingsProvider = Provider.of<SettingsProvider>(mainContext, listen: false);
@@ -358,12 +310,10 @@ class _VenteTabState extends State<VenteTab> {
     if (!mainContext.mounted) return;
 
     final allowedIds = settingsProvider.enabledPaymentMethodIds;
-    final filteredMethods = allPaymentMethods
-        .where((method) => allowedIds.contains(method.id))
-        .toList();
+    final filteredMethods = allPaymentMethods.where((method) => allowedIds.contains(method.id)).toList();
 
     if (filteredMethods.isEmpty) {
-      Constants.showSnackBar(mainContext, "Aucun mode de règlement n'est activé. Vérifiez les paramètres.", isError: true);
+      Constants.showSnackBar(mainContext, "Aucun mode de règlement n'est activé.", isError: true);
       return;
     }
 
@@ -382,43 +332,27 @@ class _VenteTabState extends State<VenteTab> {
                   title: Text(method.name),
                   onTap: () async {
                     Navigator.of(ctx).pop();
-
                     if (method.id == '1') {
                       _showCashPaymentDialog(method, currentUser);
                     } else {
                       final result = await saleProvider.cloturerVente(method, currentUser);
                       if (!mainContext.mounted) return;
-
                       final bool caisseHandled = await Constants.checkAndOpenCaisse(mainContext, result);
-                      if (caisseHandled) { return; }
+                      if (caisseHandled) return;
 
                       if (result['success'] == true) {
-                        scaffoldMessenger.showSnackBar(const SnackBar(
-                          content: Text('Vente validée avec succès !'),
-                          backgroundColor: AppColors.success,
-                          duration: Duration(seconds: 2),
-                        ));
-
+                        ScaffoldMessenger.of(mainContext).showSnackBar(const SnackBar(content: Text('Vente validée avec succès !'), backgroundColor: AppColors.success));
                         final paymentQrMethods = saleProvider.paymentMethodsWithQr;
                         PaymentMethodQr? qrMethod;
-                        try {
-                          qrMethod = paymentQrMethods.firstWhere((m) => m.id == method.id);
-                        } catch (e) {
-                          qrMethod = null;
-                        }
+                        try { qrMethod = paymentQrMethods.firstWhere((m) => m.id == method.id); } catch (e) { qrMethod = null; }
 
                         if (qrMethod != null && qrMethod.qrCode != null) {
                           await _showQrCodeDialog(qrMethod, saleProvider.saleSummary, currentUser);
                         } else {
                           _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
                         }
-
                       } else {
-                        scaffoldMessenger.showSnackBar(SnackBar(
-                          content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
-                          backgroundColor: AppColors.error,
-                          duration: const Duration(seconds: 2),
-                        ));
+                        ScaffoldMessenger.of(mainContext).showSnackBar(SnackBar(content: Text(saleProvider.errorMessage ?? "La validation a échoué"), backgroundColor: AppColors.error));
                       }
                     }
                   },
@@ -429,49 +363,9 @@ class _VenteTabState extends State<VenteTab> {
         ));
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
-    return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout();
-  }
-
-  Widget _buildMobileLayout() {
-    return Column(
-      children: [
-        _buildSearchArea(),
-        const Divider(height: 1),
-        Expanded(child: _buildCartAndResultsOverlay()),
-        _buildSummaryFooter(),
-      ],
-    );
-  }
-
-  Widget _buildTabletLayout() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          flex: 4,
-          child: Column(
-            children: [
-              _buildSearchArea(),
-              const Divider(height: 1),
-              Expanded(child: _buildCartAndResultsOverlay()),
-              _buildSummaryFooter(),
-            ],
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        Expanded(
-          flex: 6,
-          child: Container(
-            color: Colors.black.withOpacity(0.03),
-            child: const SaleCartWidget(),
-          ),
-        ),
-      ],
-    );
-  }
+  @override Widget build(BuildContext context) { final bool isTabletLandscape = MediaQuery.of(context).size.width > 800; return isTabletLandscape ? _buildTabletLayout() : _buildMobileLayout(); }
+  Widget _buildMobileLayout() { return Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ); }
+  Widget _buildTabletLayout() { return Row( crossAxisAlignment: CrossAxisAlignment.start, children: [ Expanded( flex: 4, child: Column( children: [ _buildSearchArea(), const Divider(height: 1), Expanded(child: _buildCartAndResultsOverlay()), _buildSummaryFooter(), ], ), ), const VerticalDivider(width: 1), Expanded( flex: 6, child: Container( color: Colors.black.withOpacity(0.03), child: const SaleCartWidget(), ), ), ], ); }
 
   Widget _buildSearchArea() {
     return Padding(
@@ -479,20 +373,24 @@ class _VenteTabState extends State<VenteTab> {
       child: TextField(
         controller: _searchController,
         focusNode: _searchFocusNode,
+        // Important pour le clavier (Scan)
+        textInputAction: TextInputAction.go,
         decoration: InputDecoration(
           labelText: 'Rechercher un produit (CIP ou Nom)',
           prefixIcon: const Icon(Icons.search),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
+          suffixIcon: _searchController.text.isNotEmpty ? IconButton(
             icon: const Icon(Icons.clear),
             onPressed: () {
               _searchController.clear();
-              Provider.of<SaleProvider>(context, listen: false).searchProducts('');
+              // Nettoyage manuel
+              Provider.of<SaleProvider>(context, listen: false).clearSearchResults();
               _searchFocusNode.requestFocus();
             },
-          )
-              : null,
+          ) : null,
         ),
+        // Saisie manuelle : Filtrage visuel uniquement
+        // onSubmitted : Scan / Validation -> Auto-Open
+        onSubmitted: _onSubmitted,
       ),
     );
   }
@@ -501,12 +399,9 @@ class _VenteTabState extends State<VenteTab> {
     return Consumer<SaleProvider>(
       builder: (context, saleProvider, child) {
         final bool isTabletLandscape = MediaQuery.of(context).size.width > 800;
-
         return Stack(
           children: [
-            if (!isTabletLandscape)
-              const SaleCartWidget(),
-
+            if (!isTabletLandscape) const SaleCartWidget(),
             if (saleProvider.searchResults.isNotEmpty)
               Container(
                 color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242),
@@ -519,32 +414,15 @@ class _VenteTabState extends State<VenteTab> {
                         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         child: ListTile(
                           title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          // STYLE HARMONISÉ
                           subtitle: RichText(
                             text: TextSpan(
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
                               children: [
                                 TextSpan(text: 'CIP: ${product.intCIP} | Stock: '),
-                                TextSpan(
-                                  text: product.intNUMBERAVAILABLE.toString(),
-                                  style: const TextStyle(
-                                    color: AppColors.secondary,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                                TextSpan(text: product.intNUMBERAVAILABLE.toString(), style: const TextStyle(color: AppColors.secondary, fontWeight: FontWeight.bold)),
                                 TextSpan(text: ' | Prix: '),
-                                TextSpan(
-                                  text: Constants.formatNumber(product.intPRICE),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black,
-                                  ),
-                                ),
-                                if (product.strLIBELLEE.isNotEmpty)
-                                  TextSpan(
-                                    text: ' (${product.strLIBELLEE})',
-                                    style: const TextStyle(fontStyle: FontStyle.italic),
-                                  ),
+                                TextSpan(text: Constants.formatNumber(product.intPRICE), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                                if (product.strLIBELLEE.isNotEmpty) TextSpan(text: ' (${product.strLIBELLEE})', style: const TextStyle(fontStyle: FontStyle.italic)),
                               ],
                             ),
                           ),
@@ -561,61 +439,5 @@ class _VenteTabState extends State<VenteTab> {
     );
   }
 
-  Widget _buildSummaryFooter() {
-    return Consumer<SaleProvider>(
-      builder: (context, saleProvider, child) {
-        final summary = saleProvider.saleSummary;
-        return Card(
-          elevation: 4,
-          margin: const EdgeInsets.all(0),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Total: ${Constants.formatNumber(summary.montant)}', style: const TextStyle(fontSize: 16)),
-                    Text(
-                      'Net à Payer: ${Constants.formatNumber(summary.montantNet)}',
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary),
-                    ),
-                  ],
-                ),
-                saleProvider.isLoading
-                    ? const CircularProgressIndicator()
-                    : SizedBox(
-                  width: 56,
-                  height: 56,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      shape: const CircleBorder(),
-                      padding: EdgeInsets.zero,
-                      backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success,
-                    ),
-                    child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
-                    onPressed: saleProvider.cartItems.isEmpty ? null : () async {
-                      if (widget.isPrevente) {
-                        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                        final currentUser = authProvider.user;
-                        if(currentUser != null) {
-                          final success = await saleProvider.terminerPrevente();
-                          if (mounted && success) {
-                            _showPrintDialog(isPrevente: true, currentUser: currentUser);
-                          }
-                        }
-                      } else {
-                        _showPaymentDialog();
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+  Widget _buildSummaryFooter() { return Consumer<SaleProvider>( builder: (context, saleProvider, child) { final summary = saleProvider.saleSummary; return Card( elevation: 4, margin: const EdgeInsets.all(0), child: Padding( padding: const EdgeInsets.all(12.0), child: Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Text('Total: ${Constants.formatNumber(summary.montant)}', style: const TextStyle(fontSize: 16)), Text( 'Net à Payer: ${Constants.formatNumber(summary.montantNet)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary), ), ], ), saleProvider.isLoading ? const CircularProgressIndicator() : SizedBox( width: 56, height: 56, child: ElevatedButton( style: ElevatedButton.styleFrom( shape: const CircleBorder(), padding: EdgeInsets.zero, backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success, ), child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white), onPressed: saleProvider.cartItems.isEmpty ? null : () async { if (widget.isPrevente) { final authProvider = Provider.of<AuthProvider>(context, listen: false); final currentUser = authProvider.user; if(currentUser != null) { final success = await saleProvider.terminerPrevente(); if (mounted && success) { _showPrintDialog(isPrevente: true, currentUser: currentUser); } } } else { _showPaymentDialog(); } }, ), ), ], ), ), ); }, ); }
 }

@@ -1,5 +1,5 @@
 // lib/screens/assurance_sale/widgets/step_3_products.dart
-// 11/11/2025 10:00 (Version Complete: Stock, Focus, Auto-Open)
+// 12/11/2025 17:00 (Version Finale : Scan vs Saisie)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -39,29 +39,38 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     super.dispose();
   }
 
-  // Logique d'ouverture automatique (Scan)
+  // 1. SAISIE MANUELLE : Visuel uniquement, pas de pop-up
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () async {
-      final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
+    _debounce = Timer(const Duration(milliseconds: 300), () {
       final query = _searchController.text;
-
-      if (query.isEmpty) return;
-
-      await provider.searchProducts(query);
-
-      if (mounted && provider.productSearchResults.length == 1) {
-        final product = provider.productSearchResults.first;
-        _showQuantityDialog(product);
+      if (query.isNotEmpty) {
+        Provider.of<AssuranceSaleProvider>(context, listen: false).searchProducts(query);
       }
     });
+  }
+
+  // 2. SCAN / ENTRÉE : Recherche + Auto-Open
+  Future<void> _onSubmitted(String value) async {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    if (value.isEmpty) return;
+
+    final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
+
+    // Recherche forcée
+    await provider.searchProducts(value);
+
+    // Auto-Open si unique
+    if (mounted && provider.productSearchResults.length == 1) {
+      final product = provider.productSearchResults.first;
+      _showQuantityDialog(product);
+    }
   }
 
   void _showQuantityDialog(ProductSearchResult product) {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
     final qteController = TextEditingController(text: '1');
 
-    // Pré-sélection
     qteController.selection = TextSelection(
       baseOffset: 0,
       extentOffset: qteController.text.length,
@@ -69,6 +78,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
     void _addProduct(int quantity) {
       provider.addProductToCart(product, quantity);
+
       // Nettoyage immédiat
       provider.clearProductSearch();
       _searchController.clear();
@@ -80,7 +90,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       Navigator.of(context).pop();
       if (quantity <= 0) return;
 
-      // Vérification du stock
       if (quantity > product.intNUMBERAVAILABLE) {
         showDialog(
           context: context,
@@ -88,20 +97,8 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             title: const Text('Stock insuffisant'),
             content: Text('Le stock disponible est de ${product.intNUMBERAVAILABLE}. Voulez-vous continuer quand même ?'),
             actions: [
-              TextButton(
-                  child: const Text('Non'),
-                  onPressed: () {
-                    Navigator.of(confirmCtx).pop();
-                    _searchFocusNode.requestFocus();
-                  }
-              ),
-              ElevatedButton(
-                child: const Text('Oui'),
-                onPressed: () {
-                  Navigator.of(confirmCtx).pop();
-                  _addProduct(quantity);
-                },
-              ),
+              TextButton(child: const Text('Non'), onPressed: () { Navigator.of(confirmCtx).pop(); _searchFocusNode.requestFocus(); }),
+              ElevatedButton(child: const Text('Oui'), onPressed: () { Navigator.of(confirmCtx).pop(); _addProduct(quantity); }),
             ],
           ),
         );
@@ -123,14 +120,8 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
           onSubmitted: (_) => submitQuantity(),
         ),
         actions: [
-          TextButton(
-            child: const Text('Annuler'),
-            onPressed: () => Navigator.of(ctx).pop(),
-          ),
-          ElevatedButton(
-            child: const Text('Ajouter'),
-            onPressed: submitQuantity,
-          ),
+          TextButton(child: const Text('Annuler'), onPressed: () => Navigator.of(ctx).pop()),
+          ElevatedButton(child: const Text('Ajouter'), onPressed: submitQuantity),
         ],
       ),
     );
@@ -217,6 +208,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       child: TextField(
         controller: _searchController,
         focusNode: _searchFocusNode,
+        textInputAction: TextInputAction.go,
         decoration: InputDecoration(
           labelText: 'Rechercher un produit (CIP ou Nom)',
           prefixIcon: const Icon(Icons.search),
@@ -231,6 +223,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
           )
               : null,
         ),
+        onSubmitted: _onSubmitted,
       ),
     );
   }
@@ -255,36 +248,16 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: ListTile(
-              title: Text(product.strNAME,
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
               subtitle: RichText(
                 text: TextSpan(
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: Colors.black54),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
                   children: [
                     TextSpan(text: 'CIP: ${product.intCIP} | Stock: '),
-                    TextSpan(
-                      text: product.intNUMBERAVAILABLE.toString(),
-                      style: const TextStyle(
-                        color: AppColors.secondary,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    TextSpan(text: product.intNUMBERAVAILABLE.toString(), style: const TextStyle(color: AppColors.secondary, fontWeight: FontWeight.bold)),
                     TextSpan(text: ' | Prix: '),
-                    TextSpan(
-                      text: Constants.formatNumber(product.intPRICE),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
-                    ),
-                    if (product.strLIBELLEE.isNotEmpty)
-                      TextSpan(
-                        text: ' (${product.strLIBELLEE})',
-                        style: const TextStyle(fontStyle: FontStyle.italic),
-                      ),
+                    TextSpan(text: Constants.formatNumber(product.intPRICE), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                    if (product.strLIBELLEE.isNotEmpty) TextSpan(text: ' (${product.strLIBELLEE})', style: const TextStyle(fontStyle: FontStyle.italic)),
                   ],
                 ),
               ),
