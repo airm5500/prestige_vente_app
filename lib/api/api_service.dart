@@ -26,6 +26,7 @@ import 'package:prestige_vente_app/api/models/caisse_models.dart';
 import 'package:prestige_vente_app/api/models/perime_models.dart';
 
 import 'package:prestige_vente_app/api/models/stock_report_models.dart';
+import 'package:prestige_vente_app/api/models/reception_model.dart';
 
 class ApiService {
   late Dio _dio;
@@ -199,6 +200,44 @@ class ApiService {
     } catch (e) {
       print("Error updating client tiers payants: $e");
       return null;
+    }
+  }
+
+  // NOUVEAU : Récupération des bons de réception avec détails inclus
+  Future<List<ReceptionBon>> getReceptionBons({
+    String query = '',
+    String? dtStart,
+    String? dtEnd,
+  }) async {
+    try {
+      var queryParameters = {
+        'search': query,
+        'grossisteId': '',
+        'page': 1,
+        'start': 0,
+        'limit': 9999,
+        // Les paramètres de tri/groupe du JSON fourni
+        'group': '[{"property":"fournisseurId","direction":"ASC"}]',
+        'sort': '[{"property":"fournisseurId","direction":"ASC"}]',
+      };
+
+      if (dtStart != null) queryParameters['dtStart'] = dtStart;
+      if (dtEnd != null) queryParameters['dtEnd'] = dtEnd;
+
+      final response = await _dio.get(
+        '/etat-control-bon/list',
+        queryParameters: queryParameters,
+      );
+
+      if (response.statusCode == 200 && response.data['data'] is List) {
+        return (response.data['data'] as List)
+            .map((item) => ReceptionBon.fromJson(item))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Error fetching reception bons: $e");
+      return [];
     }
   }
 

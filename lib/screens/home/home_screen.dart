@@ -25,6 +25,7 @@ import 'package:prestige_vente_app/screens/bl_control/bl_list_screen.dart';
 import 'package:prestige_vente_app/screens/product_update/ean_update_screen.dart';
 import 'package:prestige_vente_app/screens/product_update/emplacement_update_screen.dart';
 import 'package:prestige_vente_app/screens/stock_report/stock_report_screen.dart';
+import 'package:prestige_vente_app/screens/reception_control/reception_list_screen.dart';
 
 class MenuItem {
   final String id;
@@ -85,9 +86,11 @@ class _HomeScreenState extends State<HomeScreen> {
       'update_perim': MenuItem(id: 'update_perim', label: 'Mise à jour Péremption', icon: Icons.date_range, color: Colors.purple.shade700, onTap: () => navigate(const ExpirationUpdateScreen())),
       'delivery': MenuItem(id: 'delivery', label: 'Contrôle Livraison', icon: Icons.inventory_2, color: Colors.teal.shade700, onTap: () => navigate(const DeliveryListScreen())),
       'bl_control': MenuItem(id: 'bl_control', label: 'Pointage BL Stock', icon: Icons.checklist, color: Colors.cyan.shade700, onTap: () => navigate(const BlListScreen())),
+      'reception': MenuItem(id: 'reception', label: 'Contrôle Réception', icon: Icons.inventory_2_outlined, color: Colors.indigo.shade700, onTap: () => navigate(const ReceptionListScreen())),
       'update_ean': MenuItem(id: 'update_ean', label: 'Mise à jour EAN', icon: Icons.qr_code_scanner, color: Colors.indigo.shade400, onTap: () => navigate(const EanUpdateScreen())),
       'update_emplacement': MenuItem(id: 'update_emplacement', label: 'Mise à jour Emplacement', icon: Icons.location_on, color: Colors.brown.shade400, onTap: () => navigate(const EmplacementUpdateScreen())),
       'stock': MenuItem(id: 'stock', label: 'État de Stock', icon: Icons.inventory, color: Colors.blueGrey.shade600, onTap: () => navigate(const StockReportScreen())),
+
     };
 
     final settings = Provider.of<SettingsProvider>(context);
