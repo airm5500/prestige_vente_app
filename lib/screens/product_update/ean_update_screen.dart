@@ -1,5 +1,5 @@
 // lib/screens/product_update/ean_update_screen.dart
-// 11/11/2025 12:00 (Ajout Auto-Open & Focus)
+// 11/11/2025 12:20 (Utilisation du champ codeEanFabriquant strict)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -48,12 +48,14 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
 
   @override
   void dispose() {
-    _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel();
-    _eanController.dispose(); _eanFocusNode.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    _debounce?.cancel();
+    _eanController.dispose();
+    _eanFocusNode.dispose();
     super.dispose();
   }
 
-  // MODIFICATION : Logique Auto-Open
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () async {
@@ -131,7 +133,6 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
             onPressed: () {
               _searchController.clear();
               provider.clearAll();
-              // MODIFICATION : Maintien du Focus
               _searchFocusNode.requestFocus();
             },
           ),
@@ -158,7 +159,7 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
               _searchFocusNode.unfocus();
               _eanController.clear();
               provider.selectProduct(product);
-              _searchController.clear(); // Nettoyage manuel
+              _searchController.clear();
             },
           ),
         );
@@ -170,17 +171,21 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> {
     final product = provider.selectedProduct!;
     final details = provider.selectedProductDetails;
 
+    // --- CORRECTION MAJEURE ICI ---
+    // On ne pré-remplit que si le "vrai" code Fabricant existe.
     if (details != null && _eanController.text.isEmpty) {
-      if (details.intEan13.isNotEmpty && details.intEan13 != 'N/A') {
-        _eanController.text = details.intEan13;
+      if (details.codeEanFabriquant.isNotEmpty) {
+        _eanController.text = details.codeEanFabriquant;
       }
+      // Si codeEanFabriquant est vide, _eanController.text reste vide.
     }
 
     String eanDisplay = "";
     if (provider.isLoading && details == null) {
       eanDisplay = ' (EAN Fabricant: ...)';
-    } else if (details != null && details.intEan13.isNotEmpty && details.intEan13 != 'N/A') {
-      eanDisplay = ' (EAN Fabricant: ${details.intEan13})';
+    } else if (details != null && details.codeEanFabriquant.isNotEmpty) {
+      // Affichage informatif : uniquement si EAN Fabricant existe
+      eanDisplay = ' (EAN Fabricant: ${details.codeEanFabriquant})';
     }
 
     if (!provider.isLoading) {
