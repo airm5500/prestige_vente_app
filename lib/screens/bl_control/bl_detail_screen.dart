@@ -1,7 +1,6 @@
 // lib/screens/bl_control/bl_detail_screen.dart
-// 29/10/2025 22:55
 import 'package:flutter/material.dart';
-import 'package:collection/collection.dart'; // Import pour le groupage
+import 'package:collection/collection.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -33,39 +32,38 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
     super.initState();
     final provider = Provider.of<BlControlProvider>(context, listen: false);
     _filteredItems = provider.items;
+    _initializeControllers(provider);
 
-    final checkedQuantities = provider.checkedQuantities;
-
-    for (var item in provider.items) {
-      final savedQuantity = checkedQuantities[item.id];
-      // MODIFICATION : Le controller et le focus node sont créés en premier
-      final controller = TextEditingController(
-        text: savedQuantity != null ? savedQuantity.toString() : '',
-      );
-      final focusNode = FocusNode();
-
-      // MODIFICATION : Ajout du listener pour la pré-sélection
-      focusNode.addListener(() {
-        if (focusNode.hasFocus) {
-          // On utilise addPostFrameCallback pour s'assurer que le champ a bien le focus
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            controller.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: controller.text.length,
-            );
-          });
-        }
-      });
-
-      _itemFocusNodes[item.id] = focusNode;
-      _itemControllers[item.id] = controller;
-    }
-
-    _searchController.addListener(_applyFilters);
+    _searchController.addListener(_onSearchChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     });
+  }
+
+  void _initializeControllers(BlControlProvider provider) {
+    final checkedQuantities = provider.checkedQuantities;
+    for (var item in provider.items) {
+      if (!_itemControllers.containsKey(item.id)) {
+        final savedQuantity = checkedQuantities[item.id];
+        final controller = TextEditingController(
+          text: savedQuantity != null ? savedQuantity.toString() : '',
+        );
+        final focusNode = FocusNode();
+        focusNode.addListener(() {
+          if (focusNode.hasFocus) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              controller.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: controller.text.length,
+              );
+            });
+          }
+        });
+        _itemFocusNodes[item.id] = focusNode;
+        _itemControllers[item.id] = controller;
+      }
+    }
   }
 
   @override
@@ -77,9 +75,21 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
     super.dispose();
   }
 
+  void _onSearchChanged() {
+    _applyFilters();
+  }
+
+  // Déclenché par la touche "Entrée" du clavier ou le caractère de fin de scan
+  void _onSearchSubmitted(String value) {
+    if (_filteredItems.length == 1) {
+      // Scan unique trouvé -> Ouverture Pop-up
+      _showQuickScanDialog(_filteredItems.first);
+    }
+  }
+
   void _applyFilters() {
     final provider = Provider.of<BlControlProvider>(context, listen: false);
-    final query = _searchController.text.toLowerCase();
+    final query = _searchController.text.toLowerCase().trim();
 
     List<BonLivraisonItem> tempItems = provider.items;
 
@@ -96,14 +106,73 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
     setState(() {
       _filteredItems = tempItems;
     });
+  }
 
-    if (query.isNotEmpty && _filteredItems.length == 1) {
-      final itemId = _filteredItems.first.id;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if(mounted) {
-          FocusScope.of(context).requestFocus(_itemFocusNodes[itemId]);
-        }
-      });
+  Future<void> _showQuickScanDialog(BonLivraisonItem item) async {
+    final provider = Provider.of<BlControlProvider>(context, listen: false);
+    final controller = TextEditingController(); // Nouveau controller temporaire
+
+    // Pré-remplir avec la valeur existante ou vide
+    final existingQty = provider.checkedQuantities[item.id];
+    if (existingQty != null && existingQty > 0) {
+      controller.text = existingQty.toString();
+    }
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(item.nomProduit, style: const TextStyle(fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("CIP: ${item.cip}", style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              const Text("Saisir la quantité comptée :"),
+              const SizedBox(height: 10),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                onSubmitted: (val) {
+                  Navigator.of(context).pop();
+                },
+              )
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text("Annuler")
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Valider"),
+            )
+          ],
+        );
+      },
+    );
+
+    // Après validation
+    if (controller.text.isNotEmpty) {
+      final qty = int.tryParse(controller.text) ?? 0;
+      provider.updateCheckedQuantity(item.id, qty);
+
+      // Mettre à jour le controller de la liste principale aussi pour sync l'affichage
+      _itemControllers[item.id]?.text = qty.toString();
+
+      // Reset recherche et focus
+      _searchController.clear();
+      _searchFocusNode.requestFocus();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Quantité mise à jour pour ${item.nomProduit}"), duration: const Duration(milliseconds: 800)),
+      );
     }
   }
 
@@ -119,7 +188,7 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
           return Scaffold(appBar: AppBar(), body: const Center(child: Text("Aucun BL sélectionné.")));
         }
 
-        final bool isGrouped = (_selectedEmplacement != null);
+        final bool isGrouped = (_selectedEmplacement == _groupAllKey);
 
         List<BonLivraisonItem> itemsToDisplay;
 
@@ -139,6 +208,14 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
           itemsToDisplay.sort((a, b) => a.nomProduit.compareTo(b.nomProduit));
         }
 
+        // Déterminer le titre du filtre pour le rapport
+        String filterName = "Tous";
+        if (_selectedEmplacement != null && _selectedEmplacement != _groupAllKey) {
+          filterName = "Emplacement $_selectedEmplacement";
+        } else if (_selectedEmplacement == _groupAllKey) {
+          filterName = "Tous (Groupés)";
+        }
+
         return Scaffold(
           appBar: AppBar(
             title: Text(bl.ref),
@@ -147,9 +224,15 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
                 style: TextButton.styleFrom(foregroundColor: Colors.white),
                 icon: const Icon(Icons.assessment),
                 label: const Text('Rapport'),
-                onPressed: provider.isCurrentBlCompleted ? () {
-                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlReportScreen()));
-                } : null,
+                // MODIFICATION : Bouton toujours actif, passe les éléments filtrés
+                onPressed: () {
+                  Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => BlReportScreen(
+                        filteredItems: itemsToDisplay, // On passe la liste visible actuelle
+                        filterName: filterName,
+                      )
+                  ));
+                },
               ),
             ],
           ),
@@ -208,14 +291,17 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
             child: TextField(
               controller: _searchController,
               focusNode: _searchFocusNode,
+              textInputAction: TextInputAction.search, // Important pour les scanners
+              onSubmitted: _onSearchSubmitted, // Déclenche le scan rapide
               decoration: InputDecoration(
-                labelText: 'Rechercher (Nom, CIP)',
+                labelText: 'Rechercher (Scan, Nom, CIP)',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: IconButton(
                     icon: const Icon(Icons.clear),
                     onPressed: () {
                       _searchController.clear();
-                      _applyFilters();
+                      _searchFocusNode.requestFocus();
+                      // _applyFilters est appelé via le listener
                     }
                 ),
                 isDense: true,
@@ -277,6 +363,12 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
   }
 
   Widget _buildItemTile(BuildContext context, BonLivraisonItem item, BonLivraisonItem? nextItem, BlControlProvider provider, bool isEnabled) {
+    // S'assurer que le controller existe (cas de rechargement/filtrage)
+    if (!_itemControllers.containsKey(item.id)) {
+      // Fallback simple si le controller manque, bien que initState le gère
+      return const SizedBox();
+    }
+
     final controller = _itemControllers[item.id]!;
     final focusNode = _itemFocusNodes[item.id]!;
     final isChecked = provider.checkedQuantities.containsKey(item.id);
@@ -301,8 +393,9 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
             textAlign: TextAlign.center,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
-              labelText: 'Qté comptée',
-              border: OutlineInputBorder(),
+                labelText: 'Qté',
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 8)
             ),
             onChanged: (value) {
               final quantity = int.tryParse(value) ?? 0;

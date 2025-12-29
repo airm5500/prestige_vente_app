@@ -25,6 +25,10 @@ dependencies:
   # Pour formater les dates et les nombres
   intl: ^0.20.2
 
+  # Génération et impression de PDF (Rapports)
+  pdf: ^3.10.4
+  printing: ^5.11.0
+
   # Pour les graphiques
   fl_chart: ^0.68.0
 
