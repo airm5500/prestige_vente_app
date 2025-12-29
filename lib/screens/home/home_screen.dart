@@ -1,11 +1,12 @@
 // lib/screens/home/home_screen.dart
-// 12/11/2025 20:30 (Version Finale : Zero Scroll - Flex Layout)
+// 14/11/2025 09:00 (Fix: Ergonomie Clavier - ResizeToAvoidBottomInset: false)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
 // Écrans
@@ -26,11 +27,12 @@ import 'package:prestige_vente_app/screens/product_update/emplacement_update_scr
 import 'package:prestige_vente_app/screens/stock_report/stock_report_screen.dart';
 
 class MenuItem {
+  final String id;
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  MenuItem({required this.label, required this.icon, required this.color, required this.onTap});
+  MenuItem({required this.id, required this.label, required this.icon, required this.color, required this.onTap});
 }
 
 class HomeScreen extends StatefulWidget {
@@ -43,7 +45,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  List<MenuItem> _allMenuItems = [];
+  List<MenuItem> _displayMenuItems = [];
 
   late SaleProvider _saleProvider;
   late BlControlProvider _blProvider;
@@ -53,7 +55,12 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _saleProvider = Provider.of<SaleProvider>(context, listen: false);
     _blProvider = Provider.of<BlControlProvider>(context, listen: false);
-    _initMenuItems();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _buildDynamicMenu();
   }
 
   @override
@@ -66,22 +73,58 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
-  void _initMenuItems() {
-    _allMenuItems = [
-      MenuItem(label: 'Pre/Vente', icon: Icons.point_of_sale, color: Colors.blue.shade700, onTap: () => navigate(const PreVenteScreen())),
-      MenuItem(label: 'Pre/Vente Assurance', icon: Icons.health_and_safety, color: Colors.red.shade700, onTap: () => navigate(const AssuranceSaleScreen())),
-      MenuItem(label: 'Vente Carnet', icon: Icons.book, color: Colors.green.shade800, onTap: () => navigate(const CarnetSaleScreen())),
-      MenuItem(label: 'Gestion Caisse', icon: Icons.calculate, color: Colors.lime.shade700, onTap: () => navigate(const CaisseScreen())),
-      MenuItem(label: 'Gestion Périmés', icon: Icons.dangerous, color: Colors.deepOrange.shade600, onTap: () => navigate(const PerimeMainScreen())),
-      MenuItem(label: 'Évaluation Vente', icon: Icons.bar_chart, color: Colors.green.shade700, onTap: () => navigate(const ProductEvaluationScreen())),
-      MenuItem(label: 'Recherche Article', icon: Icons.search, color: Colors.orange.shade700, onTap: () => navigate(const ProductSearchScreen())),
-      MenuItem(label: 'Mise à jour Péremption', icon: Icons.date_range, color: Colors.purple.shade700, onTap: () => navigate(const ExpirationUpdateScreen())),
-      MenuItem(label: 'Contrôle Livraison', icon: Icons.inventory_2, color: Colors.teal.shade700, onTap: () => navigate(const DeliveryListScreen())),
-      MenuItem(label: 'Pointage BL Stock', icon: Icons.checklist, color: Colors.cyan.shade700, onTap: () => navigate(const BlListScreen())),
-      MenuItem(label: 'Mise à jour EAN', icon: Icons.qr_code_scanner, color: Colors.indigo.shade400, onTap: () => navigate(const EanUpdateScreen())),
-      MenuItem(label: 'Mise à jour Emplacement', icon: Icons.location_on, color: Colors.brown.shade400, onTap: () => navigate(const EmplacementUpdateScreen())),
-      MenuItem(label: 'État de Stock', icon: Icons.inventory, color: Colors.blueGrey.shade600, onTap: () => navigate(const StockReportScreen())),
-    ];
+  void _buildDynamicMenu() {
+    final Map<String, MenuItem> allAvailableMenus = {
+      'prevente': MenuItem(id: 'prevente', label: 'Pre/Vente', icon: Icons.point_of_sale, color: Colors.blue.shade700, onTap: () => navigate(const PreVenteScreen())),
+      'assurance': MenuItem(id: 'assurance', label: 'Pre/Vente Assurance', icon: Icons.health_and_safety, color: Colors.red.shade700, onTap: () => navigate(const AssuranceSaleScreen())),
+      'carnet': MenuItem(id: 'carnet', label: 'Vente Carnet', icon: Icons.book, color: Colors.green.shade800, onTap: () => navigate(const CarnetSaleScreen())),
+      'caisse': MenuItem(id: 'caisse', label: 'Gestion Caisse', icon: Icons.calculate, color: Colors.lime.shade700, onTap: () => navigate(const CaisseScreen())),
+      'perimes': MenuItem(id: 'perimes', label: 'Gestion Périmés', icon: Icons.dangerous, color: Colors.deepOrange.shade600, onTap: () => navigate(const PerimeMainScreen())),
+      'evaluation': MenuItem(id: 'evaluation', label: 'Évaluation Vente', icon: Icons.bar_chart, color: Colors.green.shade700, onTap: () => navigate(const ProductEvaluationScreen())),
+      'search': MenuItem(id: 'search', label: 'Recherche Article', icon: Icons.search, color: Colors.orange.shade700, onTap: () => navigate(const ProductSearchScreen())),
+      'update_perim': MenuItem(id: 'update_perim', label: 'Mise à jour Péremption', icon: Icons.date_range, color: Colors.purple.shade700, onTap: () => navigate(const ExpirationUpdateScreen())),
+      'delivery': MenuItem(id: 'delivery', label: 'Contrôle Livraison', icon: Icons.inventory_2, color: Colors.teal.shade700, onTap: () => navigate(const DeliveryListScreen())),
+      'bl_control': MenuItem(id: 'bl_control', label: 'Pointage BL Stock', icon: Icons.checklist, color: Colors.cyan.shade700, onTap: () => navigate(const BlListScreen())),
+      'update_ean': MenuItem(id: 'update_ean', label: 'Mise à jour EAN', icon: Icons.qr_code_scanner, color: Colors.indigo.shade400, onTap: () => navigate(const EanUpdateScreen())),
+      'update_emplacement': MenuItem(id: 'update_emplacement', label: 'Mise à jour Emplacement', icon: Icons.location_on, color: Colors.brown.shade400, onTap: () => navigate(const EmplacementUpdateScreen())),
+      'stock': MenuItem(id: 'stock', label: 'État de Stock', icon: Icons.inventory, color: Colors.blueGrey.shade600, onTap: () => navigate(const StockReportScreen())),
+    };
+
+    final settings = Provider.of<SettingsProvider>(context);
+    List<String> order = settings.menuOrder;
+    List<String> hidden = settings.hiddenMenuIds;
+
+    List<MenuItem> newList = [];
+
+    for (String id in order) {
+      if (allAvailableMenus.containsKey(id) && !hidden.contains(id)) {
+        newList.add(allAvailableMenus[id]!);
+        allAvailableMenus.remove(id);
+      }
+    }
+
+    allAvailableMenus.forEach((id, item) {
+      if (!hidden.contains(id)) {
+        newList.add(item);
+      }
+    });
+
+    // Évite le redessin inutile
+    bool changed = false;
+    if (_displayMenuItems.length != newList.length) {
+      changed = true;
+    } else {
+      for (int i = 0; i < newList.length; i++) {
+        if (_displayMenuItems[i].id != newList[i].id) {
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    if (changed) {
+      _displayMenuItems = newList;
+    }
   }
 
   Future<void> _showInfoPopup() async {
@@ -145,21 +188,21 @@ class _HomeScreenState extends State<HomeScreen> {
     final size = MediaQuery.of(context).size;
     final bool isTablet = size.width > 600;
 
-    // --- CONFIGURATION GRILLE ---
-    // Tablette : 4 colonnes x 3 lignes = 12 items (Standard pour 10")
-    // Mobile : 2 colonnes x 3 lignes = 6 items
+    // CONFIGURATION FIXE
     final int cols = isTablet ? 4 : 2;
     final int rows = 3;
     final int itemsPerPage = cols * rows;
 
-    // Découpage en pages
     List<List<MenuItem>> pages = [];
-    for (var i = 0; i < _allMenuItems.length; i += itemsPerPage) {
-      pages.add(_allMenuItems.sublist(
-          i, i + itemsPerPage > _allMenuItems.length ? _allMenuItems.length : i + itemsPerPage));
+    for (var i = 0; i < _displayMenuItems.length; i += itemsPerPage) {
+      pages.add(_displayMenuItems.sublist(
+          i, i + itemsPerPage > _displayMenuItems.length ? _displayMenuItems.length : i + itemsPerPage));
     }
+    if (pages.isEmpty) pages.add([]);
 
     return Scaffold(
+      // CORRECTION MAJEURE : On empêche le redimensionnement lors de l'ouverture/fermeture du clavier
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('Prestige Mobile'),
         actions: [
@@ -177,15 +220,13 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // HEADER (FIXE)
               _buildWelcomeCard(),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
 
-              // ZONE DES MENUS (FLEXIBLE)
               Expanded(
                 child: PageView.builder(
                   controller: _pageController,
@@ -194,24 +235,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   itemBuilder: (context, pageIndex) {
                     final pageItems = pages[pageIndex];
 
-                    // Construction de la grille "Flexible" (Column > Rows > Expanded)
-                    // Cela garantit qu'il n'y a JAMAIS de scroll
+                    if (pageItems.isEmpty) return const Center(child: Text("Aucun menu disponible"));
+
                     return Column(
                       children: List.generate(rows, (rowIndex) {
-                        return Expanded( // Chaque ligne prend 1/3 de la hauteur dispo
+                        return Expanded(
                           child: Row(
                             children: List.generate(cols, (colIndex) {
                               final itemIndex = rowIndex * cols + colIndex;
 
                               if (itemIndex < pageItems.length) {
-                                return Expanded( // Chaque item prend 1/4 de la largeur
+                                return Expanded(
                                   child: Padding(
-                                    padding: const EdgeInsets.all(8.0),
+                                    padding: const EdgeInsets.all(6.0),
                                     child: _buildMenuCard(pageItems[itemIndex], isTablet),
                                   ),
                                 );
                               } else {
-                                return const Expanded(child: SizedBox()); // Espace vide
+                                return const Expanded(child: SizedBox());
                               }
                             }),
                           ),
@@ -222,7 +263,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              // INDICATEUR DE PAGE (FIXE)
               if (pages.length > 1)
                 _buildPageIndicator(pages.length),
             ],
@@ -273,9 +313,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildMenuCard(MenuItem item, bool isTablet) {
-    // Tailles dynamiques
-    final double iconSize = isTablet ? 42 : 48;
-    final double fontSize = isTablet ? 13 : 15;
+    // Tailles originales
+    final double iconSize = 48;
+    final double fontSize = 15;
+    final double containerPadding = 12;
 
     return Card(
       elevation: 4,
@@ -283,33 +324,35 @@ class _HomeScreenState extends State<HomeScreen> {
       child: InkWell(
         onTap: item.onTap,
         borderRadius: BorderRadius.circular(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: item.color.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(item.icon, size: iconSize, color: item.color),
-            ),
-            const SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4.0),
-              child: Text(
-                item.label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: EdgeInsets.all(containerPadding),
+                decoration: BoxDecoration(
+                  color: item.color.withOpacity(0.1),
+                  shape: BoxShape.circle,
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+                child: Icon(item.icon, size: iconSize, color: item.color),
               ),
-            ),
-          ],
+              const SizedBox(height: 10),
+              Flexible(
+                child: Text(
+                  item.label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -317,7 +360,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildPageIndicator(int pageCount) {
     return Container(
-      height: 30, // Hauteur fixe pour éviter le saut
+      height: 30,
       alignment: Alignment.center,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,

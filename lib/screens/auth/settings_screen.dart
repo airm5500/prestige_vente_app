@@ -1,5 +1,5 @@
 // lib/screens/auth/settings_screen.dart
-// 05/11/2025 00:30 (Corrigé)
+// 13/11/2025 10:00 (Complet : Assurance + Menu Organizer)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:provider/provider.dart';
@@ -8,7 +8,7 @@ import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/screens/auth/qr_code_preview_screen.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
-
+import 'package:prestige_vente_app/screens/home/menu_organizer_screen.dart'; // NOUVEAU Import
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -48,7 +48,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _isLoadingPaymentMethods = false);
     }
   }
-
 
   @override
   void dispose() {
@@ -156,6 +155,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       TextFormField(controller: _portController, decoration: const InputDecoration(labelText: 'Port'), keyboardType: TextInputType.number, validator: (value) => value!.isEmpty ? 'Ce champ est requis' : null),
 
                       const Divider(height: 40),
+
+                      // SECTION PERSONNALISATION (NOUVEAU)
+                      Text('Personnalisation', style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 10),
+                      ListTile(
+                        leading: const Icon(Icons.dashboard_customize, color: Colors.blue),
+                        title: const Text("Organiser le menu d'accueil"),
+                        subtitle: const Text("Changer l'ordre et la visibilité des icônes"),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (context) => const MenuOrganizerScreen()),
+                          );
+                        },
+                      ),
+                      const Divider(height: 40),
+
 
                       Text('Impression', style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 10),

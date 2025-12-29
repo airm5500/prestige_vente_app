@@ -1,5 +1,5 @@
 // lib/providers/settings_provider.dart
-// 05/11/2025 00:30 (Corrigé)
+// 13/11/2025 10:00 (Complet : Assurance + Menu Organizer)
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
@@ -20,13 +20,16 @@ class SettingsProvider with ChangeNotifier {
   static const String _canEditBlControlKey = 'can_edit_bl_control';
   static const String _enabledPaymentMethodIdsKey = 'enabled_payment_method_ids';
   static const String _numberOfTicketsKey = 'number_of_tickets';
-  static const String _ticketCodeTypeKey = 'ticket_code_type'; // 'QR_CODE' ou 'BARCODE'
+  static const String _ticketCodeTypeKey = 'ticket_code_type';
 
   // MODIFICATION (Point 7)
   static const String _numberOfTicketsAssuranceKey = 'number_of_tickets_assurance';
   // MODIFICATION (Point 4 & 5)
   static const String _maxTiersPayantsKey = 'max_tiers_payants';
 
+  // NOUVEAU : Clés pour le Menu
+  static const String _menuOrderKey = 'menuOrder';
+  static const String _hiddenMenuIdsKey = 'hiddenMenuIds';
 
   String _localIp = '';
   String _remoteIp = '';
@@ -49,7 +52,11 @@ class SettingsProvider with ChangeNotifier {
   // MODIFICATION (Point 4 & 5)
   int _maxTiersPayants = 2;
 
+  // NOUVEAU : Listes pour le Menu
+  List<String> _menuOrder = [];
+  List<String> _hiddenMenuIds = [];
 
+  // Getters
   String get localIp => _localIp;
   String get remoteIp => _remoteIp;
   String get appName => _appName;
@@ -66,11 +73,13 @@ class SettingsProvider with ChangeNotifier {
   int get numberOfTickets => _numberOfTickets;
   String get ticketCodeType => _ticketCodeType;
 
-  // MODIFICATION (Point 7)
+  // Assurance & Tiers Payant
   int get numberOfTicketsAssurance => _numberOfTicketsAssurance;
-  // MODIFICATION (Point 4 & 5)
   int get maxTiersPayants => _maxTiersPayants;
 
+  // Menu Organizer
+  List<String> get menuOrder => _menuOrder;
+  List<String> get hiddenMenuIds => _hiddenMenuIds;
 
   String get baseUrl {
     final ip = _isRemote ? _remoteIp : _localIp;
@@ -102,6 +111,10 @@ class SettingsProvider with ChangeNotifier {
     _numberOfTicketsAssurance = prefs.getInt(_numberOfTicketsAssuranceKey) ?? 1;
     // MODIFICATION (Point 4 & 5)
     _maxTiersPayants = prefs.getInt(_maxTiersPayantsKey) ?? 2;
+
+    // NOUVEAU : Chargement Menu
+    _menuOrder = prefs.getStringList(_menuOrderKey) ?? [];
+    _hiddenMenuIds = prefs.getStringList(_hiddenMenuIdsKey) ?? [];
 
     notifyListeners();
   }
@@ -181,6 +194,26 @@ class SettingsProvider with ChangeNotifier {
     _isTestPrintMode = isTestMode;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_isTestPrintModeKey, isTestMode);
+    notifyListeners();
+  }
+
+  // NOUVEAU : Sauvegarde Menu
+  Future<void> saveMenuConfig(List<String> newOrder, List<String> newHiddenIds) async {
+    _menuOrder = newOrder;
+    _hiddenMenuIds = newHiddenIds;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_menuOrderKey, newOrder);
+    await prefs.setStringList(_hiddenMenuIdsKey, newHiddenIds);
+    notifyListeners();
+  }
+
+  // NOUVEAU : Reset Menu
+  Future<void> resetMenuConfig() async {
+    _menuOrder = [];
+    _hiddenMenuIds = [];
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_menuOrderKey);
+    await prefs.remove(_hiddenMenuIdsKey);
     notifyListeners();
   }
 
