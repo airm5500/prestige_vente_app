@@ -1,5 +1,5 @@
 // lib/main.dart
-// 09/11/2025 19:00 (Ajout CarnetSaleProvider)
+// 10/11/2025 09:30 (Ajout LicenceProvider)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:provider/provider.dart';
@@ -20,11 +20,12 @@ import 'package:prestige_vente_app/providers/product_update_provider.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 import 'package:prestige_vente_app/providers/caisse_provider.dart';
 import 'package:prestige_vente_app/providers/perime_provider.dart';
-
-// AJOUT : Import du nouveau provider
 import 'package:prestige_vente_app/providers/carnet_sale_provider.dart';
 import 'package:prestige_vente_app/providers/stock_report_provider.dart';
 import 'package:prestige_vente_app/providers/reception_provider.dart';
+
+// AJOUT : Import du provider de licence
+import 'package:prestige_vente_app/providers/licence_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +44,13 @@ class MyApp extends StatelessWidget {
 
         ProxyProvider<SettingsProvider, ApiService>(
           update: (context, settings, previous) => ApiService(baseUrl: settings.baseUrl),
+        ),
+
+        // AJOUT : LicenceProvider (Placé haut pour être accessible partout)
+        ChangeNotifierProxyProvider<ApiService, LicenceProvider>(
+          create: (context) => LicenceProvider(Provider.of<ApiService>(context, listen: false)),
+          update: (context, apiService, previousProvider) =>
+          previousProvider!..updateApiService(apiService), // Note: updateApiService est optionnel si on recrée pas, mais bonne pratique ici
         ),
 
         ChangeNotifierProxyProvider<ApiService, AuthProvider>(
@@ -97,7 +105,6 @@ class MyApp extends StatelessWidget {
               ),
         ),
 
-        // AJOUT : Enregistrement du provider Carnet
         ChangeNotifierProxyProvider2<ApiService, AuthProvider, CarnetSaleProvider>(
           create: (context) => CarnetSaleProvider(
             Provider.of<ApiService>(context, listen: false),
@@ -120,7 +127,6 @@ class MyApp extends StatelessWidget {
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
 
-        // AJOUT : Enregistrement du ReceptionProvider
         ChangeNotifierProxyProvider<ApiService, ReceptionProvider>(
           create: (context) => ReceptionProvider(Provider.of<ApiService>(context, listen: false)),
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),

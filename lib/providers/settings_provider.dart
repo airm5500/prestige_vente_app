@@ -1,5 +1,5 @@
 // lib/providers/settings_provider.dart
-// 13/11/2025 10:00 (Complet : Assurance + Menu Organizer)
+// 13/11/2025 10:00 (Complet : Assurance + Menu Organizer + Fix Crash URL)
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
@@ -22,12 +22,9 @@ class SettingsProvider with ChangeNotifier {
   static const String _numberOfTicketsKey = 'number_of_tickets';
   static const String _ticketCodeTypeKey = 'ticket_code_type';
 
-  // MODIFICATION (Point 7)
   static const String _numberOfTicketsAssuranceKey = 'number_of_tickets_assurance';
-  // MODIFICATION (Point 4 & 5)
   static const String _maxTiersPayantsKey = 'max_tiers_payants';
 
-  // NOUVEAU : Clés pour le Menu
   static const String _menuOrderKey = 'menuOrder';
   static const String _hiddenMenuIdsKey = 'hiddenMenuIds';
 
@@ -47,12 +44,9 @@ class SettingsProvider with ChangeNotifier {
   int _numberOfTickets = 1;
   String _ticketCodeType = 'QR_CODE';
 
-  // MODIFICATION (Point 7)
   int _numberOfTicketsAssurance = 1;
-  // MODIFICATION (Point 4 & 5)
   int _maxTiersPayants = 2;
 
-  // NOUVEAU : Listes pour le Menu
   List<String> _menuOrder = [];
   List<String> _hiddenMenuIds = [];
 
@@ -73,16 +67,24 @@ class SettingsProvider with ChangeNotifier {
   int get numberOfTickets => _numberOfTickets;
   String get ticketCodeType => _ticketCodeType;
 
-  // Assurance & Tiers Payant
   int get numberOfTicketsAssurance => _numberOfTicketsAssurance;
   int get maxTiersPayants => _maxTiersPayants;
 
-  // Menu Organizer
   List<String> get menuOrder => _menuOrder;
   List<String> get hiddenMenuIds => _hiddenMenuIds;
 
+  // AJOUT : Getter manquant pour vérifier si la configuration existe
+  bool get isConfigured => _localIp.isNotEmpty || _remoteIp.isNotEmpty;
+
   String get baseUrl {
-    final ip = _isRemote ? _remoteIp : _localIp;
+    String ip = _isRemote ? _remoteIp : _localIp;
+
+    // CORRECTION CRASH : Si l'IP est vide, on met une valeur par défaut "safe"
+    // pour que Dio ne plante pas au démarrage. Le SplashScreen s'occupera de la redirection.
+    if (ip.isEmpty) {
+      ip = "localhost";
+    }
+
     return 'http://$ip:$_port/$_appName/api/v1';
   }
 
@@ -107,12 +109,9 @@ class SettingsProvider with ChangeNotifier {
     _numberOfTickets = prefs.getInt(_numberOfTicketsKey) ?? 1;
     _ticketCodeType = prefs.getString(_ticketCodeTypeKey) ?? 'QR_CODE';
 
-    // MODIFICATION (Point 7)
     _numberOfTicketsAssurance = prefs.getInt(_numberOfTicketsAssuranceKey) ?? 1;
-    // MODIFICATION (Point 4 & 5)
     _maxTiersPayants = prefs.getInt(_maxTiersPayantsKey) ?? 2;
 
-    // NOUVEAU : Chargement Menu
     _menuOrder = prefs.getStringList(_menuOrderKey) ?? [];
     _hiddenMenuIds = prefs.getStringList(_hiddenMenuIdsKey) ?? [];
 
@@ -139,7 +138,6 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // MODIFICATION (Point 7)
   Future<void> setNumberOfTicketsAssurance(int count) async {
     _numberOfTicketsAssurance = count;
     final prefs = await SharedPreferences.getInstance();
@@ -147,7 +145,6 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // MODIFICATION (Point 4 & 5)
   Future<void> setMaxTiersPayants(int count) async {
     _maxTiersPayants = count;
     final prefs = await SharedPreferences.getInstance();
@@ -197,7 +194,6 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // NOUVEAU : Sauvegarde Menu
   Future<void> saveMenuConfig(List<String> newOrder, List<String> newHiddenIds) async {
     _menuOrder = newOrder;
     _hiddenMenuIds = newHiddenIds;
@@ -207,7 +203,6 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // NOUVEAU : Reset Menu
   Future<void> resetMenuConfig() async {
     _menuOrder = [];
     _hiddenMenuIds = [];

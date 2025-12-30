@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
-import 'package:prestige_vente_app/screens/auth/login_screen.dart';
+//import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/screens/auth/qr_code_preview_screen.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/screens/home/menu_organizer_screen.dart'; // NOUVEAU Import
-
+import 'package:prestige_vente_app/screens/splash_screen.dart';
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -74,7 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         if (success) {
           Constants.showSnackBar(context, 'Paramètres enregistrés avec succès.');
-          Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
+          Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const SplashScreen()));
         } else {
           Constants.showSnackBar(context, 'Impossible de joindre le serveur.', isError: true);
         }

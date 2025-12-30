@@ -1,6 +1,7 @@
 // lib/providers/auth_provider.dart
-// 28/09/2025 21:06
+// 30/12/2025 02:30 (Ajout tryAutoLogin pour correction erreur)
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // AJOUT IMPORTANT
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
@@ -22,7 +23,6 @@ class AuthProvider with ChangeNotifier {
 
   AuthProvider(this._apiService);
 
-  // MODIFICATION : Ajout de cette méthode pour la mise à jour par ProxyProvider
   void updateApiService(ApiService newApiService) {
     _apiService = newApiService;
   }
@@ -47,6 +47,52 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  // AJOUT : Méthode manquante pour l'auto-login
+  Future<bool> tryAutoLogin() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // 1. Vérifier si l'option "Rester connecté" est active
+      if (!prefs.containsKey('stay_connected') ||
+          prefs.getBool('stay_connected') == false) {
+        _status = AuthStatus.Unauthenticated;
+        notifyListeners();
+        return false;
+      }
+
+      // 2. Récupérer les identifiants sauvegardés
+      final savedLogin = prefs.getString('saved_login');
+      final savedPassword = prefs.getString('saved_password');
+
+      if (savedLogin == null || savedPassword == null) {
+        _status = AuthStatus.Unauthenticated;
+        notifyListeners();
+        return false;
+      }
+
+      // 3. Tenter la connexion avec ces identifiants
+      // Note : On ne passe pas par la méthode login() publique pour éviter
+      // de déclencher le AuthStatus.Loading qui ferait clignoter l'écran
+      final user = await _apiService.login(savedLogin, savedPassword);
+
+      if (user != null) {
+        _user = user;
+        _status = AuthStatus.Authenticated;
+        notifyListeners();
+        return true;
+      } else {
+        _status = AuthStatus.Unauthenticated;
+        notifyListeners();
+        return false;
+      }
+    } catch (e) {
+      print("Erreur AutoLogin: $e");
+      _status = AuthStatus.Unauthenticated;
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<void> loadOfficineInfo() async {
     _officine = await _apiService.fetchOfficineInfo();
     notifyListeners();
@@ -57,6 +103,12 @@ class AuthProvider with ChangeNotifier {
     _user = null;
     _officine = null;
     _status = AuthStatus.Unauthenticated;
+
+    // Optionnel : Si on se déconnecte manuellement, on peut vouloir
+    // désactiver l'auto-login pour la prochaine fois
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('stay_connected', false);
+
     notifyListeners();
   }
 }

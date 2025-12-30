@@ -28,6 +28,8 @@ import 'package:prestige_vente_app/api/models/perime_models.dart';
 import 'package:prestige_vente_app/api/models/stock_report_models.dart';
 import 'package:prestige_vente_app/api/models/reception_model.dart';
 
+import 'package:prestige_vente_app/api/models/licence_model.dart';
+
 class ApiService {
   late Dio _dio;
 
@@ -238,6 +240,38 @@ class ApiService {
     } catch (e) {
       print("Error fetching reception bons: $e");
       return [];
+    }
+  }
+
+  // --- GESTION LICENCE (AJOUT) ---
+
+  Future<bool> saveLicence(String key) async {
+    try {
+      // L'URL demandée est /licence/save/{key}
+      final response = await _dio.get('/licence/save/$key');
+      // On suppose que le backend renvoie 200 OK si l'enregistrement est réussi
+      // Adaptez la vérification selon le retour exact de votre API (ex: response.data['success'])
+      if (response.statusCode == 200) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print("Error saving licence: $e");
+      return false;
+    }
+  }
+
+  Future<LicenceModel?> findLicence() async {
+    try {
+      final response = await _dio.get('/licence/find');
+      if (response.statusCode == 200 && response.data != null) {
+        return LicenceModel.fromJson(response.data);
+      }
+      return null;
+    } catch (e) {
+      // Si 404 ou autre erreur, on considère qu'il n'y a pas de licence valide
+      print("Error finding licence: $e");
+      return null;
     }
   }
 

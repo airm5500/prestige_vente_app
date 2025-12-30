@@ -1,17 +1,27 @@
 // lib/screens/home/home_screen.dart
-// 14/11/2025 09:00 (Fix: Ergonomie Clavier - ResizeToAvoidBottomInset: false)
+// 30/12/2025 (Final: Watchdog Licence + Menu Dynamique + Bandeau Statut)
+
+import 'dart:async'; // Pour le Timer de sécurité
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+
+// Providers existants
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
-// Écrans
+// AJOUT : Provider de Licence
+import 'package:prestige_vente_app/providers/licence_provider.dart';
+
+// Écrans d'authentification et Licence
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
+import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart'; // Pour la redirection forcée
+
+// Écrans Métiers
 import 'package:prestige_vente_app/screens/pre_vente/pre_vente_screen.dart';
 import 'package:prestige_vente_app/screens/assurance_sale/assurance_sale_screen.dart';
 import 'package:prestige_vente_app/screens/carnet_sale/carnet_sale_screen.dart';
@@ -43,7 +53,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+// AJOUT : WidgetsBindingObserver pour détecter la mise en veille/réveil
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final PageController _pageController = PageController();
   int _currentPage = 0;
   List<MenuItem> _displayMenuItems = [];
@@ -51,11 +62,31 @@ class _HomeScreenState extends State<HomeScreen> {
   late SaleProvider _saleProvider;
   late BlControlProvider _blProvider;
 
+  // AJOUT : Timer pour la surveillance périodique
+  Timer? _licenceWatchdogTimer;
+
   @override
   void initState() {
     super.initState();
+
+    // 1. Abonnement au cycle de vie de l'application
+    WidgetsBinding.instance.addObserver(this);
+
     _saleProvider = Provider.of<SaleProvider>(context, listen: false);
     _blProvider = Provider.of<BlControlProvider>(context, listen: false);
+
+    // 2. Actions au chargement de la page (après le build)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<AuthProvider>(context, listen: false).loadOfficineInfo();
+
+      // Lancement des alertes (popups) si l'échéance est proche
+      Provider.of<LicenceProvider>(context, listen: false).checkReminders(context);
+    });
+
+    // 3. Lancement du "Chien de Garde" (Vérification toutes les heures)
+    _licenceWatchdogTimer = Timer.periodic(const Duration(hours: 1), (timer) {
+      _performSecurityCheck();
+    });
   }
 
   @override
@@ -66,8 +97,39 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    // Nettoyage impératif pour éviter les fuites de mémoire
+    WidgetsBinding.instance.removeObserver(this);
+    _licenceWatchdogTimer?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  // AJOUT : Détecte quand l'application revient au premier plan (sortie de veille)
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // L'utilisateur a rallumé la tablette ou réouvert l'app
+      _performSecurityCheck();
+    }
+  }
+
+  // AJOUT : Logique de sécurité pour bloquer l'app si la licence expire en cours de route
+  void _performSecurityCheck() async {
+    final licenceProvider = Provider.of<LicenceProvider>(context, listen: false);
+
+    // Vérification locale rapide (Date tablette vs Date fin licence)
+    bool isExpired = licenceProvider.checkLocalExpiration();
+
+    if (isExpired) {
+      // Si la date est dépassée, on redirige de force vers l'écran d'enregistrement
+      // On vide la pile de navigation pour empêcher le retour
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LicenceRegistrationScreen()),
+              (route) => false,
+        );
+      }
+    }
   }
 
   void navigate(Widget screen) {
@@ -90,7 +152,6 @@ class _HomeScreenState extends State<HomeScreen> {
       'update_ean': MenuItem(id: 'update_ean', label: 'Mise à jour EAN', icon: Icons.qr_code_scanner, color: Colors.indigo.shade400, onTap: () => navigate(const EanUpdateScreen())),
       'update_emplacement': MenuItem(id: 'update_emplacement', label: 'Mise à jour Emplacement', icon: Icons.location_on, color: Colors.brown.shade400, onTap: () => navigate(const EmplacementUpdateScreen())),
       'stock': MenuItem(id: 'stock', label: 'État de Stock', icon: Icons.inventory, color: Colors.blueGrey.shade600, onTap: () => navigate(const StockReportScreen())),
-
     };
 
     final settings = Provider.of<SettingsProvider>(context);
@@ -112,7 +173,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
 
-    // Évite le redessin inutile
     bool changed = false;
     if (_displayMenuItems.length != newList.length) {
       changed = true;
@@ -185,13 +245,58 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // AJOUT : Widget Bandeau de statut Licence
+  Widget _buildLicenceStatusBanner() {
+    return Consumer<LicenceProvider>(
+      builder: (context, provider, child) {
+        if (provider.status != LicenceStatus.valid || provider.licence == null) {
+          return const SizedBox.shrink();
+        }
+
+        final days = provider.remainingDays;
+
+        Color bgColor;
+        Color textColor = Colors.white;
+        String text;
+
+        if (days <= 7) {
+          bgColor = Colors.redAccent;
+          text = "URGENT : Licence expire dans $days jour(s)";
+        } else if (days <= 30) {
+          bgColor = Colors.orange;
+          text = "Attention : Licence expire dans $days jours";
+        } else {
+          bgColor = Colors.green.shade600;
+          text = "Licence valide : $days jours restants";
+        }
+
+        return Container(
+          width: double.infinity,
+          color: bgColor,
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.timer, color: Colors.white, size: 16),
+              const SizedBox(width: 8),
+              Text(
+                text,
+                style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final size = MediaQuery.of(context).size;
     final bool isTablet = size.width > 600;
 
-    // CONFIGURATION FIXE
+    // CONFIGURATION GRILLE
     final int cols = isTablet ? 4 : 2;
     final int rows = 3;
     final int itemsPerPage = cols * rows;
@@ -204,7 +309,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (pages.isEmpty) pages.add([]);
 
     return Scaffold(
-      // CORRECTION MAJEURE : On empêche le redimensionnement lors de l'ouverture/fermeture du clavier
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('Prestige Mobile'),
@@ -222,54 +326,64 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildWelcomeCard(),
-              const SizedBox(height: 12),
+        child: Column(
+          children: [
+            // 1. Bandeau de licence toujours visible en haut
+            _buildLicenceStatusBanner(),
 
-              Expanded(
-                child: PageView.builder(
-                  controller: _pageController,
-                  itemCount: pages.length,
-                  onPageChanged: (index) => setState(() => _currentPage = index),
-                  itemBuilder: (context, pageIndex) {
-                    final pageItems = pages[pageIndex];
+            // 2. Contenu principal (Menus)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildWelcomeCard(),
+                    const SizedBox(height: 12),
 
-                    if (pageItems.isEmpty) return const Center(child: Text("Aucun menu disponible"));
+                    Expanded(
+                      child: PageView.builder(
+                        controller: _pageController,
+                        itemCount: pages.length,
+                        onPageChanged: (index) => setState(() => _currentPage = index),
+                        itemBuilder: (context, pageIndex) {
+                          final pageItems = pages[pageIndex];
 
-                    return Column(
-                      children: List.generate(rows, (rowIndex) {
-                        return Expanded(
-                          child: Row(
-                            children: List.generate(cols, (colIndex) {
-                              final itemIndex = rowIndex * cols + colIndex;
+                          if (pageItems.isEmpty) return const Center(child: Text("Aucun menu disponible"));
 
-                              if (itemIndex < pageItems.length) {
-                                return Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(6.0),
-                                    child: _buildMenuCard(pageItems[itemIndex], isTablet),
-                                  ),
-                                );
-                              } else {
-                                return const Expanded(child: SizedBox());
-                              }
+                          return Column(
+                            children: List.generate(rows, (rowIndex) {
+                              return Expanded(
+                                child: Row(
+                                  children: List.generate(cols, (colIndex) {
+                                    final itemIndex = rowIndex * cols + colIndex;
+
+                                    if (itemIndex < pageItems.length) {
+                                      return Expanded(
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(6.0),
+                                          child: _buildMenuCard(pageItems[itemIndex], isTablet),
+                                        ),
+                                      );
+                                    } else {
+                                      return const Expanded(child: SizedBox());
+                                    }
+                                  }),
+                                ),
+                              );
                             }),
-                          ),
-                        );
-                      }),
-                    );
-                  },
+                          );
+                        },
+                      ),
+                    ),
+
+                    if (pages.length > 1)
+                      _buildPageIndicator(pages.length),
+                  ],
                 ),
               ),
-
-              if (pages.length > 1)
-                _buildPageIndicator(pages.length),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -316,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildMenuCard(MenuItem item, bool isTablet) {
-    // Tailles originales
+    // Tailles originales conservées
     final double iconSize = 48;
     final double fontSize = 15;
     final double containerPadding = 12;
