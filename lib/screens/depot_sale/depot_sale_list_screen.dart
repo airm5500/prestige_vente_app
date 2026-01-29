@@ -76,6 +76,12 @@ class _DepotSaleListScreenState extends State<DepotSaleListScreen> {
           itemCount: _sales.length,
           itemBuilder: (context, index) {
             final sale = _sales[index];
+
+            // Logique couleur statut
+            final bool isProcess = sale.strSTATUT == 'is_Process';
+            final Color statusColor = isProcess ? Colors.green : Colors.grey;
+            final String statusText = isProcess ? "En cours" : sale.strSTATUT;
+
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               child: ListTile(
@@ -84,13 +90,22 @@ class _DepotSaleListScreenState extends State<DepotSaleListScreen> {
                   child: const Icon(Icons.store, color: Colors.blue),
                 ),
                 title: Text(sale.strClientFullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text("Réf: ${sale.strREF} - ${sale.dtUPDATED} à ${sale.heure}"),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Réf: ${sale.strREF} - ${sale.dtUPDATED} à ${sale.heure}"),
+                    // AJOUT : Nom du vendeur
+                    if (sale.userFullName.isNotEmpty)
+                      Text("Vendeur: ${sale.userFullName}", style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
+                  ],
+                ),
                 trailing: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text("${sale.intPRICE} FCFA", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primary)),
-                    Text(sale.strSTATUT, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    // MODIFICATION : Couleur et texte statut
+                    Text(statusText, style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.bold)),
                   ],
                 ),
                 onTap: () => _openSale(sale.lgPREENREGISTREMENTID),

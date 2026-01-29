@@ -41,6 +41,7 @@ class DepotSaleListItem {
   final String heure;
   final int intPRICE;
   final String strSTATUT;
+  final String userFullName;
 
   DepotSaleListItem({
     required this.lgPREENREGISTREMENTID,
@@ -50,6 +51,7 @@ class DepotSaleListItem {
     required this.heure,
     required this.intPRICE,
     required this.strSTATUT,
+    required this.userFullName,
   });
 
   factory DepotSaleListItem.fromJson(Map<String, dynamic> json) {
@@ -61,6 +63,7 @@ class DepotSaleListItem {
       heure: json['heure'] ?? '',
       intPRICE: (json['intPRICE'] as num?)?.toInt() ?? 0,
       strSTATUT: json['strSTATUT'] ?? '',
+      userFullName: json['userFullName'] ?? '',
     );
   }
 }

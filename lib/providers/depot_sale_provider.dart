@@ -13,6 +13,10 @@ class DepotSaleProvider with ChangeNotifier {
   String? _currentSaleId;
   String? get currentSaleId => _currentSaleId;
 
+  // AJOUT : Variable pour stocker la référence visible (ex: 260127_00005)
+  String? _currentSaleRef;
+  String? get currentSaleRef => _currentSaleRef;
+
   DepotModel? _selectedDepot;
   DepotModel? get selectedDepot => _selectedDepot;
 
@@ -41,6 +45,7 @@ class DepotSaleProvider with ChangeNotifier {
     _cartItems = [];
     _totalAmount = 0;
     _errorMessage = '';
+    _currentSaleRef = null; // Reset de la ref
     notifyListeners();
   }
 
@@ -55,6 +60,7 @@ class DepotSaleProvider with ChangeNotifier {
       final data = await _apiService.getDepotSaleDetails(saleId);
       if (data != null) {
         _currentSaleId = saleId;
+        _currentSaleRef = data['strREF'];
 
         // Reconstitution de l'objet DepotModel à partir des détails de la vente
         // Note: Le backend renvoie l'objet 'magasin' qui correspond aux infos du dépôt
@@ -98,6 +104,7 @@ class DepotSaleProvider with ChangeNotifier {
 
         if (result != null && result['lgPREENREGISTREMENTID'] != null) {
           _currentSaleId = result['lgPREENREGISTREMENTID'];
+          _currentSaleRef = result['strREF'];
           success = true;
         }
       } else {
