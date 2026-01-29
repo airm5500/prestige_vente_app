@@ -1,4 +1,3 @@
-// lib/screens/proforma/proforma_list_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -18,7 +17,7 @@ class ProformaListScreen extends StatefulWidget {
 class _ProformaListScreenState extends State<ProformaListScreen> {
   List<ProformaListItem> _proformas = [];
   bool _isLoading = true;
-  String _today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  final String _today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
   @override
   void initState() {
@@ -38,12 +37,14 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
     }
   }
 
-  void _openProforma(String? saleId) async {
+  // --- CORRECTION 1 : La fonction accepte maintenant l'objet entier ---
+  void _openProforma(ProformaListItem? item) async {
     final provider = Provider.of<ProformaProvider>(context, listen: false);
     provider.resetSale();
 
-    if (saleId != null) {
-      await provider.loadExistingProforma(saleId);
+    if (item != null) {
+      // On passe l'objet item entier au provider
+      await provider.loadExistingProforma(item);
     }
 
     if (!mounted) return;
@@ -64,7 +65,7 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text("Liste Proformas / Devis")),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openProforma(null),
+        onPressed: () => _openProforma(null), // Null pour une nouvelle vente
         label: const Text("Nouveau Devis"),
         icon: const Icon(Icons.add),
         backgroundColor: AppColors.primary,
@@ -79,7 +80,6 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
           itemCount: _proformas.length,
           itemBuilder: (context, index) {
             final item = _proformas[index];
-            // Statut 'is_Process' ou 'devis' en vert selon vos logs
             final bool isGreen = item.strSTATUT == 'is_Process' || item.strSTATUT == 'devis';
 
             return Card(
@@ -113,7 +113,8 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
                     ),
                   ],
                 ),
-                onTap: () => _openProforma(item.lgPREENREGISTREMENTID),
+                // --- CORRECTION 2 : On passe l'objet 'item', pas l'ID string ---
+                onTap: () => _openProforma(item),
               ),
             );
           },

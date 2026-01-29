@@ -661,4 +661,18 @@ class ApiService {
     } catch (e) { return false; }
   }
 
+  // Récupérer le client lié à une vente spécifique (Logique rappel Proforma)
+  Future<ClientModel?> getClientForSale(String clientId, String venteId) async {
+    try {
+      final response = await _dio.get('/client/client-assurance/$clientId/$venteId');
+      if (response.statusCode == 200 && response.data['success'] == true && response.data['data'] != null) {
+        return ClientModel.fromJson(response.data['data']);
+      }
+      return null;
+    } catch (e) {
+      print("Erreur getClientForSale: $e");
+      return null;
+    }
+  }
+
 }

@@ -9,6 +9,7 @@ class ProformaListItem {
   final int intPRICE;
   final String strSTATUT;
   final String userFullName;
+  final String clientId;
 
   ProformaListItem({
     required this.lgPREENREGISTREMENTID,
@@ -19,9 +20,15 @@ class ProformaListItem {
     required this.intPRICE,
     required this.strSTATUT,
     required this.userFullName,
+    required this.clientId,
   });
 
   factory ProformaListItem.fromJson(Map<String, dynamic> json) {
+
+    String cId = '';
+    if (json['client'] != null && json['client']['lgCLIENTID'] != null) {
+      cId = json['client']['lgCLIENTID'];
+    }
     return ProformaListItem(
       lgPREENREGISTREMENTID: json['lgPREENREGISTREMENTID'] ?? '',
       strREF: json['strREF'] ?? '',
@@ -31,6 +38,7 @@ class ProformaListItem {
       intPRICE: (json['intPRICE'] as num?)?.toInt() ?? 0,
       strSTATUT: json['strSTATUT'] ?? '',
       userFullName: json['userFullName'] ?? '',
+      clientId: cId,
     );
   }
 }

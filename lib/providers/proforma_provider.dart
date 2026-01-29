@@ -67,27 +67,40 @@ class ProformaProvider with ChangeNotifier {
   }
 
   // Charger une proforma existante
-  Future<void> loadExistingProforma(String saleId) async {
+  Future<void> loadExistingProforma(ProformaListItem item) async {
     _isLoading = true;
     notifyListeners();
+
     try {
-      final data = await _apiService.getDepotSaleDetails(saleId); // Réutilisation endpoint détail
-      if (data != null) {
-        _currentSaleId = saleId;
-        _currentSaleRef = data['strREF'];
+      // 1. Initialisation de base avec les infos de la liste
+      _currentSaleId = item.lgPREENREGISTREMENTID;
+      _currentSaleRef = item.strREF;
 
-        // Charger infos client si présentes
-        if (data['client'] != null) {
-          _selectedClient = ClientModel.fromJson(data['client']);
-        }
+      // 2. Chargement des produits (Panier)
+      await _refreshCart();
 
-        // Note: Le type de vente est aussi dans data['lgTYPEVENTEID'],
-        // il faudrait charger les types et matcher l'ID, ici simplifié.
+      // 3. Chargement DÉTAILLÉ du client via l'API (Respect du processus point 4)
+      // On utilise l'ID client qui vient de l'item de la liste
+      final clientDetails = await _apiService.getClientForSale(item.clientId, _currentSaleId!);
 
-        await _refreshCart();
+      if (clientDetails != null) {
+        _selectedClient = clientDetails;
+      } else {
+        // Fallback : Si l'API échoue, on utilise au moins le nom qu'on avait dans la liste
+        _selectedClient = ClientModel(
+            lgCLIENTID: item.clientId,
+            strFIRSTNAME: '',
+            strLASTNAME: '',
+            fullName: item.strClientFullName
+        );
       }
+
+      // 4. (Optionnel) Si vous voulez pré-sélectionner le type de vente,
+      // il faudrait que ProformaListItem contienne aussi le typeVenteId,
+      // ou le déduire. Pour l'instant on garde le type par défaut ou null.
+
     } catch (e) {
-      _errorMessage = "Erreur chargement proforma";
+      _errorMessage = "Erreur lors du rappel de la proforma: $e";
     } finally {
       _isLoading = false;
       notifyListeners();
