@@ -37,6 +37,7 @@ import 'package:prestige_vente_app/screens/product_update/ean_update_screen.dart
 import 'package:prestige_vente_app/screens/product_update/emplacement_update_screen.dart';
 import 'package:prestige_vente_app/screens/stock_report/stock_report_screen.dart';
 import 'package:prestige_vente_app/screens/reception_control/reception_list_screen.dart';
+import 'package:prestige_vente_app/screens/proforma/proforma_list_screen.dart';
 
 class MenuItem {
   final String id;
@@ -159,6 +160,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           icon: Icons.store_mall_directory, // Ou une autre icône appropriée
           color: Colors.brown.shade600,
           onTap: () => navigate(const DepotSaleListScreen()) // Importez l'écran d'abord
+      ),
+      'proforma': MenuItem(
+          id: 'proforma',
+          label: 'Proforma / Devis',
+          icon: Icons.description,
+          color: Colors.purple.shade600,
+          onTap: () => navigate(const ProformaListScreen())
       ),
     };
 

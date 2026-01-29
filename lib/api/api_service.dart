@@ -3,6 +3,7 @@
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
+import 'package:prestige_vente_app/api/models/proforma_models.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -488,6 +489,176 @@ class ApiService {
     }
   }
 
+// --- GESTION PROFORMA / DEVIS ---
 
+  // Liste des proformas
+  Future<List<ProformaListItem>> fetchProformas({
+    String query = '',
+    String dtStart = '',
+    String dtEnd = ''
+  }) async {
+    try {
+      final response = await _dio.get('/ventestats/devis', queryParameters: {
+        'statut': 'devis',
+        'query': query,
+        'dtStart': dtStart,
+        'dtEnd': dtEnd,
+        'limit': 50
+      });
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return (response.data['data'] as List).map((e) => ProformaListItem.fromJson(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      print("Erreur fetchProformas: $e");
+      return [];
+    }
+  }
+
+  // Types de devis (Comptant / Carnet)
+  Future<List<TypeDevis>> fetchTypeDevis() async {
+    try {
+      final response = await _dio.get('/common/typedevis');
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return (response.data['data'] as List).map((e) => TypeDevis.fromJson(e)).toList();
+      }
+      return [];
+    } catch (e) { return []; }
+  }
+
+  // Recherche Clients (Generic)
+  Future<List<ClientModel>> searchClients(String query) async {
+    try {
+      // On utilise /client/all qui semble plus complet selon vos logs
+      final response = await _dio.get('/client/all', queryParameters: {
+        'query': query,
+        'limit': 20
+      });
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return (response.data['data'] as List).map((e) => ClientModel.fromJson(e)).toList();
+      }
+      return [];
+    } catch (e) { return []; }
+  }
+
+  // Dans lib/api/api_service.dart
+
+  Future<List<RemiseModel>> fetchRemises() async {
+    try {
+      final response = await _dio.get('/common/typeremises');
+
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        final List<dynamic> allTypes = response.data['data'];
+
+        // 1. On cherche le Type de Remise spécifique (Produit)
+        final targetType = allTypes.firstWhere(
+                (element) => element['lgTYPEREMISEID'] == "54291528198233221411",
+            orElse: () => null
+        );
+
+        // 2. Si on l'a trouvé, on retourne sa liste interne 'remises'
+        if (targetType != null && targetType['remises'] != null) {
+          return (targetType['remises'] as List)
+              .map((e) => RemiseModel.fromJson(e))
+              .toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      print("Erreur fetchRemises: $e");
+      return [];
+    }
+  }
+
+  // Appliquer Remise
+  Future<bool> applyRemise({required String venteId, required String remiseId}) async {
+    try {
+      final response = await _dio.post('/vente/remise', data: {'venteId': venteId, 'remiseId': remiseId});
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) { return false; }
+  }
+
+  // --- AJOUT DANS API SERVICE (SANS TOUCHER A L'EXISTANT) ---
+
+  // On nomme la méthode différemment pour ne pas casser "calculateNet" existant
+  // Endpoint : /vente/net/vno (Spécifique aux devis/proforma selon vos logs)
+  Future<Map<String, dynamic>?> calculateNetProforma({required String venteId, required String remiseId}) async {
+    try {
+      final response = await _dio.post('/vente/net/vno', data: {
+        'venteId': venteId,
+        'remiseId': remiseId
+      });
+
+      if(response.statusCode == 200 && response.data['success'] == true) {
+        return response.data['data'];
+      }
+      return null;
+    } catch (e) {
+      print("Erreur calculateNetProforma: $e");
+      return null;
+    }
+  }
+
+  // Création Devis (1er item)
+  Future<Map<String, dynamic>?> addFirstDevisItem({
+    required String clientId,
+    required String typeVenteId,
+    required String produitId,
+    required int itemPu,
+    required int qte,
+  }) async {
+    try {
+      final data = {
+        "bonRef": "",
+        "clientId": clientId,
+        "devis": true,
+        "itemPu": itemPu,
+        "natureVenteId": "1", // Fixe selon demande
+        "produitId": produitId,
+        "qte": qte,
+        "qteServie": qte,
+        "remiseId": null,
+        "tierspayants": [], // Simplifié pour exemple, à enrichir si tiers payant
+        "typeVenteId": typeVenteId,
+        "userVendeurId": null,
+        "venteId": null
+      };
+      final response = await _dio.post('/vente/devis', data: data);
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return response.data['data'];
+      }
+      return null;
+    } catch (e) { return null; }
+  }
+
+  // Ajout item suivant (Proforma)
+  Future<bool> addNextDevisItem({
+    required String venteId,
+    required String clientId,
+    required String typeVenteId,
+    required String produitId,
+    required int itemPu,
+    required int qte,
+  }) async {
+    try {
+      final data = {
+        "bonRef": "",
+        "clientId": clientId,
+        "devis": true,
+        "itemPu": itemPu,
+        "natureVenteId": "1",
+        "produitId": produitId,
+        "qte": qte,
+        "qteServie": qte,
+        "remiseId": null,
+        "tierspayants": [],
+        "typeVenteId": typeVenteId,
+        "userVendeurId": null,
+        "venteId": venteId
+      };
+      final response = await _dio.post('/vente/add/item', data: data);
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) { return false; }
+  }
 
 }
