@@ -26,6 +26,7 @@ import 'package:prestige_vente_app/providers/reception_provider.dart';
 
 // AJOUT : Import du provider de licence
 import 'package:prestige_vente_app/providers/licence_provider.dart';
+import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -135,6 +136,11 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProxyProvider<ApiService, StockReportProvider>(
           create: (context) => StockReportProvider(Provider.of<ApiService>(context, listen: false)),
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
+        ),
+
+        ChangeNotifierProxyProvider<ApiService, DepotSaleProvider>(
+          create: (context) => DepotSaleProvider(Provider.of<ApiService>(context, listen: false)),
+          update: (context, apiService, previous) => DepotSaleProvider(apiService),
         ),
       ],
       child: MaterialApp(

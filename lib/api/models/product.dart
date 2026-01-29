@@ -1,5 +1,4 @@
 // lib/api/models/product.dart
-// 09/11/2025 21:10 (Ajout intPAF manquant)
 class ProductSearchResult {
   final String lgFAMILLEID;
   final String strNAME;
@@ -7,8 +6,12 @@ class ProductSearchResult {
   final int intPRICE;
   final int intNUMBERAVAILABLE;
   final String strLIBELLEE;
-  // MODIFICATION : Ajout du champ manquant (Prix d'Achat)
   final int intPAF;
+
+  // AJOUTS NON-BLOQUANTS (Pour Vente Dépôt)
+  final String strDESCRIPTION;
+  final bool boolDECONDITIONNE;
+  final String lgFAMILLEPARENTID;
 
   ProductSearchResult({
     required this.lgFAMILLEID,
@@ -17,8 +20,11 @@ class ProductSearchResult {
     required this.intPRICE,
     required this.intNUMBERAVAILABLE,
     required this.strLIBELLEE,
-    // MODIFICATION : Ajout au constructeur
     required this.intPAF,
+    // Initialisation par défaut pour ne pas casser les autres fichiers
+    this.strDESCRIPTION = '',
+    this.boolDECONDITIONNE = false,
+    this.lgFAMILLEPARENTID = '',
   });
 
   factory ProductSearchResult.fromJson(Map<String, dynamic> json) {
@@ -26,11 +32,15 @@ class ProductSearchResult {
       lgFAMILLEID: json['lgFAMILLEID'] ?? '',
       strNAME: json['strNAME'] ?? '',
       intCIP: json['intCIP'] ?? '',
-      intPRICE: json['intPRICE'] ?? 0,
-      intNUMBERAVAILABLE: json['intNUMBERAVAILABLE'] ?? 0,
+      intPRICE: (json['intPRICE'] as num?)?.toInt() ?? 0, // Cast sécurisé
+      intNUMBERAVAILABLE: (json['intNUMBERAVAILABLE'] as num?)?.toInt() ?? 0,
       strLIBELLEE: json['strLIBELLEE'] ?? '',
-      // MODIFICATION : Lecture du champ depuis l'API
-      intPAF: json['intPAF'] ?? 0,
+      intPAF: (json['intPAF'] as num?)?.toInt() ?? 0,
+
+      // Nouveaux champs avec valeurs par défaut
+      strDESCRIPTION: json['strDESCRIPTION'] ?? '',
+      boolDECONDITIONNE: json['boolDECONDITIONNE'] == true || json['boolDECONDITIONNE'] == 1 || json['boolDECONDITIONNE'] == "1",
+      lgFAMILLEPARENTID: json['lgFAMILLEPARENTID'] ?? '',
     );
   }
 }

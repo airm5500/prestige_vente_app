@@ -83,6 +83,35 @@ class SaleSummary {
   }
 }
 
+class SaleLine {
+  final String lgPREENREGISTREMENTDETAILID; // ID de la ligne
+  final String lgFAMILLEID; // ID du produit
+  final String strNAME;
+  final int intPRICE; // Prix Total Ligne
+  final int intPRICEUNITAIR; // PU
+  final int intQUANTITY;
+
+  SaleLine({
+    required this.lgPREENREGISTREMENTDETAILID,
+    required this.lgFAMILLEID,
+    required this.strNAME,
+    required this.intPRICE,
+    required this.intPRICEUNITAIR,
+    required this.intQUANTITY,
+  });
+
+  factory SaleLine.fromJson(Map<String, dynamic> json) {
+    return SaleLine(
+      lgPREENREGISTREMENTDETAILID: json['lgPREENREGISTREMENTDETAILID'] ?? '',
+      lgFAMILLEID: json['lgFAMILLEID'] ?? '',
+      strNAME: json['strNAME'] ?? '',
+      intPRICE: (json['intPRICE'] as num?)?.toInt() ?? 0,
+      intPRICEUNITAIR: (json['intPRICEUNITAIR'] as num?)?.toInt() ?? 0,
+      intQUANTITY: (json['intQUANTITY'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 class PreventeListItem {
   final String lgPREENREGISTREMENTID;
   final String heure;

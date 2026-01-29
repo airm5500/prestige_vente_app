@@ -29,6 +29,7 @@ import 'package:prestige_vente_app/api/models/stock_report_models.dart';
 import 'package:prestige_vente_app/api/models/reception_model.dart';
 
 import 'package:prestige_vente_app/api/models/licence_model.dart';
+import 'package:prestige_vente_app/api/models/depot_model.dart'; // Pour DepotSaleListItem
 
 class ApiService {
   late Dio _dio;
@@ -274,5 +275,219 @@ class ApiService {
       return null;
     }
   }
+
+  // --- GESTION VENTE DEPOT ---
+
+  // 1. Liste des ventes dépôts
+  Future<List<DepotSaleListItem>> fetchDepotSales({
+    String query = '',
+    String statut = 'is_Process',
+    int start = 0,
+    int limit = 15
+  }) async {
+    try {
+      final response = await _dio.get('/ventestats/preventes-depot', queryParameters: {
+        'statut': statut,
+        'query': query,
+        'start': start,
+        'limit': limit
+      });
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return (response.data['data'] as List)
+            .map((e) => DepotSaleListItem.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Erreur fetchDepotSales: $e");
+      return [];
+    }
+  }
+
+  // 2. Charger une vente dépôt existante (Reprise)
+  Future<Map<String, dynamic>?> getDepotSaleDetails(String saleId) async {
+    try {
+      final response = await _dio.get('/ventestats/depot/$saleId');
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return response.data['data'];
+      }
+      return null;
+    } catch (e) {
+      print("Erreur getDepotSaleDetails: $e");
+      return null;
+    }
+  }
+
+  // 3. Liste des dépôts disponibles (Choix Client/Emplacement)
+  Future<List<DepotModel>> fetchDepots({String query = ''}) async {
+    try {
+      final response = await _dio.get('/magasin/find-depots', queryParameters: {
+        'query': query,
+        'limit': 50
+      });
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return (response.data['data'] as List)
+            .map((e) => DepotModel.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Erreur fetchDepots: $e");
+      return [];
+    }
+  }
+
+  // 4. Créer vente dépôt (Ajout 1er article)
+  Future<Map<String, dynamic>?> addFirstDepotItem({
+    required String clientId,
+    required String emplacementId,
+    required String typeDepotId,
+    required String produitId,
+    required int itemPu,
+    required int qte,
+  }) async {
+    try {
+      final data = {
+        "clientId": clientId,
+        "depot": true,
+        "devis": false,
+        "emplacementId": emplacementId,
+        "itemPu": itemPu,
+        "natureVenteId": "3", // Fixe selon vos logs
+        "produitId": produitId,
+        "qte": qte,
+        "qteServie": qte,
+        "remiseDepot": 0,
+        "typeDepoId": typeDepotId,
+        "userVendeurId": null,
+        "venteId": null
+      };
+
+      final response = await _dio.post('/vente/add/depot', data: data);
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return response.data['data']; // Retourne {lgPREENREGISTREMENTID: "...", ...}
+      }
+      return null;
+    } catch (e) {
+      print("Erreur addFirstDepotItem: $e");
+      return null;
+    }
+  }
+
+  // 5. Ajouter items suivants
+  Future<bool> addNextDepotItem({
+    required String venteId,
+    required String clientId,
+    required String emplacementId,
+    required String typeDepotId,
+    required String produitId,
+    required int itemPu,
+    required int qte,
+  }) async {
+    try {
+      final data = {
+        "clientId": clientId,
+        "depot": true,
+        "devis": false,
+        "emplacementId": emplacementId,
+        "itemPu": itemPu,
+        "natureVenteId": "3",
+        "produitId": produitId,
+        "qte": qte,
+        "qteServie": qte,
+        "remiseDepot": 0,
+        "typeDepoId": typeDepotId,
+        "userVendeurId": null,
+        "venteId": venteId
+      };
+      final response = await _dio.post('/vente/add/item', data: data);
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) {
+      print("Erreur addNextDepotItem: $e");
+      return false;
+    }
+  }
+
+  // 6. Mise à jour Quantité/Prix (Endpoint spécifique VNO)
+  Future<bool> updateDepotItem({
+    required String itemId,
+    required String produitId,
+    required int itemPu,
+    required int qte,
+  }) async {
+    try {
+      final data = {
+        "itemId": itemId,
+        "itemPu": itemPu,
+        "produitId": produitId,
+        "qte": qte,
+        "qteServie": qte
+      };
+      final response = await _dio.post('/vente/update/item/vno', data: data);
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) {
+      print("Erreur updateDepotItem: $e");
+      return false;
+    }
+  }
+
+  // 7. Suppression Item (Endpoint spécifique VNO)
+  Future<bool> removeDepotItem(String itemId) async {
+    try {
+      final response = await _dio.post('/vente/remove/vno/item/$itemId');
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) {
+      print("Erreur removeDepotItem: $e");
+      return false;
+    }
+  }
+
+  // 8. Clôturer Vente Dépôt
+  Future<bool> closeDepotSale({
+    required String venteId,
+    required String clientId,
+  }) async {
+    try {
+      final data = {
+        "banque": "",
+        "clientId": clientId,
+        "commentaire": "",
+        "lieux": "lieux",
+        "natureVenteId": "3",
+        "nom": "",
+        "typeRegleId": "1",
+        "userVendeurId": null,
+        "venteId": venteId
+      };
+      final response = await _dio.post('/vente/clotureVenteDepot', data: data);
+      return response.statusCode == 200 && response.data['success'] == true;
+    } catch (e) {
+      print("Erreur closeDepotSale: $e");
+      return false;
+    }
+  }
+
+  // AJOUTEZ UNIQUEMENT CELLE-CI SI ELLE MANQUE (Ne touchez pas à searchProducts existant)
+  Future<List<SaleLine>> fetchSaleItems(String venteId) async {
+    try {
+      final response = await _dio.get('/vente/deatails', queryParameters: {
+        'venteId': venteId,
+        'start': 0,
+        'limit': 100
+      });
+
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return (response.data['data'] as List)
+            .map((e) => SaleLine.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Erreur fetchSaleItems: $e");
+      return [];
+    }
+  }
+
+
 
 }

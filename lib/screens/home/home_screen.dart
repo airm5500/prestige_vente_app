@@ -4,6 +4,7 @@
 import 'dart:async'; // Pour le Timer de sécurité
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/screens/depot_sale/depot_sale_list_screen.dart';
 import 'package:provider/provider.dart';
 
 // Providers existants
@@ -152,6 +153,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'update_ean': MenuItem(id: 'update_ean', label: 'Mise à jour EAN', icon: Icons.qr_code_scanner, color: Colors.indigo.shade400, onTap: () => navigate(const EanUpdateScreen())),
       'update_emplacement': MenuItem(id: 'update_emplacement', label: 'Mise à jour Emplacement', icon: Icons.location_on, color: Colors.brown.shade400, onTap: () => navigate(const EmplacementUpdateScreen())),
       'stock': MenuItem(id: 'stock', label: 'État de Stock', icon: Icons.inventory, color: Colors.blueGrey.shade600, onTap: () => navigate(const StockReportScreen())),
+      'depot': MenuItem(
+          id: 'depot',
+          label: 'Vente Dépôt',
+          icon: Icons.store_mall_directory, // Ou une autre icône appropriée
+          color: Colors.brown.shade600,
+          onTap: () => navigate(const DepotSaleListScreen()) // Importez l'écran d'abord
+      ),
     };
 
     final settings = Provider.of<SettingsProvider>(context);
