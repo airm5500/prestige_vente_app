@@ -2,6 +2,7 @@
 // 10/11/2025 09:00 (Ajout updateClientAssurance)
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/proforma_models.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
@@ -672,6 +673,25 @@ class ApiService {
     } catch (e) {
       print("Erreur getClientForSale: $e");
       return null;
+    }
+  }
+
+  // Dans lib/api/api_service.dart
+
+  // Analyse Article
+  Future<List<ArticleAnalysis>> fetchArticleAnalysis(String query) async {
+    try {
+      // URL: /info?search=...
+      final response = await _dio.get('/info', queryParameters: {'search': query});
+
+      if (response.statusCode == 200 && response.data != null) {
+        // L'API renvoie directement une liste [...]
+        return (response.data as List).map((e) => ArticleAnalysis.fromJson(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      print("Erreur fetchArticleAnalysis: $e");
+      return [];
     }
   }
 

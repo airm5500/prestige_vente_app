@@ -39,6 +39,8 @@ import 'package:prestige_vente_app/screens/stock_report/stock_report_screen.dart
 import 'package:prestige_vente_app/screens/reception_control/reception_list_screen.dart';
 import 'package:prestige_vente_app/screens/proforma/proforma_list_screen.dart';
 
+import 'package:prestige_vente_app/screens/analysis/article_analysis_screen.dart';
+
 class MenuItem {
   final String id;
   final String label;
@@ -167,6 +169,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           icon: Icons.description,
           color: Colors.purple.shade600,
           onTap: () => navigate(const ProformaListScreen())
+      ),
+      'analyse_article': MenuItem(
+          id: 'analyse_article',
+          label: 'Analyse Article',
+          icon: Icons.analytics, // Icône suggérée
+          color: Colors.blueGrey.shade700,
+          onTap: () => navigate(const ArticleAnalysisScreen())
       ),
     };
 
