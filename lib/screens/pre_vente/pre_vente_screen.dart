@@ -1,5 +1,4 @@
 // lib/screens/pre_vente/pre_vente_screen.dart
-// 19/10/2025 00:10
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/prevente_list_tab.dart';
 import 'package:prestige_vente_app/screens/pre_vente/tabs/vente_tab.dart';
@@ -9,7 +8,6 @@ import 'package:prestige_vente_app/utils/constants.dart';
 
 class PreVenteScreen extends StatefulWidget {
   final int initialTabIndex;
-
   const PreVenteScreen({super.key, this.initialTabIndex = 0});
 
   @override
@@ -23,22 +21,14 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(
-      length: 3,
-      vsync: this,
-      initialIndex: widget.initialTabIndex,
-    );
-
+    _tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTabIndex);
     _updateTabColor(_tabController.index);
     _tabController.addListener(_handleTabSelection);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final saleProvider = Provider.of<SaleProvider>(context, listen: false);
       saleProvider.startNewSale();
-      // On charge les préventes uniquement si on va sur l'onglet
-      if (widget.initialTabIndex == 2) {
-        saleProvider.fetchPreventes();
-      }
+      if (widget.initialTabIndex == 2) saleProvider.fetchPreventes();
     });
   }
 
@@ -50,12 +40,14 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
   }
 
   void _handleTabSelection() {
-    if (_tabController.indexIsChanging) { return; }
-
+    if (_tabController.indexIsChanging) return;
     if (_tabController.index == 2) {
       Provider.of<SaleProvider>(context, listen: false).fetchPreventes();
     }
+    // On vide les recherches quand on change d'onglet pour éviter les overlays fantômes
+    Provider.of<SaleProvider>(context, listen: false).clearSearchResults();
     _updateTabColor(_tabController.index);
+    setState(() {}); // Force la reconstruction pour rafraîchir le focus dans les onglets
   }
 
   void _updateTabColor(int index) {
@@ -74,13 +66,22 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
       appBar: AppBar(
         title: const Text('Pre/Vente'),
         actions: [
+          Consumer<SaleProvider>(
+            builder: (context, sale, child) {
+              return IconButton(
+                icon: Icon(sale.isQuickScanMode ? Icons.bolt : Icons.settings,
+                    color: sale.isQuickScanMode ? Colors.greenAccent : null),
+                onPressed: () => sale.toggleQuickScanMode(),
+                tooltip: 'Mode Scan Rapide',
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () {
               Provider.of<SaleProvider>(context, listen: false).startNewSale();
               _tabController.animateTo(0);
             },
-            tooltip: 'Nouvelle Vente',
           )
         ],
         bottom: PreferredSize(
@@ -88,21 +89,11 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0),
             child: Container(
-              height: 48,
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withAlpha(128),
-                borderRadius: BorderRadius.circular(8),
-              ),
+              height: 48, padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(color: AppColors.primary.withAlpha(128), borderRadius: BorderRadius.circular(8)),
               child: TabBar(
                 controller: _tabController,
-                indicator: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  color: _activeTabColor,
-                ),
-                indicatorSize: TabBarIndicatorSize.tab,
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.white.withAlpha(204),
+                indicator: BoxDecoration(borderRadius: BorderRadius.circular(8), color: _activeTabColor),
                 tabs: [
                   _buildTab(Icons.history_toggle_off, 'PREVENTE'),
                   _buildTab(Icons.point_of_sale, 'VENTE'),
@@ -115,31 +106,24 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
       ),
       body: TabBarView(
         controller: _tabController,
+        // On utilise ValueKey pour forcer le focus quand on switch d'onglet
         children: [
-          const VenteTab(isPrevente: true),
-          const VenteTab(isPrevente: false),
+          VenteTab(key: const ValueKey('prevente'), isPrevente: true),
+          VenteTab(key: const ValueKey('vente'), isPrevente: false),
           PreventeListTab(tabController: _tabController),
         ],
       ),
     );
   }
 
-  // MODIFICATION : Le contenu du Tab est maintenant une Row
-  // pour forcer un affichage horizontal et éviter le débordement vertical.
   Widget _buildTab(IconData icon, String text) {
     return Tab(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center, // Centre verticalement
         children: [
           Icon(icon, size: 20),
           const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              text,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
+          Flexible(child: Text(text, overflow: TextOverflow.ellipsis)),
         ],
       ),
     );

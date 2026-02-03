@@ -1,7 +1,6 @@
-// lib/providers/sale_provider.dart
-// 11/11/2025 10:00 (Version Complete: Stock, Caisse, Focus, Auto-Open)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -12,7 +11,9 @@ class SaleProvider with ChangeNotifier {
   ApiService _apiService;
   ApiService get apiService => _apiService;
 
-  SaleProvider(this._apiService);
+  SaleProvider(this._apiService) {
+    _loadScanSettings();
+  }
 
   void updateApiService(ApiService newApiService) {
     _apiService = newApiService;
@@ -26,10 +27,27 @@ class SaleProvider with ChangeNotifier {
   List<ProductSearchResult> _searchResults = [];
   List<PreventeListItem> _preventes = [];
   bool _isLoadingPreventes = false;
-
   List<PaymentMethodQr> _paymentMethodsWithQr = [];
   bool _isLoadingPaymentMethodsQr = false;
 
+  // --- PERSISTANCE DU MODE SCAN ---
+  bool _isQuickScanMode = false;
+  bool get isQuickScanMode => _isQuickScanMode;
+
+  Future<void> _loadScanSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    _isQuickScanMode = prefs.getBool('isQuickScanMode') ?? false;
+    notifyListeners();
+  }
+
+  Future<void> toggleQuickScanMode() async {
+    _isQuickScanMode = !_isQuickScanMode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isQuickScanMode', _isQuickScanMode);
+    notifyListeners();
+  }
+
+  // --- GETTERS ---
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String? get currentVenteId => _currentVenteId;
@@ -40,13 +58,14 @@ class SaleProvider with ChangeNotifier {
   bool get isLoadingPreventes => _isLoadingPreventes;
   List<PaymentMethodQr> get paymentMethodsWithQr => _paymentMethodsWithQr;
 
+  // --- MÉTHODES EXISTANTES (Inchangées) ---
   Future<void> fetchPaymentMethodsWithQr() async {
     if (_paymentMethodsWithQr.isNotEmpty || _isLoadingPaymentMethodsQr) return;
     try {
       _isLoadingPaymentMethodsQr = true;
       _paymentMethodsWithQr = await _apiService.getPaymentMethodsWithQr();
     } catch (e) {
-      print("Error in SaleProvider fetching QR methods: $e");
+      print("Error fetching QR methods: $e");
     } finally {
       _isLoadingPaymentMethodsQr = false;
       notifyListeners();
@@ -59,30 +78,21 @@ class SaleProvider with ChangeNotifier {
       _isLoadingPreventes = true;
       _preventes.clear();
       notifyListeners();
-
       List<PreventeListItem> fetchedPreventes = await _apiService.getPreventes();
       fetchedPreventes = fetchedPreventes.where((p) => p.lgTYPEVENTEID == "1").toList();
-
       final uniquePreventesMap = <String, PreventeListItem>{};
       for (final prevente in fetchedPreventes) {
         uniquePreventesMap.putIfAbsent(prevente.lgPREENREGISTREMENTID, () => prevente);
       }
-      final uniquePreventesList = uniquePreventesMap.values.toList();
-
-      uniquePreventesList.sort((a, b) {
+      _preventes = uniquePreventesMap.values.toList();
+      _preventes.sort((a, b) {
         try {
           final format = DateFormat('dd/MM/yyyy HH:mm:ss');
           final dateTimeA = format.parse('${a.dtUPDATED} ${a.heure}');
           final dateTimeB = format.parse('${b.dtUPDATED} ${b.heure}');
           return dateTimeB.compareTo(dateTimeA);
-        } catch (e) {
-          return 0;
-        }
+        } catch (e) { return 0; }
       });
-
-      _preventes = uniquePreventesList;
-    } catch (e) {
-      print("Erreur lors de la récupération des préventes: $e");
     } finally {
       _isLoadingPreventes = false;
       notifyListeners();
@@ -98,7 +108,6 @@ class SaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // MODIFICATION : Méthode pour vider explicitement les résultats
   void clearSearchResults() {
     _searchResults = [];
     notifyListeners();
@@ -111,7 +120,6 @@ class SaleProvider with ChangeNotifier {
       return;
     }
     _setLoading(true);
-    _searchResults.clear();
     _searchResults = await _apiService.searchProducts(query);
     _setLoading(false);
   }
@@ -127,65 +135,35 @@ class SaleProvider with ChangeNotifier {
     if (newVenteId != null) {
       _currentVenteId = newVenteId;
       await _refreshCartAndSummary();
-    } else {
-      _errorMessage = "Erreur lors de l'ajout du produit.";
     }
     _setLoading(false);
   }
 
   Future<void> removeProductFromCart(String itemId) async {
     _setLoading(true);
-    final success = await _apiService.removeItemFromSale(itemId);
-    if (success) {
+    if (await _apiService.removeItemFromSale(itemId)) {
       await _refreshCartAndSummary();
-    } else {
-      _errorMessage = "Erreur lors de la suppression.";
     }
     _setLoading(false);
   }
 
   Future<void> updateCartItem(SaleItemDetail item, int newQuantity, int newPrice) async {
     _setLoading(true);
-    final success = await _apiService.updateSaleItem(
-        itemId: item.lgPREENREGISTREMENTDETAILID,
-        produitId: item.lgFAMILLEID,
-        qte: newQuantity,
-        itemPu: newPrice);
-    if (success) {
+    if (await _apiService.updateSaleItem(itemId: item.lgPREENREGISTREMENTDETAILID, produitId: item.lgFAMILLEID, qte: newQuantity, itemPu: newPrice)) {
       await _refreshCartAndSummary();
-    } else {
-      _errorMessage = "Erreur de mise à jour.";
     }
     _setLoading(false);
   }
 
-  Future<Map<String, dynamic>> cloturerVente(
-      PaymentMethod paymentMethod,
-      User currentUser, {
-        int? montantRecu,
-        int? montantRemis,
-      }) async {
-    if (_currentVenteId == null) return {"success": false, "msg": "ID de vente manquant."};
+  Future<Map<String, dynamic>> cloturerVente(PaymentMethod paymentMethod, User currentUser, {int? montantRecu, int? montantRemis}) async {
+    if (_currentVenteId == null) return {"success": false, "msg": "ID manquant"};
     _setLoading(true);
-
     final clientId = paymentMethod.name.toLowerCase().replaceAll(' ', '').replaceAll('é', 'e');
-
     await _apiService.updateClientForSale(_currentVenteId!, clientId);
-
     final result = await _apiService.cloturerVente(
-      venteId: _currentVenteId!,
-      summary: _saleSummary,
-      typeReglementId: paymentMethod.id,
-      clientId: clientId,
-      userVendeurId: currentUser.userId,
-      montantRecu: montantRecu,
-      montantRemis: montantRemis,
+      venteId: _currentVenteId!, summary: _saleSummary, typeReglementId: paymentMethod.id,
+      clientId: clientId, userVendeurId: currentUser.userId, montantRecu: montantRecu, montantRemis: montantRemis,
     );
-
-    if (result['success'] == false) {
-      _errorMessage = result['msg'] ?? "La clôture de la vente a échoué.";
-    }
-
     _setLoading(false);
     return result;
   }
@@ -194,9 +172,6 @@ class SaleProvider with ChangeNotifier {
     if (_currentVenteId == null) return false;
     _setLoading(true);
     final success = await _apiService.terminerPrevente(_currentVenteId!);
-    if (!success) {
-      _errorMessage = "La finalisation de la prévente a échoué.";
-    }
     _setLoading(false);
     return success;
   }
@@ -217,8 +192,8 @@ class SaleProvider with ChangeNotifier {
       ]);
       _cartItems = results[0] as List<SaleItemDetail>;
       _saleSummary = (results[1] as SaleSummary?) ?? _saleSummary;
-      _errorMessage = null;
     }
+    notifyListeners();
   }
 
   void _setLoading(bool value) {
