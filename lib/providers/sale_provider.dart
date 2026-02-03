@@ -1,3 +1,4 @@
+// lib/providers/sale_provider.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,7 +31,6 @@ class SaleProvider with ChangeNotifier {
   List<PaymentMethodQr> _paymentMethodsWithQr = [];
   bool _isLoadingPaymentMethodsQr = false;
 
-  // --- PERSISTANCE DU MODE SCAN ---
   bool _isQuickScanMode = false;
   bool get isQuickScanMode => _isQuickScanMode;
 
@@ -47,7 +47,6 @@ class SaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // --- GETTERS ---
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String? get currentVenteId => _currentVenteId;
@@ -58,14 +57,14 @@ class SaleProvider with ChangeNotifier {
   bool get isLoadingPreventes => _isLoadingPreventes;
   List<PaymentMethodQr> get paymentMethodsWithQr => _paymentMethodsWithQr;
 
-  // --- MÉTHODES EXISTANTES (Inchangées) ---
   Future<void> fetchPaymentMethodsWithQr() async {
-    if (_paymentMethodsWithQr.isNotEmpty || _isLoadingPaymentMethodsQr) return;
+    // On force le fetch si la liste est vide
+    if (_paymentMethodsWithQr.isNotEmpty) return;
     try {
       _isLoadingPaymentMethodsQr = true;
       _paymentMethodsWithQr = await _apiService.getPaymentMethodsWithQr();
     } catch (e) {
-      print("Error fetching QR methods: $e");
+      debugPrint("Error fetching QR methods: $e");
     } finally {
       _isLoadingPaymentMethodsQr = false;
       notifyListeners();
