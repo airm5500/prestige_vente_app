@@ -12,7 +12,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/pre_vente/widgets/sale_cart_widget.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
-import 'package:prestige_vente_app/api/models/payment_method_qr.dart'; // RÉINTÉGRÉ
+import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/widgets/cash_payment_dialog.dart';
 
 class VenteTab extends StatefulWidget {
@@ -35,14 +35,11 @@ class _VenteTabState extends State<VenteTab> {
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
-
-    // Force le focus dès l'entrée sur l'onglet
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestSearchFocus();
     });
   }
 
-  // Fonction pour garantir que le champ de recherche garde le focus
   void _requestSearchFocus() {
     if (mounted && !_isPopupOpen) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
@@ -59,7 +56,6 @@ class _VenteTabState extends State<VenteTab> {
     super.dispose();
   }
 
-  // LOGIQUE SCANNER (Priorité partout)
   void _handleKeyEvent(KeyEvent event) {
     final sale = Provider.of<SaleProvider>(context, listen: false);
     if (!sale.isQuickScanMode) return;
@@ -96,11 +92,10 @@ class _VenteTabState extends State<VenteTab> {
     final results = provider.searchResults;
 
     if (results.length == 1) {
-      // Logique Vente Depot : Si scan ou code exact -> Ajout Auto
       if (isScan || (query.length > 5 && (query == results.first.intCIP || query == results.first.lgFAMILLEID))) {
         await provider.addProductToCart(results.first, 1, isPrevente: widget.isPrevente);
         _searchController.clear();
-        provider.clearSearchResults();
+        provider.clearSearchResults(); // Nettoyage immédiat
         _requestSearchFocus();
       } else {
         _showSelectionDialog(results);
@@ -111,7 +106,10 @@ class _VenteTabState extends State<VenteTab> {
   }
 
   void _showSelectionDialog(List<ProductSearchResult> products) {
+    final provider = Provider.of<SaleProvider>(context, listen: false);
+
     setState(() => _isPopupOpen = true);
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -129,6 +127,8 @@ class _VenteTabState extends State<VenteTab> {
                 title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Text("CIP: ${p.intCIP} | Stock: ${p.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(p.intPRICE)} F"),
                 onTap: () {
+                  // AVANT de fermer, on vide les résultats pour que l'arrière-plan soit propre
+                  provider.clearSearchResults();
                   Navigator.pop(ctx);
                   _showQuantityDialog(p);
                 },
@@ -137,7 +137,13 @@ class _VenteTabState extends State<VenteTab> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Fermer"))
+          TextButton(
+              onPressed: () {
+                provider.clearSearchResults(); // Nettoyage ici aussi
+                Navigator.pop(ctx);
+              },
+              child: const Text("Fermer")
+          )
         ],
       ),
     ).then((_) {
@@ -188,7 +194,7 @@ class _VenteTabState extends State<VenteTab> {
     _requestSearchFocus();
   }
 
-  // --- MÉTHODES D'IMPRESSION ET QR (INTÉGRALES) ---
+  // --- MÉTHODES D'IMPRESSION ET QR ---
 
   Future<void> _showPrintDialog({
     required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser,
@@ -234,16 +240,15 @@ class _VenteTabState extends State<VenteTab> {
     _requestSearchFocus();
   }
 
-  // RÉINTÉGRÉ : Méthode QR Code
   Future<void> _showQrCodeDialog(PaymentMethodQr method, SaleSummary summary, User currentUser) async {
     await showDialog(
       context: context, barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: Text("Paiement via ${method.name}"),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text("Veuillez scanner le QR code pour payer ${Constants.formatNumber(summary.montantNet)}."),
+          Text("Scanner QR pour payer ${Constants.formatNumber(summary.montantNet)}."),
           const SizedBox(height: 20),
-          SizedBox(width: 250, height: 250, child: method.qrCode != null ? Image.memory(method.qrCode!) : const Center(child: Text("QR Code non disponible"))),
+          SizedBox(width: 250, height: 250, child: method.qrCode != null ? Image.memory(method.qrCode!) : const Center(child: Text("QR non disponible"))),
         ]),
         actions: [ElevatedButton(child: const Text("OK"), onPressed: () {
           Navigator.pop(ctx);
@@ -289,11 +294,9 @@ class _VenteTabState extends State<VenteTab> {
             if (!mounted) return;
             if (await Constants.checkAndOpenCaisse(context, res)) return;
             if (res['success'] == true) {
-              // Gestion spécifique QR après clôture
               final paymentQrMethods = saleProvider.paymentMethodsWithQr;
               PaymentMethodQr? qrMethod;
               try { qrMethod = paymentQrMethods.firstWhere((m) => m.id == method.id); } catch (e) { qrMethod = null; }
-
               if (qrMethod != null && qrMethod.qrCode != null) {
                 _showQrCodeDialog(qrMethod, saleProvider.saleSummary, currentUser);
               } else {
@@ -353,7 +356,8 @@ class _VenteTabState extends State<VenteTab> {
       final bool isTablet = MediaQuery.of(context).size.width > 800;
       return Stack(children: [
         if (!isTablet) const SaleCartWidget(),
-        if (!_isPopupOpen && saleProvider.searchResults.isNotEmpty)
+        // L'overlay n'apparaît QUE si on n'est PAS en scan rapide ET que la popup n'est pas ouverte
+        if (!saleProvider.isQuickScanMode && !_isPopupOpen && saleProvider.searchResults.isNotEmpty)
           Container(
             color: Theme.of(context).scaffoldBackgroundColor.withAlpha(242),
             child: ListView.separated(
