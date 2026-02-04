@@ -29,7 +29,7 @@ class SaleProvider with ChangeNotifier {
   List<PreventeListItem> _preventes = [];
   bool _isLoadingPreventes = false;
   List<PaymentMethodQr> _paymentMethodsWithQr = [];
-  bool _isLoadingPaymentMethodsQr = false;
+  // CORRECTION : Variable inutile supprimée
 
   bool _isQuickScanMode = false;
   bool get isQuickScanMode => _isQuickScanMode;
@@ -58,15 +58,12 @@ class SaleProvider with ChangeNotifier {
   List<PaymentMethodQr> get paymentMethodsWithQr => _paymentMethodsWithQr;
 
   Future<void> fetchPaymentMethodsWithQr() async {
-    // On force le fetch si la liste est vide
     if (_paymentMethodsWithQr.isNotEmpty) return;
     try {
-      _isLoadingPaymentMethodsQr = true;
       _paymentMethodsWithQr = await _apiService.getPaymentMethodsWithQr();
     } catch (e) {
       debugPrint("Error fetching QR methods: $e");
     } finally {
-      _isLoadingPaymentMethodsQr = false;
       notifyListeners();
     }
   }
