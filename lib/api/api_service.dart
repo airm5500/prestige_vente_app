@@ -528,22 +528,49 @@ class ApiService {
     } catch (e) { return []; }
   }
 
-  // Recherche Clients (Generic)
-  Future<List<ClientModel>> searchClients(String query) async {
+  // Recherche Clients CARNET (Assurance/Carnet)
+  // Endpoint : /client/all?typeClientId=2
+  Future<List<ClientCarnetModel>> searchClientsCarnet(String query) async {
     try {
-      // On utilise /client/all qui semble plus complet selon vos logs
       final response = await _dio.get('/client/all', queryParameters: {
         'query': query,
-        'limit': 20
+        'typeClientId': '2', // Filtre CARNET strict
+        'limit': 25
       });
       if (response.statusCode == 200 && response.data['data'] != null) {
-        return (response.data['data'] as List).map((e) => ClientModel.fromJson(e)).toList();
+        return (response.data['data'] as List)
+            .map((e) => ClientCarnetModel.fromJson(e))
+            .toList();
       }
       return [];
-    } catch (e) { return []; }
+    } catch (e) {
+      print("Erreur searchClientsCarnet: $e");
+      return [];
+    }
   }
 
-  // Dans lib/api/api_service.dart
+  // Recherche Clients COMPTANT (Lambda/Standard)
+  // Endpoint : /client/lambda
+  Future<List<ClientComptantModel>> searchClientsComptant(String query) async {
+    try {
+      final response = await _dio.get('/client/lambda', queryParameters: {
+        'query': query,
+        'limit': 25
+      });
+      if (response.statusCode == 200 && response.data['data'] != null) {
+        return (response.data['data'] as List)
+            .map((e) => ClientComptantModel.fromJson(e))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print("Erreur searchClientsComptant: $e");
+      return [];
+    }
+  }
+
+  // NOTE: L'ancienne méthode searchClients générique est supprimée pour éviter les erreurs.
+  // Utilisez searchClientsCarnet ou searchClientsComptant selon le contexte.
 
   Future<List<RemiseModel>> fetchRemises() async {
     try {
@@ -601,9 +628,7 @@ class ApiService {
     }
   }
 
-  // lib/api/api_service.dart
-
-// 1. Pour la création initiale du devis
+  // 1. Pour la création initiale du devis
   Future<Map<String, dynamic>?> addFirstDevisItem({
     required String clientId,
     required String typeVenteId,
@@ -666,9 +691,19 @@ class ApiService {
   // Récupérer le client lié à une vente spécifique (Logique rappel Proforma)
   Future<ClientModel?> getClientForSale(String clientId, String venteId) async {
     try {
+      // Endpoint existant inchangé, mais on wrap le résultat dans un ClientModel générique
+      // (Idéalement il faudrait savoir quel type de client c'est, mais pour la reprise de vente
+      // on peut instancier un modèle simple puisque l'édition des infos client n'est pas le but premier)
       final response = await _dio.get('/client/client-assurance/$clientId/$venteId');
       if (response.statusCode == 200 && response.data['success'] == true && response.data['data'] != null) {
-        return ClientModel.fromJson(response.data['data']);
+        // On suppose ici un format générique compatible, ou on adapte le JSON.
+        // Si le JSON contient 'tiersPayants', on tente ClientCarnetModel, sinon ClientComptantModel
+        final json = response.data['data'];
+        if (json['tiersPayants'] != null && (json['tiersPayants'] as List).isNotEmpty) {
+          return ClientCarnetModel.fromJson(json);
+        } else {
+          return ClientComptantModel.fromJson(json);
+        }
       }
       return null;
     } catch (e) {

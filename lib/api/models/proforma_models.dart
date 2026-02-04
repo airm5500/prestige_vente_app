@@ -3,7 +3,7 @@
 /// Modèle pour les Tiers-Payants (Assurances) rattachés à un client
 class TiersPayantModel {
   final String lgTIERSPAYANTID;
-  final int intPOURCENTAGE; // On garde le nom officiel du modèle
+  final int intPOURCENTAGE;
   final int? intPRIORITY;
   final String? lgCOMPTETIERSIAYANTID;
 
@@ -17,7 +17,6 @@ class TiersPayantModel {
   factory TiersPayantModel.fromJson(Map<String, dynamic> json) {
     return TiersPayantModel(
       lgTIERSPAYANTID: json['lgTIERSPAYANTID'] ?? '',
-      // Dans tes logs, la clé JSON est "taux", on la mappe vers intPOURCENTAGE
       intPOURCENTAGE: json['intPOURCENTAGE'] ?? json['taux'] ?? 0,
       intPRIORITY: json['intPRIORITY'] ?? json['order'] ?? 0,
       lgCOMPTETIERSIAYANTID: json['lgCOMPTETIERSIAYANTID'] ?? json['compteTp'],
@@ -25,35 +24,82 @@ class TiersPayantModel {
   }
 }
 
+/// Classe de base pour les clients (Polymorphisme)
 class ClientModel {
   final String lgCLIENTID;
   final String strFIRSTNAME;
   final String strLASTNAME;
-  final String fullName;
-  final String? lgTYPECLIENTID; // AJOUTE CETTE LIGNE
-  final List<TiersPayantModel>? tiersPayants;
 
   ClientModel({
     required this.lgCLIENTID,
     required this.strFIRSTNAME,
     required this.strLASTNAME,
-    required this.fullName,
-    this.lgTYPECLIENTID, // AJOUTE CETTE LIGNE
-    this.tiersPayants,
   });
 
-  factory ClientModel.fromJson(Map<String, dynamic> json) {
-    return ClientModel(
+  String get fullName => "$strFIRSTNAME $strLASTNAME";
+
+  // Permet de récupérer une liste vide par défaut pour éviter les crashs si mal utilisé
+  List<TiersPayantModel> get tiersPayants => [];
+}
+
+/// Modèle spécifique pour les clients CARNET (API /client/all?typeClientId=2)
+class ClientCarnetModel extends ClientModel {
+  final String? strCODEINTERNE;
+  final String? strNUMEROSECURITESOCIAL;
+  final List<TiersPayantModel> _tiersPayantsList;
+
+  ClientCarnetModel({
+    required String lgCLIENTID,
+    required String strFIRSTNAME,
+    required String strLASTNAME,
+    this.strCODEINTERNE,
+    this.strNUMEROSECURITESOCIAL,
+    List<TiersPayantModel>? tiersPayants,
+  }) : _tiersPayantsList = tiersPayants ?? [],
+        super(lgCLIENTID: lgCLIENTID, strFIRSTNAME: strFIRSTNAME, strLASTNAME: strLASTNAME);
+
+  @override
+  List<TiersPayantModel> get tiersPayants => _tiersPayantsList;
+
+  factory ClientCarnetModel.fromJson(Map<String, dynamic> json) {
+    return ClientCarnetModel(
       lgCLIENTID: json['lgCLIENTID'] ?? '',
       strFIRSTNAME: json['strFIRSTNAME'] ?? '',
       strLASTNAME: json['strLASTNAME'] ?? '',
-      fullName: json['fullName'] ?? '',
-      lgTYPECLIENTID: json['lgTYPECLIENTID']?.toString(), // AJOUTE CETTE LIGNE
+      strCODEINTERNE: json['strCODEINTERNE'],
+      strNUMEROSECURITESOCIAL: json['strNUMEROSECURITESOCIAL'],
       tiersPayants: json['tiersPayants'] != null
           ? (json['tiersPayants'] as List)
           .map((i) => TiersPayantModel.fromJson(i))
           .toList()
           : [],
+    );
+  }
+}
+
+/// Modèle spécifique pour les clients COMPTANT (API /client/lambda)
+class ClientComptantModel extends ClientModel {
+  final String? strADRESSE;
+  final String? lgTYPECLIENTID;
+  final String? strSEXE;
+
+  ClientComptantModel({
+    required String lgCLIENTID,
+    required String strFIRSTNAME,
+    required String strLASTNAME,
+    this.strADRESSE,
+    this.lgTYPECLIENTID,
+    this.strSEXE,
+  }) : super(lgCLIENTID: lgCLIENTID, strFIRSTNAME: strFIRSTNAME, strLASTNAME: strLASTNAME);
+
+  factory ClientComptantModel.fromJson(Map<String, dynamic> json) {
+    return ClientComptantModel(
+      lgCLIENTID: json['lgCLIENTID'] ?? '',
+      strFIRSTNAME: json['strFIRSTNAME'] ?? '',
+      strLASTNAME: json['strLASTNAME'] ?? '',
+      strADRESSE: json['strADRESSE'],
+      lgTYPECLIENTID: json['lgTYPECLIENTID'],
+      strSEXE: json['strSEXE'],
     );
   }
 }

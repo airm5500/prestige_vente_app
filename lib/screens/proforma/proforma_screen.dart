@@ -315,6 +315,7 @@ class _ProformaScreenState extends State<ProformaScreen> {
                         items: _typesDevis.map((t) => DropdownMenuItem(value: t, child: Text(t.strNAME, style: const TextStyle(fontSize: 13)))).toList(),
                         onChanged: (val) {
                           provider.setTypeDevis(val);
+                          // Si un type est sélectionné, on peut ouvrir la recherche client (après un court délai pour l'UX)
                           if (val != null) Future.delayed(const Duration(milliseconds: 200), () => _showClientSearchDialog());
                         },
                       )),
@@ -457,8 +458,6 @@ class _ClientSearchDialog extends StatefulWidget {
 
 class __ClientSearchDialogState extends State<_ClientSearchDialog> {
   final TextEditingController _ctrl = TextEditingController();
-  List<ClientModel> _results = [];
-  bool _loading = false;
   Timer? _debounce;
 
   @override
@@ -475,45 +474,49 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
     });
   }
 
-  void _search(String q) async {
-    setState(() => _loading = true);
-    final res = await Provider.of<ApiService>(context, listen: false).searchClients(q);
-    if(mounted) setState(() { _results = res; _loading = false; });
+  void _search(String q) {
+    // Utilisation du provider pour la recherche, ce qui résout le bug "searchClients not defined in ApiService"
+    // et gère automatiquement le filtre selon le Type de Devis.
+    Provider.of<ProformaProvider>(context, listen: false).searchClients(q);
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text("Rechercher Client"),
-      content: SizedBox(
-        width: double.maxFinite, height: 400,
-        child: Column(children: [
-          TextField(
-            controller: _ctrl,
-            decoration: const InputDecoration(hintText: "Nom, Prénom...", prefixIcon: Icon(Icons.search), border: OutlineInputBorder()),
-            autofocus: true,
-            onChanged: _onSearchChanged,
+    // On consomme le Provider pour afficher les résultats stockés dans 'clientSearchResults'
+    return Consumer<ProformaProvider>(
+      builder: (context, provider, child) {
+        return AlertDialog(
+          title: const Text("Rechercher Client"),
+          content: SizedBox(
+            width: double.maxFinite, height: 400,
+            child: Column(children: [
+              TextField(
+                controller: _ctrl,
+                decoration: const InputDecoration(hintText: "Nom, Prénom...", prefixIcon: Icon(Icons.search), border: OutlineInputBorder()),
+                autofocus: true,
+                onChanged: _onSearchChanged,
+              ),
+              const SizedBox(height: 10),
+              Expanded(child: provider.isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : provider.clientSearchResults.isEmpty
+                  ? const Center(child: Text("Saisissez une recherche."))
+                  : ListView.separated(
+                itemCount: provider.clientSearchResults.length, separatorBuilder: (_,__) => const Divider(),
+                itemBuilder: (ctx, i) {
+                  final c = provider.clientSearchResults[i];
+                  return ListTile(
+                    title: Text(c.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text("Nom: ${c.strLASTNAME}"),
+                    onTap: () => Navigator.pop(context, c),
+                  );
+                },
+              ))
+            ]),
           ),
-          const SizedBox(height: 10),
-          Expanded(child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _results.isEmpty
-              ? const Center(child: Text("Saisissez une recherche."))
-              : ListView.separated(
-            itemCount: _results.length, separatorBuilder: (_,__) => const Divider(),
-            itemBuilder: (ctx, i) {
-              final c = _results[i];
-              return ListTile(
-                title: Text(c.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                // CORRECTION RÉGRESSION : strLASTNAME au lieu de lgCLIENTID
-                subtitle: Text("Nom: ${c.strLASTNAME}"),
-                onTap: () => Navigator.pop(context, c),
-              );
-            },
-          ))
-        ]),
-      ),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler"))],
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler"))],
+        );
+      },
     );
   }
 }

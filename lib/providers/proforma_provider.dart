@@ -1,3 +1,4 @@
+// lib/providers/proforma_provider.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -8,14 +9,12 @@ import 'package:prestige_vente_app/api/models/product.dart';
 class ProformaProvider with ChangeNotifier {
   final ApiService _apiService;
 
-  // Identifiants de la vente en cours
   String? _currentSaleId;
   String? get currentSaleId => _currentSaleId;
 
   String? _currentSaleRef;
   String? get currentSaleRef => _currentSaleRef;
 
-  // Sélections
   TypeDevis? _selectedTypeDevis;
   TypeDevis? get selectedTypeDevis => _selectedTypeDevis;
 
@@ -25,7 +24,6 @@ class ProformaProvider with ChangeNotifier {
   RemiseModel? _selectedRemise;
   RemiseModel? get selectedRemise => _selectedRemise;
 
-  // Listes de données
   List<SaleLine> _cartItems = [];
   List<SaleLine> get cartItems => _cartItems;
 
@@ -35,14 +33,12 @@ class ProformaProvider with ChangeNotifier {
   List<ClientModel> _clientSearchResults = [];
   List<ClientModel> get clientSearchResults => _clientSearchResults;
 
-  // États de l'interface
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
-  // Totaux
   int _totalAmount = 0;
   int get totalAmount => _totalAmount;
   int _montantRemise = 0;
@@ -91,10 +87,16 @@ class ProformaProvider with ChangeNotifier {
     }
   }
 
-  // --- RECHERCHE DE CLIENTS AVEC FILTRE CARNET ---
+  // --- RECHERCHE DE CLIENTS SELON LE TYPE DE DEVIS ---
   Future<void> searchClients(String query) async {
     if (query.isEmpty) {
       _clientSearchResults = [];
+      notifyListeners();
+      return;
+    }
+
+    if (_selectedTypeDevis == null) {
+      _errorMessage = "Sélectionnez d'abord un Type de Devis.";
       notifyListeners();
       return;
     }
@@ -104,18 +106,21 @@ class ProformaProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final allClients = await _apiService.searchClients(query);
-
-      if (_selectedTypeDevis?.lgTYPEVENTEID == "3") {
-        _clientSearchResults = allClients
-            .where((client) => client.lgTYPECLIENTID == "2")
-            .toList();
-
-        if (_clientSearchResults.isEmpty && allClients.isNotEmpty) {
-          _errorMessage = "Aucun client Assurance trouvé pour ce type de vente.";
+      // LOGIQUE SÉPARÉE SELON LE TYPE
+      // ID "3" = Carnet
+      if (_selectedTypeDevis!.lgTYPEVENTEID == "3") {
+        final carnetClients = await _apiService.searchClientsCarnet(query);
+        _clientSearchResults = carnetClients;
+        if (carnetClients.isEmpty) {
+          _errorMessage = "Aucun client Carnet trouvé.";
         }
       } else {
-        _clientSearchResults = allClients;
+        // ID "1" ou autre = Comptant
+        final comptantClients = await _apiService.searchClientsComptant(query);
+        _clientSearchResults = comptantClients;
+        if (comptantClients.isEmpty) {
+          _errorMessage = "Aucun client trouvé.";
+        }
       }
     } catch (e) {
       _errorMessage = "Erreur recherche client: $e";
@@ -128,12 +133,9 @@ class ProformaProvider with ChangeNotifier {
   // --- GESTION DES SÉLECTIONS ---
   void setTypeDevis(TypeDevis? type) {
     _selectedTypeDevis = type;
-    if (type?.lgTYPEVENTEID == "3" && _selectedClient != null) {
-      if (_selectedClient!.lgTYPECLIENTID != "2") {
-        _selectedClient = null;
-        _errorMessage = "Veuillez choisir un client éligible au mode Carnet.";
-      }
-    }
+    // Si on change de type, on réinitialise le client car ils sont incompatibles
+    _selectedClient = null;
+    _clientSearchResults = [];
     notifyListeners();
   }
 
@@ -158,17 +160,28 @@ class ProformaProvider with ChangeNotifier {
     try {
       List<Map<String, dynamic>> tpList = [];
 
+      // Gestion spécifique CARNET
       if (_selectedTypeDevis!.lgTYPEVENTEID == "3") {
-        final clientTP = _selectedClient!.tiersPayants;
-        if (clientTP != null && clientTP.isNotEmpty) {
-          tpList = clientTP.map((tp) => {
-            "lgTIERSPAYANTID": tp.lgTIERSPAYANTID,
-            "intPOURCENTAGE": tp.intPOURCENTAGE,
-            "intPRIORITY": tp.intPRIORITY ?? 1,
-            "lgCOMPTETIERSIAYANTID": tp.lgCOMPTETIERSIAYANTID ?? tp.lgTIERSPAYANTID,
-          }).toList();
+        // Vérification de type stricte
+        if (_selectedClient is ClientCarnetModel) {
+          final clientCarnet = _selectedClient as ClientCarnetModel;
+          final tiersPayants = clientCarnet.tiersPayants;
+
+          if (tiersPayants.isNotEmpty) {
+            tpList = tiersPayants.map((tp) => {
+              "lgTIERSPAYANTID": tp.lgTIERSPAYANTID,
+              "intPOURCENTAGE": tp.intPOURCENTAGE,
+              "intPRIORITY": tp.intPRIORITY ?? 1,
+              "lgCOMPTETIERSIAYANTID": tp.lgCOMPTETIERSIAYANTID ?? tp.lgTIERSPAYANTID,
+            }).toList();
+          } else {
+            _errorMessage = "Erreur : Ce client Carnet n'a pas de Tiers-Payant configuré.";
+            _isLoading = false;
+            notifyListeners();
+            return false;
+          }
         } else {
-          _errorMessage = "Erreur : Client sans assurance pour mode CARNET.";
+          _errorMessage = "Erreur : Le client sélectionné n'est pas un client Carnet valide.";
           _isLoading = false;
           notifyListeners();
           return false;
@@ -316,15 +329,15 @@ class ProformaProvider with ChangeNotifier {
       _currentSaleRef = item.strREF;
 
       final clientDetails = await _apiService.getClientForSale(item.clientId, _currentSaleId!);
-      _selectedClient = clientDetails ?? ClientModel(
+      // Note: getClientForSale renvoie maintenant un objet typé (Carnet ou Comptant)
+      // Si null, on crée un comptant par défaut avec juste le nom
+      _selectedClient = clientDetails ?? ClientComptantModel(
           lgCLIENTID: item.clientId,
           strFIRSTNAME: '',
           strLASTNAME: '',
-          fullName: item.strClientFullName,
-          tiersPayants: []
+          strADRESSE: null // Pas d'adresse connue dans le résumé
       );
 
-      // On déduit l'ID du type de vente : 3 si c'est "CARNET", sinon 1 par défaut
       String typeVenteId = (item.strTYPEVENTE == "CARNET" || item.strTYPEVENTE == "Carnet") ? "3" : "1";
 
       _selectedTypeDevis = TypeDevis(
