@@ -31,6 +31,9 @@ class _VenteTabState extends State<VenteTab> {
   String _scanBuffer = "";
   bool _isPopupOpen = false;
 
+  // VERROU DE SÉCURITÉ : Empêche l'ajout multiple si on appuie trop vite ou si le scan envoie deux signaux
+  bool _isProcessing = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,7 +44,7 @@ class _VenteTabState extends State<VenteTab> {
   }
 
   void _requestSearchFocus() {
-    if (mounted && !_isPopupOpen) {
+    if (mounted && !_isPopupOpen && !_isProcessing) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     }
   }
@@ -60,6 +63,14 @@ class _VenteTabState extends State<VenteTab> {
     final sale = Provider.of<SaleProvider>(context, listen: false);
     if (!sale.isQuickScanMode) return;
 
+    // CORRECTION CRITIQUE (Cas 1 & 2) :
+    // Si le champ de texte a le focus, c'est LUI qui va gérer la validation via "onSubmitted".
+    // On arrête ici pour ne pas que le KeyboardListener déclenche une 2ème validation en parallèle.
+    if (_searchFocusNode.hasFocus) {
+      _scanBuffer = "";
+      return;
+    }
+
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.enter) {
         if (_scanBuffer.isNotEmpty) {
@@ -73,36 +84,59 @@ class _VenteTabState extends State<VenteTab> {
   }
 
   void _onSearchChanged() {
+    // En mode Scan Rapide, on désactive le debounce automatique pour éviter les interférences
+    final sale = Provider.of<SaleProvider>(context, listen: false);
+    if (sale.isQuickScanMode) return;
+
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       if (_searchController.text.trim().isNotEmpty) {
         _performSearch(_searchController.text.trim(), isScan: false);
       } else {
-        Provider.of<SaleProvider>(context, listen: false).clearSearchResults();
+        sale.clearSearchResults();
       }
     });
   }
 
   Future<void> _performSearch(String query, {required bool isScan}) async {
+    // SÉCURITÉ ANTI-DOUBLON
+    if (_isProcessing) return;
+    if (query.isEmpty) return;
+
     final provider = Provider.of<SaleProvider>(context, listen: false);
-    await provider.searchProducts(query);
 
-    if (!mounted) return;
+    setState(() => _isProcessing = true);
 
-    final results = provider.searchResults;
+    try {
+      await provider.searchProducts(query);
 
-    if (results.length == 1) {
-      final product = results.first;
-      if (provider.isQuickScanMode) {
-        provider.clearSearchResults();
+      if (!mounted) return;
+
+      final results = provider.searchResults;
+
+      if (results.length == 1) {
+        final product = results.first;
+
+        // Nettoyage immédiat pour éviter qu'un 2ème scan ne passe pendant le traitement
         _searchController.clear();
-        await provider.addProductToCart(product, 1, isPrevente: widget.isPrevente);
-        _requestSearchFocus();
-      } else {
-        _showQuantityDialog(product);
+        provider.clearSearchResults();
+
+        if (provider.isQuickScanMode) {
+          await provider.addProductToCart(product, 1, isPrevente: widget.isPrevente);
+          // On garde le focus pour enchainer
+        } else {
+          // Mode normal : on ouvre la popup quantité
+          await _showQuantityDialog(product);
+        }
+      } else if (results.isNotEmpty) {
+        _showSelectionDialog(results);
       }
-    } else if (results.isNotEmpty) {
-      _showSelectionDialog(results);
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        // On redonne le focus si aucune popup n'est ouverte
+        if (!_isPopupOpen) _requestSearchFocus();
+      }
     }
   }
 
@@ -153,13 +187,13 @@ class _VenteTabState extends State<VenteTab> {
     });
   }
 
-  void _showQuantityDialog(ProductSearchResult product) {
+  Future<void> _showQuantityDialog(ProductSearchResult product) async {
     final qteController = TextEditingController(text: '1');
     qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
 
     setState(() => _isPopupOpen = true);
 
-    showDialog(
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
@@ -187,20 +221,23 @@ class _VenteTabState extends State<VenteTab> {
           }, child: const Text('Ajouter')),
         ],
       ),
-    ).then((_) {
-      if (mounted) {
-        setState(() => _isPopupOpen = false);
-        _requestSearchFocus();
-      }
-    });
+    );
+
+    if (mounted) {
+      setState(() => _isPopupOpen = false);
+      _requestSearchFocus();
+    }
   }
 
   void _executeAdd(ProductSearchResult product, int qty) async {
     final provider = Provider.of<SaleProvider>(context, listen: false);
+    // On efface tout avant d'ajouter pour éviter les résidus
     provider.clearSearchResults();
     _searchController.clear();
+
     await provider.addProductToCart(product, qty, isPrevente: widget.isPrevente);
-    _requestSearchFocus();
+    // Le focus est redemandé via le `finally` de `_performSearch` ou ici
+    if (!_isProcessing) _requestSearchFocus();
   }
 
   // --- MÉTHODES D'IMPRESSION ET PAIEMENT ---
