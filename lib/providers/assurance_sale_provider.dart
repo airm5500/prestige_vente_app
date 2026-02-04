@@ -1,5 +1,4 @@
 // lib/providers/assurance_sale_provider.dart
-// 10/11/2025 12:30 (Modification Logique Remplacement TP)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
@@ -38,6 +37,10 @@ class AssuranceSaleProvider with ChangeNotifier {
   String? _errorMessage;
   AssuranceStep _currentStep = AssuranceStep.clientSearch;
 
+  // MODE SCAN RAPIDE
+  bool _isQuickScanMode = false;
+  bool get isQuickScanMode => _isQuickScanMode;
+
   List<ClientAssurance> _clientSearchResults = [];
   ClientAssurance? _selectedClient;
   List<AyantDroit> _ayantDroitList = [];
@@ -74,6 +77,11 @@ class AssuranceSaleProvider with ChangeNotifier {
 
   AssuranceSaleProvider(this._apiService, this._authenticatedUserId);
 
+  void toggleQuickScanMode() {
+    _isQuickScanMode = !_isQuickScanMode;
+    notifyListeners();
+  }
+
   void _setLoading(bool loading) {
     _isLoading = loading;
     notifyListeners();
@@ -108,7 +116,7 @@ class AssuranceSaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // --- ÉTAPE 1: GESTION CLIENT (Inchangé) ---
+  // --- ÉTAPE 1: GESTION CLIENT ---
   Future<void> searchClient(String query) async { if (query.length < 2) { _clientSearchResults = []; notifyListeners(); return; } _setLoading(true); _clientSearchResults = await _apiService.searchClientAssurance(query); _setLoading(false); }
   void clearClientSearch() { _clientSearchResults = []; notifyListeners(); }
   Future<void> selectClient(ClientAssurance client) async { _setLoading(true); _selectedClient = client; _clientSearchResults = []; _activeTiersPayants = client.tiersPayants.map((tp) => ActiveTiersPayant(originalData: tp, taux: tp.taux) ).toList(); _bonNumbers = {}; for (var tp in _activeTiersPayants) { _bonNumbers[tp.compteTp] = ""; } try { _selectedAyantDroit = client.ayantDroits.firstWhere( (ad) => ad.lgAYANTSDROITSID == client.lgCLIENTID ); } catch (e) { _selectedAyantDroit = client.ayantDroits.isNotEmpty ? client.ayantDroits.first : null; } _ayantDroitList = client.ayantDroits; _currentStep = AssuranceStep.bonAndAyantDroit; _setLoading(false); }
@@ -123,110 +131,44 @@ class AssuranceSaleProvider with ChangeNotifier {
   void toggleTiersPayant(ClientTiersPayant tp, bool isActive) { if (isActive) { if (_activeTiersPayants.indexWhere((atp) => atp.originalData.compteTp == tp.compteTp) == -1) { _activeTiersPayants.add(ActiveTiersPayant(originalData: tp, taux: tp.taux)); _bonNumbers[tp.compteTp] = ""; } } else { _activeTiersPayants.removeWhere((atp) => atp.originalData.compteTp == tp.compteTp); _bonNumbers.remove(tp.compteTp); } _saleSummary = null; notifyListeners(); }
   void updateTiersPayantTaux(String compteTp, int newTaux) { try { final tp = _activeTiersPayants.firstWhere((atp) => atp.originalData.compteTp == compteTp); tp.taux = newTaux; _saleSummary = null; notifyListeners(); } catch (e) { } }
 
-  // MODIFICATION : Nouvelle logique pour "Remplacer/Changer" un TP
   Future<bool> replaceTiersPayant(ActiveTiersPayant activeTp, TiersPayantAssurance newTpInfo, int newTaux) async {
     if (_selectedClient == null) return false;
     _setLoading(true);
     _setError(null);
-
-    // 1. On récupère l'ID du TP qu'on veut "remplacer" (pour le désactiver plus tard)
     final String oldCompteTp = activeTp.compteTp;
-
-    // 2. Construction de la liste pour l'API
     List<Map<String, dynamic>> tiersPayantsPayload = [];
-
-    // A. On ajoute le NOUVEAU TP en premier (Order 1)
     tiersPayantsPayload.add({
-      "bIsAbsolute": false,
-      "compteTp": "", // Vide = Création
-      "dbPLAFONDENCOURS": 0,
-      "lgTIERSPAYANTID": newTpInfo.lgTIERSPAYANTID,
-      "numSecurity": activeTp.numSecurity, // On reprend le matricule de celui qu'on édite
-      "order": 1, // Priorité absolue pour l'affichage
-      "taux": newTaux,
-      "tpFullName": newTpInfo.strFULLNAME
+      "bIsAbsolute": false, "compteTp": "", "dbPLAFONDENCOURS": 0,
+      "lgTIERSPAYANTID": newTpInfo.lgTIERSPAYANTID, "numSecurity": activeTp.numSecurity, "order": 1, "taux": newTaux, "tpFullName": newTpInfo.strFULLNAME
     });
-
-    // B. On remet TOUS les anciens TPs (y compris celui qu'on "remplace")
-    // en décalant leur ordre.
     int orderCounter = 2;
     for (var tp in _selectedClient!.tiersPayants) {
       tiersPayantsPayload.add({
-        "bIsAbsolute": false,
-        "compteTp": tp.compteTp,
-        "dbPLAFONDENCOURS": 0,
-        "lgTIERSPAYANTID": tp.lgTIERSPAYANTID,
-        "numSecurity": tp.numSecurity,
-        "order": orderCounter++, // On les pousse vers le bas
-        "taux": tp.taux,
-        "tpFullName": tp.tpFullName
+        "bIsAbsolute": false, "compteTp": tp.compteTp, "dbPLAFONDENCOURS": 0,
+        "lgTIERSPAYANTID": tp.lgTIERSPAYANTID, "numSecurity": tp.numSecurity, "order": orderCounter++, "taux": tp.taux, "tpFullName": tp.tpFullName
       });
     }
-
-    // 3. Appel API pour sauvegarder
-    final updatedClient = await _apiService.updateClientAssurance(
-        existingClient: _selectedClient!,
-        tiersPayantsPayload: tiersPayantsPayload
-    );
-
+    final updatedClient = await _apiService.updateClientAssurance( existingClient: _selectedClient!, tiersPayantsPayload: tiersPayantsPayload );
     if (updatedClient != null) {
-      _selectedClient = updatedClient;
-      _clientSearchResults = [];
-
-      // 4. Reconstruction des Tiers Payants ACTIFS pour cette vente
-      // Logique demandée :
-      // - Le NOUVEAU est activé.
-      // - L'ANCIEN (celui qu'on a "édité") est désactivé.
-      // - Les AUTRES gardent leur état d'avant.
-
-      // On sauvegarde les IDs des TPs qui étaient actifs (sauf celui qu'on remplace)
-      final Set<String> previouslyActiveIds = _activeTiersPayants
-          .where((atp) => atp.compteTp != oldCompteTp) // Exclut l'ancien
-          .map((atp) => atp.originalData.lgTIERSPAYANTID)
-          .toSet();
-
-      _activeTiersPayants = [];
-      _bonNumbers = {};
-
+      _selectedClient = updatedClient; _clientSearchResults = [];
+      final Set<String> previouslyActiveIds = _activeTiersPayants.where((atp) => atp.compteTp != oldCompteTp).map((atp) => atp.originalData.lgTIERSPAYANTID).toSet();
+      _activeTiersPayants = []; _bonNumbers = {};
       for (var tp in updatedClient.tiersPayants) {
         bool shouldBeActive = false;
-
-        // Si c'est le nouveau (on le reconnait car il est en premier / ordre 1 et a le bon ID)
-        if (tp.order == 1 && tp.lgTIERSPAYANTID == newTpInfo.lgTIERSPAYANTID) {
-          shouldBeActive = true;
-        }
-        // Si c'était un autre TP qui était déjà actif (et ce n'est pas l'ancien)
-        else if (previouslyActiveIds.contains(tp.lgTIERSPAYANTID)) {
-          shouldBeActive = true;
-        }
-
-        // (Note: L'ancien TP ne sera pas activé car il a été exclu de previouslyActiveIds
-        // et il n'est pas le nouveau)
-
-        if (shouldBeActive) {
-          _activeTiersPayants.add(ActiveTiersPayant(originalData: tp, taux: tp.taux));
-          _bonNumbers[tp.compteTp] = ""; // On initialise le bon vide pour le nouveau
-        }
+        if (tp.order == 1 && tp.lgTIERSPAYANTID == newTpInfo.lgTIERSPAYANTID) { shouldBeActive = true; }
+        else if (previouslyActiveIds.contains(tp.lgTIERSPAYANTID)) { shouldBeActive = true; }
+        if (shouldBeActive) { _activeTiersPayants.add(ActiveTiersPayant(originalData: tp, taux: tp.taux)); _bonNumbers[tp.compteTp] = ""; }
       }
-
-      _saleSummary = null;
-      notifyListeners();
-      _setLoading(false);
-      return true;
-    } else {
-      _setError("Échec de la modification du tiers payant.");
-      _setLoading(false);
-      return false;
-    }
+      _saleSummary = null; notifyListeners(); _setLoading(false); return true;
+    } else { _setError("Échec de la modification du tiers payant."); _setLoading(false); return false; }
   }
-  // FIN MODIFICATION
 
   Future<bool> createAyantDroit(String firstName, String lastName, String numSecu) async { if (_selectedClient == null) return false; _setLoading(true); _setError(null); final newAyantDroit = await _apiService.createAyantDroit( clientId: _selectedClient!.lgCLIENTID, firstName: firstName, lastName: lastName, numSecu: numSecu, ); if (newAyantDroit != null) { await loadAyantDroits(); try { _selectedAyantDroit = _ayantDroitList.firstWhere((ad) => ad.lgAYANTSDROITSID == newAyantDroit.lgAYANTSDROITSID); } catch(e) { _selectedAyantDroit = _ayantDroitList.isNotEmpty ? _ayantDroitList.first : null; } _setLoading(false); return true; } else { _setError("Échec de la création de l'ayant droit."); _setLoading(false); return false; } }
   void updateBonNumber(String compteTpId, String numBon) { if (_bonNumbers.containsKey(compteTpId)) { _bonNumbers[compteTpId] = numBon; } }
   bool validateBonsAndProceed() { _currentStep = AssuranceStep.productSearch; notifyListeners(); return true; }
   void returnToBonStep() { _currentStep = AssuranceStep.bonAndAyantDroit; _saleSummary = null; notifyListeners(); }
 
-  // --- ÉTAPE 3: GESTION DU PANIER (Inchangé) ---
+  // --- ÉTAPE 3: GESTION DU PANIER ---
   Future<void> searchProducts(String query) async { if (query.length < 3) { _productSearchResults = []; notifyListeners(); return; } _setLoading(true); _productSearchResults = await _apiService.searchProducts(query); _setLoading(false); }
   void clearProductSearch() { _productSearchResults = []; notifyListeners(); }
   List<Map<String, dynamic>> _buildTiersPayantPayload() { return _activeTiersPayants.map((tp) { return { "compteTp": tp.compteTp, "numBon": _bonNumbers[tp.compteTp] ?? "", "taux": tp.taux }; }).toList(); }
@@ -235,7 +177,7 @@ class AssuranceSaleProvider with ChangeNotifier {
   Future<void> removeProductFromCart(String itemId) async { _setLoading(true); _setError(null); final success = await _apiService.removeItemFromSale(itemId); if (success) { await _refreshCart(); } else { _setError("Erreur lors de la suppression."); } _setLoading(false); }
   Future<void> updateCartItem(SaleItemDetail item, int newQuantity, int newPrice) async { _setLoading(true); _setError(null); final success = await _apiService.updateSaleItem( itemId: item.lgPREENREGISTREMENTDETAILID, produitId: item.lgFAMILLEID, qte: newQuantity, itemPu: newPrice, ); if (success) { await _refreshCart(); } else { _setError("Erreur de mise à jour."); } _setLoading(false); }
 
-  // --- ÉTAPE 4: CALCUL NET (Inchangé) ---
+  // --- ÉTAPE 4: CALCUL NET ---
   Future<void> calculateNet() async { if (_currentVenteId == null) return; _setLoading(true); _setError(null); _saleSummary = null; final tiersPayantPayload = _buildTiersPayantPayload(); final summary = await _apiService.calculateNetAssurance( venteId: _currentVenteId!, tierspayants: tiersPayantPayload, ); if (summary != null) { _saleSummary = summary; } else { _setError("Erreur lors du calcul du net."); } _setLoading(false); }
 
   // --- ÉTAPE 5 & 6: VALIDATION ---
