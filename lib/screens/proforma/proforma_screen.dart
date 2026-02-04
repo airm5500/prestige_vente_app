@@ -249,7 +249,7 @@ class _ProformaScreenState extends State<ProformaScreen> {
           return ListTile(
             title: Text(p.strNAME), subtitle: Text("Stock: ${p.intNUMBERAVAILABLE} | ${Constants.formatNumber(p.intPRICE)} F"),
             onTap: () {
-              provider.clearSearchResults(); // Nettoie avant d'ouvrir la quantité
+              provider.clearSearchResults();
               Navigator.pop(ctx);
               _checkStockAndAdd(p);
             },
@@ -315,7 +315,6 @@ class _ProformaScreenState extends State<ProformaScreen> {
                         items: _typesDevis.map((t) => DropdownMenuItem(value: t, child: Text(t.strNAME, style: const TextStyle(fontSize: 13)))).toList(),
                         onChanged: (val) {
                           provider.setTypeDevis(val);
-                          // Si un type est sélectionné, on peut ouvrir la recherche client (après un court délai pour l'UX)
                           if (val != null) Future.delayed(const Duration(milliseconds: 200), () => _showClientSearchDialog());
                         },
                       )),
@@ -382,7 +381,6 @@ class _ProformaScreenState extends State<ProformaScreen> {
                           );
                         },
                       ),
-                      // Overlay de recherche (caché si popup ouverte)
                       if (!provider.isQuickScanMode && !_isPopupOpen && provider.searchResults.isNotEmpty)
                         Container(
                           color: Colors.white.withAlpha(245),
@@ -475,14 +473,11 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
   }
 
   void _search(String q) {
-    // Utilisation du provider pour la recherche, ce qui résout le bug "searchClients not defined in ApiService"
-    // et gère automatiquement le filtre selon le Type de Devis.
     Provider.of<ProformaProvider>(context, listen: false).searchClients(q);
   }
 
   @override
   Widget build(BuildContext context) {
-    // On consomme le Provider pour afficher les résultats stockés dans 'clientSearchResults'
     return Consumer<ProformaProvider>(
       builder: (context, provider, child) {
         return AlertDialog(
@@ -502,12 +497,28 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
                   : provider.clientSearchResults.isEmpty
                   ? const Center(child: Text("Saisissez une recherche."))
                   : ListView.separated(
-                itemCount: provider.clientSearchResults.length, separatorBuilder: (_,__) => const Divider(),
+                itemCount: provider.clientSearchResults.length,
+                separatorBuilder: (_,__) => const Divider(height: 1),
                 itemBuilder: (ctx, i) {
                   final c = provider.clientSearchResults[i];
+                  // Vérification du type de client pour adapter l'affichage
+                  final bool isCarnet = c is ClientCarnetModel;
+
                   return ListTile(
-                    title: Text(c.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text("Nom: ${c.strLASTNAME}"),
+                    leading: CircleAvatar(
+                      backgroundColor: isCarnet ? Colors.blue.shade100 : Colors.grey.shade200,
+                      child: Icon(
+                        isCarnet ? Icons.local_hospital : Icons.person,
+                        color: isCarnet ? Colors.blue.shade800 : Colors.grey.shade600,
+                      ),
+                    ),
+                    title: Text(
+                      "${c.strFIRSTNAME} ${c.strLASTNAME}",
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: isCarnet
+                        ? Text("Matricule: ${(c as ClientCarnetModel).strNUMEROSECURITESOCIAL ?? 'N/A'}", style: TextStyle(color: Colors.blue.shade700))
+                        : const Text("Client Standard"),
                     onTap: () => Navigator.pop(context, c),
                   );
                 },
