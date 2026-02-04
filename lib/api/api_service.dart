@@ -1,6 +1,7 @@
 // lib/api/api_service.dart
 // 10/11/2025 09:00 (Ajout updateClientAssurance)
 import 'package:dio/dio.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -600,39 +601,41 @@ class ApiService {
     }
   }
 
-  // Création Devis (1er item)
+  // lib/api/api_service.dart
+
+// 1. Pour la création initiale du devis
   Future<Map<String, dynamic>?> addFirstDevisItem({
     required String clientId,
     required String typeVenteId,
     required String produitId,
     required int itemPu,
     required int qte,
+    List<Map<String, dynamic>>? tiersPayants, // Requis pour le mode carnet
   }) async {
     try {
-      final data = {
+      final response = await _dio.post('/vente/devis', data: {
         "bonRef": "",
         "clientId": clientId,
         "devis": true,
         "itemPu": itemPu,
-        "natureVenteId": "1", // Fixe selon demande
+        "natureVenteId": 1,
         "produitId": produitId,
         "qte": qte,
         "qteServie": qte,
         "remiseId": null,
-        "tierspayants": [], // Simplifié pour exemple, à enrichir si tiers payant
+        "tierspayants": tiersPayants ?? [], // Envoi des assurances
         "typeVenteId": typeVenteId,
         "userVendeurId": null,
         "venteId": null
-      };
-      final response = await _dio.post('/vente/devis', data: data);
-      if (response.statusCode == 200 && response.data['success'] == true) {
-        return response.data['data'];
-      }
+      });
+      return response.statusCode == 200 ? response.data : null;
+    } catch (e) {
+      debugPrint("Erreur addFirstDevisItem: $e");
       return null;
-    } catch (e) { return null; }
+    }
   }
 
-  // Ajout item suivant (Proforma)
+// 2. Pour l'ajout d'articles (Proforma existante ou suite de saisie)
   Future<bool> addNextDevisItem({
     required String venteId,
     required String clientId,
@@ -640,26 +643,24 @@ class ApiService {
     required String produitId,
     required int itemPu,
     required int qte,
+    List<Map<String, dynamic>>? tiersPayants,
   }) async {
     try {
-      final data = {
-        "bonRef": "",
+      final response = await _dio.post('/vente/add/item', data: {
+        "venteId": venteId,
         "clientId": clientId,
-        "devis": true,
-        "itemPu": itemPu,
-        "natureVenteId": "1",
-        "produitId": produitId,
-        "qte": qte,
-        "qteServie": qte,
-        "remiseId": null,
-        "tierspayants": [],
         "typeVenteId": typeVenteId,
-        "userVendeurId": null,
-        "venteId": venteId
-      };
-      final response = await _dio.post('/vente/add/item', data: data);
+        "produitId": produitId,
+        "itemPu": itemPu,
+        "qte": qte,
+        "devis": true,
+        "tierspayants": tiersPayants ?? [],
+      });
       return response.statusCode == 200 && response.data['success'] == true;
-    } catch (e) { return false; }
+    } catch (e) {
+      debugPrint("Erreur addNextDevisItem: $e");
+      return false;
+    }
   }
 
   // Récupérer le client lié à une vente spécifique (Logique rappel Proforma)

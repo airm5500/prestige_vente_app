@@ -1,5 +1,65 @@
 // lib/api/models/proforma_models.dart
 
+/// Modèle pour les Tiers-Payants (Assurances) rattachés à un client
+class TiersPayantModel {
+  final String lgTIERSPAYANTID;
+  final String strNAME;
+  final int intPOURCENTAGE;
+  final int intPRIORITY;
+  final String? lgCOMPTETIERSIAYANTID;
+
+  TiersPayantModel({
+    required this.lgTIERSPAYANTID,
+    required this.strNAME,
+    required this.intPOURCENTAGE,
+    required this.intPRIORITY,
+    this.lgCOMPTETIERSIAYANTID,
+  });
+
+  factory TiersPayantModel.fromJson(Map<String, dynamic> json) {
+    return TiersPayantModel(
+      lgTIERSPAYANTID: json['lgTIERSPAYANTID'] ?? '',
+      strNAME: json['strNAME'] ?? json['strLASTNAME'] ?? '',
+      intPOURCENTAGE: (json['intPOURCENTAGE'] as num?)?.toInt() ?? 0,
+      intPRIORITY: (json['intPRIORITY'] as num?)?.toInt() ?? 1,
+      lgCOMPTETIERSIAYANTID: json['lgCOMPTETIERSIAYANTID'] ?? json['compteTp'],
+    );
+  }
+}
+
+class ClientModel {
+  final String lgCLIENTID;
+  final String strFIRSTNAME;
+  final String strLASTNAME;
+  final String fullName;
+  final String? lgTYPECLIENTID; // AJOUTE CETTE LIGNE
+  final List<TiersPayantModel>? tiersPayants;
+
+  ClientModel({
+    required this.lgCLIENTID,
+    required this.strFIRSTNAME,
+    required this.strLASTNAME,
+    required this.fullName,
+    this.lgTYPECLIENTID, // AJOUTE CETTE LIGNE
+    this.tiersPayants,
+  });
+
+  factory ClientModel.fromJson(Map<String, dynamic> json) {
+    return ClientModel(
+      lgCLIENTID: json['lgCLIENTID'] ?? '',
+      strFIRSTNAME: json['strFIRSTNAME'] ?? '',
+      strLASTNAME: json['strLASTNAME'] ?? '',
+      fullName: json['fullName'] ?? '',
+      lgTYPECLIENTID: json['lgTYPECLIENTID']?.toString(), // AJOUTE CETTE LIGNE
+      tiersPayants: json['tiersPayants'] != null
+          ? (json['tiersPayants'] as List)
+          .map((i) => TiersPayantModel.fromJson(i))
+          .toList()
+          : [],
+    );
+  }
+}
+
 class ProformaListItem {
   final String lgPREENREGISTREMENTID;
   final String strREF;
@@ -24,7 +84,6 @@ class ProformaListItem {
   });
 
   factory ProformaListItem.fromJson(Map<String, dynamic> json) {
-
     String cId = '';
     if (json['client'] != null && json['client']['lgCLIENTID'] != null) {
       cId = json['client']['lgCLIENTID'];
@@ -59,31 +118,6 @@ class TypeDevis {
   }
 }
 
-class ClientModel {
-  final String lgCLIENTID;
-  final String strFIRSTNAME;
-  final String strLASTNAME;
-  final String fullName;
-
-  ClientModel({
-    required this.lgCLIENTID,
-    required this.strFIRSTNAME,
-    required this.strLASTNAME,
-    required this.fullName,
-  });
-
-  factory ClientModel.fromJson(Map<String, dynamic> json) {
-    return ClientModel(
-      lgCLIENTID: json['lgCLIENTID'] ?? '',
-      strFIRSTNAME: json['strFIRSTNAME'] ?? '',
-      strLASTNAME: json['strLASTNAME'] ?? '',
-      fullName: json['fullName'] ?? "${json['strFIRSTNAME']} ${json['strLASTNAME']}",
-    );
-  }
-}
-
-// Dans lib/api/models/proforma_models.dart
-
 class RemiseModel {
   final String lgREMISEID;
   final String strNAME;
@@ -99,8 +133,6 @@ class RemiseModel {
 
   factory RemiseModel.fromJson(Map<String, dynamic> json) {
     double taux = 0.0;
-
-    // Gestion robuste du taux (qui est un objet dans votre JSON)
     if (json['dblTAUX'] is Map) {
       taux = (json['dblTAUX']['parsedValue'] as num?)?.toDouble() ?? 0.0;
     } else if (json['dblTAUX'] is num) {
@@ -114,5 +146,4 @@ class RemiseModel {
       dblTAUX: taux,
     );
   }
-
 }

@@ -1,6 +1,7 @@
 // lib/screens/proforma/proforma_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/proforma_models.dart';
@@ -17,27 +18,36 @@ class ProformaScreen extends StatefulWidget {
 }
 
 class _ProformaScreenState extends State<ProformaScreen> {
-  // Controleurs
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final FocusNode _keyboardFocusNode = FocusNode();
 
-  // Data locale pour sélection
   List<TypeDevis> _typesDevis = [];
   List<RemiseModel> _availableRemises = [];
   bool _isLoadingInit = false;
   bool _isSearching = false;
+  bool _isPopupOpen = false;
+  String _scanBuffer = "";
   Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
     _initData();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _requestSearchFocus());
+  }
+
+  void _requestSearchFocus() {
+    if (mounted && !_isPopupOpen) {
+      FocusScope.of(context).requestFocus(_searchFocusNode);
+    }
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _keyboardFocusNode.dispose();
     _debounce?.cancel();
     super.dispose();
   }
@@ -57,7 +67,22 @@ class _ProformaScreenState extends State<ProformaScreen> {
     }
   }
 
-  // --- SELECTION CLIENT (Dialog) ---
+  void _handleKeyEvent(KeyEvent event) {
+    final provider = Provider.of<ProformaProvider>(context, listen: false);
+    if (!provider.isQuickScanMode) return;
+
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.enter) {
+        if (_scanBuffer.isNotEmpty) {
+          _performSearch(_scanBuffer.trim(), isScan: true);
+          _scanBuffer = "";
+        }
+      } else if (event.character != null) {
+        _scanBuffer += event.character!;
+      }
+    }
+  }
+
   Future<void> _showClientSearchDialog() async {
     final provider = Provider.of<ProformaProvider>(context, listen: false);
     if (provider.selectedTypeDevis == null) {
@@ -65,27 +90,27 @@ class _ProformaScreenState extends State<ProformaScreen> {
       return;
     }
 
+    setState(() => _isPopupOpen = true);
     ClientModel? selected = await showDialog<ClientModel>(
       context: context,
       builder: (ctx) => _ClientSearchDialog(),
     );
+    setState(() => _isPopupOpen = false);
 
     if (selected != null) {
       provider.setClient(selected);
-      // Focus recherche produit
-      Future.delayed(const Duration(milliseconds: 100), () => _searchFocusNode.requestFocus());
+      _requestSearchFocus();
     }
   }
 
-  // --- RECHERCHE PRODUIT ---
   void _onSearchChanged(String value) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      if (value.trim().isNotEmpty) _performSearch(value.trim());
+      if (value.trim().isNotEmpty) _performSearch(value.trim(), isScan: false);
     });
   }
 
-  Future<void> _performSearch(String query) async {
+  Future<void> _performSearch(String query, {required bool isScan}) async {
     final provider = Provider.of<ProformaProvider>(context, listen: false);
     if (provider.selectedClient == null) {
       _showError("Veuillez sélectionner un Client");
@@ -93,28 +118,25 @@ class _ProformaScreenState extends State<ProformaScreen> {
     }
 
     setState(() => _isSearching = true);
-    final api = Provider.of<ApiService>(context, listen: false);
-    try {
-      final results = await api.searchProducts(query);
-      if (!mounted) return;
-      if (results.length == 1) {
-        if (query.length > 5 && (query == results.first.intCIP || query == results.first.lgFAMILLEID)) {
-          _checkStockAndAdd(results.first);
-        } else {
-          _showSelectionDialog(results);
-        }
-      } else if (results.isNotEmpty) {
-        _showSelectionDialog(results);
-      }
-    } catch (e) {
-      _showError("Erreur: $e");
-    } finally {
-      if(mounted) setState(() => _isSearching = false);
+    await provider.searchProducts(query);
+
+    if (!mounted) return;
+    final results = provider.searchResults;
+
+    if (results.length == 1) {
+      // Nettoyage immédiat pour éviter la superposition en arrière-plan
+      provider.clearSearchResults();
+      _checkStockAndAdd(results.first, autoAdd: provider.isQuickScanMode);
+    } else if (results.isNotEmpty) {
+      _showSelectionDialog(results);
     }
+
+    setState(() => _isSearching = false);
   }
 
-  Future<void> _checkStockAndAdd(ProductSearchResult product) async {
+  Future<void> _checkStockAndAdd(ProductSearchResult product, {bool autoAdd = false}) async {
     if (product.intNUMBERAVAILABLE <= 0) {
+      setState(() => _isPopupOpen = true);
       final bool? force = await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -126,43 +148,69 @@ class _ProformaScreenState extends State<ProformaScreen> {
           ],
         ),
       );
+      setState(() => _isPopupOpen = false);
       if (force != true) {
-        _searchController.clear(); _searchFocusNode.requestFocus(); return;
+        _searchController.clear(); _requestSearchFocus(); return;
       }
     }
-    _addProduct(product);
-  }
 
-  Future<void> _addProduct(ProductSearchResult product) async {
-    final provider = Provider.of<ProformaProvider>(context, listen: false);
-    final success = await provider.addProduct(product, 1);
-    if (mounted && success) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${product.strNAME} ajouté"), duration: const Duration(milliseconds: 500), backgroundColor: Colors.green));
-      _searchController.clear();
+    if (autoAdd) {
+      _addProduct(product, 1);
+    } else {
+      _showQuantityDialog(product);
     }
-    _searchFocusNode.requestFocus();
   }
 
-  // Dans lib/screens/proforma/proforma_screen.dart
+  Future<void> _addProduct(ProductSearchResult product, int qty) async {
+    final provider = Provider.of<ProformaProvider>(context, listen: false);
+    final success = await provider.addProduct(product, qty);
+    if (mounted && success) {
+      _searchController.clear();
+      provider.clearSearchResults();
+    }
+    _requestSearchFocus();
+  }
+
+  void _showQuantityDialog(ProductSearchResult product) {
+    final qteController = TextEditingController(text: '1');
+    qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
+    setState(() => _isPopupOpen = true);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(product.strNAME),
+        content: TextField(
+          controller: qteController,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Quantité'),
+          keyboardType: TextInputType.number,
+          onSubmitted: (val) { Navigator.pop(ctx); _addProduct(product, int.tryParse(val) ?? 1); },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+          ElevatedButton(onPressed: () { Navigator.pop(ctx); _addProduct(product, int.tryParse(qteController.text) ?? 1); }, child: const Text('Ajouter')),
+        ],
+      ),
+    ).then((_) {
+      setState(() => _isPopupOpen = false);
+      _requestSearchFocus();
+    });
+  }
 
   void _showRemiseDialog() {
     if (_availableRemises.isEmpty) {
-      // Si ça s'affiche, c'est que le parsing a échoué ou que l'API renvoie vide
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Aucune remise disponible chargée."), backgroundColor: Colors.orange)
-      );
-      // On tente de recharger pour la prochaine fois
       _initData();
       return;
     }
-
+    setState(() => _isPopupOpen = true);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Sélectionner une Remise"),
         content: SizedBox(
           width: double.maxFinite,
-          // Utilisation de shrinkWrap pour éviter les erreurs de taille
           child: ListView.separated(
             shrinkWrap: true,
             itemCount: _availableRemises.length,
@@ -171,30 +219,27 @@ class _ProformaScreenState extends State<ProformaScreen> {
               final r = _availableRemises[index];
               return ListTile(
                 title: Text(r.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text("Code: ${r.strCODE}"),
                 trailing: Text("${r.dblTAUX}%", style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
                 onTap: () {
                   Navigator.pop(ctx);
-                  // Appel de la méthode qui fait le POST vers /vente/remise
                   Provider.of<ProformaProvider>(context, listen: false).applyRemise(r);
                 },
               );
             },
           ),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler"))
-        ],
       ),
-    );
+    ).then((_) {
+      setState(() => _isPopupOpen = false);
+      _requestSearchFocus();
+    });
   }
 
-  // --- UI HELPERS ---
-  String _formatCurrency(int amount) => amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]} ');
   void _showError(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m), backgroundColor: Colors.red));
 
-  // Dialog selection produit (copie de Depot)
   void _showSelectionDialog(List<ProductSearchResult> products) {
+    final provider = Provider.of<ProformaProvider>(context, listen: false);
+    setState(() => _isPopupOpen = true);
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: Text("Résultats (${products.length})"),
       content: SizedBox(width: double.maxFinite, height: 300, child: ListView.separated(
@@ -202,19 +247,26 @@ class _ProformaScreenState extends State<ProformaScreen> {
         itemBuilder: (ctx, index) {
           final p = products[index];
           return ListTile(
-            title: Text(p.strNAME), subtitle: Text("Stock: ${p.intNUMBERAVAILABLE} | ${_formatCurrency(p.intPRICE)} F"),
-            onTap: () { Navigator.pop(ctx); _checkStockAndAdd(p); },
+            title: Text(p.strNAME), subtitle: Text("Stock: ${p.intNUMBERAVAILABLE} | ${Constants.formatNumber(p.intPRICE)} F"),
+            onTap: () {
+              provider.clearSearchResults(); // Nettoie avant d'ouvrir la quantité
+              Navigator.pop(ctx);
+              _checkStockAndAdd(p);
+            },
           );
         },
       )),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Fermer"))],
-    )).then((_) { _searchController.clear(); _searchFocusNode.requestFocus(); });
+    )).then((_) {
+      setState(() => _isPopupOpen = false);
+      _searchController.clear();
+      _requestSearchFocus();
+    });
   }
 
-  // Modification Ligne (copie de Depot)
   void _editLine(SaleLine item) {
     final qC = TextEditingController(text: item.intQUANTITY.toString());
     final pC = TextEditingController(text: item.intPRICEUNITAIR.toString());
+    setState(() => _isPopupOpen = true);
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: Text(item.strNAME),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -225,148 +277,179 @@ class _ProformaScreenState extends State<ProformaScreen> {
         TextButton(onPressed: () { Navigator.pop(ctx); Provider.of<ProformaProvider>(context, listen: false).removeItem(item.lgPREENREGISTREMENTDETAILID); }, child: const Text("Supprimer", style: TextStyle(color: Colors.red))),
         ElevatedButton(onPressed: () { Navigator.pop(ctx); Provider.of<ProformaProvider>(context, listen: false).updateItem(item, int.tryParse(qC.text)??1, int.tryParse(pC.text)??item.intPRICEUNITAIR); }, child: const Text("Valider")),
       ],
-    )).then((_) => _searchFocusNode.requestFocus());
+    )).then((_) {
+      setState(() => _isPopupOpen = false);
+      _requestSearchFocus();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ProformaProvider>(
-      builder: (context, provider, child) {
-        return Scaffold(
-          appBar: AppBar(title: const Text("Nouvelle Proforma")),
-          body: Column(
-            children: [
-              // ZONE 1 : SELECTION
-              Container(
-                padding: const EdgeInsets.all(10), color: Colors.white,
-                child: provider.currentSaleId == null
-                    ? Row(
-                  children: [
-                    // Choix Type
-                    Expanded(flex: 4, child: DropdownButtonFormField<TypeDevis>(
-                      value: provider.selectedTypeDevis,
-                      decoration: const InputDecoration(labelText: "Type", border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
-                      items: _typesDevis.map((t) => DropdownMenuItem(value: t, child: Text(t.strNAME, style: const TextStyle(fontSize: 13)))).toList(),
-                      onChanged: (val) {
-                        provider.setTypeDevis(val);
-                        // CORRECTION 1 : Ouverture auto du dialogue client après un court instant
-                        if (val != null) {
-                          Future.delayed(const Duration(milliseconds: 200), () {
-                            _showClientSearchDialog();
-                          });
-                        }
-                      },
-                    )),
-                    const SizedBox(width: 10),
-                    // Choix Client (Bouton qui ouvre dialog)
-                    Expanded(flex: 6, child: InkWell(
-                      onTap: _showClientSearchDialog,
-                      child: InputDecorator(
-                        decoration: const InputDecoration(labelText: "Client", border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
-                        child: Text(provider.selectedClient?.fullName ?? "Sélectionner...", style: TextStyle(color: provider.selectedClient == null ? Colors.grey : Colors.black, overflow: TextOverflow.ellipsis)),
-                      ),
-                    )),
-                  ],
-                )
-                    : Container( // Mode Lecture Seule (Vente créée)
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.grey.shade100, border: Border.all(color: Colors.grey.shade300)),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return KeyboardListener(
+      focusNode: _keyboardFocusNode,
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: Consumer<ProformaProvider>(
+        builder: (context, provider, child) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text("Nouvelle Proforma"),
+              actions: [
+                IconButton(
+                  icon: Icon(provider.isQuickScanMode ? Icons.bolt : Icons.settings,
+                      color: provider.isQuickScanMode ? Colors.greenAccent : null),
+                  onPressed: () => provider.toggleQuickScanMode(),
+                ),
+              ],
+            ),
+            body: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10), color: Colors.white,
+                  child: provider.currentSaleId == null
+                      ? Row(
                     children: [
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text("Client: ${provider.selectedClient?.fullName}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                        Text("REF: ${provider.currentSaleRef ?? '...'}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueGrey)),
-                      ])),
-                      Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: Colors.purple.shade100, borderRadius: BorderRadius.circular(20)),
-                        child: Text("${provider.cartItems.length} Art.", style: TextStyle(color: Colors.purple.shade800, fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // ZONE 2 : RECHERCHE
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), color: Colors.white,
-                child: TextField(
-                  controller: _searchController, focusNode: _searchFocusNode, onChanged: _onSearchChanged,
-                  decoration: InputDecoration(
-                    hintText: "Saisir nom ou scanner",
-                    prefixIcon: _isSearching ? const Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search),
-                    suffixIcon: IconButton(icon: const Icon(Icons.clear), onPressed: () { _searchController.clear(); _searchFocusNode.requestFocus(); }),
-                    border: const OutlineInputBorder(), filled: true, fillColor: Colors.purple.shade50.withOpacity(0.3),
-                  ),
-                ),
-              ),
-              const Divider(height: 1),
-
-              // ZONE 3 : PANIER
-              Expanded(
-                child: provider.isLoading && !_isSearching ? const Center(child: CircularProgressIndicator()) : provider.cartItems.isEmpty ? const Center(child: Text("Panier vide"))
-                    : ListView.separated(
-                  itemCount: provider.cartItems.length, separatorBuilder: (_,__) => const Divider(height: 1),
-                  itemBuilder: (ctx, index) {
-                    final item = provider.cartItems[index];
-                    return ListTile(dense: true, title: Text(item.strNAME, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text("${_formatCurrency(item.intPRICEUNITAIR)} x ${item.intQUANTITY}"),
-                      trailing: Text("${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
-                      onTap: () => _editLine(item),
-                    );
-                  },
-                ),
-              ),
-
-              // ZONE 4 : FOOTER (Remise + Total + Save)
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, -2))]),
-                child: SafeArea(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Ligne Remise & Total
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          TextButton.icon(
-                              onPressed: provider.cartItems.isEmpty ? null : _showRemiseDialog,
-                              icon: const Icon(Icons.local_offer),
-                              label: Text(provider.selectedRemise?.strNAME ?? "Ajouter Remise")
-                          ),
-                          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                            if (provider.montantRemise > 0) Text("Remise: -${_formatCurrency(provider.montantRemise)}", style: const TextStyle(color: Colors.red, fontSize: 12)),
-                            Text("${_formatCurrency(provider.netAPayer)} F", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.black)),
-                          ])
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      // Bouton Valider (Ici c'est juste "Enregistrer" pour vider l'écran car c'est une proforma)
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: provider.cartItems.isEmpty ? null : () {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Proforma enregistrée"), backgroundColor: Colors.green));
-                            Navigator.pop(context); // Retour liste
-                          },
-                          icon: const Icon(Icons.save),
-                          label: const Text("ENREGISTRER PROFORMA"),
-                          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 15)),
+                      Expanded(flex: 4, child: DropdownButtonFormField<TypeDevis>(
+                        value: provider.selectedTypeDevis,
+                        decoration: const InputDecoration(labelText: "Type", border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
+                        items: _typesDevis.map((t) => DropdownMenuItem(value: t, child: Text(t.strNAME, style: const TextStyle(fontSize: 13)))).toList(),
+                        onChanged: (val) {
+                          provider.setTypeDevis(val);
+                          if (val != null) Future.delayed(const Duration(milliseconds: 200), () => _showClientSearchDialog());
+                        },
+                      )),
+                      const SizedBox(width: 10),
+                      Expanded(flex: 6, child: InkWell(
+                        onTap: _showClientSearchDialog,
+                        child: InputDecorator(
+                          decoration: const InputDecoration(labelText: "Client", border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
+                          child: Text(provider.selectedClient?.fullName ?? "Sélectionner...", style: TextStyle(color: provider.selectedClient == null ? Colors.grey : Colors.black, overflow: TextOverflow.ellipsis)),
                         ),
-                      )
+                      )),
+                    ],
+                  )
+                      : Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.grey.shade100, border: Border.all(color: Colors.grey.shade300)),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text("Client: ${provider.selectedClient?.fullName}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text("REF: ${provider.currentSaleRef ?? '...'}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueGrey)),
+                        ])),
+                        Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: Colors.purple.shade100, borderRadius: BorderRadius.circular(20)),
+                          child: Text("${provider.cartItems.length} Art.", style: TextStyle(color: Colors.purple.shade800, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), color: Colors.white,
+                  child: TextField(
+                    controller: _searchController, focusNode: _searchFocusNode, onChanged: _onSearchChanged,
+                    decoration: InputDecoration(
+                      hintText: provider.isQuickScanMode ? "SCAN RAPIDE ACTIF" : "Saisir nom ou scanner",
+                      prefixIcon: provider.isQuickScanMode ? const Icon(Icons.bolt, color: Colors.green) : const Icon(Icons.search),
+                      suffixIcon: IconButton(icon: const Icon(Icons.clear), onPressed: () { _searchController.clear(); _requestSearchFocus(); }),
+                      border: const OutlineInputBorder(),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: provider.isQuickScanMode ? Colors.green : Colors.grey, width: provider.isQuickScanMode ? 2.5 : 1.0),
+                      ),
+                      filled: true, fillColor: Colors.purple.shade50.withOpacity(0.3),
+                    ),
+                    onSubmitted: (val) => _performSearch(val, isScan: true),
+                  ),
+                ),
+                const Divider(height: 1),
+
+                Expanded(
+                  child: Stack(
+                    children: [
+                      provider.cartItems.isEmpty
+                          ? const Center(child: Text("Panier vide"))
+                          : ListView.separated(
+                        itemCount: provider.cartItems.length, separatorBuilder: (_,__) => const Divider(height: 1),
+                        itemBuilder: (ctx, index) {
+                          final item = provider.cartItems[index];
+                          return ListTile(dense: true, title: Text(item.strNAME, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text("${Constants.formatNumber(item.intPRICEUNITAIR)} x ${item.intQUANTITY}"),
+                            trailing: Text("${Constants.formatNumber(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
+                            onTap: () => _editLine(item),
+                          );
+                        },
+                      ),
+                      // Overlay de recherche (caché si popup ouverte)
+                      if (!provider.isQuickScanMode && !_isPopupOpen && provider.searchResults.isNotEmpty)
+                        Container(
+                          color: Colors.white.withAlpha(245),
+                          child: ListView.separated(
+                            itemCount: provider.searchResults.length,
+                            separatorBuilder: (_, __) => const Divider(),
+                            itemBuilder: (ctx, i) {
+                              final p = provider.searchResults[i];
+                              return ListTile(
+                                title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text("Stock: ${p.intNUMBERAVAILABLE} | ${Constants.formatNumber(p.intPRICE)} F"),
+                                onTap: () => _checkStockAndAdd(p),
+                              );
+                            },
+                          ),
+                        ),
                     ],
                   ),
                 ),
-              )
-            ],
-          ),
-        );
-      },
+
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, -2))]),
+                  child: SafeArea(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            TextButton.icon(
+                                onPressed: provider.cartItems.isEmpty ? null : _showRemiseDialog,
+                                icon: const Icon(Icons.local_offer),
+                                label: Text(provider.selectedRemise?.strNAME ?? "Ajouter Remise")
+                            ),
+                            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                              if (provider.montantRemise > 0) Text("Remise: -${Constants.formatNumber(provider.montantRemise)}", style: const TextStyle(color: Colors.red, fontSize: 12)),
+                              Text("${Constants.formatNumber(provider.netAPayer)} F", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.black)),
+                            ])
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: provider.cartItems.isEmpty ? null : () {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Proforma enregistrée"), backgroundColor: Colors.green));
+                              provider.resetSale();
+                              Navigator.pop(context);
+                            },
+                            icon: const Icon(Icons.save),
+                            label: const Text("ENREGISTRER PROFORMA"),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.purple.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 15)),
+                          ),
+                        )
+                      ],
+                    ),
+                  ),
+                )
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }
 
-// Widget Dialog Recherche Client Dynamique
 class _ClientSearchDialog extends StatefulWidget {
   @override
   __ClientSearchDialogState createState() => __ClientSearchDialogState();
@@ -376,7 +459,7 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
   final TextEditingController _ctrl = TextEditingController();
   List<ClientModel> _results = [];
   bool _loading = false;
-  Timer? _debounce; // Pour la recherche dynamique
+  Timer? _debounce;
 
   @override
   void dispose() {
@@ -385,15 +468,10 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
     super.dispose();
   }
 
-  // CORRECTION 2 : Recherche lancée à la frappe (dynamique)
   void _onSearchChanged(String query) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-
-    // On attend 500ms après la dernière lettre tapée
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      if (query.trim().isNotEmpty) {
-        _search(query.trim());
-      }
+      if (query.trim().isNotEmpty) _search(query.trim());
     });
   }
 
@@ -412,32 +490,27 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
         child: Column(children: [
           TextField(
             controller: _ctrl,
-            decoration: InputDecoration(
-                hintText: "Nom, Prénom...",
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(icon: const Icon(Icons.clear), onPressed: () => _ctrl.clear()),
-                border: const OutlineInputBorder()
-            ),
-            autofocus: true, // Le clavier sortira tout seul
-            onChanged: _onSearchChanged, // Déclenche la recherche live
+            decoration: const InputDecoration(hintText: "Nom, Prénom...", prefixIcon: Icon(Icons.search), border: OutlineInputBorder()),
+            autofocus: true,
+            onChanged: _onSearchChanged,
           ),
           const SizedBox(height: 10),
           Expanded(child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _results.isEmpty
-              ? const Center(child: Text("Aucun client trouvé ou saisissez une recherche."))
+              ? const Center(child: Text("Saisissez une recherche."))
               : ListView.separated(
             itemCount: _results.length, separatorBuilder: (_,__) => const Divider(),
             itemBuilder: (ctx, i) {
               final c = _results[i];
               return ListTile(
                 title: Text(c.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text("Matricule: ${c.strLASTNAME}"), // Ou autre info utile
+                // CORRECTION RÉGRESSION : strLASTNAME au lieu de lgCLIENTID
+                subtitle: Text("Nom: ${c.strLASTNAME}"),
                 onTap: () => Navigator.pop(context, c),
               );
             },
-          )
-          )
+          ))
         ]),
       ),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler"))],

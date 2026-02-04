@@ -1,142 +1,204 @@
-// lib/providers/proforma_provider.dart
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/proforma_models.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
-import 'package:prestige_vente_app/api/models/product.dart'; // Pour ProductSearchResult
+import 'package:prestige_vente_app/api/models/product.dart';
 
 class ProformaProvider with ChangeNotifier {
   final ApiService _apiService;
 
+  // Identifiants de la vente en cours
   String? _currentSaleId;
   String? get currentSaleId => _currentSaleId;
 
   String? _currentSaleRef;
   String? get currentSaleRef => _currentSaleRef;
 
-  // Sélection Type & Client
+  // Sélections
   TypeDevis? _selectedTypeDevis;
   TypeDevis? get selectedTypeDevis => _selectedTypeDevis;
 
   ClientModel? _selectedClient;
   ClientModel? get selectedClient => _selectedClient;
 
-  // Remise
   RemiseModel? _selectedRemise;
   RemiseModel? get selectedRemise => _selectedRemise;
 
+  // Listes de données
   List<SaleLine> _cartItems = [];
   List<SaleLine> get cartItems => _cartItems;
 
+  List<ProductSearchResult> _searchResults = [];
+  List<ProductSearchResult> get searchResults => _searchResults;
+
+  List<ClientModel> _clientSearchResults = [];
+  List<ClientModel> get clientSearchResults => _clientSearchResults;
+
+  // États de l'interface
   bool _isLoading = false;
   bool get isLoading => _isLoading;
+
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
+  // Totaux
   int _totalAmount = 0;
   int get totalAmount => _totalAmount;
-  int _montantRemise = 0; // Montant de la remise calculée
+  int _montantRemise = 0;
   int get montantRemise => _montantRemise;
   int _netAPayer = 0;
   int get netAPayer => _netAPayer;
 
-  ProformaProvider(this._apiService);
+  bool _isQuickScanMode = false;
+  bool get isQuickScanMode => _isQuickScanMode;
 
-  void setTypeDevis(TypeDevis? type) {
-    _selectedTypeDevis = type;
+  ProformaProvider(this._apiService) {
+    _loadScanSettings();
+  }
+
+  Future<void> _loadScanSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    _isQuickScanMode = prefs.getBool('isQuickScanMode') ?? false;
     notifyListeners();
   }
 
-  void setClient(ClientModel? client) {
-    _selectedClient = client;
+  Future<void> toggleQuickScanMode() async {
+    _isQuickScanMode = !_isQuickScanMode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isQuickScanMode', _isQuickScanMode);
     notifyListeners();
   }
 
-  void resetSale() {
-    _currentSaleId = null;
-    _currentSaleRef = null;
-    _selectedTypeDevis = null;
-    _selectedClient = null;
-    _selectedRemise = null;
-    _cartItems = [];
-    _totalAmount = 0;
-    _montantRemise = 0;
-    _netAPayer = 0;
-    _errorMessage = '';
-    notifyListeners();
-  }
-
-  // Charger une proforma existante
-  Future<void> loadExistingProforma(ProformaListItem item) async {
+  // --- RECHERCHE DE PRODUITS ---
+  Future<void> searchProducts(String query) async {
+    if (query.length < 3) {
+      _searchResults = [];
+      notifyListeners();
+      return;
+    }
     _isLoading = true;
+    _errorMessage = '';
     notifyListeners();
 
     try {
-      // 1. Initialisation de base avec les infos de la liste
-      _currentSaleId = item.lgPREENREGISTREMENTID;
-      _currentSaleRef = item.strREF;
-
-      // 2. Chargement des produits (Panier)
-      await _refreshCart();
-
-      // 3. Chargement DÉTAILLÉ du client via l'API (Respect du processus point 4)
-      // On utilise l'ID client qui vient de l'item de la liste
-      final clientDetails = await _apiService.getClientForSale(item.clientId, _currentSaleId!);
-
-      if (clientDetails != null) {
-        _selectedClient = clientDetails;
-      } else {
-        // Fallback : Si l'API échoue, on utilise au moins le nom qu'on avait dans la liste
-        _selectedClient = ClientModel(
-            lgCLIENTID: item.clientId,
-            strFIRSTNAME: '',
-            strLASTNAME: '',
-            fullName: item.strClientFullName
-        );
-      }
-
-      // 4. (Optionnel) Si vous voulez pré-sélectionner le type de vente,
-      // il faudrait que ProformaListItem contienne aussi le typeVenteId,
-      // ou le déduire. Pour l'instant on garde le type par défaut ou null.
-
+      _searchResults = await _apiService.searchProducts(query);
     } catch (e) {
-      _errorMessage = "Erreur lors du rappel de la proforma: $e";
+      _errorMessage = "Erreur de recherche produits: $e";
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // Ajouter Produit
+  // --- RECHERCHE DE CLIENTS AVEC FILTRE CARNET ---
+  Future<void> searchClients(String query) async {
+    if (query.isEmpty) {
+      _clientSearchResults = [];
+      notifyListeners();
+      return;
+    }
+
+    _isLoading = true;
+    _errorMessage = '';
+    notifyListeners();
+
+    try {
+      final allClients = await _apiService.searchClients(query);
+
+      // FILTRE : Si mode CARNET (lgTYPEVENTEID == "3"),
+      // on ne garde que les clients de type Assurance (lgTYPECLIENTID == "2")
+      if (_selectedTypeDevis?.lgTYPEVENTEID == "3") {
+        _clientSearchResults = allClients
+            .where((client) => client.lgTYPECLIENTID == "2")
+            .toList();
+
+        if (_clientSearchResults.isEmpty && allClients.isNotEmpty) {
+          _errorMessage = "Aucun client Assurance trouvé pour ce type de vente.";
+        }
+      } else {
+        _clientSearchResults = allClients;
+      }
+    } catch (e) {
+      _errorMessage = "Erreur recherche client: $e";
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // --- GESTION DES SÉLECTIONS ---
+  void setTypeDevis(TypeDevis? type) {
+    _selectedTypeDevis = type;
+
+    // Sécurité : Si on change pour Carnet et que le client actuel n'est pas "Type 2", on reset le client
+    if (type?.lgTYPEVENTEID == "3" && _selectedClient != null) {
+      if (_selectedClient!.lgTYPECLIENTID != "2") {
+        _selectedClient = null;
+        _errorMessage = "Veuillez choisir un client éligible au mode Carnet.";
+      }
+    }
+    notifyListeners();
+  }
+
+  void setClient(ClientModel? client) {
+    _selectedClient = client;
+    _clientSearchResults = []; // On vide la recherche après sélection
+    notifyListeners();
+  }
+
+  // --- ACTIONS PANIER ---
   Future<bool> addProduct(ProductSearchResult product, int quantity) async {
     if (_selectedTypeDevis == null || _selectedClient == null) {
-      _errorMessage = "Veuillez sélectionner un Type et un Client.";
+      _errorMessage = "Sélectionnez d'abord un type de vente et un client.";
       notifyListeners();
       return false;
     }
 
     _isLoading = true;
+    _errorMessage = '';
     notifyListeners();
     bool success = false;
 
     try {
+      // Préparation des Tiers-Payants pour le mode Carnet
+      List<Map<String, dynamic>> tpList = [];
+      final clientTP = _selectedClient!.tiersPayants;
+
+      if (clientTP != null && clientTP.isNotEmpty) {
+        tpList = clientTP.map((tp) => {
+          "lgTIERSPAYANTID": tp.lgTIERSPAYANTID,
+          "intPOURCENTAGE": tp.intPOURCENTAGE,
+          "intPRIORITY": tp.intPRIORITY,
+          "lgCOMPTETIERSIAYANTID": tp.lgCOMPTETIERSIAYANTID,
+        }).toList();
+      } else if (_selectedTypeDevis!.lgTYPEVENTEID == "3") {
+        _errorMessage = "Ce client n'a aucune assurance configurée.";
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
       if (_currentSaleId == null) {
-        // Création (/vente/devis)
+        // Premier ajout : Création de la proforma
         final result = await _apiService.addFirstDevisItem(
           clientId: _selectedClient!.lgCLIENTID,
           typeVenteId: _selectedTypeDevis!.lgTYPEVENTEID,
           produitId: product.lgFAMILLEID,
           itemPu: product.intPRICE,
           qte: quantity,
+          tiersPayants: tpList,
         );
 
-        if (result != null && result['lgPREENREGISTREMENTID'] != null) {
-          _currentSaleId = result['lgPREENREGISTREMENTID'];
-          _currentSaleRef = result['strREF'];
+        if (result != null && result['success'] == true) {
+          _currentSaleId = result['data']['lgPREENREGISTREMENTID'];
+          _currentSaleRef = result['data']['strREF'];
           success = true;
+        } else {
+          _errorMessage = result?['msg'] ?? "Erreur lors de la création.";
         }
       } else {
-        // Ajout (/vente/add/item)
+        // Ajouts suivants
         success = await _apiService.addNextDevisItem(
           venteId: _currentSaleId!,
           clientId: _selectedClient!.lgCLIENTID,
@@ -144,18 +206,16 @@ class ProformaProvider with ChangeNotifier {
           produitId: product.lgFAMILLEID,
           itemPu: product.intPRICE,
           qte: quantity,
+          tiersPayants: tpList,
         );
       }
 
       if (success) {
         await _refreshCart();
-        // Si une remise était déjà sélectionnée, il faut recalculer le net
-        if (_selectedRemise != null) {
-          await applyRemise(_selectedRemise!);
-        }
+        _searchResults = [];
       }
     } catch (e) {
-      _errorMessage = "Erreur ajout produit: $e";
+      _errorMessage = "Erreur technique : $e";
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -163,11 +223,9 @@ class ProformaProvider with ChangeNotifier {
     return success;
   }
 
-  // Update & Remove (Utilisent les mêmes endpoints que Vente Dépôt "VNO")
   Future<bool> updateItem(SaleLine item, int newQty, int newPrice) async {
     _isLoading = true;
     notifyListeners();
-    // On utilise les endpoints génériques VNO (voir logs)
     final success = await _apiService.updateDepotItem(
       itemId: item.lgPREENREGISTREMENTDETAILID,
       produitId: item.lgFAMILLEID,
@@ -196,20 +254,14 @@ class ProformaProvider with ChangeNotifier {
     return success;
   }
 
-  // Appliquer Remise
-  // Dans lib/providers/proforma_provider.dart
-
+  // --- CALCULS ET REMISES ---
   Future<void> applyRemise(RemiseModel remise) async {
     if (_currentSaleId == null) return;
     _selectedRemise = remise;
     _isLoading = true;
     notifyListeners();
 
-    // 1. Appliquer la remise (Si cette méthode existe déjà et est identique, ok, sinon renommez-la aussi)
     await _apiService.applyRemise(venteId: _currentSaleId!, remiseId: remise.lgREMISEID);
-
-    // 2. Calculer le Net (UTILISATION DE LA NOUVELLE MÉTHODE)
-    // C'est ici qu'on change pour utiliser calculateNetProforma
     final calc = await _apiService.calculateNetProforma(venteId: _currentSaleId!, remiseId: remise.lgREMISEID);
 
     if (calc != null) {
@@ -224,13 +276,62 @@ class ProformaProvider with ChangeNotifier {
 
   Future<void> _refreshCart() async {
     if (_currentSaleId == null) return;
+    // Appel à l'endpoint /vente/deatails (via fetchSaleItems ou fetchSaleLines)
     final items = await _apiService.fetchSaleItems(_currentSaleId!);
     _cartItems = items;
-    // Si pas de calcul net effectué, total brut simple
-    if (_netAPayer == 0) {
+
+    if (_selectedRemise == null) {
       _totalAmount = items.fold(0, (sum, item) => sum + item.intPRICE);
       _netAPayer = _totalAmount;
+    } else {
+      await applyRemise(_selectedRemise!);
     }
+    notifyListeners();
+  }
+
+  // --- UTILITAIRES ---
+  void resetSale() {
+    _currentSaleId = null;
+    _currentSaleRef = null;
+    _selectedTypeDevis = null;
+    _selectedClient = null;
+    _selectedRemise = null;
+    _cartItems = [];
+    _searchResults = [];
+    _clientSearchResults = [];
+    _totalAmount = 0;
+    _montantRemise = 0;
+    _netAPayer = 0;
+    _errorMessage = '';
+    notifyListeners();
+  }
+
+  Future<void> loadExistingProforma(ProformaListItem item) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      _currentSaleId = item.lgPREENREGISTREMENTID;
+      _currentSaleRef = item.strREF;
+      await _refreshCart();
+      final clientDetails = await _apiService.getClientForSale(item.clientId, _currentSaleId!);
+      _selectedClient = clientDetails ?? ClientModel(
+          lgCLIENTID: item.clientId,
+          strFIRSTNAME: '',
+          strLASTNAME: '',
+          fullName: item.strClientFullName,
+          tiersPayants: []
+      );
+    } catch (e) {
+      _errorMessage = "Erreur lors du rappel : $e";
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  void clearSearchResults() {
+    _searchResults = [];
+    _clientSearchResults = [];
     notifyListeners();
   }
 }
