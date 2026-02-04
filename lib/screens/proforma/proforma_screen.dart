@@ -24,8 +24,7 @@ class _ProformaScreenState extends State<ProformaScreen> {
 
   List<TypeDevis> _typesDevis = [];
   List<RemiseModel> _availableRemises = [];
-  bool _isLoadingInit = false;
-  bool _isSearching = false;
+  // CORRECTION WARNING: Suppression des variables inutilisées (_isLoadingInit, _isSearching)
   bool _isPopupOpen = false;
   String _scanBuffer = "";
   Timer? _debounce;
@@ -53,7 +52,7 @@ class _ProformaScreenState extends State<ProformaScreen> {
   }
 
   Future<void> _initData() async {
-    setState(() => _isLoadingInit = true);
+    // CORRECTION: Suppression de l'affectation à _isLoadingInit
     final api = Provider.of<ApiService>(context, listen: false);
     final types = await api.fetchTypeDevis();
     final remises = await api.fetchRemises();
@@ -62,7 +61,6 @@ class _ProformaScreenState extends State<ProformaScreen> {
       setState(() {
         _typesDevis = types;
         _availableRemises = remises;
-        _isLoadingInit = false;
       });
     }
   }
@@ -117,7 +115,7 @@ class _ProformaScreenState extends State<ProformaScreen> {
       return;
     }
 
-    setState(() => _isSearching = true);
+    // CORRECTION: Suppression de l'affectation à _isSearching
     await provider.searchProducts(query);
 
     if (!mounted) return;
@@ -130,8 +128,6 @@ class _ProformaScreenState extends State<ProformaScreen> {
     } else if (results.isNotEmpty) {
       _showSelectionDialog(results);
     }
-
-    setState(() => _isSearching = false);
   }
 
   Future<void> _checkStockAndAdd(ProductSearchResult product, {bool autoAdd = false}) async {
@@ -283,6 +279,34 @@ class _ProformaScreenState extends State<ProformaScreen> {
     });
   }
 
+  void _confirmDeleteItem(SaleLine item) {
+    setState(() => _isPopupOpen = true);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Supprimer ?", style: TextStyle(color: Colors.red)),
+        content: Text("Voulez-vous retirer ${item.strNAME} de la liste ?"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Non")
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Provider.of<ProformaProvider>(context, listen: false).removeItem(item.lgPREENREGISTREMENTDETAILID);
+            },
+            child: const Text("Oui"),
+          ),
+        ],
+      ),
+    ).then((_) {
+      setState(() => _isPopupOpen = false);
+      _requestSearchFocus();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return KeyboardListener(
@@ -358,7 +382,8 @@ class _ProformaScreenState extends State<ProformaScreen> {
                       enabledBorder: OutlineInputBorder(
                         borderSide: BorderSide(color: provider.isQuickScanMode ? Colors.green : Colors.grey, width: provider.isQuickScanMode ? 2.5 : 1.0),
                       ),
-                      filled: true, fillColor: Colors.purple.shade50.withOpacity(0.3),
+                      // CORRECTION WARNING: .withOpacity est déprécié, utilisation de .withValues
+                      filled: true, fillColor: Colors.purple.shade50.withValues(alpha: 0.3),
                     ),
                     onSubmitted: (val) => _performSearch(val, isScan: true),
                   ),
@@ -374,9 +399,30 @@ class _ProformaScreenState extends State<ProformaScreen> {
                         itemCount: provider.cartItems.length, separatorBuilder: (_,__) => const Divider(height: 1),
                         itemBuilder: (ctx, index) {
                           final item = provider.cartItems[index];
-                          return ListTile(dense: true, title: Text(item.strNAME, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          return ListTile(
+                            dense: true,
+                            title: Text(
+                              item.strNAME,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             subtitle: Text("${Constants.formatNumber(item.intPRICEUNITAIR)} x ${item.intQUANTITY}"),
-                            trailing: Text("${Constants.formatNumber(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text("${Constants.formatNumber(item.intPRICE)} F",
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple, fontSize: 14)),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                  onPressed: () => _confirmDeleteItem(item),
+                                  tooltip: "Supprimer",
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                ),
+                              ],
+                            ),
                             onTap: () => _editLine(item),
                           );
                         },
@@ -501,7 +547,7 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
                 separatorBuilder: (_,__) => const Divider(height: 1),
                 itemBuilder: (ctx, i) {
                   final c = provider.clientSearchResults[i];
-                  // Vérification du type de client pour adapter l'affichage
+                  // On garde le boolean pour la partie graphique
                   final bool isCarnet = c is ClientCarnetModel;
 
                   return ListTile(
@@ -516,8 +562,10 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
                       "${c.strFIRSTNAME} ${c.strLASTNAME}",
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    subtitle: isCarnet
-                        ? Text("Matricule: ${(c as ClientCarnetModel).strNUMEROSECURITESOCIAL ?? 'N/A'}", style: TextStyle(color: Colors.blue.shade700))
+                    // CORRECTION WARNING: Utilisation de la promotion de type de Dart au lieu d'un cast forcé.
+                    // Si 'c' est ClientCarnetModel dans le ternaire, Dart le sait automatiquement.
+                    subtitle: c is ClientCarnetModel
+                        ? Text("Matricule: ${c.strNUMEROSECURITESOCIAL ?? 'N/A'}", style: TextStyle(color: Colors.blue.shade700))
                         : const Text("Client Standard"),
                     onTap: () => Navigator.pop(context, c),
                   );
