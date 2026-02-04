@@ -13,7 +13,7 @@ class DepotSaleProvider with ChangeNotifier {
   String? _currentSaleId;
   String? get currentSaleId => _currentSaleId;
 
-  // AJOUT : Variable pour stocker la référence visible (ex: 260127_00005)
+  // Variable pour stocker la référence visible (ex: 260127_00005)
   String? _currentSaleRef;
   String? get currentSaleRef => _currentSaleRef;
 
@@ -31,7 +31,16 @@ class DepotSaleProvider with ChangeNotifier {
   int _totalAmount = 0;
   int get totalAmount => _totalAmount;
 
+  // NOUVEAU : Mode Scan Rapide
+  bool _isQuickScanMode = false;
+  bool get isQuickScanMode => _isQuickScanMode;
+
   DepotSaleProvider(this._apiService);
+
+  void toggleQuickScanMode() {
+    _isQuickScanMode = !_isQuickScanMode;
+    notifyListeners();
+  }
 
   // --- Gestion du Dépôt (Client) ---
   void selectDepot(DepotModel depot) {
@@ -45,7 +54,7 @@ class DepotSaleProvider with ChangeNotifier {
     _cartItems = [];
     _totalAmount = 0;
     _errorMessage = '';
-    _currentSaleRef = null; // Reset de la ref
+    _currentSaleRef = null;
     notifyListeners();
   }
 
@@ -63,7 +72,6 @@ class DepotSaleProvider with ChangeNotifier {
         _currentSaleRef = data['strREF'];
 
         // Reconstitution de l'objet DepotModel à partir des détails de la vente
-        // Note: Le backend renvoie l'objet 'magasin' qui correspond aux infos du dépôt
         if (data['magasin'] != null) {
           _selectedDepot = DepotModel.fromJson(data['magasin']);
         }
@@ -78,7 +86,7 @@ class DepotSaleProvider with ChangeNotifier {
     }
   }
 
-  // Ajouter un produit (Logique conditionnelle)
+  // Ajouter un produit
   Future<bool> addProduct(ProductSearchResult product, int quantity) async {
     if (_selectedDepot == null) {
       _errorMessage = "Veuillez sélectionner un dépôt d'abord.";
@@ -143,7 +151,7 @@ class DepotSaleProvider with ChangeNotifier {
     final success = await _apiService.updateDepotItem(
       itemId: item.lgPREENREGISTREMENTDETAILID,
       produitId: item.lgFAMILLEID,
-      itemPu: newPrice, // Le backend permet de modifier le prix (cf logs)
+      itemPu: newPrice,
       qte: newQty,
     );
 
