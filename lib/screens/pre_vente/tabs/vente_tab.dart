@@ -128,7 +128,7 @@ class _VenteTabState extends State<VenteTab> {
                 subtitle: Text("CIP: ${p.intCIP} | Stock: ${p.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(p.intPRICE)} F"),
                 onTap: () {
                   provider.clearSearchResults();
-                  Navigator.of(ctx).pop(); // Fermeture immédiate
+                  Navigator.of(ctx).pop();
                   _showQuantityDialog(p);
                 },
               );
@@ -171,7 +171,7 @@ class _VenteTabState extends State<VenteTab> {
           keyboardType: TextInputType.number,
           onSubmitted: (val) {
             final q = int.tryParse(val) ?? 1;
-            Navigator.of(ctx).pop(); // Ferme avant d'ajouter
+            Navigator.of(ctx).pop();
             _executeAdd(product, q);
           },
         ),
@@ -182,7 +182,7 @@ class _VenteTabState extends State<VenteTab> {
           }, child: const Text('Annuler')),
           ElevatedButton(onPressed: () {
             final q = int.tryParse(qteController.text) ?? 1;
-            Navigator.of(ctx).pop(); // Ferme avant d'ajouter
+            Navigator.of(ctx).pop();
             _executeAdd(product, q);
           }, child: const Text('Ajouter')),
         ],
@@ -249,47 +249,126 @@ class _VenteTabState extends State<VenteTab> {
     _requestSearchFocus();
   }
 
-  // RÉINTÉGRÉ ET SÉCURISÉ : Dialogue QR
-  Future<void> _showQrCodeDialog(PaymentMethodQr method, SaleSummary summary, User currentUser) async {
+  // --- NOUVEAU DESIGN : DIALOGUE DE CONFIRMATION SÉCURISÉ ---
+  Future<void> _showPaymentConfirmationDialog({
+    required PaymentMethod method,
+    required User currentUser,
+    PaymentMethodQr? qrMethod,
+    int? montantRecu,
+    int? montantRemis,
+  }) async {
+    final saleProvider = Provider.of<SaleProvider>(context, listen: false);
+    setState(() => _isPopupOpen = true);
+
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Text("Paiement via ${method.name}"),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text("Veuillez scanner le QR code pour payer ${Constants.formatNumber(summary.montantNet)}."),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: 250,
-            height: 250,
-            child: method.qrCode != null
-                ? Image.memory(method.qrCode!)
-                : const Center(child: Text("QR Code non disponible")),
+        title: const Text("Confirmation de Paiement"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("Mode : ${method.name}", style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text("Montant Net : ${Constants.formatNumber(saleProvider.saleSummary.montantNet)} F",
+                  style: const TextStyle(fontSize: 18, color: Colors.blue, fontWeight: FontWeight.bold)),
+              const Divider(height: 30),
+              if (qrMethod != null && qrMethod.qrCode != null) ...[
+                const Text("Scanner pour payer :"),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: 180,
+                  height: 180,
+                  child: Image.memory(qrMethod.qrCode!, fit: BoxFit.contain),
+                ),
+              ] else
+                const Text("Veuillez confirmer l'encaissement."),
+            ],
           ),
-        ]),
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         actions: [
-          ElevatedButton(
-              child: const Text("OK"),
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                _showPrintDialog(isPrevente: false, paymentMethod: PaymentMethod(id: method.id, name: method.name), currentUser: currentUser);
-              }
-          )
+          Row(
+            children: [
+              // BOUTON RETOUR / MODIFIER (BLEU)
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  icon: const Icon(Icons.arrow_back, color: Colors.white, size: 18),
+                  label: const Text("RETOUR", style: TextStyle(color: Colors.white, fontSize: 12)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // BOUTON VALIDER LA VENTE (VERT)
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.of(ctx).pop();
+
+                    final apiResult = await saleProvider.cloturerVente(
+                        method,
+                        currentUser,
+                        montantRecu: montantRecu,
+                        montantRemis: montantRemis
+                    );
+
+                    if (!mounted) return;
+                    if (await Constants.checkAndOpenCaisse(context, apiResult)) return;
+
+                    if (apiResult['success'] == true) {
+                      _showPrintDialog(
+                          isPrevente: false,
+                          paymentMethod: method,
+                          currentUser: currentUser,
+                          montantVerse: montantRecu,
+                          monnaie: montantRemis
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(saleProvider.errorMessage ?? "La validation a échoué"),
+                        backgroundColor: Colors.red,
+                      ));
+                    }
+                  },
+                  icon: const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                  label: const Text("VALIDER", style: TextStyle(color: Colors.white, fontSize: 12)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
-    );
+    ).then((_) {
+      if (mounted) {
+        setState(() => _isPopupOpen = false);
+        _requestSearchFocus();
+      }
+    });
   }
 
   Future<void> _showCashPaymentDialog(PaymentMethod method, User currentUser) async {
     final saleProvider = Provider.of<SaleProvider>(context, listen: false);
-    final result = await showDialog<Map<String, int>>(context: context, builder: (ctx) => CashPaymentDialog(montantNet: saleProvider.saleSummary.montantNet));
+    final result = await showDialog<Map<String, int>>(
+        context: context,
+        builder: (ctx) => CashPaymentDialog(montantNet: saleProvider.saleSummary.montantNet)
+    );
+
     if (result != null) {
-      final apiResult = await saleProvider.cloturerVente(method, currentUser, montantRecu: result['verse'], montantRemis: result['monnaie']);
-      if (!mounted) return;
-      if (await Constants.checkAndOpenCaisse(context, apiResult)) return;
-      if (apiResult['success'] == true) {
-        _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser, montantVerse: result['verse'], monnaie: result['monnaie']);
-      }
+      _showPaymentConfirmationDialog(
+          method: method,
+          currentUser: currentUser,
+          montantRecu: result['verse'],
+          montantRemis: result['monnaie']
+      );
     }
   }
 
@@ -316,42 +395,25 @@ class _VenteTabState extends State<VenteTab> {
             itemBuilder: (context, index) {
               final method = filteredMethods[index];
               return ListTile(
-                title: Text(method.name),
-                onTap: () async {
-                  Navigator.of(ctx).pop(); // Ferme la sélection
+                  title: Text(method.name),
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
 
-                  if (method.id == '1') {
-                    _showCashPaymentDialog(method, currentUser);
-                  } else {
-                    final res = await saleProvider.cloturerVente(method, currentUser);
-                    if (!mounted) return;
-                    if (await Constants.checkAndOpenCaisse(context, res)) return;
-
-                    if (res['success'] == true) {
-                      // Charger les méthodes QR si pas encore fait
+                    if (method.id == '1') {
+                      _showCashPaymentDialog(method, currentUser);
+                    } else {
                       await saleProvider.fetchPaymentMethodsWithQr();
                       final paymentQrMethods = saleProvider.paymentMethodsWithQr;
+                      PaymentMethodQr? qrM;
+                      try { qrM = paymentQrMethods.firstWhere((m) => m.id == method.id); } catch (e) { qrM = null; }
 
-                      PaymentMethodQr? qrMethod;
-                      try {
-                        qrMethod = paymentQrMethods.firstWhere((m) => m.id == method.id);
-                      } catch (e) {
-                        qrMethod = null;
-                      }
-
-                      if (qrMethod != null && qrMethod.qrCode != null) {
-                        _showQrCodeDialog(qrMethod, saleProvider.saleSummary, currentUser);
-                      } else {
-                        _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser);
-                      }
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text(saleProvider.errorMessage ?? "Erreur de clôture"),
-                        backgroundColor: Colors.red,
-                      ));
+                      _showPaymentConfirmationDialog(
+                          method: method,
+                          currentUser: currentUser,
+                          qrMethod: qrM
+                      );
                     }
                   }
-                },
               );
             },
           ),
