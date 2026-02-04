@@ -3,25 +3,23 @@
 /// Modèle pour les Tiers-Payants (Assurances) rattachés à un client
 class TiersPayantModel {
   final String lgTIERSPAYANTID;
-  final String strNAME;
-  final int intPOURCENTAGE;
-  final int intPRIORITY;
+  final int intPOURCENTAGE; // On garde le nom officiel du modèle
+  final int? intPRIORITY;
   final String? lgCOMPTETIERSIAYANTID;
 
   TiersPayantModel({
     required this.lgTIERSPAYANTID,
-    required this.strNAME,
     required this.intPOURCENTAGE,
-    required this.intPRIORITY,
+    this.intPRIORITY,
     this.lgCOMPTETIERSIAYANTID,
   });
 
   factory TiersPayantModel.fromJson(Map<String, dynamic> json) {
     return TiersPayantModel(
       lgTIERSPAYANTID: json['lgTIERSPAYANTID'] ?? '',
-      strNAME: json['strNAME'] ?? json['strLASTNAME'] ?? '',
-      intPOURCENTAGE: (json['intPOURCENTAGE'] as num?)?.toInt() ?? 0,
-      intPRIORITY: (json['intPRIORITY'] as num?)?.toInt() ?? 1,
+      // Dans tes logs, la clé JSON est "taux", on la mappe vers intPOURCENTAGE
+      intPOURCENTAGE: json['intPOURCENTAGE'] ?? json['taux'] ?? 0,
+      intPRIORITY: json['intPRIORITY'] ?? json['order'] ?? 0,
       lgCOMPTETIERSIAYANTID: json['lgCOMPTETIERSIAYANTID'] ?? json['compteTp'],
     );
   }
@@ -69,6 +67,7 @@ class ProformaListItem {
   final int intPRICE;
   final String strSTATUT;
   final String userFullName;
+  final String strTYPEVENTE;
   final String clientId;
 
   ProformaListItem({
@@ -79,6 +78,7 @@ class ProformaListItem {
     required this.heure,
     required this.intPRICE,
     required this.strSTATUT,
+    required this.strTYPEVENTE,
     required this.userFullName,
     required this.clientId,
   });
@@ -97,6 +97,7 @@ class ProformaListItem {
       intPRICE: (json['intPRICE'] as num?)?.toInt() ?? 0,
       strSTATUT: json['strSTATUT'] ?? '',
       userFullName: json['userFullName'] ?? '',
+      strTYPEVENTE: json['strTYPEVENTE'] ?? '',
       clientId: cId,
     );
   }

@@ -106,8 +106,6 @@ class ProformaProvider with ChangeNotifier {
     try {
       final allClients = await _apiService.searchClients(query);
 
-      // FILTRE : Si mode CARNET (lgTYPEVENTEID == "3"),
-      // on ne garde que les clients de type Assurance (lgTYPECLIENTID == "2")
       if (_selectedTypeDevis?.lgTYPEVENTEID == "3") {
         _clientSearchResults = allClients
             .where((client) => client.lgTYPECLIENTID == "2")
@@ -130,8 +128,6 @@ class ProformaProvider with ChangeNotifier {
   // --- GESTION DES SÉLECTIONS ---
   void setTypeDevis(TypeDevis? type) {
     _selectedTypeDevis = type;
-
-    // Sécurité : Si on change pour Carnet et que le client actuel n'est pas "Type 2", on reset le client
     if (type?.lgTYPEVENTEID == "3" && _selectedClient != null) {
       if (_selectedClient!.lgTYPECLIENTID != "2") {
         _selectedClient = null;
@@ -143,7 +139,7 @@ class ProformaProvider with ChangeNotifier {
 
   void setClient(ClientModel? client) {
     _selectedClient = client;
-    _clientSearchResults = []; // On vide la recherche après sélection
+    _clientSearchResults = [];
     notifyListeners();
   }
 
@@ -158,29 +154,29 @@ class ProformaProvider with ChangeNotifier {
     _isLoading = true;
     _errorMessage = '';
     notifyListeners();
-    bool success = false;
 
     try {
-      // Préparation des Tiers-Payants pour le mode Carnet
       List<Map<String, dynamic>> tpList = [];
-      final clientTP = _selectedClient!.tiersPayants;
 
-      if (clientTP != null && clientTP.isNotEmpty) {
-        tpList = clientTP.map((tp) => {
-          "lgTIERSPAYANTID": tp.lgTIERSPAYANTID,
-          "intPOURCENTAGE": tp.intPOURCENTAGE,
-          "intPRIORITY": tp.intPRIORITY,
-          "lgCOMPTETIERSIAYANTID": tp.lgCOMPTETIERSIAYANTID,
-        }).toList();
-      } else if (_selectedTypeDevis!.lgTYPEVENTEID == "3") {
-        _errorMessage = "Ce client n'a aucune assurance configurée.";
-        _isLoading = false;
-        notifyListeners();
-        return false;
+      if (_selectedTypeDevis!.lgTYPEVENTEID == "3") {
+        final clientTP = _selectedClient!.tiersPayants;
+        if (clientTP != null && clientTP.isNotEmpty) {
+          tpList = clientTP.map((tp) => {
+            "lgTIERSPAYANTID": tp.lgTIERSPAYANTID,
+            "intPOURCENTAGE": tp.intPOURCENTAGE,
+            "intPRIORITY": tp.intPRIORITY ?? 1,
+            "lgCOMPTETIERSIAYANTID": tp.lgCOMPTETIERSIAYANTID ?? tp.lgTIERSPAYANTID,
+          }).toList();
+        } else {
+          _errorMessage = "Erreur : Client sans assurance pour mode CARNET.";
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
       }
 
+      bool success = false;
       if (_currentSaleId == null) {
-        // Premier ajout : Création de la proforma
         final result = await _apiService.addFirstDevisItem(
           clientId: _selectedClient!.lgCLIENTID,
           typeVenteId: _selectedTypeDevis!.lgTYPEVENTEID,
@@ -194,11 +190,8 @@ class ProformaProvider with ChangeNotifier {
           _currentSaleId = result['data']['lgPREENREGISTREMENTID'];
           _currentSaleRef = result['data']['strREF'];
           success = true;
-        } else {
-          _errorMessage = result?['msg'] ?? "Erreur lors de la création.";
         }
       } else {
-        // Ajouts suivants
         success = await _apiService.addNextDevisItem(
           venteId: _currentSaleId!,
           clientId: _selectedClient!.lgCLIENTID,
@@ -213,14 +206,16 @@ class ProformaProvider with ChangeNotifier {
       if (success) {
         await _refreshCart();
         _searchResults = [];
+        _errorMessage = '';
       }
+      return success;
     } catch (e) {
       _errorMessage = "Erreur technique : $e";
+      return false;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
-    return success;
   }
 
   Future<bool> updateItem(SaleLine item, int newQty, int newPrice) async {
@@ -261,30 +256,36 @@ class ProformaProvider with ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    await _apiService.applyRemise(venteId: _currentSaleId!, remiseId: remise.lgREMISEID);
-    final calc = await _apiService.calculateNetProforma(venteId: _currentSaleId!, remiseId: remise.lgREMISEID);
+    try {
+      await _apiService.applyRemise(venteId: _currentSaleId!, remiseId: remise.lgREMISEID);
+      final calc = await _apiService.calculateNetProforma(venteId: _currentSaleId!, remiseId: remise.lgREMISEID);
 
-    if (calc != null) {
-      _montantRemise = (calc['remise'] as num).toInt();
-      _netAPayer = (calc['montantNet'] as num).toInt();
-      _totalAmount = (calc['montant'] as num).toInt();
+      if (calc != null) {
+        _montantRemise = (calc['remise'] as num).toInt();
+        _netAPayer = (calc['montantNet'] as num).toInt();
+        _totalAmount = (calc['montant'] as num).toInt();
+      }
+      await _refreshCart();
+    } catch (e) {
+      _errorMessage = "Erreur remise: $e";
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-
-    _isLoading = false;
-    notifyListeners();
   }
 
   Future<void> _refreshCart() async {
     if (_currentSaleId == null) return;
-    // Appel à l'endpoint /vente/deatails (via fetchSaleItems ou fetchSaleLines)
-    final items = await _apiService.fetchSaleItems(_currentSaleId!);
-    _cartItems = items;
+    try {
+      final items = await _apiService.fetchSaleItems(_currentSaleId!);
+      _cartItems = items;
 
-    if (_selectedRemise == null) {
-      _totalAmount = items.fold(0, (sum, item) => sum + item.intPRICE);
-      _netAPayer = _totalAmount;
-    } else {
-      await applyRemise(_selectedRemise!);
+      if (_selectedRemise == null) {
+        _totalAmount = items.fold(0, (sum, item) => sum + (item.intPRICE * item.intQUANTITY));
+        _netAPayer = _totalAmount;
+      }
+    } catch (e) {
+      _errorMessage = "Erreur rafraîchissement panier : $e";
     }
     notifyListeners();
   }
@@ -308,11 +309,12 @@ class ProformaProvider with ChangeNotifier {
 
   Future<void> loadExistingProforma(ProformaListItem item) async {
     _isLoading = true;
+    _errorMessage = '';
     notifyListeners();
     try {
       _currentSaleId = item.lgPREENREGISTREMENTID;
       _currentSaleRef = item.strREF;
-      await _refreshCart();
+
       final clientDetails = await _apiService.getClientForSale(item.clientId, _currentSaleId!);
       _selectedClient = clientDetails ?? ClientModel(
           lgCLIENTID: item.clientId,
@@ -321,8 +323,19 @@ class ProformaProvider with ChangeNotifier {
           fullName: item.strClientFullName,
           tiersPayants: []
       );
+
+      // On déduit l'ID du type de vente : 3 si c'est "CARNET", sinon 1 par défaut
+      String typeVenteId = (item.strTYPEVENTE == "CARNET" || item.strTYPEVENTE == "Carnet") ? "3" : "1";
+
+      _selectedTypeDevis = TypeDevis(
+        lgTYPEVENTEID: typeVenteId,
+        strNAME: item.strTYPEVENTE,
+        strDESCRIPTION: "",
+      );
+
+      await _refreshCart();
     } catch (e) {
-      _errorMessage = "Erreur lors du rappel : $e";
+      _errorMessage = "Erreur lors du chargement : $e";
     } finally {
       _isLoading = false;
       notifyListeners();
