@@ -24,8 +24,11 @@ class _ProformaScreenState extends State<ProformaScreen> {
 
   List<TypeDevis> _typesDevis = [];
   List<RemiseModel> _availableRemises = [];
-  // CORRECTION WARNING: Suppression des variables inutilisées (_isLoadingInit, _isSearching)
+
   bool _isPopupOpen = false;
+  // NOUVEAU : Verrou pour empêcher les doubles soumissions (Cas 1 & 2)
+  bool _isProcessing = false;
+
   String _scanBuffer = "";
   Timer? _debounce;
 
@@ -37,7 +40,7 @@ class _ProformaScreenState extends State<ProformaScreen> {
   }
 
   void _requestSearchFocus() {
-    if (mounted && !_isPopupOpen) {
+    if (mounted && !_isPopupOpen && !_isProcessing) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     }
   }
@@ -52,7 +55,6 @@ class _ProformaScreenState extends State<ProformaScreen> {
   }
 
   Future<void> _initData() async {
-    // CORRECTION: Suppression de l'affectation à _isLoadingInit
     final api = Provider.of<ApiService>(context, listen: false);
     final types = await api.fetchTypeDevis();
     final remises = await api.fetchRemises();
@@ -68,6 +70,14 @@ class _ProformaScreenState extends State<ProformaScreen> {
   void _handleKeyEvent(KeyEvent event) {
     final provider = Provider.of<ProformaProvider>(context, listen: false);
     if (!provider.isQuickScanMode) return;
+    if (_isPopupOpen) return;
+
+    // CORRECTION CAS 2 : Si le champ de texte a le focus, on laisse le TextField gérer l'entrée.
+    // On ignore le listener global pour éviter d'ajouter le produit deux fois.
+    if (_searchFocusNode.hasFocus) {
+      _scanBuffer = "";
+      return;
+    }
 
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.enter) {
@@ -102,6 +112,10 @@ class _ProformaScreenState extends State<ProformaScreen> {
   }
 
   void _onSearchChanged(String value) {
+    // Si c'est un scan rapide, on évite le debounce qui pourrait interférer
+    final provider = Provider.of<ProformaProvider>(context, listen: false);
+    if (provider.isQuickScanMode) return;
+
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       if (value.trim().isNotEmpty) _performSearch(value.trim(), isScan: false);
@@ -109,24 +123,41 @@ class _ProformaScreenState extends State<ProformaScreen> {
   }
 
   Future<void> _performSearch(String query, {required bool isScan}) async {
+    // CORRECTION CAS 1 : Si un traitement est déjà en cours, on ignore les appels suivants (doubles clics / spam Entrée)
+    if (_isProcessing) return;
+    if (query.isEmpty) return;
+
     final provider = Provider.of<ProformaProvider>(context, listen: false);
     if (provider.selectedClient == null) {
       _showError("Veuillez sélectionner un Client");
+      _searchController.clear();
       return;
     }
 
-    // CORRECTION: Suppression de l'affectation à _isSearching
-    await provider.searchProducts(query);
+    setState(() => _isProcessing = true);
 
-    if (!mounted) return;
-    final results = provider.searchResults;
+    try {
+      await provider.searchProducts(query);
 
-    if (results.length == 1) {
-      // Nettoyage immédiat pour éviter la superposition en arrière-plan
-      provider.clearSearchResults();
-      _checkStockAndAdd(results.first, autoAdd: provider.isQuickScanMode);
-    } else if (results.isNotEmpty) {
-      _showSelectionDialog(results);
+      if (!mounted) return;
+      final results = provider.searchResults;
+
+      if (results.length == 1) {
+        // Nettoyage immédiat pour éviter la ré-soumission du même texte
+        _searchController.clear();
+        provider.clearSearchResults();
+
+        await _checkStockAndAdd(results.first, autoAdd: provider.isQuickScanMode);
+      } else if (results.isNotEmpty) {
+        // S'il y a plusieurs choix, on ouvre le dialogue
+        await _showSelectionDialog(results);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        // On redonne le focus seulement si aucune popup n'est restée ouverte
+        if (!_isPopupOpen) _requestSearchFocus();
+      }
     }
   }
 
@@ -146,14 +177,15 @@ class _ProformaScreenState extends State<ProformaScreen> {
       );
       setState(() => _isPopupOpen = false);
       if (force != true) {
-        _searchController.clear(); _requestSearchFocus(); return;
+        _searchController.clear();
+        return;
       }
     }
 
     if (autoAdd) {
-      _addProduct(product, 1);
+      await _addProduct(product, 1);
     } else {
-      _showQuantityDialog(product);
+      await _showQuantityDialog(product);
     }
   }
 
@@ -164,15 +196,14 @@ class _ProformaScreenState extends State<ProformaScreen> {
       _searchController.clear();
       provider.clearSearchResults();
     }
-    _requestSearchFocus();
   }
 
-  void _showQuantityDialog(ProductSearchResult product) {
+  Future<void> _showQuantityDialog(ProductSearchResult product) async {
+    setState(() => _isPopupOpen = true);
     final qteController = TextEditingController(text: '1');
     qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
-    setState(() => _isPopupOpen = true);
 
-    showDialog(
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
@@ -182,17 +213,50 @@ class _ProformaScreenState extends State<ProformaScreen> {
           autofocus: true,
           decoration: const InputDecoration(labelText: 'Quantité'),
           keyboardType: TextInputType.number,
-          onSubmitted: (val) { Navigator.pop(ctx); _addProduct(product, int.tryParse(val) ?? 1); },
+          onSubmitted: (val) {
+            Navigator.pop(ctx);
+            _addProduct(product, int.tryParse(val) ?? 1);
+          },
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
-          ElevatedButton(onPressed: () { Navigator.pop(ctx); _addProduct(product, int.tryParse(qteController.text) ?? 1); }, child: const Text('Ajouter')),
+          ElevatedButton(onPressed: () {
+            Navigator.pop(ctx);
+            _addProduct(product, int.tryParse(qteController.text) ?? 1);
+          }, child: const Text('Ajouter')),
         ],
       ),
-    ).then((_) {
+    );
+
+    if(mounted) setState(() => _isPopupOpen = false);
+  }
+
+  Future<void> _showSelectionDialog(List<ProductSearchResult> products) async {
+    final provider = Provider.of<ProformaProvider>(context, listen: false);
+    setState(() => _isPopupOpen = true);
+
+    await showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: Text("Résultats (${products.length})"),
+      content: SizedBox(width: double.maxFinite, height: 300, child: ListView.separated(
+        itemCount: products.length, separatorBuilder: (_,__) => const Divider(),
+        itemBuilder: (ctx, index) {
+          final p = products[index];
+          return ListTile(
+            title: Text(p.strNAME), subtitle: Text("Stock: ${p.intNUMBERAVAILABLE} | ${Constants.formatNumber(p.intPRICE)} F"),
+            onTap: () {
+              provider.clearSearchResults();
+              Navigator.pop(ctx);
+              _checkStockAndAdd(p);
+            },
+          );
+        },
+      )),
+    ));
+
+    if(mounted) {
       setState(() => _isPopupOpen = false);
-      _requestSearchFocus();
-    });
+      _searchController.clear();
+    }
   }
 
   void _showRemiseDialog() {
@@ -232,32 +296,6 @@ class _ProformaScreenState extends State<ProformaScreen> {
   }
 
   void _showError(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m), backgroundColor: Colors.red));
-
-  void _showSelectionDialog(List<ProductSearchResult> products) {
-    final provider = Provider.of<ProformaProvider>(context, listen: false);
-    setState(() => _isPopupOpen = true);
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: Text("Résultats (${products.length})"),
-      content: SizedBox(width: double.maxFinite, height: 300, child: ListView.separated(
-        itemCount: products.length, separatorBuilder: (_,__) => const Divider(),
-        itemBuilder: (ctx, index) {
-          final p = products[index];
-          return ListTile(
-            title: Text(p.strNAME), subtitle: Text("Stock: ${p.intNUMBERAVAILABLE} | ${Constants.formatNumber(p.intPRICE)} F"),
-            onTap: () {
-              provider.clearSearchResults();
-              Navigator.pop(ctx);
-              _checkStockAndAdd(p);
-            },
-          );
-        },
-      )),
-    )).then((_) {
-      setState(() => _isPopupOpen = false);
-      _searchController.clear();
-      _requestSearchFocus();
-    });
-  }
 
   void _editLine(SaleLine item) {
     final qC = TextEditingController(text: item.intQUANTITY.toString());
@@ -382,7 +420,6 @@ class _ProformaScreenState extends State<ProformaScreen> {
                       enabledBorder: OutlineInputBorder(
                         borderSide: BorderSide(color: provider.isQuickScanMode ? Colors.green : Colors.grey, width: provider.isQuickScanMode ? 2.5 : 1.0),
                       ),
-                      // CORRECTION WARNING: .withOpacity est déprécié, utilisation de .withValues
                       filled: true, fillColor: Colors.purple.shade50.withValues(alpha: 0.3),
                     ),
                     onSubmitted: (val) => _performSearch(val, isScan: true),
@@ -547,7 +584,6 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
                 separatorBuilder: (_,__) => const Divider(height: 1),
                 itemBuilder: (ctx, i) {
                   final c = provider.clientSearchResults[i];
-                  // On garde le boolean pour la partie graphique
                   final bool isCarnet = c is ClientCarnetModel;
 
                   return ListTile(
@@ -562,8 +598,6 @@ class __ClientSearchDialogState extends State<_ClientSearchDialog> {
                       "${c.strFIRSTNAME} ${c.strLASTNAME}",
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    // CORRECTION WARNING: Utilisation de la promotion de type de Dart au lieu d'un cast forcé.
-                    // Si 'c' est ClientCarnetModel dans le ternaire, Dart le sait automatiquement.
                     subtitle: c is ClientCarnetModel
                         ? Text("Matricule: ${c.strNUMEROSECURITESOCIAL ?? 'N/A'}", style: TextStyle(color: Colors.blue.shade700))
                         : const Text("Client Standard"),
