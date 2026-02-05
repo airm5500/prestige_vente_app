@@ -78,6 +78,7 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
           numberOfCopies: settings.numberOfTicketsAssurance,
         );
       } else {
+        // CORRECTION ICI : On passe les paramètres du SettingsProvider
         await receiptService.printAssuranceSaleTicket(
           context: context,
           officine: auth.officine!,
@@ -87,10 +88,16 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
           ayantDroit: provider.selectedAyantDroit!,
           paymentMethod: paymentMethod ?? PaymentMethod(id: '0', name: 'COMPTANT'),
           currentUser: auth.user!,
+
+          // Paramètres d'impression
           isTestMode: settings.isTestPrintMode,
           paperWidth: settings.paperWidth,
-          ticketCodeType: settings.ticketCodeType,
           numberOfCopies: settings.numberOfTicketsAssurance,
+
+          // C'EST ICI QUE LE LIEN MANQUAIT :
+          showQrCode: settings.showQrCodeOnSaleTicket,
+          ticketCodeType: settings.ticketCodeType,
+
           montantVerse: montantVerse,
           monnaie: monnaie,
         );
@@ -99,7 +106,10 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
     provider.startNewAssuranceSale();
   }
 
-  // --- CONFIRMATION SÉCURISÉE (C'est ICI que l'API est appelée) ---
+  // ... (Le reste du fichier reste IDENTIQUE à la version précédente corrigée) ...
+  // Je remets les méthodes pour avoir le fichier complet et fonctionnel
+
+  // --- CONFIRMATION SÉCURISÉE ---
   Future<void> _showPaymentConfirmationDialog({
     required BuildContext context,
     required PaymentMethod method,
@@ -133,8 +143,8 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
                   child: Image.memory(qrMethod.qrCode!, fit: BoxFit.contain),
                 ),
               ] else ...[
-                const SizedBox(height: 20),
-                const Text("Confirmez-vous l'encaissement ?", textAlign: TextAlign.center),
+                const SizedBox(height: 10),
+                const Text("Veuillez confirmer l'encaissement."),
               ]
             ],
           ),
@@ -143,7 +153,6 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
         actions: [
           Row(
             children: [
-              // BOUTON RETOUR : Annulation pure, aucune action API
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: () => Navigator.of(ctx).pop(),
@@ -156,21 +165,17 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
                 ),
               ),
               const SizedBox(width: 8),
-              // BOUTON VALIDER : L'APPEL API SE FAIT ICI ET SEULEMENT ICI
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: () async {
-                    Navigator.of(ctx).pop(); // Ferme le popup d'abord
+                    Navigator.of(ctx).pop();
 
                     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-
-                    // --- APPEL API START ---
                     final result = await provider.cloturerVente(
                         method,
                         montantRecu: montantRecu,
                         montantRemis: montantRemis
                     );
-                    // --- APPEL API END ---
 
                     if (!context.mounted) return;
 
@@ -211,18 +216,17 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
     );
   }
 
-  // --- FLUX VENTE AVEC PAIEMENT (>0 F) ---
+  // --- FLUX PAIEMENT > 0F ---
   Future<void> _validerVenteAvecPaiement(BuildContext context) async {
     setState(() => _isActionInProgress = true);
 
     try {
-      // 1. Choix du mode et saisie montant (Dialogue local, pas d'API)
       final result = await showDialog<Map<String, dynamic>>(
         context: context,
         builder: (ctx) => const AssurancePaymentDialog(),
       );
 
-      if (result == null) return; // Annulation utilisateur, on sort, rien ne s'est passé en base
+      if (result == null) return;
 
       final paymentMethod = result['method'] as PaymentMethod?;
       final montantVerse = result['verse'] as int?;
@@ -236,7 +240,6 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
 
       if (provider.saleSummary == null || auth.user == null) return;
 
-      // 2. Récupération Info QR (sans validation)
       await saleProvider.fetchPaymentMethodsWithQr();
 
       PaymentMethodQr? qrMethod;
@@ -246,7 +249,6 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
         qrMethod = null;
       }
 
-      // 3. OUVERTURE CONFIRMATION (L'API sera appelée dans ce dialogue)
       await _showPaymentConfirmationDialog(
           context: context,
           method: paymentMethod,
@@ -262,9 +264,8 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
     }
   }
 
-  // --- FLUX VENTE SANS PAIEMENT (0 F) - DIRECT ---
+  // --- FLUX PAIEMENT 0F (Direct) ---
   Future<void> _validerVenteSansPaiement(BuildContext context) async {
-    // Cas 0F : On valide DIRECTEMENT pour aller vite, comme demandé.
     setState(() => _isActionInProgress = true);
 
     try {
@@ -284,11 +285,16 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
           backgroundColor: AppColors.success,
         ));
         await _handlePrintAndReset(context, isPrevente: false, paymentMethod: null);
+
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(provider.errorMessage ?? "Erreur validation"),
-          backgroundColor: AppColors.error,
-        ));
+        final currentStep = provider.currentStep;
+        final errorMsg = provider.errorMessage;
+
+        if (currentStep == AssuranceStep.bonAndAyantDroit) {
+          scaffoldMessenger.showSnackBar(SnackBar(content: Text(errorMsg ?? "Erreur de N° de Bon"), backgroundColor: AppColors.error));
+        } else {
+          scaffoldMessenger.showSnackBar(SnackBar(content: Text(errorMsg ?? "La validation a échoué"), backgroundColor: AppColors.error));
+        }
       }
     } finally {
       if(mounted) setState(() => _isActionInProgress = false);
@@ -325,8 +331,7 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
     final summary = provider.saleSummary;
     final client = provider.selectedClient;
 
-    // Désactive les boutons si une action est déjà en cours (anti-spam clic)
-    final bool canInteract = !provider.isLoading && !_isActionInProgress && summary != null && client != null;
+    final bool canValidate = summary != null && !provider.isLoading && client != null && !_isActionInProgress;
 
     return Card(
       elevation: 4,
@@ -377,7 +382,9 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
                       foregroundColor: Colors.orange.shade700,
                       side: BorderSide(color: Colors.orange.shade700),
                     ),
-                    onPressed: canInteract ? () => _terminerPrevente(context) : null,
+                    onPressed: canValidate
+                        ? () => _terminerPrevente(context)
+                        : null,
                     child: _isActionInProgress
                         ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                         : const Text('Prévente'),
@@ -387,7 +394,7 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
                 Expanded(
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
-                    onPressed: canInteract && (summary.montantNet > 0)
+                    onPressed: canValidate && (summary.montantNet > 0)
                         ? () => _validerVenteAvecPaiement(context)
                         : null,
                     child: _isActionInProgress
@@ -405,7 +412,7 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
                   width: double.infinity,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
-                    onPressed: canInteract
+                    onPressed: canValidate
                         ? () => _validerVenteSansPaiement(context)
                         : null,
                     child: _isActionInProgress
