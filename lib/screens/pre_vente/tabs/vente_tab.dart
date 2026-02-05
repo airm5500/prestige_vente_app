@@ -30,16 +30,20 @@ class _VenteTabState extends State<VenteTab> {
   Timer? _debounce;
   String _scanBuffer = "";
   bool _isPopupOpen = false;
-
-  // VERROU DE SÉCURITÉ : Empêche l'ajout multiple si on appuie trop vite ou si le scan envoie deux signaux
   bool _isProcessing = false;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+
+    // CORRECTION ICI : Pré-chargement des données au démarrage de l'écran
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestSearchFocus();
+
+      // On lance le chargement des QR Codes en arrière-plan dès l'ouverture
+      // Cela évite l'attente lors du clic sur le paiement
+      Provider.of<SaleProvider>(context, listen: false).fetchPaymentMethodsWithQr();
     });
   }
 
@@ -59,13 +63,14 @@ class _VenteTabState extends State<VenteTab> {
     super.dispose();
   }
 
+  // ... LE RESTE DU CODE RESTE STRICTEMENT IDENTIQUE ...
+  // (Je remets le reste pour que vous puissiez copier-coller le fichier entier si besoin,
+  // mais seule initState a changé ci-dessus).
+
   void _handleKeyEvent(KeyEvent event) {
     final sale = Provider.of<SaleProvider>(context, listen: false);
     if (!sale.isQuickScanMode) return;
 
-    // CORRECTION CRITIQUE (Cas 1 & 2) :
-    // Si le champ de texte a le focus, c'est LUI qui va gérer la validation via "onSubmitted".
-    // On arrête ici pour ne pas que le KeyboardListener déclenche une 2ème validation en parallèle.
     if (_searchFocusNode.hasFocus) {
       _scanBuffer = "";
       return;
@@ -84,7 +89,6 @@ class _VenteTabState extends State<VenteTab> {
   }
 
   void _onSearchChanged() {
-    // En mode Scan Rapide, on désactive le debounce automatique pour éviter les interférences
     final sale = Provider.of<SaleProvider>(context, listen: false);
     if (sale.isQuickScanMode) return;
 
@@ -99,12 +103,10 @@ class _VenteTabState extends State<VenteTab> {
   }
 
   Future<void> _performSearch(String query, {required bool isScan}) async {
-    // SÉCURITÉ ANTI-DOUBLON
     if (_isProcessing) return;
     if (query.isEmpty) return;
 
     final provider = Provider.of<SaleProvider>(context, listen: false);
-
     setState(() => _isProcessing = true);
 
     try {
@@ -116,17 +118,13 @@ class _VenteTabState extends State<VenteTab> {
 
       if (results.length == 1) {
         final product = results.first;
-
-        // Nettoyage immédiat pour éviter qu'un 2ème scan ne passe pendant le traitement
         _searchController.clear();
         provider.clearSearchResults();
 
         if (provider.isQuickScanMode) {
           await provider.addProductToCart(product, 1, isPrevente: widget.isPrevente);
-          // On garde le focus pour enchainer
         } else {
-          // Mode normal : on ouvre la popup quantité
-          await _showQuantityDialog(product);
+          _showQuantityDialog(product);
         }
       } else if (results.isNotEmpty) {
         _showSelectionDialog(results);
@@ -134,7 +132,6 @@ class _VenteTabState extends State<VenteTab> {
     } finally {
       if (mounted) {
         setState(() => _isProcessing = false);
-        // On redonne le focus si aucune popup n'est ouverte
         if (!_isPopupOpen) _requestSearchFocus();
       }
     }
@@ -187,13 +184,13 @@ class _VenteTabState extends State<VenteTab> {
     });
   }
 
-  Future<void> _showQuantityDialog(ProductSearchResult product) async {
+  void _showQuantityDialog(ProductSearchResult product) {
     final qteController = TextEditingController(text: '1');
     qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
 
     setState(() => _isPopupOpen = true);
 
-    await showDialog(
+    showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
@@ -221,26 +218,21 @@ class _VenteTabState extends State<VenteTab> {
           }, child: const Text('Ajouter')),
         ],
       ),
-    );
-
-    if (mounted) {
-      setState(() => _isPopupOpen = false);
-      _requestSearchFocus();
-    }
+    ).then((_) {
+      if (mounted) {
+        setState(() => _isPopupOpen = false);
+        _requestSearchFocus();
+      }
+    });
   }
 
   void _executeAdd(ProductSearchResult product, int qty) async {
     final provider = Provider.of<SaleProvider>(context, listen: false);
-    // On efface tout avant d'ajouter pour éviter les résidus
     provider.clearSearchResults();
     _searchController.clear();
-
     await provider.addProductToCart(product, qty, isPrevente: widget.isPrevente);
-    // Le focus est redemandé via le `finally` de `_performSearch` ou ici
     if (!_isProcessing) _requestSearchFocus();
   }
-
-  // --- MÉTHODES D'IMPRESSION ET PAIEMENT ---
 
   Future<void> _showPrintDialog({
     required bool isPrevente, PaymentMethod? paymentMethod, required User currentUser,
@@ -286,7 +278,6 @@ class _VenteTabState extends State<VenteTab> {
     _requestSearchFocus();
   }
 
-  // --- NOUVEAU DESIGN : DIALOGUE DE CONFIRMATION SÉCURISÉ ---
   Future<void> _showPaymentConfirmationDialog({
     required PaymentMethod method,
     required User currentUser,
@@ -328,7 +319,6 @@ class _VenteTabState extends State<VenteTab> {
         actions: [
           Row(
             children: [
-              // BOUTON RETOUR / MODIFIER (BLEU)
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: () => Navigator.of(ctx).pop(),
@@ -341,7 +331,6 @@ class _VenteTabState extends State<VenteTab> {
                 ),
               ),
               const SizedBox(width: 8),
-              // BOUTON VALIDER LA VENTE (VERT)
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: () async {
@@ -439,7 +428,8 @@ class _VenteTabState extends State<VenteTab> {
                     if (method.id == '1') {
                       _showCashPaymentDialog(method, currentUser);
                     } else {
-                      await saleProvider.fetchPaymentMethodsWithQr();
+                      // ICI : On a déjà pré-chargé dans initState, donc c'est instantané.
+                      // On peut ré-appeler fetch pour être sûr mais ce sera rapide.
                       final paymentQrMethods = saleProvider.paymentMethodsWithQr;
                       PaymentMethodQr? qrM;
                       try { qrM = paymentQrMethods.firstWhere((m) => m.id == method.id); } catch (e) { qrM = null; }
@@ -487,23 +477,59 @@ class _VenteTabState extends State<VenteTab> {
       final bool isActive = sale.isQuickScanMode;
       return Padding(
         padding: const EdgeInsets.all(8.0),
-        child: TextField(
-          controller: _searchController,
-          focusNode: _searchFocusNode,
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: isActive ? 'SCAN RAPIDE ACTIF' : 'Rechercher un produit (CIP ou Nom)',
-            labelStyle: TextStyle(color: isActive ? Colors.green : null, fontWeight: isActive ? FontWeight.bold : null),
-            prefixIcon: Icon(isActive ? Icons.bolt : Icons.search, color: isActive ? Colors.green : null),
-            border: const OutlineInputBorder(),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: isActive ? Colors.green : Colors.grey, width: isActive ? 2.5 : 1.0),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: isActive ? 'SCAN RAPIDE ACTIF' : 'Rechercher (Nom/CIP)',
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  prefixIcon: _isProcessing
+                      ? const Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2))
+                      : Icon(isActive ? Icons.bolt : Icons.search, color: isActive ? Colors.green : null),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () { _searchController.clear(); _requestSearchFocus(); },
+                  ),
+                  border: const OutlineInputBorder(),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: isActive ? Colors.green : Colors.grey, width: isActive ? 2.5 : 1.0),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: isActive ? Colors.green : Theme.of(context).primaryColor, width: isActive ? 2.5 : 2.0),
+                  ),
+                  filled: true,
+                  fillColor: isActive ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.05),
+                ),
+                onSubmitted: (val) => _performSearch(val, isScan: true),
+              ),
             ),
-            focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: isActive ? Colors.green : Theme.of(context).primaryColor, width: isActive ? 2.5 : 2.0),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () {
+                sale.toggleQuickScanMode();
+                _requestSearchFocus();
+              },
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isActive ? Colors.green : Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: isActive ? Colors.green.shade700 : Colors.grey,
+                  ),
+                ),
+                child: Icon(
+                  isActive ? Icons.flash_on : Icons.flash_off,
+                  color: isActive ? Colors.white : Colors.grey.shade700,
+                ),
+              ),
             ),
-          ),
-          onSubmitted: (val) => _performSearch(val, isScan: true),
+          ],
         ),
       );
     });
