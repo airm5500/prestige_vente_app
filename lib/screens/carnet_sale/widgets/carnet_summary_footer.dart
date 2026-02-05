@@ -1,9 +1,7 @@
 // lib/screens/carnet_sale/widgets/carnet_summary_footer.dart
-// 09/11/2025 19:00
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
-//import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/providers/carnet_sale_provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -11,14 +9,9 @@ import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 
-//import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
-//import 'package:prestige_vente_app/providers/caisse_provider.dart'; // Pour la vérif caisse
-
 class CarnetSummaryFooter extends StatelessWidget {
   const CarnetSummaryFooter({super.key});
 
-  // Note : La logique d'impression est réutilisée de l'assurance
-  // car le ticket est identique (juste le titre change)
   Future<void> _handlePrintAndReset(
       BuildContext context, {
         required bool isPrevente,
@@ -42,7 +35,6 @@ class CarnetSummaryFooter extends StatelessWidget {
     final currentUserToPrint = auth.user!;
     final officineToPrint = auth.officine!;
 
-    // On utilise le même setting que l'assurance pour le nb de copies
     final copies = settings.numberOfTicketsAssurance;
 
     final bool? printTicket = await showDialog<bool>(
@@ -87,19 +79,22 @@ class CarnetSummaryFooter extends StatelessWidget {
           items: itemsToPrint,
           client: clientToPrint,
           ayantDroit: ayantDroitToPrint,
-          // Le paiement est par défaut "ESPECES" même si 0
           paymentMethod: PaymentMethod(id: '1', name: 'CARNET'),
           currentUser: currentUserToPrint,
           isTestMode: settings.isTestPrintMode,
           paperWidth: settings.paperWidth,
           ticketCodeType: settings.ticketCodeType,
           numberOfCopies: copies,
+          // CORRECTION ICI : ON PASSE LE PARAMÈTRE
+          showQrCode: settings.showQrCodeOnSaleTicket,
         );
       }
     }
     provider.startNewCarnetSale();
   }
 
+  // ... (Le reste des méthodes _terminerPrevente, _validerVenteCarnet, build... restent inchangées)
+  // Je remets le reste pour être complet :
 
   Future<void> _terminerPrevente(BuildContext context) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -125,34 +120,27 @@ class CarnetSummaryFooter extends StatelessWidget {
     await _handlePrintAndReset(context, isPrevente: true);
   }
 
-  // MODIFICATION : Plus de dialogue de paiement.
-  // Cette fonction gère la "Vente" (part client 0 ou > 0)
   Future<void> _validerVenteCarnet(BuildContext context) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
 
-    // 1. Appelle la clôture (le provider gère le paiement par défaut)
     final result = await provider.cloturerVenteCarnet();
 
     if (!context.mounted) return;
 
-    // 2. Vérifie l'erreur "Caisse fermée"
     final bool caisseHandled = await Constants.checkAndOpenCaisse(context, result);
     if (caisseHandled) {
-      return; // L'utilisateur doit réessayer
+      return;
     }
 
-    // 3. Si c'est un succès
     if (result['success'] == true) {
       scaffoldMessenger.showSnackBar(const SnackBar(
         content: Text('Vente Carnet validée avec succès !'),
         backgroundColor: AppColors.success,
       ));
-      // Pas de dialogue QR, on passe à l'impression
       await _handlePrintAndReset(context, isPrevente: false);
 
     } else {
-      // 4. Si c'est une autre erreur (ex: N° Bon utilisé)
       final currentStep = provider.currentStep;
       final errorMsg = provider.errorMessage;
 
@@ -170,7 +158,6 @@ class CarnetSummaryFooter extends StatelessWidget {
       return;
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -243,7 +230,6 @@ class CarnetSummaryFooter extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.success,
                     ),
-                    // MODIFICATION : Appelle la validation directe
                     onPressed: canValidate
                         ? () => _validerVenteCarnet(context)
                         : null,
