@@ -9,6 +9,9 @@ import 'package:provider/provider.dart';
 import 'assurance_cart_widget.dart';
 import 'assurance_summary_footer.dart';
 
+// AJOUT DE L'IMPORT NÉCESSAIRE
+import 'package:prestige_vente_app/providers/sale_provider.dart';
+
 class Step3ProductsWidget extends StatefulWidget {
   const Step3ProductsWidget({super.key});
 
@@ -19,7 +22,7 @@ class Step3ProductsWidget extends StatefulWidget {
 class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
-  final _keyboardFocusNode = FocusNode(); // Pour le scanner global
+  final _keyboardFocusNode = FocusNode();
   Timer? _debounce;
 
   bool _isProcessing = false;
@@ -30,8 +33,15 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+
+    // CORRECTION : PRÉ-CHARGEMENT DES QR CODES
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestSearchFocus();
+
+      // On lance le chargement silencieux des QR Codes ici.
+      // Comme ça, quand l'utilisateur cliquera sur "Vente" en bas, les images seront déjà prêtes.
+      // (Cela utilise le cache du SaleProvider, donc si déjà chargé en vente comptant, c'est instantané)
+      Provider.of<SaleProvider>(context, listen: false).fetchPaymentMethodsWithQr();
     });
   }
 
@@ -75,14 +85,13 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
   void _onSearchChanged() {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-    if (provider.isQuickScanMode) return; // Mode Scan : pas de recherche auto
+    if (provider.isQuickScanMode) return;
 
     if (_debounce?.isActive ?? false) _debounce!.cancel();
 
     _debounce = Timer(const Duration(milliseconds: 500), () {
       final query = _searchController.text.trim();
       if (query.length >= 3) {
-        // Mode Manuel : Recherche Auto -> Popup
         _performSearch(query, fromScan: false);
       }
     });
@@ -93,7 +102,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     if (query.isEmpty) return;
 
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-    if (_isPopupOpen && !fromScan) return; // Évite réouverture
+    if (_isPopupOpen && !fromScan) return;
 
     setState(() => _isProcessing = true);
 
@@ -106,16 +115,13 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
         final product = provider.productSearchResults.first;
 
         if (provider.isQuickScanMode) {
-          // SCAN : AJOUT DIRECT
           _searchController.clear();
           provider.clearProductSearch();
           await provider.addProductToCart(product, 1);
         } else {
-          // MANUEL : POPUP QUANTITÉ
           _showQuantityDialog(product);
         }
       } else if (provider.productSearchResults.isNotEmpty) {
-        // MULTIPLES : POPUP SÉLECTION
         _showSelectionDialog(provider.productSearchResults);
       } else {
         if(fromScan) {
@@ -271,7 +277,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       onKeyEvent: _handleKeyEvent,
       child: Column(
         children: [
-          // ZONE 1 : EN-TÊTE COMPACT (Ligne unique)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             color: Colors.grey[100],
@@ -351,36 +356,11 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     );
   }
 
-  // ZONE RECHERCHE : BOUTON GAUCHE
   Widget _buildSearchRow(AssuranceSaleProvider provider, bool isActive) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Row(
         children: [
-          // BOUTON TOGGLE SCAN (GAUCHE)
-          InkWell(
-            onTap: () {
-              provider.toggleQuickScanMode();
-              _requestSearchFocus();
-            },
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isActive ? Colors.green : Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: isActive ? Colors.green.shade700 : Colors.grey.shade300),
-              ),
-              child: Icon(
-                isActive ? Icons.bolt : Icons.flash_off,
-                color: isActive ? Colors.white : Colors.grey.shade600,
-                size: 24,
-              ),
-            ),
-          ),
-
-          const SizedBox(width: 8),
-
-          // CHAMP TEXTE
           Expanded(
             child: TextField(
               controller: _searchController,
@@ -411,10 +391,31 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                 fillColor: isActive ? Colors.green.withValues(alpha: 0.05) : null,
               ),
               onSubmitted: (val) {
-                // Validation Manuelle (si Auto n'a pas déclenché)
                 _performSearch(val, fromScan: false);
                 _requestSearchFocus();
               },
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          InkWell(
+            onTap: () {
+              provider.toggleQuickScanMode();
+              _requestSearchFocus();
+            },
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isActive ? Colors.green : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: isActive ? Colors.green.shade700 : Colors.grey.shade300),
+              ),
+              child: Icon(
+                isActive ? Icons.bolt : Icons.flash_off,
+                color: isActive ? Colors.white : Colors.grey.shade600,
+                size: 24,
+              ),
             ),
           ),
 
