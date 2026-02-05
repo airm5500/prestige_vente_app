@@ -110,6 +110,15 @@ class CarnetSaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  // --- AJOUT : GESTION MODE SCAN RAPIDE ---
+  bool _isQuickScanMode = false;
+  bool get isQuickScanMode => _isQuickScanMode;
+
+  void toggleQuickScanMode() {
+    _isQuickScanMode = !_isQuickScanMode;
+    notifyListeners();
+  }
+
   // --- ÉTAPE 1: GESTION CLIENT ---
 
   Future<void> searchClient(String query) async {
