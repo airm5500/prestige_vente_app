@@ -75,16 +75,14 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
   void _onSearchChanged() {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-
-    // Si Scan Rapide actif, on ignore la saisie auto
-    if (provider.isQuickScanMode) return;
+    if (provider.isQuickScanMode) return; // Mode Scan : pas de recherche auto
 
     if (_debounce?.isActive ?? false) _debounce!.cancel();
 
     _debounce = Timer(const Duration(milliseconds: 500), () {
       final query = _searchController.text.trim();
       if (query.length >= 3) {
-        // Mode MANUEL : Lancement recherche auto -> Ouvre POPUP
+        // Mode Manuel : Recherche Auto -> Popup
         _performSearch(query, fromScan: false);
       }
     });
@@ -95,9 +93,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     if (query.isEmpty) return;
 
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-
-    // Empêche réouverture si déjà ouvert en mode manuel
-    if (_isPopupOpen && !fromScan) return;
+    if (_isPopupOpen && !fromScan) return; // Évite réouverture
 
     setState(() => _isProcessing = true);
 
@@ -110,16 +106,16 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
         final product = provider.productSearchResults.first;
 
         if (provider.isQuickScanMode) {
-          // Ajout direct
+          // SCAN : AJOUT DIRECT
           _searchController.clear();
           provider.clearProductSearch();
           await provider.addProductToCart(product, 1);
         } else {
-          // Popup quantité
+          // MANUEL : POPUP QUANTITÉ
           _showQuantityDialog(product);
         }
       } else if (provider.productSearchResults.isNotEmpty) {
-        // Plusieurs résultats -> POPUP OBLIGATOIRE
+        // MULTIPLES : POPUP SÉLECTION
         _showSelectionDialog(provider.productSearchResults);
       } else {
         if(fromScan) {
@@ -130,7 +126,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     } finally {
       if (mounted) {
         setState(() => _isProcessing = false);
-        // Si aucun popup ne s'est ouvert (ex: rien trouvé en mode manuel), on redonne le focus
         if (!_isPopupOpen) _requestSearchFocus();
       }
     }
@@ -161,7 +156,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                 trailing: Text("${Constants.formatNumber(p.intPRICE)} F"),
                 onTap: () {
                   Navigator.pop(ctx);
-                  // On vide le champ de recherche à la sélection pour être propre
                   _searchController.clear();
                   provider.clearProductSearch();
                   _showQuantityDialog(p);
@@ -277,7 +271,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       onKeyEvent: _handleKeyEvent,
       child: Column(
         children: [
-          // EN-TÊTE
+          // ZONE 1 : EN-TÊTE COMPACT (Ligne unique)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             color: Colors.grey[100],
@@ -357,12 +351,36 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     );
   }
 
-  // --- ZONE RECHERCHE (Bouton Scan à droite) ---
+  // ZONE RECHERCHE : BOUTON GAUCHE
   Widget _buildSearchRow(AssuranceSaleProvider provider, bool isActive) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Row(
         children: [
+          // BOUTON TOGGLE SCAN (GAUCHE)
+          InkWell(
+            onTap: () {
+              provider.toggleQuickScanMode();
+              _requestSearchFocus();
+            },
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isActive ? Colors.green : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: isActive ? Colors.green.shade700 : Colors.grey.shade300),
+              ),
+              child: Icon(
+                isActive ? Icons.bolt : Icons.flash_off,
+                color: isActive ? Colors.white : Colors.grey.shade600,
+                size: 24,
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          // CHAMP TEXTE
           Expanded(
             child: TextField(
               controller: _searchController,
@@ -393,31 +411,10 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                 fillColor: isActive ? Colors.green.withValues(alpha: 0.05) : null,
               ),
               onSubmitted: (val) {
+                // Validation Manuelle (si Auto n'a pas déclenché)
                 _performSearch(val, fromScan: false);
                 _requestSearchFocus();
               },
-            ),
-          ),
-
-          const SizedBox(width: 8),
-
-          InkWell(
-            onTap: () {
-              provider.toggleQuickScanMode();
-              _requestSearchFocus();
-            },
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isActive ? Colors.green : Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: isActive ? Colors.green.shade700 : Colors.grey.shade300),
-              ),
-              child: Icon(
-                isActive ? Icons.bolt : Icons.flash_off,
-                color: isActive ? Colors.white : Colors.grey.shade600,
-                size: 24,
-              ),
             ),
           ),
 
