@@ -1,5 +1,4 @@
 // lib/screens/carnet_sale/widgets/carnet_cart_widget.dart
-// 09/11/2025 19:00
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/carnet_sale_provider.dart';
@@ -10,12 +9,10 @@ class CarnetCartWidget extends StatelessWidget {
   const CarnetCartWidget({super.key});
 
   void _showEditDialog(BuildContext context, SaleItemDetail item) {
-    final provider =
-    Provider.of<CarnetSaleProvider>(context, listen: false);
-    final qteController =
-    TextEditingController(text: item.intQUANTITY.toString());
-    final priceController =
-    TextEditingController(text: item.intPRICEUNITAIR.toString());
+    final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
+    final qteController = TextEditingController(text: item.intQUANTITY.toString());
+    // Note: Le prix est souvent fixe en assurance/carnet, mais on laisse la possibilité si besoin
+    final priceController = TextEditingController(text: item.intPRICEUNITAIR.toString());
 
     showDialog(
       context: context,
@@ -30,11 +27,15 @@ class CarnetCartWidget extends StatelessWidget {
               keyboardType: TextInputType.number,
               autofocus: true,
             ),
+            // Décommentez si vous voulez permettre la modif de prix
+            /*
+            const SizedBox(height: 10),
             TextField(
               controller: priceController,
               decoration: const InputDecoration(labelText: 'Prix Unitaire'),
               keyboardType: TextInputType.number,
             ),
+            */
           ],
         ),
         actions: [
@@ -45,11 +46,11 @@ class CarnetCartWidget extends StatelessWidget {
           ElevatedButton(
             child: const Text('Valider'),
             onPressed: () {
-              final newQte =
-                  int.tryParse(qteController.text) ?? item.intQUANTITY;
-              final newPrice =
-                  int.tryParse(priceController.text) ?? item.intPRICEUNITAIR;
-              provider.updateCartItem(item, newQte, newPrice);
+              final int qte = int.tryParse(qteController.text) ?? item.intQUANTITY;
+              final int price = int.tryParse(priceController.text) ?? item.intPRICEUNITAIR;
+              if (qte > 0) {
+                provider.updateCartItem(item, qte, price);
+              }
               Navigator.of(ctx).pop();
             },
           ),
@@ -64,64 +65,94 @@ class CarnetCartWidget extends StatelessWidget {
       builder: (context, provider, child) {
         if (provider.cartItems.isEmpty) {
           return const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.shopping_cart_outlined,
-                    size: 60, color: Colors.grey),
-                SizedBox(height: 10),
-                Text('Le panier est vide',
-                    style: TextStyle(fontSize: 16, color: Colors.grey)),
-              ],
+            child: Text(
+              'Le panier est vide',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
             ),
           );
         }
 
-        return ListView.builder(
+        return ListView.separated(
+          padding: const EdgeInsets.all(8.0), // Padding général réduit
           itemCount: provider.cartItems.length,
+          separatorBuilder: (ctx, i) => const Divider(height: 1), // Séparateur fin
           itemBuilder: (context, index) {
             final item = provider.cartItems[index];
             return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              elevation: 2,
+              margin: const EdgeInsets.symmetric(vertical: 4), // Marge verticale réduite
               child: Padding(
-                padding:
-                const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0), // Padding interne compact
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${item.strNAME} - CIP: ${item.intCIP}',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16),
+                    // LIGNE 1 : NOM PRODUIT + CIP (Compacté)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: RichText(
+                            maxLines: 1, // Force une seule ligne
+                            overflow: TextOverflow.ellipsis, // ... si trop long
+                            text: TextSpan(
+                              style: const TextStyle(color: Colors.black87, fontSize: 13), // Police réduite
+                              children: [
+                                TextSpan(
+                                  text: item.strNAME,
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                TextSpan(
+                                  text: ' (${item.intCIP})',
+                                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
+
+                    // ESPACE RÉDUIT (C'est ici qu'on gagne de la place)
+                    const SizedBox(height: 2),
+
+                    // LIGNE 2 : PRIX ET ACTIONS
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
+                        // Partie Gauche : Calcul Prix
                         Text(
-                          '${item.intQUANTITY} x ${Constants.formatNumber(item.intPRICEUNITAIR)} = ${Constants.formatNumber(item.intPRICE)}',
+                          '${item.intQUANTITY} x ${Constants.formatNumber(item.intPRICEUNITAIR)} = ${Constants.formatNumber(item.intPRICE)} F',
                           style: const TextStyle(
-                              fontSize: 15, color: Colors.black87),
+                              fontSize: 13, // Police réduite
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600
+                          ),
                         ),
+
+                        // Partie Droite : Boutons Actions
                         Row(
                           children: [
-                            IconButton(
-                              icon: const Icon(Icons.edit,
-                                  color: AppColors.secondary),
-                              onPressed: () => _showEditDialog(context, item),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
+                            SizedBox(
+                              width: 30, // Bouton compact
+                              height: 30,
+                              child: IconButton(
+                                icon: const Icon(Icons.edit, size: 18), // Icône réduite
+                                color: Colors.blue,
+                                padding: EdgeInsets.zero,
+                                onPressed: () => _showEditDialog(context, item),
+                                tooltip: "Modifier quantité",
+                              ),
                             ),
-                            const SizedBox(width: 16),
-                            IconButton(
-                              icon: const Icon(Icons.delete,
-                                  color: AppColors.error),
-                              onPressed: () {
-                                provider.removeProductFromCart(
-                                    item.lgPREENREGISTREMENTDETAILID);
-                              },
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 30, // Bouton compact
+                              height: 30,
+                              child: IconButton(
+                                icon: const Icon(Icons.delete, size: 18), // Icône réduite
+                                color: Colors.red,
+                                padding: EdgeInsets.zero,
+                                onPressed: () => provider.removeProductFromCart(item.lgPREENREGISTREMENTDETAILID),
+                                tooltip: "Supprimer",
+                              ),
                             ),
                           ],
                         )
