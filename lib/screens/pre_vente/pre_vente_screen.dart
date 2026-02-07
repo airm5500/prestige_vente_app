@@ -27,7 +27,10 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final saleProvider = Provider.of<SaleProvider>(context, listen: false);
-      saleProvider.startNewSale();
+      // CORRECTION : On ne reset pas systématiquement si on vient de charger une prévente
+      if (saleProvider.currentVenteId == null) {
+        saleProvider.startNewSale();
+      }
       if (widget.initialTabIndex == 2) saleProvider.fetchPreventes();
     });
   }
@@ -44,10 +47,10 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     if (_tabController.index == 2) {
       Provider.of<SaleProvider>(context, listen: false).fetchPreventes();
     }
-    // On vide les recherches quand on change d'onglet pour éviter les overlays fantômes
+    // On vide les recherches quand on change d'onglet
     Provider.of<SaleProvider>(context, listen: false).clearSearchResults();
     _updateTabColor(_tabController.index);
-    setState(() {}); // Force la reconstruction pour rafraîchir le focus dans les onglets
+    setState(() {});
   }
 
   void _updateTabColor(int index) {
@@ -106,11 +109,11 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
       ),
       body: TabBarView(
         controller: _tabController,
-        // On utilise ValueKey pour forcer le focus quand on switch d'onglet
         children: [
           VenteTab(key: const ValueKey('prevente'), isPrevente: true),
           VenteTab(key: const ValueKey('vente'), isPrevente: false),
-          PreventeListTab(tabController: _tabController),
+          // CORRECTION : Suppression du paramètre tabController
+          const PreventeListTab(),
         ],
       ),
     );
