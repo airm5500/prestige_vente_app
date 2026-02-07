@@ -116,7 +116,22 @@ class SaleProvider with ChangeNotifier {
       return;
     }
     _setLoading(true);
-    _searchResults = await _apiService.searchProducts(query);
+    // 1. On récupère TOUS les résultats
+    List<ProductSearchResult> results = await _apiService.searchProducts(query);
+
+    // 2. FILTRAGE RV (LOGIQUE AJOUTÉE)
+    // On récupère le réglage directement depuis les SharedPreferences pour être sûr
+    // (ou via une injection de SettingsProvider si vous préférez)
+    final prefs = await SharedPreferences.getInstance();
+    final bool hideRv = prefs.getBool('hide_rv_products') ?? true; // True par défaut
+
+    if (hideRv) {
+      // On retire tout ce qui commence par "RV " (insensible à la casse)
+      results.removeWhere((p) => p.strNAME.toUpperCase().startsWith("RV "));
+    }
+
+    // 3. On affecte le résultat filtré
+    _searchResults = results;
     _setLoading(false);
   }
 

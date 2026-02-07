@@ -114,6 +114,7 @@ class SettingsProvider with ChangeNotifier {
 
     _menuOrder = prefs.getStringList(_menuOrderKey) ?? [];
     _hiddenMenuIds = prefs.getStringList(_hiddenMenuIdsKey) ?? [];
+    _hideRvProducts = prefs.getBool('hide_rv_products') ?? true;
 
     notifyListeners();
   }
@@ -282,6 +283,19 @@ class SettingsProvider with ChangeNotifier {
     } catch (_) {
       return false;
     }
+  }
+
+  // NOUVEAU : Variable pour masquer les produits RV
+  bool _hideRvProducts = true; // PAR DÉFAUT : ACTIVE (Masque les RV)
+
+  bool get hideRvProducts => _hideRvProducts;
+
+  // AJOUTEZ CETTE MÉTHODE
+  Future<void> setHideRvProducts(bool value) async {
+    _hideRvProducts = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('hide_rv_products', value);
+    notifyListeners();
   }
 
   void _setLoading(bool value) {

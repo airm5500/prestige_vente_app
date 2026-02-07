@@ -198,6 +198,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 10),
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Modifier Pointage BL", style: TextStyle(fontSize: 16))), Switch( value: settings.canEditBlControl, onChanged: (value) { settings.setCanEditBlControl(value); } ), ], ),
                       const SizedBox(height: 10),
+                      SwitchListTile(
+                        title: const Text("Masquer les produits 'RV'"),
+                        //subtitle: const Text("Ne pas afficher les produits commençant par 'RV '"),
+                        value: settings.hideRvProducts,
+                        activeColor: AppColors.primary,
+                        onChanged: (bool value) {
+                          settings.setHideRvProducts(value);
+                        },
+                      ),
 
                       // MODIFICATION (Point 4 & 5)
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Max Tiers Payants (Assurance)", style: TextStyle(fontSize: 16))), SizedBox( width: 80, child: DropdownButtonFormField<int>( value: settings.maxTiersPayants, items: [1, 2, 3].map((int value) => DropdownMenuItem<int>(value: value, child: Text(value.toString()))).toList(), onChanged: (value) { if(value != null) settings.setMaxTiersPayants(value); }, decoration: const InputDecoration(isDense: true), ), ) ], ),

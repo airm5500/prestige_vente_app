@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // On réutilise la même énumération que l'assurance
 enum CarnetStep {
@@ -304,7 +305,23 @@ class CarnetSaleProvider with ChangeNotifier {
       return;
     }
     _setLoading(true);
-    _productSearchResults = await _apiService.searchProducts(query);
+    //_productSearchResults = await _apiService.searchProducts(query);
+    // 1. On récupère TOUS les résultats
+    List<ProductSearchResult> results = await _apiService.searchProducts(query);
+
+    // 2. FILTRAGE RV (LOGIQUE AJOUTÉE)
+    // On récupère le réglage directement depuis les SharedPreferences pour être sûr
+    // (ou via une injection de SettingsProvider si vous préférez)
+    final prefs = await SharedPreferences.getInstance();
+    final bool hideRv = prefs.getBool('hide_rv_products') ?? true; // True par défaut
+
+    if (hideRv) {
+      // On retire tout ce qui commence par "RV " (insensible à la casse)
+      results.removeWhere((p) => p.strNAME.toUpperCase().startsWith("RV "));
+    }
+
+    // 3. On affecte le résultat filtré
+    _productSearchResults = results;
     _setLoading(false);
   }
 
