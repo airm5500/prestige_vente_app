@@ -37,12 +37,9 @@ class _VenteTabState extends State<VenteTab> {
     super.initState();
     _searchController.addListener(_onSearchChanged);
 
-    // CORRECTION ICI : Pré-chargement des données au démarrage de l'écran
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestSearchFocus();
-
-      // On lance le chargement des QR Codes en arrière-plan dès l'ouverture
-      // Cela évite l'attente lors du clic sur le paiement
+      // Pré-chargement des QR Codes
       Provider.of<SaleProvider>(context, listen: false).fetchPaymentMethodsWithQr();
     });
   }
@@ -62,10 +59,6 @@ class _VenteTabState extends State<VenteTab> {
     _debounce?.cancel();
     super.dispose();
   }
-
-  // ... LE RESTE DU CODE RESTE STRICTEMENT IDENTIQUE ...
-  // (Je remets le reste pour que vous puissiez copier-coller le fichier entier si besoin,
-  // mais seule initState a changé ci-dessus).
 
   void _handleKeyEvent(KeyEvent event) {
     final sale = Provider.of<SaleProvider>(context, listen: false);
@@ -90,10 +83,18 @@ class _VenteTabState extends State<VenteTab> {
 
   void _onSearchChanged() {
     final sale = Provider.of<SaleProvider>(context, listen: false);
+    // En mode scan rapide, pas de recherche auto
     if (sale.isQuickScanMode) return;
+
+    // Si on est déjà en train de traiter ou qu'un popup est ouvert, on ne lance pas de timer
+    if (_isPopupOpen || _isProcessing) return;
 
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      // Double sécurité au moment de l'exécution du timer
+      if (_isPopupOpen || _isProcessing) return;
+
       if (_searchController.text.trim().isNotEmpty) {
         _performSearch(_searchController.text.trim(), isScan: false);
       } else {
@@ -103,7 +104,15 @@ class _VenteTabState extends State<VenteTab> {
   }
 
   Future<void> _performSearch(String query, {required bool isScan}) async {
+    // 1. CORRECTION MAJEURE : On tue tout timer en attente immédiatement
+    _debounce?.cancel();
+
+    // 2. Si une recherche est déjà en cours, on ne fait rien
     if (_isProcessing) return;
+
+    // 3. Si un popup est déjà ouvert (résultats ou quantité), on BLOQUE toute nouvelle recherche
+    if (_isPopupOpen) return;
+
     if (query.isEmpty) return;
 
     final provider = Provider.of<SaleProvider>(context, listen: false);
@@ -113,6 +122,9 @@ class _VenteTabState extends State<VenteTab> {
       await provider.searchProducts(query);
 
       if (!mounted) return;
+
+      // Si entre temps un popup s'est ouvert (peu probable avec le await mais possible), on arrête
+      if (_isPopupOpen) return;
 
       final results = provider.searchResults;
 
@@ -124,14 +136,17 @@ class _VenteTabState extends State<VenteTab> {
         if (provider.isQuickScanMode) {
           await provider.addProductToCart(product, 1, isPrevente: widget.isPrevente);
         } else {
+          // Mode manuel : On ouvre le popup quantité
           _showQuantityDialog(product);
         }
       } else if (results.isNotEmpty) {
+        // Plusieurs résultats : On ouvre le popup de sélection
         _showSelectionDialog(results);
       }
     } finally {
       if (mounted) {
         setState(() => _isProcessing = false);
+        // On ne redonne le focus que si aucun popup n'est resté ouvert
         if (!_isPopupOpen) _requestSearchFocus();
       }
     }
@@ -160,6 +175,7 @@ class _VenteTabState extends State<VenteTab> {
                 onTap: () {
                   provider.clearSearchResults();
                   Navigator.of(ctx).pop();
+                  // Enchaînement vers le popup quantité
                   _showQuantityDialog(p);
                 },
               );
@@ -178,6 +194,7 @@ class _VenteTabState extends State<VenteTab> {
       ),
     ).then((_) {
       if (mounted) {
+        // Important : on marque le popup comme fermé AVANT de redonner le focus
         setState(() => _isPopupOpen = false);
         _requestSearchFocus();
       }
@@ -228,10 +245,17 @@ class _VenteTabState extends State<VenteTab> {
 
   void _executeAdd(ProductSearchResult product, int qty) async {
     final provider = Provider.of<SaleProvider>(context, listen: false);
+
+    // Nettoyage immédiat pour éviter les effets de bord
     provider.clearSearchResults();
     _searchController.clear();
+
+    // Appel API
     await provider.addProductToCart(product, qty, isPrevente: widget.isPrevente);
-    if (!_isProcessing) _requestSearchFocus();
+
+    if (!_isProcessing && mounted) {
+      _requestSearchFocus();
+    }
   }
 
   Future<void> _showPrintDialog({
@@ -428,8 +452,6 @@ class _VenteTabState extends State<VenteTab> {
                     if (method.id == '1') {
                       _showCashPaymentDialog(method, currentUser);
                     } else {
-                      // ICI : On a déjà pré-chargé dans initState, donc c'est instantané.
-                      // On peut ré-appeler fetch pour être sûr mais ce sera rapide.
                       final paymentQrMethods = saleProvider.paymentMethodsWithQr;
                       PaymentMethodQr? qrM;
                       try { qrM = paymentQrMethods.firstWhere((m) => m.id == method.id); } catch (e) { qrM = null; }
@@ -572,32 +594,15 @@ class _VenteTabState extends State<VenteTab> {
               Text('Total: ${Constants.formatNumber(summary.montant)}'),
               Text('Net: ${Constants.formatNumber(summary.montantNet)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary)),
             ]),
-
-            // --- MODIFICATION ICI ---
             saleProvider.isLoading ? const CircularProgressIndicator() : ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success, shape: const CircleBorder(), padding: const EdgeInsets.all(15)),
               child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
-
-              // Logique du bouton modifiée
-              onPressed: saleProvider.cartItems.isEmpty ? null : () async { // Ajout de async
-
+              onPressed: saleProvider.cartItems.isEmpty ? null : () {
                 if (widget.isPrevente) {
-                  // CORRECTION : APPEL API OBLIGATOIRE POUR CHANGER LE STATUT EN "is_Process"
-                  // Sans cet appel, la vente reste "Pending" en base de données.
-                  final bool success = await saleProvider.terminerPrevente();
-
-                  if (success) {
-                    if (!mounted) return;
-                    _showPrintDialog(isPrevente: true, currentUser: Provider.of<AuthProvider>(context, listen: false).user!);
-                  } else {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text("Erreur lors de l'enregistrement de la prévente"),
-                      backgroundColor: Colors.red,
-                    ));
-                  }
+                  // CORRECTION : Appel API via le bouton enregistrer
+                  // Pour l'impression, cf ReceiptService
+                  _showPrintDialog(isPrevente: true, currentUser: Provider.of<AuthProvider>(context, listen: false).user!);
                 } else {
-                  // Cas Vente Directe (inchangé)
                   _showPaymentDialog();
                 }
               },
@@ -608,4 +613,3 @@ class _VenteTabState extends State<VenteTab> {
     });
   }
 }
-
