@@ -582,6 +582,12 @@ class _VenteTabState extends State<VenteTab> {
     });
   }
 
+  // lib/screens/pre_vente/tabs/vente_tab.dart
+
+// ... (Imports inchangés)
+
+// ... (Début du fichier inchangé)
+
   Widget _buildSummaryFooter() {
     return Consumer<SaleProvider>(builder: (context, saleProvider, child) {
       final summary = saleProvider.saleSummary;
@@ -594,15 +600,32 @@ class _VenteTabState extends State<VenteTab> {
               Text('Total: ${Constants.formatNumber(summary.montant)}'),
               Text('Net: ${Constants.formatNumber(summary.montantNet)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary)),
             ]),
+
+            // --- MODIFICATION ICI ---
             saleProvider.isLoading ? const CircularProgressIndicator() : ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: widget.isPrevente ? Colors.orange : AppColors.success, shape: const CircleBorder(), padding: const EdgeInsets.all(15)),
               child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
-              onPressed: saleProvider.cartItems.isEmpty ? null : () {
+
+              // Logique du bouton modifiée
+              onPressed: saleProvider.cartItems.isEmpty ? null : () async { // Ajout de async
+
                 if (widget.isPrevente) {
-                  // CORRECTION : Appel API via le bouton enregistrer
-                  // Pour l'impression, cf ReceiptService
-                  _showPrintDialog(isPrevente: true, currentUser: Provider.of<AuthProvider>(context, listen: false).user!);
+                  // CORRECTION : APPEL API OBLIGATOIRE POUR CHANGER LE STATUT EN "is_Process"
+                  // Sans cet appel, la vente reste "Pending" en base de données.
+                  final bool success = await saleProvider.terminerPrevente();
+
+                  if (success) {
+                    if (!mounted) return;
+                    _showPrintDialog(isPrevente: true, currentUser: Provider.of<AuthProvider>(context, listen: false).user!);
+                  } else {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text("Erreur lors de l'enregistrement de la prévente"),
+                      backgroundColor: Colors.red,
+                    ));
+                  }
                 } else {
+                  // Cas Vente Directe (inchangé)
                   _showPaymentDialog();
                 }
               },
