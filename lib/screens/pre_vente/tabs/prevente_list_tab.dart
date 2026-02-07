@@ -2,18 +2,19 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:prestige_vente_app/api/models/sale.dart'; // Contient PreventeListItem et SaleSummary
+import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
-// IMPORTS POUR L'IMPRESSION
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 
 class PreventeListTab extends StatefulWidget {
-  // CORRECTION : Suppression du paramètre tabController inutile ici
-  const PreventeListTab({super.key});
+  // CORRECTION : On réintègre le contrôleur pour la navigation
+  final TabController? tabController;
+
+  const PreventeListTab({super.key, this.tabController});
 
   @override
   State<PreventeListTab> createState() => _PreventeListTabState();
@@ -22,15 +23,11 @@ class PreventeListTab extends StatefulWidget {
 class _PreventeListTabState extends State<PreventeListTab> {
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
-
-  // Instance du service d'impression
   final ReceiptService _receiptService = ReceiptService();
 
   @override
   void initState() {
     super.initState();
-    // CORRECTION : Suppression de la pagination (loadMore) non gérée par le provider actuel
-    // _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<SaleProvider>(context, listen: false).fetchPreventes();
     });
@@ -43,7 +40,6 @@ class _PreventeListTabState extends State<PreventeListTab> {
     super.dispose();
   }
 
-  // CORRECTION : Changement du type Sale -> PreventeListItem
   Future<void> _reprintTicket(PreventeListItem sale) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final settings = Provider.of<SettingsProvider>(context, listen: false);
@@ -53,12 +49,9 @@ class _PreventeListTabState extends State<PreventeListTab> {
       return;
     }
 
-    // CORRECTION : Création d'un SaleSummary compatible avec votre modèle actuel
-    // On ne met que les champs existants dans lib/api/models/sale.dart
     final saleSummary = SaleSummary(
       montant: sale.intPRICE,
       montantNet: sale.intPRICE,
-      // montantTp, montantRemise, date, tierspayants SUPPRIMÉS car inexistants dans votre modèle SaleSummary
       reference: sale.strREF,
       venteId: sale.lgPREENREGISTREMENTID,
     );
@@ -77,8 +70,6 @@ class _PreventeListTabState extends State<PreventeListTab> {
   @override
   Widget build(BuildContext context) {
     final saleProvider = Provider.of<SaleProvider>(context);
-
-    // CORRECTION : Filtrage local car fetchPreventes(query:) n'existe pas
     final allPreventes = saleProvider.preventes;
     final searchQuery = _searchController.text.toLowerCase();
     final filteredPreventes = searchQuery.isEmpty
@@ -98,11 +89,11 @@ class _PreventeListTabState extends State<PreventeListTab> {
                 icon: const Icon(Icons.clear),
                 onPressed: () {
                   _searchController.clear();
-                  setState(() {}); // Rafraîchissement local
+                  setState(() {});
                 },
               ),
             ),
-            onChanged: (val) => setState(() {}), // Filtrage en temps réel
+            onChanged: (val) => setState(() {}),
           ),
         ),
         Expanded(
@@ -118,14 +109,8 @@ class _PreventeListTabState extends State<PreventeListTab> {
               itemBuilder: (context, index) {
                 final sale = filteredPreventes[index];
 
-                // Gestion sécurisée de la date
                 DateTime? dateUpdate;
-                try {
-                  // Format probable: yyyy-MM-dd
-                  dateUpdate = DateTime.parse(sale.dtUPDATED);
-                } catch (e) {
-                  dateUpdate = DateTime.now();
-                }
+                try { dateUpdate = DateTime.parse(sale.dtUPDATED); } catch (_) { dateUpdate = DateTime.now(); }
 
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -136,11 +121,9 @@ class _PreventeListTabState extends State<PreventeListTab> {
                     ),
                     title: Text(sale.strREF, style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text(
-                      // CORRECTION : Utilisation de userFullName et formatage date sécurisé
                       "${DateFormat('dd/MM/yyyy').format(dateUpdate)} ${sale.heure}\n${sale.userFullName}",
                       style: const TextStyle(fontSize: 12),
                     ),
-
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -156,12 +139,13 @@ class _PreventeListTabState extends State<PreventeListTab> {
                         ),
                       ],
                     ),
-
                     onTap: () {
-                      // CORRECTION : Utilisation de loadPrevente (méthode existante)
+                      // Charger la prévente
                       saleProvider.loadPrevente(sale.lgPREENREGISTREMENTID);
-                      // Basculer vers l'onglet Vente (Index 1)
-                      DefaultTabController.of(context).animateTo(1);
+
+                      // CORRECTION : Utilisation du vrai contrôleur pour changer d'onglet
+                      // Index 1 = Onglet "VENTE" (pour encaisser)
+                      widget.tabController?.animateTo(1);
                     },
                   ),
                 );

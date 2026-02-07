@@ -27,7 +27,6 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final saleProvider = Provider.of<SaleProvider>(context, listen: false);
-      // CORRECTION : On ne reset pas systématiquement si on vient de charger une prévente
       if (saleProvider.currentVenteId == null) {
         saleProvider.startNewSale();
       }
@@ -47,7 +46,7 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
     if (_tabController.index == 2) {
       Provider.of<SaleProvider>(context, listen: false).fetchPreventes();
     }
-    // On vide les recherches quand on change d'onglet
+    // Nettoyage recherche si changement d'onglet
     Provider.of<SaleProvider>(context, listen: false).clearSearchResults();
     _updateTabColor(_tabController.index);
     setState(() {});
@@ -112,8 +111,8 @@ class _PreVenteScreenState extends State<PreVenteScreen> with SingleTickerProvid
         children: [
           VenteTab(key: const ValueKey('prevente'), isPrevente: true),
           VenteTab(key: const ValueKey('vente'), isPrevente: false),
-          // CORRECTION : Suppression du paramètre tabController
-          const PreventeListTab(),
+          // CORRECTION : On repasse le contrôleur ici
+          PreventeListTab(tabController: _tabController),
         ],
       ),
     );
