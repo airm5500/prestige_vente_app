@@ -1,5 +1,5 @@
 // lib/services/receipt_service.dart
-// CORRECTION FINALE : Méthode _buildAssurancePreventeTicketWidget réintégrée
+// CORRECTION : SÉPARATION NETTE ENTRE VENTE (DÉTAILLÉE) ET PRÉVENTE (MINIMALISTE)
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
@@ -49,7 +49,7 @@ class ReceiptService {
     }
   }
 
-  // --- VENTE ASSURANCE ---
+  // --- VENTE ASSURANCE / CARNET (DOIT ÊTRE DÉTAILLÉE) ---
   Future<void> printAssuranceSaleTicket({
     required BuildContext context, required Officine officine, required AssuranceSaleSummary saleSummary, required List<SaleItemDetail> items,
     required ClientAssurance client, required AyantDroit ayantDroit, required PaymentMethod paymentMethod, required User currentUser,
@@ -69,15 +69,17 @@ class ReceiptService {
       }
 
       if (isTestMode) {
+        // APPEL DU WIDGET DÉTAILLÉ
         final ticketWidget = _buildAssuranceSaleTicketWidget(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie);
         await _showTestTicketDialog(context, ticketWidget, paperWidth);
       } else {
+        // APPEL DE L'IMPRESSION DÉTAILLÉE
         await _printAssuranceSaleTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie);
       }
     }
   }
 
-  // --- PRÉVENTE ASSURANCE ---
+  // --- PRÉVENTE ASSURANCE / CARNET (DOIT ÊTRE MINIMALISTE) ---
   Future<void> printAssurancePreventeTicket({
     required BuildContext context, required Officine officine, required AssuranceSaleSummary saleSummary, required List<SaleItemDetail> items,
     required ClientAssurance client, required AyantDroit ayantDroit, required User currentUser, required bool isTestMode,
@@ -95,10 +97,11 @@ class ReceiptService {
         if (rePrint != true) break;
       }
       if (isTestMode) {
-        // C'EST ICI QUE L'ERREUR SE PRODUISAIT
+        // APPEL DU WIDGET MINIMALISTE
         final ticketWidget = _buildAssurancePreventeTicketWidget(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType);
         await _showTestTicketDialog(context, ticketWidget, paperWidth);
       } else {
+        // APPEL DE L'IMPRESSION MINIMALISTE
         await _printAssurancePreventeTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType);
       }
     }
@@ -116,6 +119,7 @@ class ReceiptService {
     } catch (e) { Constants.showSnackBar(context, 'Erreur imprimante Sunmi: $e', isError: true); return false; }
   }
 
+  // --- SUNMI VENTE COMPTANT ---
   Future<void> _printSaleTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie}) async {
     if (!await _initializePrinter(context)) return;
     try {
@@ -165,6 +169,7 @@ class ReceiptService {
     } catch (e) { Constants.showSnackBar(context, 'Erreur d\'impression: $e', isError: true); }
   }
 
+  // --- SUNMI PRÉVENTE COMPTANT ---
   Future<void> _printPreventeTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, User currentUser, int paperWidth, String ticketCodeType) async {
     if (!await _initializePrinter(context)) return;
     try {
@@ -193,7 +198,7 @@ class ReceiptService {
     } catch(e) { Constants.showSnackBar(context, 'Erreur d\'impression: $e', isError: true); }
   }
 
-  // --- SUNMI ASSURANCE ---
+  // --- SUNMI VENTE ASSURANCE / CARNET (RETOUR DE LA VERSION DÉTAILLÉE AVEC PRODUITS) ---
   Future<void> _printAssuranceSaleTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie}) async {
     if (!await _initializePrinter(context)) return;
     try {
@@ -222,6 +227,7 @@ class ReceiptService {
       await SunmiPrinter.printText('Patient: ${ayantDroit.fullName}');
       await SunmiPrinter.printText('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}');
 
+      // RESTAURATION DES ARTICLES POUR LE TICKET VENTE
       await SunmiPrinter.printText(line());
       await SunmiPrinter.printText(fit('Article', articleWidth) + fit('Qte*P.U', financialWidth) + fit('Total', financialWidth), style: SunmiStyle(bold: true));
       await SunmiPrinter.printText(line('.'));
@@ -231,24 +237,25 @@ class ReceiptService {
         final String priceDetails = fit('', articleWidth) + '${item.intQUANTITY}*${Constants.formatNumber(item.intPRICEUNITAIR)}'.padRight(financialWidth) + r(item.intPRICE, financialWidth);
         await SunmiPrinter.printText(priceDetails);
       }
+      // FIN RESTAURATION
 
       await SunmiPrinter.printText(line());
       await SunmiPrinter.setAlignment(SunmiPrintAlign.RIGHT);
 
       await SunmiPrinter.printText('Total Brut: ${Constants.formatNumber(saleSummary.montant)}');
-      await SunmiPrinter.printText('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: SunmiStyle(bold: true));
+      await SunmiPrinter.printText('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}');
 
+      // Détail TP (Facultatif mais utile pour la vente réelle)
       for(var tp in saleSummary.tierspayants) {
         final tpClientInfo = client.tiersPayants.firstWhere((c) => c.compteTp == tp.compteTp, orElse: () => ClientTiersPayant(lgTIERSPAYANTID: '', tpFullName: 'N/A', taux: 0, numSecurity: '', compteTp: '', order: 0, principal: false));
         await SunmiPrinter.printText('${tpClientInfo.tpFullName} (${tp.taux}%)');
         await SunmiPrinter.printText('  N°Bon ${tp.numBon}: ${Constants.formatNumber(tp.tpnet)}');
       }
 
-      await SunmiPrinter.printText('PART CLIENT: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      await SunmiPrinter.printText('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
 
       if (montantVerse != null) await SunmiPrinter.printText('Montant Versé: ${Constants.formatNumber(montantVerse)}');
       if (monnaie != null && monnaie > 0) await SunmiPrinter.printText('Monnaie: ${Constants.formatNumber(monnaie)}', style: SunmiStyle(bold: true));
-      if (saleSummary.montantNet > 0) await SunmiPrinter.printText('Mode: ${paymentMethod.name.toUpperCase()}');
 
       await SunmiPrinter.printText(line());
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
@@ -257,13 +264,11 @@ class ReceiptService {
 
       await SunmiPrinter.lineWrap(1);
 
-      // QR Code
       if (showQrCode && reference.isNotEmpty) {
         if (ticketCodeType == 'QR_CODE') { await SunmiPrinter.printQRCode(reference); }
         else { await SunmiPrinter.printBarCode(reference, barcodeType: SunmiBarcodeType.CODE128, height: 60, width: 2); }
       }
 
-      // Numéro (Toujours)
       if (reference.isNotEmpty) {
         await SunmiPrinter.printText(reference, style: SunmiStyle(fontSize: SunmiFontSize.MD));
       }
@@ -274,18 +279,14 @@ class ReceiptService {
     } catch (e) { Constants.showSnackBar(context, 'Erreur d\'impression: $e', isError: true); }
   }
 
-  // --- SUNMI PRÉVENTE ASSURANCE ---
+  // --- SUNMI PRÉVENTE ASSURANCE (RESTE MINIMALISTE) ---
   Future<void> _printAssurancePreventeTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType) async {
     if (!await _initializePrinter(context)) return;
     try {
       final String reference = items.isNotEmpty ? items.first.strREF : '';
       await SunmiPrinter.startTransactionPrint(true);
       final int cols = paperWidth == 58 ? 32 : 48;
-      final int articleWidth = paperWidth == 58 ? 14 : 26;
-      final int financialWidth = paperWidth == 58 ? 8 : 10;
       String line([String ch = '-']) => List.filled(cols, ch).join();
-      String fit(String s, int len) { final t = s.replaceAll("\n", " "); if (t.runes.length <= len) return t.padRight(len); return String.fromCharCodes(t.runes.take(len)); }
-      String r(int v, int len) => Constants.formatNumber(v).padLeft(len);
       SunmiStyle defaultStyle = SunmiStyle(fontSize: SunmiFontSize.MD);
       final headerAlign = paperWidth == 58 ? SunmiPrintAlign.LEFT : SunmiPrintAlign.CENTER;
 
@@ -302,26 +303,17 @@ class ReceiptService {
       await SunmiPrinter.printText('Client: ${client.fullName}');
       await SunmiPrinter.printText('Patient: ${ayantDroit.fullName}');
       await SunmiPrinter.printText('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}');
-      await SunmiPrinter.printText(line());
-      await SunmiPrinter.printText(fit('Article', articleWidth) + fit('Qte*P.U', financialWidth) + fit('Total', financialWidth), style: SunmiStyle(bold: true));
-      await SunmiPrinter.printText(line('.'));
-      for (final item in items) {
-        await SunmiPrinter.printText(fit(item.strNAME, cols));
-        final String priceDetails = fit('', articleWidth) + '${item.intQUANTITY}*${Constants.formatNumber(item.intPRICEUNITAIR)}'.padRight(financialWidth) + r(item.intPRICE, financialWidth);
-        await SunmiPrinter.printText(priceDetails);
-      }
+
+      // ICI : PAS D'ARTICLES POUR LA PRÉVENTE (Correct)
+
       await SunmiPrinter.printText(line());
       await SunmiPrinter.setAlignment(SunmiPrintAlign.RIGHT);
       await SunmiPrinter.printText('Total Brut: ${Constants.formatNumber(saleSummary.montant)}');
-      await SunmiPrinter.printText('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: SunmiStyle(bold: true));
-      for(var tp in saleSummary.tierspayants) {
-        final tpClientInfo = client.tiersPayants.firstWhere((c) => c.compteTp == tp.compteTp, orElse: () => ClientTiersPayant(lgTIERSPAYANTID: '', tpFullName: 'N/A', taux: 0, numSecurity: '', compteTp: '', order: 0, principal: false));
-        await SunmiPrinter.printText('${tpClientInfo.tpFullName} (${tp.taux}%)');
-        await SunmiPrinter.printText('  N°Bon ${tp.numBon}: ${Constants.formatNumber(tp.tpnet)}');
-      }
+      await SunmiPrinter.printText('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}');
       await SunmiPrinter.printText('PART CLIENT: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.lineWrap(1);
+
       if (ticketCodeType == 'QR_CODE') {
         await SunmiPrinter.printQRCode(reference);
       } else {
@@ -462,7 +454,7 @@ class ReceiptService {
     );
   }
 
-  // --- CELLE-CI ÉTAIT MANQUANTE ---
+  // --- WIDGET PRÉVENTE ASSURANCE (MINIMALISTE) ---
   Widget _buildAssurancePreventeTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
@@ -493,40 +485,12 @@ class ReceiptService {
         Text('Client: ${client.fullName}', style: textStyle),
         Text('Patient: ${ayantDroit.fullName}', style: textStyle),
         Text('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}', style: textStyle),
-        Text(line(), style: textStyle),
 
-        Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
-        Text(line('.'), style: textStyle),
-        ...items.map((item) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(fit(item.strNAME, cols), style: textStyle),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                '${item.intQUANTITY}*${Constants.formatNumber(item.intPRICEUNITAIR)} = ${Constants.formatNumber(item.intPRICE)}',
-                style: textStyle,
-              ),
-            ),
-          ],
-        )),
+        // PAS D'ARTICLES
 
         Text(line(), style: textStyle),
         Align(alignment: Alignment.centerRight, child: Text('Total Brut: ${Constants.formatNumber(saleSummary.montant)}', style: textStyle)),
-        Align(alignment: Alignment.centerRight, child: Text('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: boldStyle)),
-        ...saleSummary.tierspayants.map((tp) {
-          final tpClientInfo = client.tiersPayants.firstWhere((c) => c.compteTp == tp.compteTp, orElse: () => ClientTiersPayant(lgTIERSPAYANTID: '', tpFullName: 'N/A', taux: 0, numSecurity: '', compteTp: '', order: 0, principal: false));
-          return Align(
-              alignment: Alignment.centerRight,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text('${tpClientInfo.tpFullName} (${tp.taux}%)', style: textStyle),
-                  Text('  N°Bon ${tp.numBon}: ${Constants.formatNumber(tp.tpnet)}', style: textStyle),
-                ],
-              )
-          );
-        }),
+        Align(alignment: Alignment.centerRight, child: Text('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: textStyle)),
         Align(alignment: Alignment.centerRight, child: Text('PART CLIENT: ${Constants.formatNumber(saleSummary.montantNet)}', style: boldStyle.copyWith(fontSize: 14))),
         Text(line(), style: textStyle),
 
@@ -554,7 +518,7 @@ class ReceiptService {
     );
   }
 
-  // --- WIDGET VENTE ASSURANCE (Aperçu) ---
+  // --- WIDGET VENTE ASSURANCE (RETOUR VERSION DÉTAILLÉE AVEC PRODUITS) ---
   Widget _buildAssuranceSaleTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
@@ -584,6 +548,8 @@ class ReceiptService {
         Text('Client: ${client.fullName}', style: textStyle),
         Text('Patient: ${ayantDroit.fullName}', style: textStyle),
         Text('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}', style: textStyle),
+
+        // RESTAURATION DES ARTICLES ICI
         Text(line(), style: textStyle),
         Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
         Text(line('.'), style: textStyle),
@@ -600,9 +566,12 @@ class ReceiptService {
             ),
           ],
         )),
+        // FIN RESTAURATION
+
         Text(line(), style: textStyle),
         Align(alignment: Alignment.centerRight, child: Text('Total Brut: ${Constants.formatNumber(saleSummary.montant)}', style: textStyle)),
-        Align(alignment: Alignment.centerRight, child: Text('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: boldStyle)),
+        Align(alignment: Alignment.centerRight, child: Text('Part Assurance: ${Constants.formatNumber(saleSummary.montantTp)}', style: textStyle)),
+
         ...saleSummary.tierspayants.map((tp) {
           final tpClientInfo = client.tiersPayants.firstWhere((c) => c.compteTp == tp.compteTp, orElse: () => ClientTiersPayant(lgTIERSPAYANTID: '', tpFullName: 'N/A', taux: 0, numSecurity: '', compteTp: '', order: 0, principal: false));
           return Align(
@@ -616,22 +585,19 @@ class ReceiptService {
               )
           );
         }),
-        Align(alignment: Alignment.centerRight, child: Text('PART CLIENT: ${Constants.formatNumber(saleSummary.montantNet)}', style: boldStyle.copyWith(fontSize: 14))),
+
+        Align(alignment: Alignment.centerRight, child: Text('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: boldStyle.copyWith(fontSize: 14))),
 
         if (montantVerse != null)
           Align(alignment: Alignment.centerRight, child: Text('Montant Versé: ${Constants.formatNumber(montantVerse)}', style: textStyle)),
         if (monnaie != null && monnaie > 0)
           Align(alignment: Alignment.centerRight, child: Text('Monnaie: ${Constants.formatNumber(monnaie)}', style: boldStyle)),
 
-        if (saleSummary.montantNet > 0)
-          Align(alignment: Alignment.centerRight, child: Text('Mode: ${paymentMethod.name.toUpperCase()}', style: textStyle)),
-
         Text(line(), style: textStyle),
         Center(child: Text(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()), style: textStyle)),
         Center(child: Text("Vendeur: ${currentUser.fullName}", style: textStyle)),
         const SizedBox(height: 8),
 
-        // CORRECTION SYNTAXE WIDGET LIST
         if (showQrCode && reference.isNotEmpty)
           Center(
             child: ticketCodeType == 'QR_CODE'
