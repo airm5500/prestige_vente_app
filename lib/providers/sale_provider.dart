@@ -196,4 +196,70 @@ class SaleProvider with ChangeNotifier {
     _isLoading = value;
     notifyListeners();
   }
+
+  Future<List<PreventeListItem>> fetchPreventesByType(String typeVenteId) async {
+    try {
+      final response = await _apiService.request(
+        method: 'GET',
+        url: '/ventestats/preventes',
+        queryParameters: {
+          'statut': 'ALL',
+          'limit': 50,
+          'page': 1,
+          'start': 0,
+          'query': '',
+        },
+      );
+
+      final List<PreventeListItem> results = [];
+      if (response['data'] != null) {
+        final data = response['data'];
+        if (data is List) {
+          for (var item in data) {
+            if (item['lgTYPEVENTEID'].toString() == typeVenteId) {
+              results.add(PreventeListItem.fromJson(item));
+            }
+          }
+        } else if (data is Map) {
+          data.forEach((key, value) {
+            if (value['lgTYPEVENTEID'].toString() == typeVenteId) {
+              results.add(PreventeListItem.fromJson(value));
+            }
+          });
+        }
+      }
+      results.sort((a, b) {
+        try {
+          final dateA = DateFormat('dd/MM/yyyy').parse(a.dtUPDATED);
+          final dateB = DateFormat('dd/MM/yyyy').parse(b.dtUPDATED);
+          final compareDate = dateB.compareTo(dateA);
+          if (compareDate != 0) return compareDate;
+          return b.heure.compareTo(a.heure);
+        } catch (e) { return 0; }
+      });
+      return results;
+    } catch (e) {
+      debugPrint("Erreur fetchPreventesByType: $e");
+      return [];
+    }
+  }
+
+  // CORRECTION : Appel sur l'endpoint /ventestats/{id} qui renvoie le JSON complet
+  Future<Map<String, dynamic>?> fetchFullSaleDetails(String venteId) async {
+    try {
+      final response = await _apiService.request(
+        method: 'GET',
+        url: '/ventestats/$venteId',
+      );
+
+      // La réponse est souvent encapsulée dans { "data": { ... }, "success": true }
+      if (response != null && response['data'] != null) {
+        return response['data'];
+      }
+      return null;
+    } catch (e) {
+      debugPrint("Erreur fetchFullSaleDetails: $e");
+      return null;
+    }
+  }
 }

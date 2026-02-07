@@ -1,10 +1,11 @@
 // lib/screens/assurance_sale/widgets/step_1_client.dart
-// 02/11/2025 15:35
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
+import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/widgets/prevente_list_dialog.dart'; // NOUVEL IMPORT
 import 'package:provider/provider.dart';
-import 'create_client_dialog.dart'; // Le dialogue que nous créons à l'étape 3
+import 'create_client_dialog.dart';
 
 class Step1ClientWidget extends StatefulWidget {
   const Step1ClientWidget({super.key});
@@ -39,16 +40,33 @@ class _Step1ClientWidgetState extends State<Step1ClientWidget> {
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      Provider.of<AssuranceSaleProvider>(context, listen: false)
-          .searchClient(_searchController.text);
+      final query = _searchController.text.trim();
+      if (query.isNotEmpty) {
+        Provider.of<AssuranceSaleProvider>(context, listen: false)
+            .searchClient(query);
+      } else {
+        Provider.of<AssuranceSaleProvider>(context, listen: false)
+            .clearClientSearch();
+      }
     });
   }
 
   void _showCreateClientDialog() {
     showDialog(
       context: context,
-      // Utilise le dialogue que nous allons créer
+      barrierDismissible: false,
       builder: (ctx) => const CreateClientDialog(),
+    );
+  }
+
+  // --- NOUVELLE MÉTHODE : POPUP LISTE ASSURANCE ---
+  void _showPreventeList() {
+    showDialog(
+      context: context,
+      builder: (ctx) => const PreventeListDialog(
+        typeVenteId: "2", // 2 = ASSURANCE
+        title: "Préventes Assurance",
+      ),
     );
   }
 
@@ -60,61 +78,93 @@ class _Step1ClientWidgetState extends State<Step1ClientWidget> {
       children: [
         Padding(
           padding: const EdgeInsets.all(8.0),
-          child: TextField(
-            controller: _searchController,
-            focusNode: _searchFocusNode,
-            decoration: InputDecoration(
-              labelText: 'Rechercher Client (Nom ou Matricule)',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                icon: const Icon(Icons.clear),
-                onPressed: () {
-                  _searchController.clear();
-                  provider.clearClientSearch();
-                },
-              )
-                  : null,
-            ),
+          child: Row(
+            children: [
+              // CHAMP DE RECHERCHE EXISTANT
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Rechercher Client (Nom/Matricule)',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        provider.clearClientSearch();
+                        FocusScope.of(context).requestFocus(_searchFocusNode);
+                      },
+                    )
+                        : null,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 8),
+
+              // --- NOUVEAU BOUTON : HISTORIQUE PRÉVENTES ---
+              InkWell(
+                onTap: _showPreventeList,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: const Icon(Icons.history, color: Colors.orange, size: 28),
+                ),
+              ),
+            ],
           ),
         ),
+
+        // LISTE DES RÉSULTATS (Code existant conservé)
         Expanded(
           child: Stack(
             children: [
-              // Affiche les résultats de la recherche
-              ListView.builder(
+              if (provider.isLoading)
+                const Center(child: CircularProgressIndicator()),
+              ListView.separated(
                 itemCount: provider.clientSearchResults.length,
+                separatorBuilder: (context, index) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final client = provider.clientSearchResults[index];
-                  // Affiche les infos du client et de ses tiers payants
                   return Card(
                     margin:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     child: ListTile(
-                      title: Text(client.fullName,
+                      leading: CircleAvatar(
+                        child: Text(client.strFIRSTNAME.isNotEmpty
+                            ? client.strFIRSTNAME[0]
+                            : '?'),
+                      ),
+                      title: Text('${client.strFIRSTNAME} ${client.strLASTNAME}',
                           style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                              'Matricule: ${client.strNUMEROSECURITESOCIAL}'),
+                          Text('Matricule: ${client.strNUMEROSECURITESOCIAL}'),
+                          // Affichage des Tiers Payants
                           ...client.tiersPayants.map((tp) => Text(
                             '${tp.tpFullName} (${tp.taux}%)',
-                            style:
-                            const TextStyle(fontStyle: FontStyle.italic),
+                            style: const TextStyle(
+                                fontStyle: FontStyle.italic,
+                                color: AppColors.secondary),
                           )),
                         ],
                       ),
                       onTap: () {
-                        // Sélectionne le client et passe à l'étape suivante
                         provider.selectClient(client);
+                        _searchController.clear();
                       },
                     ),
                   );
                 },
               ),
-
-              // Si la recherche ne donne rien, affiche le bouton "Créer"
               if (!provider.isLoading &&
                   _searchController.text.isNotEmpty &&
                   provider.clientSearchResults.isEmpty)

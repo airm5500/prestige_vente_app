@@ -1,12 +1,9 @@
 // lib/api/models/assurance_sale_summary.dart
-// 10/11/2025 10:00 (Correction: Ajout toJson)
-
-// Modèle pour POST /vente/net/assurance
 class TiersPayantSummary {
   final String numBon;
   final int taux;
   final String compteTp;
-  final int tpnet; // Part du tiers payant
+  final int tpnet;
 
   TiersPayantSummary({
     required this.numBon,
@@ -24,7 +21,6 @@ class TiersPayantSummary {
     );
   }
 
-  // MODIFICATION : Ajout de la méthode toJson
   Map<String, dynamic> toJson() {
     return {
       'numBon': numBon,
@@ -36,12 +32,16 @@ class TiersPayantSummary {
 }
 
 class AssuranceSaleSummary {
-  final int montant; // Montant total brut
+  final int montant;
   final int remise;
-  final int montantNet; // Part Client
-  final int montantTp; // Part totale Tiers Payants
+  final int montantNet;
+  final int montantTp;
   final int marge;
   final List<TiersPayantSummary> tierspayants;
+
+  // AJOUTS POUR L'IMPRESSION
+  final String reference;
+  final String venteId;
 
   AssuranceSaleSummary({
     this.montant = 0,
@@ -50,6 +50,8 @@ class AssuranceSaleSummary {
     this.montantTp = 0,
     this.marge = 0,
     this.tierspayants = const [],
+    this.reference = '',
+    this.venteId = '',
   });
 
   factory AssuranceSaleSummary.fromNetResponse(Map<String, dynamic> json) {
@@ -69,10 +71,12 @@ class AssuranceSaleSummary {
       montantTp: data['montantTp'] ?? 0,
       marge: data['marge'] ?? 0,
       tierspayants: tpList,
+      // Ces champs ne viennent pas forcément du calcul NET, on les met par défaut
+      reference: '',
+      venteId: '',
     );
   }
 
-  // MODIFICATION : Ajout de la méthode toJson
   Map<String, dynamic> toJson() {
     return {
       'montant': montant,
@@ -81,6 +85,8 @@ class AssuranceSaleSummary {
       'montantTp': montantTp,
       'marge': marge,
       'tierspayants': tierspayants.map((tp) => tp.toJson()).toList(),
+      'reference': reference,
+      'venteId': venteId,
     };
   }
 }

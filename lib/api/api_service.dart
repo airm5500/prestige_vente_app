@@ -731,4 +731,27 @@ class ApiService {
     }
   }
 
+  // Ajoutez ceci dans lib/api/api_service.dart
+
+  /// Méthode générique pour effectuer des requêtes HTTP (GET, POST, etc.)
+  Future<dynamic> request({
+    required String method,
+    required String url,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    try {
+      final response = await _dio.request(
+        url,
+        data: data,
+        queryParameters: queryParameters,
+        options: Options(method: method),
+      );
+      return response.data;
+    } catch (e) {
+      print("Erreur ApiService.request ($url): $e");
+      return null;
+    }
+  }
+
 }
