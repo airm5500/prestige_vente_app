@@ -1,10 +1,8 @@
-// lib/screens/home/menu_organizer_screen.dart
-// 13/11/2025 09:00 (Nouvel Écran)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:provider/provider.dart';
 
-// Définition statique des métadonnées pour l'organisateur (sans actions)
+// Définition statique des métadonnées pour l'organisateur
 class MenuMetadata {
   final String id;
   final String label;
@@ -14,7 +12,9 @@ class MenuMetadata {
 }
 
 // Liste complète de tous les menus disponibles dans l'application
+// INCLUT MAINTENANT VOS NOUVEAUX MENUS
 final List<MenuMetadata> allMenuMetadata = [
+  // --- Anciens Menus ---
   MenuMetadata('prevente', 'Pre/Vente', Icons.point_of_sale, Colors.blue.shade700),
   MenuMetadata('assurance', 'Pre/Vente Assurance', Icons.health_and_safety, Colors.red.shade700),
   MenuMetadata('carnet', 'Vente Carnet', Icons.book, Colors.green.shade800),
@@ -28,6 +28,12 @@ final List<MenuMetadata> allMenuMetadata = [
   MenuMetadata('update_ean', 'Mise à jour EAN', Icons.qr_code_scanner, Colors.indigo.shade400),
   MenuMetadata('update_emplacement', 'Mise à jour Emplacement', Icons.location_on, Colors.brown.shade400),
   MenuMetadata('stock', 'État de Stock', Icons.inventory, Colors.blueGrey.shade600),
+
+  // --- Nouveaux Menus ---
+  MenuMetadata('depot', 'Vente Dépôt', Icons.store_mall_directory, Colors.brown.shade600),
+  MenuMetadata('proforma', 'Proforma / Devis', Icons.description, Colors.purple.shade600),
+  MenuMetadata('analyse_article', 'Analyse Article', Icons.analytics, Colors.blueGrey.shade700),
+  MenuMetadata('ajustement', 'Ajustement Stock', Icons.inventory_2, Colors.orange.shade700),
 ];
 
 class MenuOrganizerScreen extends StatefulWidget {
@@ -40,7 +46,6 @@ class MenuOrganizerScreen extends StatefulWidget {
 class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
   late List<MenuMetadata> _currentList;
   late Set<String> _hiddenIds;
-  bool _hasChanges = false;
 
   @override
   void initState() {
@@ -60,11 +65,11 @@ class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
         var meta = allMenuMetadata.firstWhere((m) => m.id == id);
         _currentList.add(meta);
       } catch (e) {
-        // ID obsolète ou supprimé du code, on ignore
+        // ID obsolète, on ignore
       }
     }
 
-    // Ensuite ajouter ceux qui manquent (nouveaux menus pas encore dans les prefs)
+    // Ensuite ajouter ceux qui manquent (les nouveaux menus)
     for (var meta in allMenuMetadata) {
       if (!_currentList.any((m) => m.id == meta.id)) {
         _currentList.add(meta);
@@ -112,7 +117,6 @@ class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
             }
             final item = _currentList.removeAt(oldIndex);
             _currentList.insert(newIndex, item);
-            _hasChanges = true;
           });
         },
         children: [
@@ -154,7 +158,6 @@ class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
                   } else {
                     _hiddenIds.add(meta.id);
                   }
-                  _hasChanges = true;
                 });
               },
             ),
