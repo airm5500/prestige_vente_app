@@ -40,6 +40,7 @@ import 'package:prestige_vente_app/screens/reception_control/reception_list_scre
 import 'package:prestige_vente_app/screens/proforma/proforma_list_screen.dart';
 
 import 'package:prestige_vente_app/screens/analysis/article_analysis_screen.dart';
+import 'package:prestige_vente_app/screens/ajustement/ajustement_screen.dart';
 
 class MenuItem {
   final String id;
@@ -177,6 +178,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           color: Colors.blueGrey.shade700,
           onTap: () => navigate(const ArticleAnalysisScreen())
       ),
+      'ajustement': MenuItem(
+          id: 'ajustement',
+          label: 'Ajustement Stock',
+          icon: Icons.inventory_2, // Icône de stock/inventaire
+          color: Colors.orange.shade700, // Orange pour distinguer des ventes
+          onTap: () => navigate(const AjustementScreen())
+      )
     };
 
     final settings = Provider.of<SettingsProvider>(context);
@@ -474,7 +482,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               Container(
                 padding: EdgeInsets.all(containerPadding),
                 decoration: BoxDecoration(
-                  color: item.color.withOpacity(0.1),
+                  color: item.color.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(item.icon, size: iconSize, color: item.color),

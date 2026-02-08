@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/carnet_sale_provider.dart';
-import 'package:prestige_vente_app/utils/constants.dart';
+//import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/prevente_list_dialog.dart'; // NOUVEL IMPORT
 import 'package:provider/provider.dart';
 import 'create_client_carnet_dialog.dart';
