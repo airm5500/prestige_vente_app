@@ -1,4 +1,3 @@
-// lib/screens/ajustement/ajustement_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +8,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/ajustement.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/services/pdf_ajustement_service.dart';
+import 'package:prestige_vente_app/screens/common/product_search_modal.dart';
 
 class AjustementScreen extends StatefulWidget {
   const AjustementScreen({super.key});
@@ -23,8 +23,8 @@ class _AjustementScreenState extends State<AjustementScreen> {
   final _keyboardFocusNode = FocusNode();
 
   Timer? _debounce;
-  bool _isQuickScan = false;
   bool _isProcessing = false;
+  bool _isModalOpen = false; // Verrou anti-doublon
 
   String _scanBuffer = "";
 
@@ -50,11 +50,12 @@ class _AjustementScreenState extends State<AjustementScreen> {
   }
 
   void _requestSearchFocus() {
-    if (mounted && !_isProcessing) {
+    if (mounted && !_isProcessing && !_isModalOpen) {
       FocusScope.of(context).requestFocus(_focusNode);
     }
   }
 
+  // --- GESTION DOUCHETTE / CLAVIER PHYSIQUE ---
   void _handleKeyEvent(KeyEvent event) {
     if (_focusNode.hasFocus) {
       _scanBuffer = "";
@@ -64,6 +65,7 @@ class _AjustementScreenState extends State<AjustementScreen> {
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.enter) {
         if (_scanBuffer.isNotEmpty) {
+          // C'est un scan : on lance la recherche directe (isScan: true)
           _performSearch(_scanBuffer.trim(), isScan: true);
           _scanBuffer = "";
         }
@@ -73,131 +75,100 @@ class _AjustementScreenState extends State<AjustementScreen> {
     }
   }
 
+  // --- DÉTECTION DE SAISIE MANUELLE ---
   void _onSearchChanged() {
-    if (_isProcessing) return;
+    if (_isProcessing || _isModalOpen) return;
 
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      if (!mounted || _isProcessing) return;
-      if (_searchController.text.trim().isNotEmpty) {
-        _performSearch(_searchController.text.trim(), isScan: false);
+
+    // MODIFICATION 1 : Délai augmenté à 800ms pour laisser le temps de taper
+    _debounce = Timer(const Duration(milliseconds: 800), () {
+      if (!mounted || _isProcessing || _isModalOpen) return;
+
+      final text = _searchController.text.trim();
+
+      // MODIFICATION 2 : On ne lance rien si moins de 3 caractères
+      // Cela évite l'ouverture du popup juste pour "d" ou "do"
+      if (text.length >= 3) {
+        _performSearch(text, isScan: false);
       }
     });
   }
 
+  // --- OUVERTURE DU MODAL DE RECHERCHE CONTINUE ---
+  void _openSearchModal(String currentQuery) {
+    if (_isModalOpen) return;
+
+    setState(() {
+      _isModalOpen = true;
+      _isProcessing = false;
+    });
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      isDismissible: true,
+      builder: (ctx) => ProductSearchModal(
+        initialQuery: currentQuery,
+        onProductSelected: (selectedProduct) {
+          // Au retour, on vide le champ et on ouvre le DIALOG DE QUANTITÉ
+          _searchController.clear();
+
+          Future.delayed(const Duration(milliseconds: 200), () {
+            if (mounted) _showAddDialog(selectedProduct);
+          });
+        },
+      ),
+    ).then((_) {
+      if (mounted) {
+        setState(() => _isModalOpen = false);
+        _searchController.clear();
+        _requestSearchFocus();
+      }
+    });
+  }
+
+  // --- CŒUR DE LA RECHERCHE ---
   Future<void> _performSearch(String query, {required bool isScan}) async {
     _debounce?.cancel();
-    if (_isProcessing) return;
     if (query.isEmpty) return;
+    if (_isModalOpen) return;
 
-    setState(() => _isProcessing = true);
-    final provider = Provider.of<AjustementProvider>(context, listen: false);
+    // 1. CAS DU SCANNER PHYSIQUE (Code exact)
+    if (isScan) {
+      setState(() => _isProcessing = true);
+      final provider = Provider.of<AjustementProvider>(context, listen: false);
+      try {
+        final results = await provider.searchProduct(query);
+        if (!mounted) return;
 
-    try {
-      final results = await provider.searchProduct(query);
-
-      if (!mounted) return;
-
-      if (results.length == 1) {
-        final product = results.first;
-        _searchController.clear();
-
-        if (_isQuickScan) {
-          await _executeQuickAdd(product);
+        if (results.length == 1) {
+          // Scan exact -> On ouvre direct le Dialog Quantité (Pas d'ajout auto +1)
+          _searchController.clear();
+          _showAddDialog(results.first);
+        } else if (results.isNotEmpty) {
+          // Plusieurs résultats (ex: code court) -> On laisse choisir
+          _openSearchModal(query);
         } else {
-          _showAddDialog(product);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Produit introuvable")));
         }
-      } else if (results.isNotEmpty) {
-        // AFFICHE LE POPUP SI PLUSIEURS RÉSULTATS
-        _showSelectionDialog(results);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Produit introuvable"), duration: Duration(seconds: 1))
-        );
-      }
-    } finally {
-      if (mounted) {
-        if (Navigator.canPop(context) == false) {
-          // Si aucun popup n'est ouvert, on libère le lock
+      } finally {
+        if (mounted) {
+          setState(() => _isProcessing = false);
+          if (!_isModalOpen) _requestSearchFocus();
         }
-        setState(() => _isProcessing = false);
-        if (!_isQuickScan) _requestSearchFocus();
       }
+      return;
     }
+
+    // 2. CAS DE LA SAISIE MANUELLE
+    // On ouvre le modal pour continuer la saisie (si > 3 chars, géré par _onSearchChanged)
+    _openSearchModal(query);
   }
 
-  // --- POPUP RÉSULTATS AVEC POLICE RÉDUITE ---
-  void _showSelectionDialog(List<ProductSearchResult> results) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: Text("Résultats (${results.length})", style: const TextStyle(fontSize: 16)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 300,
-          child: ListView.separated(
-            itemCount: results.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final p = results[index];
-              return ListTile(
-                dense: true, // COMPACT
-                contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
-                title: Text(
-                    p.strNAME,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13) // NOM RÉDUIT
-                ),
-                subtitle: Text(
-                    "CIP: ${p.intCIP} | Stock: ${p.intNUMBERAVAILABLE}",
-                    style: const TextStyle(fontSize: 11, color: Colors.black54) // CIP/STOCK TRÈS RÉDUIT
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _searchController.clear();
-                  if (_isQuickScan) {
-                    _executeQuickAdd(p);
-                  } else {
-                    _showAddDialog(p);
-                  }
-                },
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              _searchController.clear();
-              Navigator.pop(ctx);
-              _requestSearchFocus();
-            },
-            child: const Text("Annuler"),
-          )
-        ],
-      ),
-    );
-  }
-
-  Future<void> _executeQuickAdd(ProductSearchResult product) async {
-    final provider = Provider.of<AjustementProvider>(context, listen: false);
-    int defaultMotifId = provider.typesAjustement.isNotEmpty ? provider.typesAjustement.first.id : 1;
-
-    final success = await provider.addProduct(
-      product: product,
-      quantity: 1,
-      typeAjustementId: defaultMotifId,
-    );
-
-    if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text("${product.strNAME} (+1) ajouté"),
-        duration: const Duration(milliseconds: 800),
-        backgroundColor: Colors.green,
-      ));
-    }
-  }
-
+  // --- DIALOGUE QUANTITÉ / MOTIF ---
   void _showAddDialog(ProductSearchResult product) {
     final provider = Provider.of<AjustementProvider>(context, listen: false);
     final formKey = GlobalKey<FormState>();
@@ -232,7 +203,7 @@ class _AjustementScreenState extends State<AjustementScreen> {
                         if (val == null || val.isEmpty) return "Requis";
                         if (int.tryParse(val) == null) return "Entier requis";
                         if (int.parse(val) == 0) return "Non nul";
-                        if (val.replaceFirst('-', '').length > 4) return "Trop grand !";
+                        if (val.replaceFirst('-', '').length > 4) return "Trop grand (Scan erreur ?)";
                         return null;
                       },
                       onFieldSubmitted: (_) => _submitDialog(ctx, formKey, provider, product, qteController, selectedTypeId),
@@ -295,12 +266,11 @@ class _AjustementScreenState extends State<AjustementScreen> {
     final provider = Provider.of<AjustementProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    // 1. CONFIRMATION DE LA CLÔTURE
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Confirmer l'ajustement"),
-        content: Text("Voulez-vous valider et clôturer cet ajustement de ${provider.items.length} lignes ?"),
+        content: Text("Clôturer cet ajustement de ${provider.items.length} lignes ?"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Non")),
           ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Oui")),
@@ -309,51 +279,41 @@ class _AjustementScreenState extends State<AjustementScreen> {
     );
 
     if (confirm == true) {
-      // On sauvegarde la liste pour l'impression AVANT que le provider ne la vide
       final List<AjustementItem> itemsToPrint = List.from(provider.items);
       final String userName = authProvider.user?.fullName ?? "Inconnu";
 
-      // 2. APPEL API (Validation)
       final success = await provider.validateAjustement();
 
       if (success && mounted) {
-        // Feedback visuel immédiat
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Ajustement validé avec succès !"),
-            backgroundColor: Colors.green
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Ajustement validé !"), backgroundColor: Colors.green));
 
-        // 3. DEMANDE D'IMPRESSION (Optionnelle)
         final bool? wantToPrint = await showDialog<bool>(
           context: context,
-          barrierDismissible: false, // Oblige à choisir Oui ou Non
+          barrierDismissible: false,
           builder: (ctx) => AlertDialog(
             title: const Text("Impression"),
-            content: const Text("L'opération est terminée.\nVoulez-vous imprimer le ticket d'ajustement ?"),
+            content: const Text("Terminé.\nVoulez-vous imprimer le bon ?"),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(ctx, false), // Réponse NON
+                onPressed: () => Navigator.pop(ctx, false),
                 child: const Text("Non, terminer"),
               ),
               ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true), // Réponse OUI
+                onPressed: () => Navigator.pop(ctx, true),
                 child: const Text("Oui, imprimer"),
               ),
             ],
           ),
         );
 
-        // 4. GÉNÉRATION PDF (Seulement si Oui)
         if (wantToPrint == true) {
           try {
             final pdfService = PdfAjustementService();
             await pdfService.printAjustementTicket(itemsToPrint, userName);
           } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur impression PDF: $e"), backgroundColor: Colors.red));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur PDF: $e"), backgroundColor: Colors.red));
           }
         }
-
-        // Si Non : On ne fait rien, le provider a déjà vidé la liste via validateAjustement(), l'écran est donc vide et prêt pour le prochain.
       }
     }
   }
@@ -369,50 +329,30 @@ class _AjustementScreenState extends State<AjustementScreen> {
         appBar: AppBar(title: const Text("Ajustement de Stock")),
         body: Column(
           children: [
+            // ZONE DE RECHERCHE (SIMPLIFIÉE : PLUS DE BOUTON ÉCLAIR)
             Padding(
               padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      focusNode: _focusNode,
-                      decoration: InputDecoration(
-                        labelText: _isQuickScan ? "SCAN RAPIDE ACTIF (+1)" : "Scanner ou Rechercher",
-                        prefixIcon: _isProcessing
-                            ? const Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2))
-                            : Icon(_isQuickScan ? Icons.bolt : Icons.search, color: _isQuickScan ? Colors.green : null),
-                        suffixIcon: IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              _requestSearchFocus();
-                            }
-                        ),
-                        border: const OutlineInputBorder(),
-                        filled: _isQuickScan,
-                        fillColor: _isQuickScan ? Colors.green.withValues(alpha: 0.1) : null,
-                      ),
-                      onSubmitted: (val) => _performSearch(val, isScan: true),
-                    ),
+              child: TextField(
+                controller: _searchController,
+                focusNode: _focusNode,
+                decoration: InputDecoration(
+                  labelText: "Scanner ou Rechercher (min 3 car.)",
+                  prefixIcon: _isProcessing
+                      ? const Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.search),
+                  suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        _requestSearchFocus();
+                      }
                   ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: () {
-                      setState(() => _isQuickScan = !_isQuickScan);
-                      _requestSearchFocus();
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _isQuickScan ? Colors.green : Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: _isQuickScan ? Colors.green.shade700 : Colors.grey),
-                      ),
-                      child: Icon(Icons.flash_on, color: _isQuickScan ? Colors.white : Colors.grey),
-                    ),
-                  ),
-                ],
+                  border: const OutlineInputBorder(),
+                ),
+                // Pour le clavier virtuel : lance la recherche quand on fait "Entrée"
+                onSubmitted: (val) {
+                  if (val.isNotEmpty) _performSearch(val, isScan: false);
+                },
               ),
             ),
 
@@ -432,7 +372,7 @@ class _AjustementScreenState extends State<AjustementScreen> {
                     margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     child: ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: isPositive ? Colors.green.shade100 : Colors.red.shade100,
+                        backgroundColor: isPositive ? Colors.green.withValues(alpha: 0.2) : Colors.red.withValues(alpha: 0.2),
                         child: Text(isPositive ? "+" : "-", style: TextStyle(color: isPositive ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
                       ),
                       title: Text(item.strNAME, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
