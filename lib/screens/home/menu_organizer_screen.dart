@@ -1,8 +1,9 @@
+// lib/screens/auth/menu_organizer_screen.dart
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/widgets/pin_code_dialog.dart'; // Import de la sécurité
 
-// Définition statique des métadonnées pour l'organisateur
 class MenuMetadata {
   final String id;
   final String label;
@@ -11,8 +12,6 @@ class MenuMetadata {
   MenuMetadata(this.id, this.label, this.icon, this.color);
 }
 
-// Liste complète de tous les menus disponibles dans l'application
-// INCLUT MAINTENANT VOS NOUVEAUX MENUS
 final List<MenuMetadata> allMenuMetadata = [
   // --- Anciens Menus ---
   MenuMetadata('prevente', 'Pre/Vente', Icons.point_of_sale, Colors.blue.shade700),
@@ -46,30 +45,44 @@ class MenuOrganizerScreen extends StatefulWidget {
 class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
   late List<MenuMetadata> _currentList;
   late Set<String> _hiddenIds;
+  bool _isAuthorized = false; // Pour contrôler l'affichage
 
   @override
   void initState() {
     super.initState();
-    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    _initData();
 
-    // 1. Récupérer l'ordre sauvegardé
+    // SÉCURITÉ : On lance le check dès l'ouverture
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPermission();
+    });
+  }
+
+  Future<void> _checkPermission() async {
+    // Si on vient déjà de home_screen qui a vérifié le code, c'est redondant mais plus sûr.
+    // Vous pouvez commenter ces lignes si Home le fait déjà.
+    // Ici je le mets pour sécuriser l'écran s'il est appelé d'ailleurs.
+    bool authorized = await PinCodeDialog.show(context);
+    if (!authorized) {
+      if (mounted) Navigator.of(context).pop(); // Rejet
+    } else {
+      setState(() => _isAuthorized = true); // Autorisation
+    }
+  }
+
+  void _initData() {
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
     List<String> savedOrder = settings.menuOrder;
     _hiddenIds = settings.hiddenMenuIds.toSet();
-
-    // 2. Construire la liste initiale
     _currentList = [];
 
-    // D'abord ceux qui sont dans l'ordre sauvegardé
     for (var id in savedOrder) {
       try {
         var meta = allMenuMetadata.firstWhere((m) => m.id == id);
         _currentList.add(meta);
-      } catch (e) {
-        // ID obsolète, on ignore
-      }
+      } catch (e) { }
     }
 
-    // Ensuite ajouter ceux qui manquent (les nouveaux menus)
     for (var meta in allMenuMetadata) {
       if (!_currentList.any((m) => m.id == meta.id)) {
         _currentList.add(meta);
@@ -81,7 +94,6 @@ class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
     final newOrder = _currentList.map((m) => m.id).toList();
     Provider.of<SettingsProvider>(context, listen: false)
         .saveMenuConfig(newOrder, _hiddenIds.toList());
-
     Navigator.of(context).pop();
   }
 
@@ -92,6 +104,13 @@ class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Si pas autorisé, on affiche un écran vide ou de chargement en attendant le PIN
+    if (!_isAuthorized) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Organiser le Menu'),
@@ -147,7 +166,6 @@ class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Bouton Oeil pour afficher/masquer
             IconButton(
               icon: Icon(isHidden ? Icons.visibility_off : Icons.visibility),
               color: isHidden ? Colors.grey : Colors.blue,
@@ -161,7 +179,6 @@ class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
                 });
               },
             ),
-            // Poignée de déplacement
             const Icon(Icons.drag_handle, color: Colors.grey),
           ],
         ),

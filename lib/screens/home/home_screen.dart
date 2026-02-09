@@ -1,5 +1,5 @@
 // lib/screens/home/home_screen.dart
-// 30/12/2025 (Final: Watchdog Licence + Menu Dynamique + Bandeau Statut)
+// 30/12/2025 (Final: Watchdog Licence + Menu Dynamique + Bandeau Statut + Sécurité PIN)
 
 import 'dart:async'; // Pour le Timer de sécurité
 import 'package:flutter/material.dart';
@@ -16,6 +16,9 @@ import 'package:prestige_vente_app/utils/constants.dart';
 
 // AJOUT : Provider de Licence
 import 'package:prestige_vente_app/providers/licence_provider.dart';
+
+// AJOUT : Widget de Sécurité PIN (Assurez-vous que le fichier existe)
+import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 
 // Écrans d'authentification et Licence
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
@@ -58,7 +61,6 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-// AJOUT : WidgetsBindingObserver pour détecter la mise en veille/réveil
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final PageController _pageController = PageController();
   int _currentPage = 0;
@@ -67,28 +69,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late SaleProvider _saleProvider;
   late BlControlProvider _blProvider;
 
-  // AJOUT : Timer pour la surveillance périodique
   Timer? _licenceWatchdogTimer;
 
   @override
   void initState() {
     super.initState();
-
-    // 1. Abonnement au cycle de vie de l'application
     WidgetsBinding.instance.addObserver(this);
 
     _saleProvider = Provider.of<SaleProvider>(context, listen: false);
     _blProvider = Provider.of<BlControlProvider>(context, listen: false);
 
-    // 2. Actions au chargement de la page (après le build)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<AuthProvider>(context, listen: false).loadOfficineInfo();
-
-      // Lancement des alertes (popups) si l'échéance est proche
       Provider.of<LicenceProvider>(context, listen: false).checkReminders(context);
     });
 
-    // 3. Lancement du "Chien de Garde" (Vérification toutes les heures)
     _licenceWatchdogTimer = Timer.periodic(const Duration(hours: 1), (timer) {
       _performSecurityCheck();
     });
@@ -102,32 +97,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    // Nettoyage impératif pour éviter les fuites de mémoire
     WidgetsBinding.instance.removeObserver(this);
     _licenceWatchdogTimer?.cancel();
     _pageController.dispose();
     super.dispose();
   }
 
-  // AJOUT : Détecte quand l'application revient au premier plan (sortie de veille)
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // L'utilisateur a rallumé la tablette ou réouvert l'app
       _performSecurityCheck();
     }
   }
 
-  // AJOUT : Logique de sécurité pour bloquer l'app si la licence expire en cours de route
   void _performSecurityCheck() async {
     final licenceProvider = Provider.of<LicenceProvider>(context, listen: false);
-
-    // Vérification locale rapide (Date tablette vs Date fin licence)
     bool isExpired = licenceProvider.checkLocalExpiration();
 
     if (isExpired) {
-      // Si la date est dépassée, on redirige de force vers l'écran d'enregistrement
-      // On vide la pile de navigation pour empêcher le retour
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const LicenceRegistrationScreen()),
@@ -139,6 +126,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void navigate(Widget screen) {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  // NOUVEAU : Navigation Sécurisée (Demande PIN avant d'aller à l'écran)
+  Future<void> _secureNavigate(Widget screen) async {
+    bool authorized = await PinCodeDialog.show(context);
+    if (authorized) {
+      if (!mounted) return;
+      navigate(screen);
+    }
   }
 
   void _buildDynamicMenu() {
@@ -157,33 +153,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'update_ean': MenuItem(id: 'update_ean', label: 'Mise à jour EAN', icon: Icons.qr_code_scanner, color: Colors.indigo.shade400, onTap: () => navigate(const EanUpdateScreen())),
       'update_emplacement': MenuItem(id: 'update_emplacement', label: 'Mise à jour Emplacement', icon: Icons.location_on, color: Colors.brown.shade400, onTap: () => navigate(const EmplacementUpdateScreen())),
       'stock': MenuItem(id: 'stock', label: 'État de Stock', icon: Icons.inventory, color: Colors.blueGrey.shade600, onTap: () => navigate(const StockReportScreen())),
-      'depot': MenuItem(
-          id: 'depot',
-          label: 'Vente Dépôt',
-          icon: Icons.store_mall_directory, // Ou une autre icône appropriée
-          color: Colors.brown.shade600,
-          onTap: () => navigate(const DepotSaleListScreen()) // Importez l'écran d'abord
-      ),
-      'proforma': MenuItem(
-          id: 'proforma',
-          label: 'Proforma / Devis',
-          icon: Icons.description,
-          color: Colors.purple.shade600,
-          onTap: () => navigate(const ProformaListScreen())
-      ),
-      'analyse_article': MenuItem(
-          id: 'analyse_article',
-          label: 'Analyse Article',
-          icon: Icons.analytics, // Icône suggérée
-          color: Colors.blueGrey.shade700,
-          onTap: () => navigate(const ArticleAnalysisScreen())
-      ),
+      'depot': MenuItem(id: 'depot', label: 'Vente Dépôt', icon: Icons.store_mall_directory, color: Colors.brown.shade600, onTap: () => navigate(const DepotSaleListScreen())),
+      'proforma': MenuItem(id: 'proforma', label: 'Proforma / Devis', icon: Icons.description, color: Colors.purple.shade600, onTap: () => navigate(const ProformaListScreen())),
+      'analyse_article': MenuItem(id: 'analyse_article', label: 'Analyse Article', icon: Icons.analytics, color: Colors.blueGrey.shade700, onTap: () => navigate(const ArticleAnalysisScreen())),
+
+      // MODIFICATION ICI : Appel à _secureNavigate pour l'ajustement
       'ajustement': MenuItem(
           id: 'ajustement',
           label: 'Ajustement Stock',
-          icon: Icons.inventory_2, // Icône de stock/inventaire
-          color: Colors.orange.shade700, // Orange pour distinguer des ventes
-          onTap: () => navigate(const AjustementScreen())
+          icon: Icons.inventory_2,
+          color: Colors.orange.shade700,
+          onTap: () => _secureNavigate(const AjustementScreen()) // SÉCURISÉ
       )
     };
 
@@ -278,7 +258,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  // AJOUT : Widget Bandeau de statut Licence
   Widget _buildLicenceStatusBanner() {
     return Consumer<LicenceProvider>(
       builder: (context, provider, child) {
@@ -329,7 +308,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final size = MediaQuery.of(context).size;
     final bool isTablet = size.width > 600;
 
-    // CONFIGURATION GRILLE
     final int cols = isTablet ? 4 : 2;
     final int rows = 3;
     final int itemsPerPage = cols * rows;
@@ -347,7 +325,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         title: const Text('Prestige Mobile'),
         actions: [
           IconButton(icon: const Icon(Icons.info_outline), onPressed: _showInfoPopup, tooltip: 'Tâches en attente'),
-          IconButton(icon: const Icon(Icons.settings), onPressed: () => navigate(const SettingsScreen()), tooltip: 'Configuration'),
+
+          // MODIFICATION : Bouton Settings sécurisé si vous le souhaitez aussi ici
+          IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () => _secureNavigate(const SettingsScreen()), // J'ai sécurisé l'accès aux settings aussi
+              tooltip: 'Configuration'
+          ),
+
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {
@@ -361,10 +346,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       body: SafeArea(
         child: Column(
           children: [
-            // 1. Bandeau de licence toujours visible en haut
             _buildLicenceStatusBanner(),
-
-            // 2. Contenu principal (Menus)
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(12.0),
@@ -373,7 +355,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   children: [
                     _buildWelcomeCard(),
                     const SizedBox(height: 12),
-
                     Expanded(
                       child: PageView.builder(
                         controller: _pageController,
@@ -409,7 +390,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         },
                       ),
                     ),
-
                     if (pages.length > 1)
                       _buildPageIndicator(pages.length),
                   ],
@@ -422,6 +402,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  // ... _buildWelcomeCard, _buildMenuCard, _buildPageIndicator restent identiques
   Widget _buildWelcomeCard() {
     return Card(
       color: AppColors.primary,
@@ -463,7 +444,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildMenuCard(MenuItem item, bool isTablet) {
-    // Tailles originales conservées
     final double iconSize = 48;
     final double fontSize = 15;
     final double containerPadding = 12;
