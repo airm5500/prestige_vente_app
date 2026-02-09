@@ -1,16 +1,20 @@
-// lib/providers/proforma_provider.dart
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+// C'est ici que sont vos modèles ClientModel, ClientCarnetModel, TypeDevis, RemiseModel...
 import 'package:prestige_vente_app/api/models/proforma_models.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
-import 'package:prestige_vente_app/api/models/product.dart';
+// Il faut importer ceci pour que ProductSearchResult soit reconnu
+//import 'package:prestige_vente_app/api/models/product_search_result.dart';
 
 class ProformaProvider with ChangeNotifier {
   final ApiService _apiService;
 
   String? _currentSaleId;
   String? get currentSaleId => _currentSaleId;
+  // Alias pour l'écran
+  String? get currentProformaId => _currentSaleId;
 
   String? _currentSaleRef;
   String? get currentSaleRef => _currentSaleRef;
@@ -81,13 +85,14 @@ class ProformaProvider with ChangeNotifier {
       _searchResults = await _apiService.searchProducts(query);
     } catch (e) {
       _errorMessage = "Erreur de recherche produits: $e";
+      _searchResults = [];
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // --- RECHERCHE DE CLIENTS SELON LE TYPE DE DEVIS ---
+  // --- RECHERCHE DE CLIENTS ---
   Future<void> searchClients(String query) async {
     if (query.isEmpty) {
       _clientSearchResults = [];
@@ -106,34 +111,29 @@ class ProformaProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // LOGIQUE SÉPARÉE SELON LE TYPE
       // ID "3" = Carnet
       if (_selectedTypeDevis!.lgTYPEVENTEID == "3") {
         final carnetClients = await _apiService.searchClientsCarnet(query);
         _clientSearchResults = carnetClients;
-        if (carnetClients.isEmpty) {
-          _errorMessage = "Aucun client Carnet trouvé.";
-        }
+        if (carnetClients.isEmpty) _errorMessage = "Aucun client Carnet trouvé.";
       } else {
-        // ID "1" ou autre = Comptant
+        // ID "1" = Comptant
         final comptantClients = await _apiService.searchClientsComptant(query);
         _clientSearchResults = comptantClients;
-        if (comptantClients.isEmpty) {
-          _errorMessage = "Aucun client trouvé.";
-        }
+        if (comptantClients.isEmpty) _errorMessage = "Aucun client trouvé.";
       }
     } catch (e) {
       _errorMessage = "Erreur recherche client: $e";
+      _clientSearchResults = [];
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // --- GESTION DES SÉLECTIONS ---
+  // --- SÉLECTIONS ---
   void setTypeDevis(TypeDevis? type) {
     _selectedTypeDevis = type;
-    // Si on change de type, on réinitialise le client car ils sont incompatibles
     _selectedClient = null;
     _clientSearchResults = [];
     notifyListeners();
@@ -160,15 +160,13 @@ class ProformaProvider with ChangeNotifier {
     try {
       List<Map<String, dynamic>> tpList = [];
 
-      // Gestion spécifique CARNET
+      // Gestion spécifique CARNET (ID "3")
       if (_selectedTypeDevis!.lgTYPEVENTEID == "3") {
-        // Vérification de type stricte
         if (_selectedClient is ClientCarnetModel) {
           final clientCarnet = _selectedClient as ClientCarnetModel;
-          final tiersPayants = clientCarnet.tiersPayants;
 
-          if (tiersPayants.isNotEmpty) {
-            tpList = tiersPayants.map((tp) => {
+          if (clientCarnet.tiersPayants.isNotEmpty) {
+            tpList = clientCarnet.tiersPayants.map((tp) => {
               "lgTIERSPAYANTID": tp.lgTIERSPAYANTID,
               "intPOURCENTAGE": tp.intPOURCENTAGE,
               "intPRIORITY": tp.intPRIORITY ?? 1,
@@ -181,7 +179,7 @@ class ProformaProvider with ChangeNotifier {
             return false;
           }
         } else {
-          _errorMessage = "Erreur : Le client sélectionné n'est pas un client Carnet valide.";
+          _errorMessage = "Erreur : Le client sélectionné n'est pas valide pour le Carnet.";
           _isLoading = false;
           notifyListeners();
           return false;
@@ -189,6 +187,8 @@ class ProformaProvider with ChangeNotifier {
       }
 
       bool success = false;
+
+      // CAS 1 : Création de la proforma
       if (_currentSaleId == null) {
         final result = await _apiService.addFirstDevisItem(
           clientId: _selectedClient!.lgCLIENTID,
@@ -203,8 +203,12 @@ class ProformaProvider with ChangeNotifier {
           _currentSaleId = result['data']['lgPREENREGISTREMENTID'];
           _currentSaleRef = result['data']['strREF'];
           success = true;
+        } else {
+          _errorMessage = "Erreur création proforma (API)";
         }
-      } else {
+      }
+      // CAS 2 : Ajout produit suivant
+      else {
         success = await _apiService.addNextDevisItem(
           venteId: _currentSaleId!,
           clientId: _selectedClient!.lgCLIENTID,
@@ -220,8 +224,12 @@ class ProformaProvider with ChangeNotifier {
         await _refreshCart();
         _searchResults = [];
         _errorMessage = '';
+      } else if (_errorMessage.isEmpty) {
+        _errorMessage = "Impossible d'ajouter le produit.";
       }
+
       return success;
+
     } catch (e) {
       _errorMessage = "Erreur technique : $e";
       return false;
@@ -240,10 +248,14 @@ class ProformaProvider with ChangeNotifier {
       itemPu: newPrice,
       qte: newQty,
     );
+
     if (success) {
       await _refreshCart();
       if (_selectedRemise != null) await applyRemise(_selectedRemise!);
+    } else {
+      _errorMessage = "Échec modification ligne.";
     }
+
     _isLoading = false;
     notifyListeners();
     return success;
@@ -253,16 +265,34 @@ class ProformaProvider with ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     final success = await _apiService.removeDepotItem(itemId);
+
     if (success) {
       await _refreshCart();
-      if (_selectedRemise != null) await applyRemise(_selectedRemise!);
+      if (_selectedRemise != null && _currentSaleId != null) {
+        await applyRemise(_selectedRemise!);
+      }
+    } else {
+      _errorMessage = "Échec suppression ligne.";
     }
+
     _isLoading = false;
     notifyListeners();
     return success;
   }
 
-  // --- CALCULS ET REMISES ---
+  // --- SUPPRESSION GLOBALE ---
+  Future<void> deleteCurrentProforma() async {
+    if (_currentSaleId != null) {
+      try {
+        await _apiService.deleteSale(_currentSaleId!);
+        resetProforma();
+      } catch (e) {
+        print("Erreur suppression proforma: $e");
+      }
+    }
+  }
+
+  // --- REMISES ---
   Future<void> applyRemise(RemiseModel remise) async {
     if (_currentSaleId == null) return;
     _selectedRemise = remise;
@@ -280,7 +310,7 @@ class ProformaProvider with ChangeNotifier {
       }
       await _refreshCart();
     } catch (e) {
-      _errorMessage = "Erreur remise: $e";
+      _errorMessage = "Erreur application remise: $e";
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -294,8 +324,9 @@ class ProformaProvider with ChangeNotifier {
       _cartItems = items;
 
       if (_selectedRemise == null) {
-        _totalAmount = items.fold(0, (sum, item) => sum + (item.intPRICE * item.intQUANTITY));
+        _totalAmount = items.fold(0, (sum, item) => sum + (item.intPRICEUNITAIR * item.intQUANTITY));
         _netAPayer = _totalAmount;
+        _montantRemise = 0;
       }
     } catch (e) {
       _errorMessage = "Erreur rafraîchissement panier : $e";
@@ -303,7 +334,6 @@ class ProformaProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // --- UTILITAIRES ---
   void resetSale() {
     _currentSaleId = null;
     _currentSaleRef = null;
@@ -320,6 +350,8 @@ class ProformaProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  void resetProforma() => resetSale();
+
   Future<void> loadExistingProforma(ProformaListItem item) async {
     _isLoading = true;
     _errorMessage = '';
@@ -329,16 +361,19 @@ class ProformaProvider with ChangeNotifier {
       _currentSaleRef = item.strREF;
 
       final clientDetails = await _apiService.getClientForSale(item.clientId, _currentSaleId!);
-      // Note: getClientForSale renvoie maintenant un objet typé (Carnet ou Comptant)
-      // Si null, on crée un comptant par défaut avec juste le nom
-      _selectedClient = clientDetails ?? ClientComptantModel(
-          lgCLIENTID: item.clientId,
-          strFIRSTNAME: '',
-          strLASTNAME: '',
-          strADRESSE: null // Pas d'adresse connue dans le résumé
-      );
 
-      String typeVenteId = (item.strTYPEVENTE == "CARNET" || item.strTYPEVENTE == "Carnet") ? "3" : "1";
+      if (clientDetails != null) {
+        _selectedClient = clientDetails;
+      } else {
+        _selectedClient = ClientComptantModel(
+            lgCLIENTID: item.clientId,
+            strFIRSTNAME: item.strClientFullName.split(' ').first,
+            strLASTNAME: item.strClientFullName.split(' ').skip(1).join(' '),
+            strADRESSE: null
+        );
+      }
+
+      String typeVenteId = (item.strTYPEVENTE.toUpperCase().contains("CARNET")) ? "3" : "1";
 
       _selectedTypeDevis = TypeDevis(
         lgTYPEVENTEID: typeVenteId,
@@ -348,7 +383,7 @@ class ProformaProvider with ChangeNotifier {
 
       await _refreshCart();
     } catch (e) {
-      _errorMessage = "Erreur lors du chargement : $e";
+      _errorMessage = "Erreur chargement proforma : $e";
     } finally {
       _isLoading = false;
       notifyListeners();
