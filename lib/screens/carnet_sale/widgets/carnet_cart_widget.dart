@@ -11,7 +11,8 @@ class CarnetCartWidget extends StatelessWidget {
   void _showEditDialog(BuildContext context, SaleItemDetail item) {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
     final qteController = TextEditingController(text: item.intQUANTITY.toString());
-    // Note: Le prix est souvent fixe en assurance/carnet, mais on laisse la possibilité si besoin
+
+    // MODIF : J'ai activé ce contrôleur qui était commenté ou manquant
     final priceController = TextEditingController(text: item.intPRICEUNITAIR.toString());
 
     showDialog(
@@ -27,15 +28,13 @@ class CarnetCartWidget extends StatelessWidget {
               keyboardType: TextInputType.number,
               autofocus: true,
             ),
-            // Décommentez si vous voulez permettre la modif de prix
-            /*
             const SizedBox(height: 10),
+            // MODIF : Ajout du champ prix
             TextField(
               controller: priceController,
               decoration: const InputDecoration(labelText: 'Prix Unitaire'),
               keyboardType: TextInputType.number,
             ),
-            */
           ],
         ),
         actions: [
@@ -47,8 +46,11 @@ class CarnetCartWidget extends StatelessWidget {
             child: const Text('Valider'),
             onPressed: () {
               final int qte = int.tryParse(qteController.text) ?? item.intQUANTITY;
+              // MODIF : Récupération du prix
               final int price = int.tryParse(priceController.text) ?? item.intPRICEUNITAIR;
+
               if (qte > 0) {
+                // MODIF : Envoi du nouveau prix au provider
                 provider.updateCartItem(item, qte, price);
               }
               Navigator.of(ctx).pop();
@@ -73,28 +75,27 @@ class CarnetCartWidget extends StatelessWidget {
         }
 
         return ListView.separated(
-          padding: const EdgeInsets.all(8.0), // Padding général réduit
+          padding: const EdgeInsets.all(8.0),
           itemCount: provider.cartItems.length,
-          separatorBuilder: (ctx, i) => const Divider(height: 1), // Séparateur fin
+          separatorBuilder: (ctx, i) => const Divider(height: 1),
           itemBuilder: (context, index) {
             final item = provider.cartItems[index];
             return Card(
               elevation: 2,
-              margin: const EdgeInsets.symmetric(vertical: 4), // Marge verticale réduite
+              margin: const EdgeInsets.symmetric(vertical: 4),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0), // Padding interne compact
+                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // LIGNE 1 : NOM PRODUIT + CIP (Compacté)
                     Row(
                       children: [
                         Expanded(
                           child: RichText(
-                            maxLines: 1, // Force une seule ligne
-                            overflow: TextOverflow.ellipsis, // ... si trop long
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             text: TextSpan(
-                              style: const TextStyle(color: Colors.black87, fontSize: 13), // Police réduite
+                              style: const TextStyle(color: Colors.black87, fontSize: 13),
                               children: [
                                 TextSpan(
                                   text: item.strNAME,
@@ -110,44 +111,37 @@ class CarnetCartWidget extends StatelessWidget {
                         ),
                       ],
                     ),
-
-                    // ESPACE RÉDUIT (C'est ici qu'on gagne de la place)
                     const SizedBox(height: 2),
-
-                    // LIGNE 2 : PRIX ET ACTIONS
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // Partie Gauche : Calcul Prix
                         Text(
                           '${item.intQUANTITY} x ${Constants.formatNumber(item.intPRICEUNITAIR)} = ${Constants.formatNumber(item.intPRICE)} F',
                           style: const TextStyle(
-                              fontSize: 13, // Police réduite
+                              fontSize: 13,
                               color: AppColors.primary,
                               fontWeight: FontWeight.w600
                           ),
                         ),
-
-                        // Partie Droite : Boutons Actions
                         Row(
                           children: [
                             SizedBox(
-                              width: 30, // Bouton compact
+                              width: 30,
                               height: 30,
                               child: IconButton(
-                                icon: const Icon(Icons.edit, size: 18), // Icône réduite
+                                icon: const Icon(Icons.edit, size: 18),
                                 color: Colors.blue,
                                 padding: EdgeInsets.zero,
                                 onPressed: () => _showEditDialog(context, item),
-                                tooltip: "Modifier quantité",
+                                tooltip: "Modifier",
                               ),
                             ),
                             const SizedBox(width: 8),
                             SizedBox(
-                              width: 30, // Bouton compact
+                              width: 30,
                               height: 30,
                               child: IconButton(
-                                icon: const Icon(Icons.delete, size: 18), // Icône réduite
+                                icon: const Icon(Icons.delete, size: 18),
                                 color: Colors.red,
                                 padding: EdgeInsets.zero,
                                 onPressed: () => provider.removeProductFromCart(item.lgPREENREGISTREMENTDETAILID),

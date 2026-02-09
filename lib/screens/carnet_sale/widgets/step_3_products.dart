@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+//import 'package:prestige_vente_app/api/models/product_search_result.dart'; // Import ajouté pour le type
 import 'package:prestige_vente_app/providers/carnet_sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -19,12 +20,15 @@ class Step3ProductsWidget extends StatefulWidget {
 class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
-  final _keyboardFocusNode = FocusNode(); // Pour capter les touches du scanner physique
+  final _keyboardFocusNode = FocusNode();
+
+  // MODIF 1 : Timer pour le debounce
   Timer? _debounce;
 
   bool _isProcessing = false;
-  String _scanBuffer = ""; // Tampon pour le scanner physique
-  bool _isPopupOpen = false; // Pour éviter les conflits de popups
+  String _scanBuffer = "";
+  // MODIF 2 : Verrou pour éviter les popups multiples
+  bool _isPopupOpen = false;
 
   @override
   void initState() {
@@ -51,15 +55,12 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     super.dispose();
   }
 
-  // --- GESTION DU SCANNER PHYSIQUE (Touches Clavier) ---
   void _handleKeyEvent(KeyEvent event) {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
 
-    // Si le mode Scan n'est pas actif ou si un popup est ouvert, on ignore
     if (!provider.isQuickScanMode) return;
     if (_isPopupOpen) return;
 
-    // Si le focus est déjà dans le champ texte, on laisse le TextField gérer (évite les doublons)
     if (_searchFocusNode.hasFocus) {
       _scanBuffer = "";
       return;
@@ -77,7 +78,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     }
   }
 
-  // --- DÉTECTION DE LA SAISIE MANUELLE ---
+  // MODIF 3 : Logique de debounce (attendre 500ms avant de chercher)
   void _onSearchChanged() {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
 
@@ -88,7 +89,10 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
     if (_isPopupOpen) return;
 
+    // Si on tape encore, on annule le timer précédent
     if (_debounce?.isActive ?? false) _debounce!.cancel();
+
+    // On lance un nouveau timer
     _debounce = Timer(const Duration(milliseconds: 500), () {
       if (!mounted) return;
       if (_isPopupOpen) return;
@@ -102,40 +106,32 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     });
   }
 
-  // --- CŒUR DE LA LOGIQUE DE RECHERCHE ---
   Future<void> _performSearch(String query, {required bool isScan}) async {
-    _debounce?.cancel();
+    _debounce?.cancel(); // Annule le debounce si on valide manuellement (Entrée)
     if (_isPopupOpen) return;
     if (query.isEmpty) return;
 
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
 
-    // On indique visuellement qu'on cherche (optionnel si vous avez un loader)
-    // setState(() => _isProcessing = true);
-
     try {
       await provider.searchProducts(query);
       if (!mounted) return;
-      if (_isPopupOpen) return; // Si un popup s'est ouvert entre temps
+      if (_isPopupOpen) return;
 
       final results = provider.productSearchResults;
 
       if (results.length == 1) {
         final product = results.first;
-        // On vide le champ pour éviter les conflits
         _searchController.clear();
         provider.clearProductSearch();
 
-        // LOGIQUE SCAN RAPIDE (Bouton éclair)
         if (provider.isQuickScanMode) {
-          // --- CORRECTION : VÉRIFICATION STOCK MÊME EN RAPIDE ---
           if (product.intNUMBERAVAILABLE < 1) {
             _showForceStockDialog(product, 1);
           } else {
             provider.addProductToCart(product, 1);
           }
         } else {
-          // Mode manuel -> Popup quantité
           _showQuantityDialog(product);
         }
       } else if (results.isNotEmpty) {
@@ -143,20 +139,18 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       }
     } finally {
       if (mounted) {
-        // setState(() => _isProcessing = false);
         if (!_isPopupOpen) _requestSearchFocus();
       }
     }
   }
 
-  // --- POPUP DE SÉLECTION (Si plusieurs produits) ---
-  // DANS lib/screens/carnet_sale/widgets/step_3_products.dart
-
-  // 1. POPUP RESULTATS RECHERCHE (Style optimisé)
+  // MODIF 4 : Verrouillage _isPopupOpen = true
   void _showSelectionDialog(List<ProductSearchResult> results) {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
     final dialogResults = List<ProductSearchResult>.from(results);
-    provider.clearProductSearch(); // Nettoie l'arrière plan
+    provider.clearProductSearch();
+
+    setState(() => _isPopupOpen = true);
 
     showDialog(
       context: context,
@@ -172,8 +166,8 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             itemBuilder: (context, index) {
               final p = dialogResults[index];
               return ListTile(
-                dense: true, // Tasse les lignes
-                contentPadding: EdgeInsets.zero, // Réduit les marges
+                dense: true,
+                contentPadding: EdgeInsets.zero,
                 title: Text(
                   p.strNAME,
                   maxLines: 1,
@@ -205,25 +199,30 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Fermer"))
         ],
       ),
-    );
+    ).then((_) {
+      // Petite astuce : on retarde légèrement le déverrouillage pour laisser le temps
+      // à _showQuantityDialog de prendre le relais si on a cliqué sur un produit.
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted && !_isPopupOpen) {
+          _requestSearchFocus();
+        }
+      });
+      // Si on a juste fermé, on libère le verrou (sauf si quantity dialog l'a repris)
+      if (mounted && !_isPopupOpen) setState(() => _isPopupOpen = false);
+    });
   }
 
-  // 2. POPUP QUANTITÉ (Sécurisé + Auto-Select + Style)
   void _showQuantityDialog(ProductSearchResult product) {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
     final formKey = GlobalKey<FormState>();
     final qteController = TextEditingController(text: "1");
 
-    // 1. AMÉLIORATION : Auto-sélection à l'ouverture
     qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
 
     setState(() => _isPopupOpen = true);
 
     void submit() async {
-      // 1. SÉCURITÉ : Si Code barre scanné (Erreur Validateur)
       if (!formKey.currentState!.validate()) {
-        // CORRECTION : On utilise un petit délai pour forcer la sélection
-        // APRES que l'interface a fini d'afficher l'erreur rouge.
         Future.delayed(const Duration(milliseconds: 50), () {
           if (mounted && qteController.text.isNotEmpty) {
             qteController.selection = TextSelection(
@@ -237,7 +236,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
       final qty = int.parse(qteController.text);
 
-      // 2. SÉCURITÉ : Alerte Quantité Suspecte (> 50)
       if (qty > 50) {
         final bool? confirm = await showDialog<bool>(
           context: context,
@@ -259,7 +257,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
         );
 
         if (confirm != true) {
-          // CORRECTION ICI AUSSI : Délai pour garantir la sélection au retour du dialog
           Future.delayed(const Duration(milliseconds: 50), () {
             if (mounted) {
               qteController.selection = TextSelection(
@@ -272,7 +269,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
         }
       }
 
-      // Tout est bon
       Navigator.pop(context);
 
       if (qty > 0) {
@@ -346,7 +342,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     });
   }
 
-  // --- POPUP FORÇAGE STOCK ---
   void _showForceStockDialog(ProductSearchResult product, int qty) {
     setState(() => _isPopupOpen = true);
     showDialog(
@@ -382,7 +377,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       onKeyEvent: _handleKeyEvent,
       child: Column(
         children: [
-          // EN-TÊTE RÉCAPITULATIF (Client / Ayant-Droit)
+          // EN-TÊTE
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             color: Colors.grey[100],
@@ -462,7 +457,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     );
   }
 
-  // --- BARRE DE RECHERCHE + BOUTON SCAN ---
   Widget _buildSearchRow(CarnetSaleProvider provider, bool isActive) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -488,7 +482,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                 )
                     : null,
                 border: const OutlineInputBorder(),
-                // BORDURE VERTE SI SCAN ACTIF
                 enabledBorder: OutlineInputBorder(
                   borderSide: BorderSide(color: isActive ? Colors.green : Colors.grey, width: isActive ? 2.0 : 1.0),
                 ),
@@ -499,7 +492,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                 fillColor: isActive ? Colors.green.withValues(alpha: 0.05) : null,
               ),
               onSubmitted: (val) {
-                // Si on valide avec "Entrée" sur le clavier virtuel
                 _performSearch(val, isScan: false);
                 _requestSearchFocus();
               },
@@ -508,7 +500,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
           const SizedBox(width: 8),
 
-          // BOUTON TOGGLE SCAN
           InkWell(
             onTap: () {
               provider.toggleQuickScanMode();
