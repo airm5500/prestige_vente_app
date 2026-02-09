@@ -514,7 +514,6 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
       _requestSearchFocus();
     }
   }
-
   @override
   Widget build(BuildContext context) {
     return KeyboardListener(
@@ -525,182 +524,224 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
         builder: (context, provider, child) {
           final bool isScanMode = provider.isQuickScanMode;
 
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text("Nouvelle Vente Dépôt"),
-              actions: [
-                IconButton(
-                  tooltip: isScanMode ? "Désactiver Scan Rapide" : "Activer Scan Rapide",
-                  icon: Icon(
-                      isScanMode ? Icons.bolt : Icons.flash_off,
-                      color: isScanMode ? Colors.greenAccent : null
-                  ),
-                  onPressed: () {
-                    provider.toggleQuickScanMode();
-                    _requestSearchFocus();
-                  },
-                )
-              ],
-            ),
+          return PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, result) async {
+              if (didPop) return;
 
-            body: Column(
-              children: [
-                // ZONE 1 : SELECTION DEPOT
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  color: Colors.white,
-                  child: provider.currentSaleId == null
-                      ? _isLoadingDepots
-                      ? const LinearProgressIndicator()
-                      : DropdownButtonFormField<DepotModel>(
-                    value: provider.selectedDepot,
-                    focusNode: _depotFocusNode,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      labelText: "Sélectionner le Dépôt / Client",
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.store),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 10),
-                    ),
-                    items: _availableDepots.map((depot) {
-                      return DropdownMenuItem(
-                        value: depot,
-                        child: Text("${depot.fullName} (${depot.descriptionTypeDepot})", overflow: TextOverflow.ellipsis),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        provider.selectDepot(val);
-                        Future.delayed(const Duration(milliseconds: 100), () {
-                          _requestSearchFocus();
-                        });
-                      }
-                    },
-                  )
-                      : Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: Colors.grey.shade100, border: Border.all(color: Colors.grey.shade300)),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text("Client: ${provider.selectedDepot?.fullName}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 4),
-                              Text(
-                                "REF: ${provider.currentSaleRef ?? '...'}",
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueGrey),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(color: Colors.blue.shade100, borderRadius: BorderRadius.circular(20)),
-                          child: Text(
-                            "${provider.cartItems.length} Produit(s)",
-                            style: TextStyle(color: Colors.blue.shade800, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // ZONE 2 : RECHERCHE
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  color: Colors.white,
-                  child: TextField(
-                    controller: _searchController,
-                    focusNode: _searchFocusNode,
-                    onChanged: _onSearchChanged,
-                    decoration: InputDecoration(
-                      hintText: isScanMode ? "SCAN RAPIDE ACTIF" : "Saisir nom ou scanner",
-                      prefixIcon: _isProcessing
-                          ? const Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2))
-                          : Icon(isScanMode ? Icons.bolt : Icons.search, color: isScanMode ? Colors.green : null),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () { _searchController.clear(); _requestSearchFocus(); },
+              // GESTION DU RETOUR ARRIÈRE (Nettoyage vente vide)
+              if (provider.currentSaleId != null && provider.cartItems.isEmpty) {
+                final bool? shouldDelete = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text("Vente vide"),
+                    content: const Text("Cette vente est vide.\nVoulez-vous la supprimer ?"),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false), // Non
+                        child: const Text("Non, garder", style: TextStyle(color: Colors.grey)),
                       ),
-                      border: const OutlineInputBorder(),
-                      enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: isScanMode ? Colors.green : Colors.grey, width: isScanMode ? 2.5 : 1.0),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                        onPressed: () => Navigator.pop(ctx, true), // Oui
+                        child: const Text("Oui, Supprimer", style: TextStyle(color: Colors.white)),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: isScanMode ? Colors.green : Theme.of(context).primaryColor, width: isScanMode ? 2.5 : 2.0),
-                      ),
-                      filled: true,
-                      fillColor: isScanMode ? Colors.green.withValues(alpha: 0.1) : Colors.blue.shade50.withValues(alpha: 0.3),
-                    ),
-                    onSubmitted: (val) {
-                      // CORRECTION: isScan: false
-                      _performSearch(val, isScan: false);
-                      _requestSearchFocus();
-                    },
-                  ),
-                ),
-
-                const Divider(height: 1),
-
-                // ZONE 3 : LISTE PRODUITS
-                Expanded(
-                  child: provider.cartItems.isEmpty
-                      ? (provider.isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : const Center(child: Text("Panier vide. Scannez ou saisissez un produit.")))
-                      : Stack(
-                    children: [
-                      ListView.separated(
-                        itemCount: provider.cartItems.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final item = provider.cartItems[index];
-                          return ListTile(
-                            dense: true,
-                            visualDensity: const VisualDensity(vertical: -2),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                            title: Text(item.strNAME, style: const TextStyle(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 2.0),
-                              child: Text("${_formatCurrency(item.intPRICEUNITAIR)} F x ${item.intQUANTITY}"),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text("${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
-                                const SizedBox(width: 8),
-                                IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _confirmDeleteItem(item)),
-                              ],
-                            ),
-                            onTap: () => _editLine(item),
-                          );
-                        },
-                      ),
-                      if (provider.isLoading)
-                        const Positioned(top: 0, left: 0, right: 0, child: LinearProgressIndicator(minHeight: 2)),
                     ],
                   ),
-                ),
+                );
 
-                // ZONE 4 : FOOTER
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, -2))]),
-                  child: SafeArea(
-                    child: Row(
+                if (shouldDelete == null) return;
+
+                if (shouldDelete) {
+                  await provider.deleteCurrentSale(); // Supprime via API
+                } else {
+                  provider.resetSale(); // Garde en base mais reset l'écran
+                }
+
+                if (context.mounted) Navigator.pop(context);
+
+              } else {
+                if (context.mounted) Navigator.pop(context);
+              }
+            },
+            child: Scaffold(
+              appBar: AppBar(
+                title: const Text("Nouvelle Vente Dépôt"),
+                actions: [
+                  IconButton(
+                    tooltip: isScanMode ? "Désactiver Scan Rapide" : "Activer Scan Rapide",
+                    icon: Icon(
+                        isScanMode ? Icons.bolt : Icons.flash_off,
+                        color: isScanMode ? Colors.greenAccent : null
+                    ),
+                    onPressed: () {
+                      provider.toggleQuickScanMode();
+                      _requestSearchFocus();
+                    },
+                  )
+                ],
+              ),
+
+              body: Column(
+                children: [
+                  // ZONE 1 : SELECTION DEPOT
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    color: Colors.white,
+                    child: provider.currentSaleId == null
+                        ? _isLoadingDepots
+                        ? const LinearProgressIndicator()
+                        : DropdownButtonFormField<DepotModel>(
+                      value: provider.selectedDepot,
+                      focusNode: _depotFocusNode,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: "Sélectionner le Dépôt / Client",
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.store),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      items: _availableDepots.map((depot) {
+                        return DropdownMenuItem(
+                          value: depot,
+                          child: Text("${depot.fullName} (${depot.descriptionTypeDepot})", overflow: TextOverflow.ellipsis),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          provider.selectDepot(val);
+                          Future.delayed(const Duration(milliseconds: 100), () {
+                            _requestSearchFocus();
+                          });
+                        }
+                      },
+                    )
+                        : Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.grey.shade100, border: Border.all(color: Colors.grey.shade300)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("Client: ${provider.selectedDepot?.fullName}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                Text(
+                                  "REF: ${provider.currentSaleRef ?? '...'}",
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueGrey),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: Colors.blue.shade100, borderRadius: BorderRadius.circular(20)),
+                            child: Text(
+                              "${provider.cartItems.length} Produit(s)",
+                              style: TextStyle(color: Colors.blue.shade800, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // ZONE 2 : RECHERCHE
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    color: Colors.white,
+                    child: TextField(
+                      controller: _searchController,
+                      focusNode: _searchFocusNode,
+                      onChanged: _onSearchChanged,
+                      decoration: InputDecoration(
+                        hintText: isScanMode ? "SCAN RAPIDE ACTIF" : "Saisir nom ou scanner",
+                        prefixIcon: _isProcessing
+                            ? const Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2))
+                            : Icon(isScanMode ? Icons.bolt : Icons.search, color: isScanMode ? Colors.green : null),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () { _searchController.clear(); _requestSearchFocus(); },
+                        ),
+                        border: const OutlineInputBorder(),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: isScanMode ? Colors.green : Colors.grey, width: isScanMode ? 2.5 : 1.0),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: isScanMode ? Colors.green : Theme.of(context).primaryColor, width: isScanMode ? 2.5 : 2.0),
+                        ),
+                        filled: true,
+                        fillColor: isScanMode ? Colors.green.withValues(alpha: 0.1) : Colors.blue.shade50.withValues(alpha: 0.3),
+                      ),
+                      onSubmitted: (val) {
+                        // --- CORRECTION ICI ---
+                        // On ajoute 'isScan: false' car c'est une validation clavier (Entrée)
+                        _performSearch(val, isScan: false);
+                        _requestSearchFocus();
+                      },
+                    ),
+                  ),
+
+                  const Divider(height: 1),
+
+                  // ZONE 3 : LISTE PRODUITS
+                  Expanded(
+                    child: provider.cartItems.isEmpty
+                        ? (provider.isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : const Center(child: Text("Panier vide. Scannez ou saisissez un produit.")))
+                        : Stack(
                       children: [
-                        Expanded(flex: 4, child: ElevatedButton.icon(onPressed: provider.cartItems.isEmpty ? null : _validateSale, icon: const Icon(Icons.check_circle_outline), label: const Text("CLÔTURER"), style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 18)))),
-                        const SizedBox(width: 15),
-                        Expanded(flex: 6, child: Container(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15), decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)), child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [const Text("TOTAL NET", style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)), FittedBox(fit: BoxFit.scaleDown, child: Text("${_formatCurrency(provider.totalAmount)} F", style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.black)))]))),
+                        ListView.separated(
+                          itemCount: provider.cartItems.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final item = provider.cartItems[index];
+                            return ListTile(
+                              dense: true,
+                              visualDensity: const VisualDensity(vertical: -2),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                              title: Text(item.strNAME, style: const TextStyle(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 2.0),
+                                child: Text("${_formatCurrency(item.intPRICEUNITAIR)} F x ${item.intQUANTITY}"),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text("${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
+                                  const SizedBox(width: 8),
+                                  IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _confirmDeleteItem(item)),
+                                ],
+                              ),
+                              onTap: () => _editLine(item),
+                            );
+                          },
+                        ),
+                        if (provider.isLoading)
+                          const Positioned(top: 0, left: 0, right: 0, child: LinearProgressIndicator(minHeight: 2)),
                       ],
                     ),
                   ),
-                )
-              ],
+
+                  // ZONE 4 : FOOTER
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, -2))]),
+                    child: SafeArea(
+                      child: Row(
+                        children: [
+                          Expanded(flex: 4, child: ElevatedButton.icon(onPressed: provider.cartItems.isEmpty ? null : _validateSale, icon: const Icon(Icons.check_circle_outline), label: const Text("CLÔTURER"), style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 18)))),
+                          const SizedBox(width: 15),
+                          Expanded(flex: 6, child: Container(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15), decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)), child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [const Text("TOTAL NET", style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)), FittedBox(fit: BoxFit.scaleDown, child: Text("${_formatCurrency(provider.totalAmount)} F", style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.black)))]))),
+                        ],
+                      ),
+                    ),
+                  )
+                ],
+              ),
             ),
           );
         },

@@ -209,6 +209,20 @@ class ApiService {
     }
   }
 
+  // DANS lib/api/api_service.dart
+
+  /// Supprime une vente globale (Dépôt ou autre) via son ID
+  Future<bool> deleteSale(String saleId) async {
+    try {
+      // Adaptez l'URL si besoin, c'est celle que vous m'avez donnée
+      final response = await _dio.post('/ventestats/remove/$saleId');
+      return response.data == true;
+    } catch (e) {
+      print("Erreur suppression vente globale: $e");
+      return false;
+    }
+  }
+
   // NOUVEAU : Récupération des bons de réception avec détails inclus
   Future<List<ReceptionBon>> getReceptionBons({
     String query = '',

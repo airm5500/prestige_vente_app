@@ -240,4 +240,11 @@ class DepotSaleProvider with ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> deleteCurrentSale() async {
+    if (_currentSaleId != null) {
+      await _apiService.deleteSale(_currentSaleId!); // Appel API
+      resetSale(); // Nettoyage local
+    }
+  }
 }
