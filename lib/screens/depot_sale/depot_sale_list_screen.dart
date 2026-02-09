@@ -1,118 +1,141 @@
-// lib/screens/depot_sale/depot_sale_list_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:prestige_vente_app/api/api_service.dart';
-import 'package:prestige_vente_app/api/models/depot_model.dart';
 import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
 import 'package:prestige_vente_app/screens/depot_sale/depot_sale_screen.dart';
-import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:intl/intl.dart';
 
 class DepotSaleListScreen extends StatefulWidget {
-  const DepotSaleListScreen({Key? key}) : super(key: key);
+  const DepotSaleListScreen({super.key});
 
   @override
   State<DepotSaleListScreen> createState() => _DepotSaleListScreenState();
 }
 
 class _DepotSaleListScreenState extends State<DepotSaleListScreen> {
-  List<DepotSaleListItem> _sales = [];
-  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadSales();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<DepotSaleProvider>(context, listen: false).fetchOngoingSales();
+    });
   }
 
-  Future<void> _loadSales() async {
-    setState(() => _isLoading = true);
-    final api = Provider.of<ApiService>(context, listen: false);
-    final list = await api.fetchDepotSales();
+  String _formatCurrency(int amount) {
+    return NumberFormat.currency(locale: 'fr_XOF', symbol: 'F', decimalDigits: 0).format(amount);
+  }
+
+  void _resumeSale(String saleId) async {
+    final provider = Provider.of<DepotSaleProvider>(context, listen: false);
+    await provider.loadExistingSale(saleId);
+
     if (mounted) {
-      setState(() {
-        _sales = list;
-        _isLoading = false;
+      Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const DepotSaleScreen())
+      ).then((_) {
+        provider.fetchOngoingSales();
       });
     }
   }
 
-  void _openSale(String? saleId) async {
-    // Si saleId est null, c'est une nouvelle vente, sinon on reprend
+  void _createNewSale() {
     final provider = Provider.of<DepotSaleProvider>(context, listen: false);
     provider.resetSale();
-
-    if (saleId != null) {
-      await provider.loadExistingSale(saleId);
-    }
-
-    if (!mounted) return;
-
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const DepotSaleScreen()),
-    );
-
-    // Au retour, on rafraichit la liste
-    _loadSales();
+    Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const DepotSaleScreen())
+    ).then((_) {
+      provider.fetchOngoingSales();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Ventes Dépôts")),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openSale(null),
-        label: const Text("Nouveau Dépôt"),
-        icon: const Icon(Icons.add),
-        backgroundColor: AppColors.primary,
+      appBar: AppBar(
+        title: const Text("Ventes Dépôt en cours"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => Provider.of<DepotSaleProvider>(context, listen: false).fetchOngoingSales(),
+          )
+        ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _sales.isEmpty
-          ? const Center(child: Text("Aucune vente dépôt en cours"))
-          : RefreshIndicator(
-        onRefresh: _loadSales,
-        child: ListView.builder(
-          itemCount: _sales.length,
-          itemBuilder: (context, index) {
-            final sale = _sales[index];
+      body: Consumer<DepotSaleProvider>(
+        builder: (context, provider, child) {
+          if (provider.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-            // Logique couleur statut
-            final bool isProcess = sale.strSTATUT == 'is_Process';
-            final Color statusColor = isProcess ? Colors.green : Colors.grey;
-            final String statusText = isProcess ? "En cours" : sale.strSTATUT;
-
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.blue.shade100,
-                  child: const Icon(Icons.store, color: Colors.blue),
-                ),
-                title: Text(sale.strClientFullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Réf: ${sale.strREF} - ${sale.dtUPDATED} à ${sale.heure}"),
-                    // AJOUT : Nom du vendeur
-                    if (sale.userFullName.isNotEmpty)
-                      Text("Vendeur: ${sale.userFullName}", style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
-                  ],
-                ),
-                trailing: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text("${sale.intPRICE} FCFA", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primary)),
-                    // MODIFICATION : Couleur et texte statut
-                    Text(statusText, style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                onTap: () => _openSale(sale.lgPREENREGISTREMENTID),
+          if (provider.ongoingSales.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.shopping_basket_outlined, size: 60, color: Colors.grey),
+                  const SizedBox(height: 10),
+                  const Text("Aucune vente en cours", style: TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: _createNewSale,
+                    icon: const Icon(Icons.add),
+                    label: const Text("Nouvelle Vente"),
+                  )
+                ],
               ),
             );
-          },
-        ),
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(10),
+            itemCount: provider.ongoingSales.length,
+            separatorBuilder: (_, __) => const Divider(),
+            itemBuilder: (context, index) {
+              final sale = provider.ongoingSales[index];
+              return Card(
+                elevation: 2,
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.brown.shade100,
+                    child: const Icon(Icons.store, color: Colors.brown),
+                  ),
+                  title: Text(
+                    sale.strREF.isEmpty ? "Sans Référence" : sale.strREF,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      // CORRECTION : Utilisation de strClientFullName
+                      Text("Client: ${sale.strClientFullName}", style: const TextStyle(fontWeight: FontWeight.w500)),
+                      // CORRECTION : Affichage date et heure (ce sont des Strings dans le modèle)
+                      Text(
+                        "${sale.dtUPDATED} à ${sale.heure}",
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                  trailing: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      // CORRECTION : Utilisation de intPRICE
+                      Text(
+                        _formatCurrency(sale.intPRICE),
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16),
+                      ),
+                      const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey)
+                    ],
+                  ),
+                  onTap: () => _resumeSale(sale.lgPREENREGISTREMENTID),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }

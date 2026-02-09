@@ -214,4 +214,30 @@ class DepotSaleProvider with ChangeNotifier {
     _totalAmount = items.fold(0, (sum, item) => sum + item.intPRICE);
     notifyListeners();
   }
+
+  // --- GESTION DE LA LISTE DES VENTES EN COURS ---
+
+  // CORRECTION : On utilise le bon type 'DepotSaleListItem'
+  List<DepotSaleListItem> _ongoingSales = [];
+  List<DepotSaleListItem> get ongoingSales => _ongoingSales;
+
+  Future<void> fetchOngoingSales() async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      // 1. Récupération brute depuis l'API
+      final rawList = await _apiService.fetchDepotSales();
+
+      // 2. FILTRE MAGIQUE : On ne garde que les ventes ayant un montant > 0
+      // CORRECTION : On utilise '.intPRICE' qui est le champ réel du modèle
+      _ongoingSales = rawList.where((sale) => sale.intPRICE > 0).toList();
+
+    } catch (e) {
+      _errorMessage = "Erreur chargement liste: $e";
+      _ongoingSales = [];
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 }
