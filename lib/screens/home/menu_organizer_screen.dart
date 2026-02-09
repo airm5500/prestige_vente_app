@@ -1,8 +1,7 @@
-// lib/screens/auth/menu_organizer_screen.dart
+// lib/screens/home/menu_organizer_screen.dart
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:prestige_vente_app/widgets/pin_code_dialog.dart'; // Import de la sécurité
 
 class MenuMetadata {
   final String id;
@@ -45,29 +44,12 @@ class MenuOrganizerScreen extends StatefulWidget {
 class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
   late List<MenuMetadata> _currentList;
   late Set<String> _hiddenIds;
-  bool _isAuthorized = false; // Pour contrôler l'affichage
 
   @override
   void initState() {
     super.initState();
+    // PLUS DE VERIFICATION PIN ICI (Géré par SettingsScreen)
     _initData();
-
-    // SÉCURITÉ : On lance le check dès l'ouverture
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkPermission();
-    });
-  }
-
-  Future<void> _checkPermission() async {
-    // Si on vient déjà de home_screen qui a vérifié le code, c'est redondant mais plus sûr.
-    // Vous pouvez commenter ces lignes si Home le fait déjà.
-    // Ici je le mets pour sécuriser l'écran s'il est appelé d'ailleurs.
-    bool authorized = await PinCodeDialog.show(context);
-    if (!authorized) {
-      if (mounted) Navigator.of(context).pop(); // Rejet
-    } else {
-      setState(() => _isAuthorized = true); // Autorisation
-    }
   }
 
   void _initData() {
@@ -104,13 +86,6 @@ class _MenuOrganizerScreenState extends State<MenuOrganizerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Si pas autorisé, on affiche un écran vide ou de chargement en attendant le PIN
-    if (!_isAuthorized) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Organiser le Menu'),

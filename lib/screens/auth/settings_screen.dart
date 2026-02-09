@@ -1,15 +1,17 @@
 // lib/screens/auth/settings_screen.dart
-// 13/11/2025 10:00 (Complet : Assurance + Menu Organizer)
+// 13/11/2025 10:00 (Complet : Assurance + Menu Organizer + Sécurité PIN)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
-//import 'package:prestige_vente_app/screens/auth/login_screen.dart';
+import 'package:prestige_vente_app/providers/auth_provider.dart'; // Pour isAdmin
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/screens/auth/qr_code_preview_screen.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
-import 'package:prestige_vente_app/screens/home/menu_organizer_screen.dart'; // NOUVEAU Import
+import 'package:prestige_vente_app/screens/home/menu_organizer_screen.dart';
 import 'package:prestige_vente_app/screens/splash_screen.dart';
+import 'package:prestige_vente_app/widgets/pin_code_dialog.dart'; // Pour la sécurité
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -130,6 +132,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Récupération du rôle pour afficher/masquer le bouton de modif PIN
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final bool isAdmin = authProvider.isAdmin;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Configuration')),
       body: Center(
@@ -156,7 +162,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                       const Divider(height: 40),
 
-                      // SECTION PERSONNALISATION (NOUVEAU)
+                      // SECTION PERSONNALISATION (SÉCURISÉE)
                       Text('Personnalisation', style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 10),
                       ListTile(
@@ -164,14 +170,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: const Text("Organiser le menu d'accueil"),
                         subtitle: const Text("Changer l'ordre et la visibilité des icônes"),
                         trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (context) => const MenuOrganizerScreen()),
-                          );
+                        onTap: () async {
+                          // AJOUT SÉCURITÉ : Demande PIN
+                          bool authorized = await PinCodeDialog.show(context);
+                          if (authorized && context.mounted) {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (context) => const MenuOrganizerScreen()),
+                            );
+                          }
                         },
                       ),
-                      const Divider(height: 40),
 
+                      // SECTION SÉCURITÉ ADMIN (Visible uniquement si Admin)
+                      if (isAdmin) ...[
+                        const Divider(height: 20),
+                        Text('Sécurité Admin', style: Theme.of(context).textTheme.titleLarge),
+                        ListTile(
+                          leading: const Icon(Icons.lock_reset, color: Colors.red),
+                          title: const Text("Modifier le Code PIN Administrateur"),
+                          subtitle: const Text("Définir le code pour les menus sensibles"),
+                          trailing: const Icon(Icons.edit, size: 16),
+                          onTap: () {
+                            // Pas de demande de PIN, on est déjà Admin
+                            PinCodeDialog.changePin(context);
+                          },
+                        ),
+                      ],
+
+                      const Divider(height: 40),
 
                       Text('Impression', style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 10),
@@ -184,7 +210,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Nombre de tickets (Vente)", style: TextStyle(fontSize: 16))), SizedBox( width: 80, child: DropdownButtonFormField<int>( value: settings.numberOfTickets, items: [1, 2, 3].map((int value) => DropdownMenuItem<int>(value: value, child: Text(value.toString()))).toList(), onChanged: (value) { if(value != null) settings.setNumberOfTickets(value); }, decoration: const InputDecoration(isDense: true), ), ) ], ),
                       const SizedBox(height: 10),
 
-                      // MODIFICATION (Point 7)
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Nombre de tickets (Assurance)", style: TextStyle(fontSize: 16))), SizedBox( width: 80, child: DropdownButtonFormField<int>( value: settings.numberOfTicketsAssurance, items: [1, 2, 3].map((int value) => DropdownMenuItem<int>(value: value, child: Text(value.toString()))).toList(), onChanged: (value) { if(value != null) settings.setNumberOfTicketsAssurance(value); }, decoration: const InputDecoration(isDense: true), ), ) ], ),
                       const SizedBox(height: 10),
 
@@ -200,7 +225,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 10),
                       SwitchListTile(
                         title: const Text("Masquer les produits 'RV'"),
-                        //subtitle: const Text("Ne pas afficher les produits commençant par 'RV '"),
                         value: settings.hideRvProducts,
                         activeColor: AppColors.primary,
                         onChanged: (bool value) {
@@ -208,7 +232,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         },
                       ),
 
-                      // MODIFICATION (Point 4 & 5)
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Max Tiers Payants (Assurance)", style: TextStyle(fontSize: 16))), SizedBox( width: 80, child: DropdownButtonFormField<int>( value: settings.maxTiersPayants, items: [1, 2, 3].map((int value) => DropdownMenuItem<int>(value: value, child: Text(value.toString()))).toList(), onChanged: (value) { if(value != null) settings.setMaxTiersPayants(value); }, decoration: const InputDecoration(isDense: true), ), ) ], ),
 
 

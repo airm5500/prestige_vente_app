@@ -1,31 +1,22 @@
 // lib/screens/home/home_screen.dart
-// 30/12/2025 (Final: Watchdog Licence + Menu Dynamique + Bandeau Statut + Sécurité PIN)
-
-import 'dart:async'; // Pour le Timer de sécurité
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/screens/depot_sale/depot_sale_list_screen.dart';
 import 'package:provider/provider.dart';
 
-// Providers existants
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
-
-// AJOUT : Provider de Licence
 import 'package:prestige_vente_app/providers/licence_provider.dart';
+import 'package:prestige_vente_app/widgets/pin_code_dialog.dart'; // Garder pour l'Ajustement
 
-// AJOUT : Widget de Sécurité PIN (Assurez-vous que le fichier existe)
-import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
-
-// Écrans d'authentification et Licence
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
-import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart'; // Pour la redirection forcée
+import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
 
-// Écrans Métiers
 import 'package:prestige_vente_app/screens/pre_vente/pre_vente_screen.dart';
 import 'package:prestige_vente_app/screens/assurance_sale/assurance_sale_screen.dart';
 import 'package:prestige_vente_app/screens/carnet_sale/carnet_sale_screen.dart';
@@ -41,7 +32,6 @@ import 'package:prestige_vente_app/screens/product_update/emplacement_update_scr
 import 'package:prestige_vente_app/screens/stock_report/stock_report_screen.dart';
 import 'package:prestige_vente_app/screens/reception_control/reception_list_screen.dart';
 import 'package:prestige_vente_app/screens/proforma/proforma_list_screen.dart';
-
 import 'package:prestige_vente_app/screens/analysis/article_analysis_screen.dart';
 import 'package:prestige_vente_app/screens/ajustement/ajustement_screen.dart';
 
@@ -128,7 +118,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
-  // NOUVEAU : Navigation Sécurisée (Demande PIN avant d'aller à l'écran)
+  // Navigation Sécurisée (Utilisée UNIQUEMENT pour Ajustement)
   Future<void> _secureNavigate(Widget screen) async {
     bool authorized = await PinCodeDialog.show(context);
     if (authorized) {
@@ -156,15 +146,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'depot': MenuItem(id: 'depot', label: 'Vente Dépôt', icon: Icons.store_mall_directory, color: Colors.brown.shade600, onTap: () => navigate(const DepotSaleListScreen())),
       'proforma': MenuItem(id: 'proforma', label: 'Proforma / Devis', icon: Icons.description, color: Colors.purple.shade600, onTap: () => navigate(const ProformaListScreen())),
       'analyse_article': MenuItem(id: 'analyse_article', label: 'Analyse Article', icon: Icons.analytics, color: Colors.blueGrey.shade700, onTap: () => navigate(const ArticleAnalysisScreen())),
-
-      // MODIFICATION ICI : Appel à _secureNavigate pour l'ajustement
-      'ajustement': MenuItem(
-          id: 'ajustement',
-          label: 'Ajustement Stock',
-          icon: Icons.inventory_2,
-          color: Colors.orange.shade700,
-          onTap: () => _secureNavigate(const AjustementScreen()) // SÉCURISÉ
-      )
+      // SÉCURITÉ MAINTENUE ICI
+      'ajustement': MenuItem(id: 'ajustement', label: 'Ajustement Stock', icon: Icons.inventory_2, color: Colors.orange.shade700, onTap: () => _secureNavigate(const AjustementScreen()))
     };
 
     final settings = Provider.of<SettingsProvider>(context);
@@ -208,13 +191,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 24),
-            Text("Mise à jour..."),
-          ],
-        ),
+        content: Row(children: [CircularProgressIndicator(), SizedBox(width: 24), Text("Mise à jour...")]),
       ),
     );
 
@@ -266,9 +243,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
 
         final days = provider.remainingDays;
-
         Color bgColor;
-        Color textColor = Colors.white;
         String text;
 
         if (days <= 7) {
@@ -291,10 +266,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               const Icon(Icons.timer, color: Colors.white, size: 16),
               const SizedBox(width: 8),
-              Text(
-                text,
-                style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 13),
-              ),
+              Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
             ],
           ),
         );
@@ -307,7 +279,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final size = MediaQuery.of(context).size;
     final bool isTablet = size.width > 600;
-
     final int cols = isTablet ? 4 : 2;
     final int rows = 3;
     final int itemsPerPage = cols * rows;
@@ -326,10 +297,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         actions: [
           IconButton(icon: const Icon(Icons.info_outline), onPressed: _showInfoPopup, tooltip: 'Tâches en attente'),
 
-          // MODIFICATION : Bouton Settings sécurisé si vous le souhaitez aussi ici
+          // CORRECTION ICI : Accès direct SANS Code PIN aux Settings
           IconButton(
               icon: const Icon(Icons.settings),
-              onPressed: () => _secureNavigate(const SettingsScreen()), // J'ai sécurisé l'accès aux settings aussi
+              onPressed: () => navigate(const SettingsScreen()),
               tooltip: 'Configuration'
           ),
 
@@ -362,23 +333,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         onPageChanged: (index) => setState(() => _currentPage = index),
                         itemBuilder: (context, pageIndex) {
                           final pageItems = pages[pageIndex];
-
                           if (pageItems.isEmpty) return const Center(child: Text("Aucun menu disponible"));
-
                           return Column(
                             children: List.generate(rows, (rowIndex) {
                               return Expanded(
                                 child: Row(
                                   children: List.generate(cols, (colIndex) {
                                     final itemIndex = rowIndex * cols + colIndex;
-
                                     if (itemIndex < pageItems.length) {
-                                      return Expanded(
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(6.0),
-                                          child: _buildMenuCard(pageItems[itemIndex], isTablet),
-                                        ),
-                                      );
+                                      return Expanded(child: Padding(padding: const EdgeInsets.all(6.0), child: _buildMenuCard(pageItems[itemIndex], isTablet)));
                                     } else {
                                       return const Expanded(child: SizedBox());
                                     }
@@ -390,8 +353,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         },
                       ),
                     ),
-                    if (pages.length > 1)
-                      _buildPageIndicator(pages.length),
+                    if (pages.length > 1) _buildPageIndicator(pages.length),
                   ],
                 ),
               ),
@@ -402,7 +364,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  // ... _buildWelcomeCard, _buildMenuCard, _buildPageIndicator restent identiques
   Widget _buildWelcomeCard() {
     return Card(
       color: AppColors.primary,
@@ -412,7 +373,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         padding: const EdgeInsets.all(16.0),
         child: Consumer<AuthProvider>(
           builder: (context, auth, child) {
-            final officine = auth.officine;
             return Row(
               children: [
                 Icon(Icons.storefront, size: 40, color: Colors.white.withAlpha(204)),
@@ -421,17 +381,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Bienvenu(e) à ${officine?.nomComplet ?? ''}',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      Text('Bienvenu(e) à ${auth.officine?.nomComplet ?? ''}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white), overflow: TextOverflow.ellipsis),
                       const SizedBox(height: 4),
-                      Text(
-                        officine?.fullName ?? '',
-                        style: TextStyle(fontSize: 16, color: Colors.white.withAlpha(204)),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      Text(auth.officine?.fullName ?? '', style: TextStyle(fontSize: 16, color: Colors.white.withAlpha(204)), overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
@@ -444,10 +396,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildMenuCard(MenuItem item, bool isTablet) {
-    final double iconSize = 48;
-    final double fontSize = 15;
-    final double containerPadding = 12;
-
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -455,31 +403,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onTap: item.onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+          padding: const EdgeInsets.all(4.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                padding: EdgeInsets.all(containerPadding),
-                decoration: BoxDecoration(
-                  color: item.color.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(item.icon, size: iconSize, color: item.color),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: item.color.withValues(alpha: 0.1), shape: BoxShape.circle),
+                child: Icon(item.icon, size: 48, color: item.color),
               ),
               const SizedBox(height: 10),
               Flexible(
-                child: Text(
-                  item.label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text(item.label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87), maxLines: 2, overflow: TextOverflow.ellipsis),
               ),
             ],
           ),
@@ -496,15 +431,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         mainAxisAlignment: MainAxisAlignment.center,
         children: List.generate(pageCount, (index) {
           return Container(
-            width: 8.0,
-            height: 8.0,
+            width: 8.0, height: 8.0,
             margin: const EdgeInsets.symmetric(horizontal: 4.0),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _currentPage == index
-                  ? AppColors.primary
-                  : AppColors.primary.withAlpha(77),
-            ),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: _currentPage == index ? AppColors.primary : AppColors.primary.withAlpha(77)),
           );
         }),
       ),

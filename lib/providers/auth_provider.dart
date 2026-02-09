@@ -1,7 +1,8 @@
 // lib/providers/auth_provider.dart
-// 30/12/2025 02:30 (Ajout tryAutoLogin pour correction erreur)
+// Mise à jour: Gestion du rôle Admin via str_LOGIN
+
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // AJOUT IMPORTANT
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
@@ -16,10 +17,17 @@ class AuthProvider with ChangeNotifier {
   Officine? _officine;
   String? _errorMessage;
 
+  // AJOUT : Variable pour stocker le login (ex: "admin")
+  String? _userLogin;
+
   AuthStatus get status => _status;
   User? get user => _user;
   Officine? get officine => _officine;
   String? get errorMessage => _errorMessage;
+
+  // AJOUT : Getter pour vérifier si c'est l'administrateur
+  // On compare en minuscule pour éviter les problèmes de casse (Admin, admin, ADMIN)
+  bool get isAdmin => _userLogin?.toLowerCase() == "admin";
 
   AuthProvider(this._apiService);
 
@@ -32,22 +40,30 @@ class AuthProvider with ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
 
-    final user = await _apiService.login(login, password);
+    try {
+      final user = await _apiService.login(login, password);
 
-    if (user != null) {
-      _user = user;
-      _status = AuthStatus.Authenticated;
-      notifyListeners();
-      return true;
-    } else {
+      if (user != null) {
+        _user = user;
+        // AJOUT : On stocke le login qui a réussi
+        _userLogin = login;
+        _status = AuthStatus.Authenticated;
+        notifyListeners();
+        return true;
+      } else {
+        _status = AuthStatus.Unauthenticated;
+        _errorMessage = 'Login ou mot de passe incorrect.';
+        notifyListeners();
+        return false;
+      }
+    } catch (e) {
       _status = AuthStatus.Unauthenticated;
-      _errorMessage = 'Login ou mot de passe incorrect.';
+      _errorMessage = 'Erreur de connexion: $e';
       notifyListeners();
       return false;
     }
   }
 
-  // AJOUT : Méthode manquante pour l'auto-login
   Future<bool> tryAutoLogin() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -71,12 +87,12 @@ class AuthProvider with ChangeNotifier {
       }
 
       // 3. Tenter la connexion avec ces identifiants
-      // Note : On ne passe pas par la méthode login() publique pour éviter
-      // de déclencher le AuthStatus.Loading qui ferait clignoter l'écran
       final user = await _apiService.login(savedLogin, savedPassword);
 
       if (user != null) {
         _user = user;
+        // AJOUT : On restaure aussi le login
+        _userLogin = savedLogin;
         _status = AuthStatus.Authenticated;
         notifyListeners();
         return true;
@@ -94,18 +110,27 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> loadOfficineInfo() async {
-    _officine = await _apiService.fetchOfficineInfo();
-    notifyListeners();
+    try {
+      _officine = await _apiService.fetchOfficineInfo();
+      notifyListeners();
+    } catch (e) {
+      print("Erreur chargement officine: $e");
+    }
   }
 
   Future<void> logout() async {
-    await _apiService.logout();
+    try {
+      await _apiService.logout();
+    } catch (e) {
+      print("Erreur logout API: $e");
+    }
+
     _user = null;
     _officine = null;
+    // AJOUT : On nettoie le login
+    _userLogin = null;
     _status = AuthStatus.Unauthenticated;
 
-    // Optionnel : Si on se déconnecte manuellement, on peut vouloir
-    // désactiver l'auto-login pour la prochaine fois
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('stay_connected', false);
 
