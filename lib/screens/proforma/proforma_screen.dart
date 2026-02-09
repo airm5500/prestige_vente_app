@@ -9,6 +9,8 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/proforma_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+// Assurez-vous d'importer le bon fichier pour ProductSearchResult
+//import 'package:prestige_vente_app/api/models/product_search_result.dart';
 
 class ProformaScreen extends StatefulWidget {
   const ProformaScreen({Key? key}) : super(key: key);
@@ -153,7 +155,6 @@ class _ProformaScreenState extends State<ProformaScreen> {
   }
 
   Future<void> _checkStockAndAdd(ProductSearchResult product, {bool autoAdd = false}) async {
-    // Note: Proforma permet souvent de forcer le stock, mais on garde l'alerte
     if (product.intNUMBERAVAILABLE <= 0) {
       setState(() => _isPopupOpen = true);
       final bool? force = await showDialog(
@@ -190,7 +191,7 @@ class _ProformaScreenState extends State<ProformaScreen> {
     }
   }
 
-  // --- NOUVEAU : DIALOGUE QUANTITÉ SÉCURISÉ ---
+  // --- POPUP QUANTITÉ (AVEC STYLE COMPACT & SÉCURITÉ) ---
   Future<void> _showQuantityDialog(ProductSearchResult product) async {
     setState(() => _isPopupOpen = true);
     final formKey = GlobalKey<FormState>();
@@ -203,14 +204,31 @@ class _ProformaScreenState extends State<ProformaScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
+        // --- STYLE COMPACT EN-TÊTE ---
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(product.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14)),
-            const SizedBox(height: 4),
-            Text("Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)}",
-                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            Text(
+                product.strNAME,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold) // Police 13 + Gras
+            ),
+            const SizedBox(height: 2),
+            RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 11, color: Colors.grey), // Police 11 + Gris
+                children: [
+                  const TextSpan(text: "CIP: "),
+                  TextSpan(text: "${product.intCIP} ", style: const TextStyle(color: Colors.black54)),
+                  const TextSpan(text: "| Stock: "),
+                  TextSpan(text: "${product.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)), // Gras
+                  const TextSpan(text: "| Prix: "),
+                  TextSpan(text: "${Constants.formatNumber(product.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)), // Gras
+                ],
+              ),
+            ),
           ],
         ),
         content: Form(
@@ -228,14 +246,11 @@ class _ProformaScreenState extends State<ProformaScreen> {
               if (val == null || val.isEmpty) return "Requis";
               if (int.tryParse(val) == null) return "Invalide";
               if (int.parse(val) <= 0) return "Min 1";
-              // BLOCAGE ANTI-CODE BARRES
               if (val.length > 4) return "Trop grand !";
               return null;
             },
             onFieldSubmitted: (val) async {
-              // LOGIQUE VALIDATION
               if (!formKey.currentState!.validate()) {
-                // Re-sélection après délai pour contrer le scanner
                 Future.delayed(const Duration(milliseconds: 50), () {
                   if (mounted && qteController.text.isNotEmpty) {
                     qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
@@ -246,7 +261,6 @@ class _ProformaScreenState extends State<ProformaScreen> {
 
               final qty = int.parse(val);
 
-              // ALERTE QUANTITÉ SUSPECTE
               if (qty > 50) {
                 final bool? confirm = await showDialog<bool>(
                   context: ctx,
@@ -304,18 +318,39 @@ class _ProformaScreenState extends State<ProformaScreen> {
     if (mounted) setState(() => _isPopupOpen = false);
   }
 
+  // --- POPUP SÉLECTION (AVEC STYLE COMPACT) ---
   Future<void> _showSelectionDialog(List<ProductSearchResult> products) async {
     final provider = Provider.of<ProformaProvider>(context, listen: false);
     setState(() => _isPopupOpen = true);
 
     await showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: Text("Résultats (${products.length})"),
+      title: Text("Résultats (${products.length})", style: const TextStyle(fontSize: 16)),
       content: SizedBox(width: double.maxFinite, height: 300, child: ListView.separated(
-        itemCount: products.length, separatorBuilder: (_,__) => const Divider(),
+        itemCount: products.length, separatorBuilder: (_,__) => const Divider(height: 1),
         itemBuilder: (ctx, index) {
           final p = products[index];
           return ListTile(
-            title: Text(p.strNAME), subtitle: Text("Stock: ${p.intNUMBERAVAILABLE} | ${Constants.formatNumber(p.intPRICE)} F"),
+            dense: true, // TASSE LES LIGNES
+            contentPadding: EdgeInsets.zero, // REDUIT LES MARGES
+            title: Text(
+                p.strNAME,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold) // Police 13 + Gras
+            ),
+            subtitle: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 11, color: Colors.grey), // Police 11 + Gris
+                children: [
+                  const TextSpan(text: "CIP: "),
+                  TextSpan(text: "${p.intCIP} ", style: const TextStyle(color: Colors.black54)),
+                  const TextSpan(text: "| Stock: "),
+                  TextSpan(text: "${p.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)), // Gras
+                  const TextSpan(text: "| Prix: "),
+                  TextSpan(text: "${Constants.formatNumber(p.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)), // Gras
+                ],
+              ),
+            ),
             onTap: () {
               provider.clearSearchResults();
               Navigator.pop(ctx);
@@ -324,6 +359,7 @@ class _ProformaScreenState extends State<ProformaScreen> {
           );
         },
       )),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Fermer"))],
     ));
 
     if(mounted) {
@@ -427,13 +463,12 @@ class _ProformaScreenState extends State<ProformaScreen> {
       child: Consumer<ProformaProvider>(
         builder: (context, provider, child) {
 
-          // --- NOUVEAU : GESTION RETOUR ARRIERE (Nettoyage proforma vide) ---
           return PopScope(
             canPop: false,
             onPopInvokedWithResult: (didPop, result) async {
               if (didPop) return;
 
-              // Si on a une proforma initialisée (ID existe) MAIS vide (0 produit)
+              // LOGIQUE NETTOYAGE VENTE VIDE
               if (provider.currentSaleId != null && provider.cartItems.isEmpty) {
                 final bool? confirm = await showDialog<bool>(
                   context: context,
@@ -450,14 +485,13 @@ class _ProformaScreenState extends State<ProformaScreen> {
                 if (confirm == true) {
                   await provider.deleteCurrentProforma();
                 } else if (confirm == false) {
-                  provider.resetSale(); // On réinitialise juste l'écran
+                  provider.resetSale();
                 }
 
                 if (confirm != null && context.mounted) {
                   Navigator.pop(context);
                 }
               } else {
-                // Cas normal
                 if (context.mounted) Navigator.pop(context);
               }
             },
@@ -572,17 +606,35 @@ class _ProformaScreenState extends State<ProformaScreen> {
                             );
                           },
                         ),
+                        // --- STYLE COMPACT LISTE RECHERCHE RAPIDE ---
                         if (!provider.isQuickScanMode && !_isPopupOpen && provider.searchResults.isNotEmpty)
                           Container(
                             color: Colors.white.withAlpha(245),
                             child: ListView.separated(
                               itemCount: provider.searchResults.length,
-                              separatorBuilder: (_, __) => const Divider(),
+                              separatorBuilder: (_, __) => const Divider(height: 1),
                               itemBuilder: (ctx, i) {
                                 final p = provider.searchResults[i];
                                 return ListTile(
-                                  title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                  subtitle: Text("Stock: ${p.intNUMBERAVAILABLE} | ${Constants.formatNumber(p.intPRICE)} F"),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(
+                                      p.strNAME,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)
+                                  ),
+                                  subtitle: RichText(
+                                    text: TextSpan(
+                                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                      children: [
+                                        const TextSpan(text: "Stock: "),
+                                        TextSpan(text: "${p.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                                        const TextSpan(text: "| Prix: "),
+                                        TextSpan(text: "${Constants.formatNumber(p.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                                      ],
+                                    ),
+                                  ),
                                   onTap: () => _checkStockAndAdd(p),
                                 );
                               },
