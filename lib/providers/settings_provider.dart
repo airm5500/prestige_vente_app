@@ -93,28 +93,55 @@ class SettingsProvider with ChangeNotifier {
 
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    _localIp = prefs.getString(_localIpKey) ?? '';
+    _localIp = prefs.getString(_localIpKey) ?? '192.168.1.50';
     _remoteIp = prefs.getString(_remoteIpKey) ?? '';
     _appName = prefs.getString(_appNameKey) ?? 'prestige';
     _port = prefs.getString(_portKey) ?? '8080';
     _isRemote = prefs.getBool(_isRemoteKey) ?? false;
     _stayConnected = prefs.getBool(_stayConnectedKey) ?? false;
     _savedLogin = prefs.getString(_savedLoginKey) ?? '';
-    _isTestPrintMode = prefs.getBool(_isTestPrintModeKey) ?? true;
+    _isTestPrintMode = prefs.getBool(_isTestPrintModeKey) ?? false;
     _paperWidth = prefs.getInt(_paperWidthKey) ?? 58;
-    _showQrCodeOnSaleTicket = prefs.getBool(_showQrCodeOnSaleTicketKey) ?? true;
+    _showQrCodeOnSaleTicket = prefs.getBool(_showQrCodeOnSaleTicketKey) ?? false;
     _canEditDeliveryControl = prefs.getBool(_canEditDeliveryControlKey) ?? true;
     _canEditBlControl = prefs.getBool(_canEditBlControlKey) ?? true;
     _enabledPaymentMethodIds = prefs.getStringList(_enabledPaymentMethodIdsKey) ?? [];
     _numberOfTickets = prefs.getInt(_numberOfTicketsKey) ?? 1;
     _ticketCodeType = prefs.getString(_ticketCodeTypeKey) ?? 'QR_CODE';
 
-    _numberOfTicketsAssurance = prefs.getInt(_numberOfTicketsAssuranceKey) ?? 1;
+    _numberOfTicketsAssurance = prefs.getInt(_numberOfTicketsAssuranceKey) ?? 2;
     _maxTiersPayants = prefs.getInt(_maxTiersPayantsKey) ?? 2;
 
     _menuOrder = prefs.getStringList(_menuOrderKey) ?? [];
     _hiddenMenuIds = prefs.getStringList(_hiddenMenuIdsKey) ?? [];
     _hideRvProducts = prefs.getBool('hide_rv_products') ?? true;
+
+    if (prefs.containsKey('hiddenMenuIds')) {
+      // L'utilisateur a déjà touché à sa config, on respecte son choix
+      _hiddenMenuIds = prefs.getStringList('hiddenMenuIds') ?? [];
+    } else {
+      // PREMIÈRE INSTALLATION : On masque les menus demandés
+      _hiddenMenuIds = [
+        'evaluation', // Évaluation Vente
+        'search', // Recherche Article
+        'ajustement', // Ajustement Stock
+        'depot' // Vente Dépôt
+      ];
+    }
+
+    if (prefs.containsKey('enabledPaymentMethodIds')) {
+      // L'utilisateur a déjà choisi ses paiements, on ne touche à rien
+      _enabledPaymentMethodIds = prefs.getStringList('enabledPaymentMethodIds') ?? [];
+    } else {
+      // PREMIÈRE INSTALLATION : On active WAVE, ORANGE, MTN, MOOV, CB
+      _enabledPaymentMethodIds = [
+        '10', // WAVE
+        '7', // ORANGE
+        '9',  // MTN
+        '8',  // MOOV
+        '3'   // CARTE BANCAIRE
+      ];
+    }
 
     notifyListeners();
   }
