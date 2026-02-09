@@ -74,7 +74,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.enter) {
         if (_scanBuffer.isNotEmpty) {
-          _performSearch(_scanBuffer.trim(), fromScan: true);
+          _performSearch(_scanBuffer.trim(), isScan: true);
           _scanBuffer = "";
         }
       } else if (event.character != null) {
@@ -85,85 +85,113 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 
   void _onSearchChanged() {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-    if (provider.isQuickScanMode) return;
+
+    // 1. PROTECTION CRITIQUE : Si champ vide, on arrête tout (Casse la boucle tablette)
+    if (_searchController.text.isEmpty) {
+      provider.clearProductSearch();
+      return;
+    }
+
+    // 2. Si un popup est ouvert, on ne cherche pas
+    if (_isPopupOpen) return;
 
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      final query = _searchController.text.trim();
-      if (query.length >= 3) {
-        _performSearch(query, fromScan: false);
+      if (!mounted) return;
+      // Double sécurité
+      if (_isPopupOpen) return;
+
+      final text = _searchController.text.trim();
+      if (text.isNotEmpty) {
+        _performSearch(text, isScan: false);
+      } else {
+        provider.clearProductSearch();
       }
     });
   }
 
-  Future<void> _performSearch(String query, {required bool fromScan}) async {
-    if (_isProcessing) return;
+  Future<void> _performSearch(String query, {required bool isScan}) async {
+    _debounce?.cancel();
+    if (_isPopupOpen) return;
     if (query.isEmpty) return;
 
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-    if (_isPopupOpen && !fromScan) return;
 
-    setState(() => _isProcessing = true);
+    // On indique visuellement qu'on cherche (optionnel si vous avez un loader)
+    // setState(() => _isProcessing = true);
 
     try {
       await provider.searchProducts(query);
-
       if (!mounted) return;
+      if (_isPopupOpen) return; // Si un popup s'est ouvert entre temps
 
-      if (provider.productSearchResults.length == 1) {
-        final product = provider.productSearchResults.first;
+      final results = provider.productSearchResults;
 
+      if (results.length == 1) {
+        final product = results.first;
+        // On vide le champ pour éviter les conflits
+        _searchController.clear();
+        provider.clearProductSearch();
+
+        // LOGIQUE SCAN RAPIDE (Bouton éclair)
         if (provider.isQuickScanMode) {
-          _searchController.clear();
-          provider.clearProductSearch();
-          await provider.addProductToCart(product, 1);
+          // --- CORRECTION : VÉRIFICATION STOCK MÊME EN RAPIDE ---
+          if (product.intNUMBERAVAILABLE < 1) {
+            _showForceStockDialog(product, 1);
+          } else {
+            provider.addProductToCart(product, 1);
+          }
         } else {
+          // Mode manuel -> Popup quantité
           _showQuantityDialog(product);
         }
-      } else if (provider.productSearchResults.isNotEmpty) {
-        _showSelectionDialog(provider.productSearchResults);
-      } else {
-        if(fromScan) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Produit introuvable"), duration: Duration(milliseconds: 500)));
-          _searchController.clear();
-        }
+      } else if (results.isNotEmpty) {
+        _showSelectionDialog(results);
       }
     } finally {
       if (mounted) {
-        setState(() => _isProcessing = false);
+        // setState(() => _isProcessing = false);
         if (!_isPopupOpen) _requestSearchFocus();
       }
     }
   }
 
-  void _showSelectionDialog(List<ProductSearchResult> products) {
-    setState(() => _isPopupOpen = true);
+// DANS lib/screens/assurance_sale/widgets/step_3_products.dart
+
+  // 1. POPUP RESULTATS RECHERCHE (Style optimisé)
+  void _showSelectionDialog(List<ProductSearchResult> results) {
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
+    final dialogResults = List<ProductSearchResult>.from(results);
+    provider.clearProductSearch(); // Nettoyage arrière-plan
+
+    setState(() => _isPopupOpen = true);
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Text("Résultats (${products.length})"),
+        title: Text("Résultats (${dialogResults.length})", style: const TextStyle(fontSize: 16)),
         content: SizedBox(
           width: double.maxFinite,
           height: 300,
           child: ListView.separated(
-            itemCount: products.length,
-            separatorBuilder: (_, __) => const Divider(),
-            itemBuilder: (ctx, index) {
-              final p = products[index];
-              final bool isRupture = p.intNUMBERAVAILABLE <= 0;
+            itemCount: dialogResults.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final p = dialogResults[index];
               return ListTile(
-                title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text("Stock: ${p.intNUMBERAVAILABLE} | CIP: ${p.intCIP}",
-                    style: TextStyle(color: isRupture ? Colors.red : Colors.grey[700])),
-                trailing: Text("${Constants.formatNumber(p.intPRICE)} F"),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(p.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                subtitle: RichText(text: TextSpan(style: const TextStyle(fontSize: 11, color: Colors.grey), children: [
+                  const TextSpan(text: "CIP: "), TextSpan(text: "${p.intCIP} ", style: const TextStyle(color: Colors.black54)),
+                  const TextSpan(text: "| Stock: "), TextSpan(text: "${p.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                  const TextSpan(text: "| Prix: "), TextSpan(text: "${Constants.formatNumber(p.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                ])),
                 onTap: () {
-                  Navigator.pop(ctx);
+                  // Vider et fermer proprement
                   _searchController.clear();
-                  provider.clearProductSearch();
+                  Navigator.pop(ctx);
                   _showQuantityDialog(p);
                 },
               );
@@ -173,9 +201,9 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
         actions: [
           TextButton(
               onPressed: () {
-                Navigator.pop(ctx);
-                provider.clearProductSearch();
+                // --- PROTECTION BOUCLE ---
                 _searchController.clear();
+                Navigator.pop(ctx);
               },
               child: const Text("Fermer")
           )
@@ -184,27 +212,90 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     ).then((_) {
       if (mounted) {
         setState(() => _isPopupOpen = false);
-        _requestSearchFocus();
+        // --- DELAI FOCUS (Tablette) ---
+        Future.delayed(const Duration(milliseconds: 350), () {
+          if (mounted && !_isPopupOpen) _requestSearchFocus();
+        });
       }
     });
   }
 
+  // 2. POPUP QUANTITÉ (Sécurisé + Auto-Select + Style)
   void _showQuantityDialog(ProductSearchResult product) {
-    setState(() => _isPopupOpen = true);
     final provider = Provider.of<AssuranceSaleProvider>(context, listen: false);
-    final qteController = TextEditingController(text: '1');
+    final formKey = GlobalKey<FormState>();
+    final qteController = TextEditingController(text: "1");
+
+    // 1. AMÉLIORATION : Auto-sélection à l'ouverture (Saisie directe)
     qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
 
-    void submit() {
-      final qty = int.tryParse(qteController.text) ?? 0;
-      Navigator.of(context).pop();
+    // Variable pour gérer l'ouverture du dialog sans bloquer l'UI
+    setState(() => _isPopupOpen = true);
+
+
+    void submit() async {
+      // 1. SÉCURITÉ : Si Code barre scanné (Erreur Validateur)
+      if (!formKey.currentState!.validate()) {
+        // CORRECTION : On utilise un petit délai pour forcer la sélection
+        // APRES que l'interface a fini d'afficher l'erreur rouge.
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (mounted && qteController.text.isNotEmpty) {
+            qteController.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: qteController.text.length
+            );
+          }
+        });
+        return;
+      }
+
+      final qty = int.parse(qteController.text);
+
+      // 2. SÉCURITÉ : Alerte Quantité Suspecte (> 50)
+      if (qty > 50) {
+        final bool? confirm = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text("⚠️ Quantité élevée"),
+            content: Text("Vous allez ajouter $qty unités.\nConfirmer ?"),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(c, false),
+                  child: const Text("Corriger", style: TextStyle(color: Colors.red))
+              ),
+              ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(c, true),
+                  child: const Text("Confirmer", style: TextStyle(color: Colors.white))
+              ),
+            ],
+          ),
+        );
+
+        if (confirm != true) {
+          // CORRECTION ICI AUSSI : Délai pour garantir la sélection au retour du dialog
+          Future.delayed(const Duration(milliseconds: 50), () {
+            if (mounted) {
+              qteController.selection = TextSelection(
+                  baseOffset: 0,
+                  extentOffset: qteController.text.length
+              );
+            }
+          });
+          return;
+        }
+      }
+
+      // Tout est bon
+      Navigator.pop(context);
+
       if (qty > 0) {
         if (qty > product.intNUMBERAVAILABLE) {
           _showForceStockDialog(product, qty);
         } else {
           provider.addProductToCart(product, qty);
-          provider.clearProductSearch();
           _searchController.clear();
+          provider.clearProductSearch();
         }
       }
     }
@@ -213,34 +304,64 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Text(product.strNAME),
-        content: TextField(
-          controller: qteController,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Quantité'),
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => submit(),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(product.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 2),
+            RichText(text: TextSpan(style: const TextStyle(fontSize: 11, color: Colors.grey), children: [
+              const TextSpan(text: "CIP: "), TextSpan(text: "${product.intCIP} ", style: const TextStyle(color: Colors.black54)),
+              const TextSpan(text: "| Stock: "), TextSpan(text: "${product.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+              const TextSpan(text: "| Prix: "), TextSpan(text: "${Constants.formatNumber(product.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+            ])),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: qteController,
+            autofocus: true,
+            decoration: const InputDecoration(
+                labelText: "Quantité",
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10)
+            ),
+            keyboardType: TextInputType.number,
+            validator: (val) {
+              if (val == null || val.isEmpty) return "Requis";
+              if (int.tryParse(val) == null) return "Invalide";
+              if (int.parse(val) <= 0) return "Min 1";
+              // Blocage anti code-barres (ex: CIP > 4 ou 5 chiffres)
+              if (val.length > 4) return "Trop grand !";
+              return null;
+            },
+            onFieldSubmitted: (_) => submit(),
+          ),
         ),
         actions: [
           TextButton(
-              child: const Text('Annuler'),
               onPressed: () {
-                Navigator.of(ctx).pop();
-                provider.clearProductSearch();
+                Navigator.pop(ctx);
                 _searchController.clear();
-              }
+                provider.clearProductSearch();
+              },
+              child: const Text("Annuler")
           ),
-          ElevatedButton(child: const Text('Ajouter'), onPressed: submit),
+          ElevatedButton(onPressed: submit, child: const Text("Valider")),
         ],
       ),
     ).then((_) {
       if (mounted) {
         setState(() => _isPopupOpen = false);
-        _requestSearchFocus();
+        // Petit délai pour éviter le bug du clavier sur tablette
+        Future.delayed(const Duration(milliseconds: 350), () {
+          if (mounted && !_isPopupOpen) _requestSearchFocus();
+        });
       }
     });
   }
+
 
   void _showForceStockDialog(ProductSearchResult product, int qty) {
     setState(() => _isPopupOpen = true);
@@ -391,7 +512,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                 fillColor: isActive ? Colors.green.withValues(alpha: 0.05) : null,
               ),
               onSubmitted: (val) {
-                _performSearch(val, fromScan: false);
+                _performSearch(val, isScan: false);
                 _requestSearchFocus();
               },
             ),
