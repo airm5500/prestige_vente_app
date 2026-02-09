@@ -83,36 +83,46 @@ class _VenteTabState extends State<VenteTab> {
 
   void _onSearchChanged() {
     final sale = Provider.of<SaleProvider>(context, listen: false);
-    // En mode scan rapide, pas de recherche auto
+
+    // --- 1. CORRECTIF CRITIQUE TABLETTE / BOUCLE ---
+    // Si le texte est vide (ex: on vient de faire .clear()), on arrête IMMÉDIATEMENT.
+    // Cela empêche le listener de réagir au vidage du champ et de relancer le clavier.
+    if (_searchController.text.isEmpty) {
+      sale.clearSearchResults(); // On nettoie la liste proprement
+      return;
+    }
+
+    // --- 2. VOS SÉCURITÉS D'ORIGINE ---
+    // En mode scan rapide, on ignore la saisie clavier (selon votre logique)
     if (sale.isQuickScanMode) return;
 
-    // Si on est déjà en train de traiter ou qu'un popup est ouvert, on ne lance pas de timer
+    // Si on est déjà occupé ou qu'un popup est là, on ne lance rien
     if (_isPopupOpen || _isProcessing) return;
 
+    // --- 3. LE TIMER (DEBOUNCE) ---
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       if (!mounted) return;
-      // Double sécurité au moment de l'exécution du timer
+
+      // Double sécurité au moment du déclenchement
       if (_isPopupOpen || _isProcessing) return;
 
-      if (_searchController.text.trim().isNotEmpty) {
-        _performSearch(_searchController.text.trim(), isScan: false);
+      final text = _searchController.text.trim();
+
+      if (text.isNotEmpty) {
+        // On lance la recherche
+        _performSearch(text, isScan: false);
       } else {
+        // Si l'utilisateur a effacé des espaces, on vide
         sale.clearSearchResults();
       }
     });
   }
 
   Future<void> _performSearch(String query, {required bool isScan}) async {
-    // 1. CORRECTION MAJEURE : On tue tout timer en attente immédiatement
     _debounce?.cancel();
-
-    // 2. Si une recherche est déjà en cours, on ne fait rien
     if (_isProcessing) return;
-
-    // 3. Si un popup est déjà ouvert (résultats ou quantité), on BLOQUE toute nouvelle recherche
     if (_isPopupOpen) return;
-
     if (query.isEmpty) return;
 
     final provider = Provider.of<SaleProvider>(context, listen: false);
@@ -122,60 +132,81 @@ class _VenteTabState extends State<VenteTab> {
       await provider.searchProducts(query);
 
       if (!mounted) return;
-
-      // Si entre temps un popup s'est ouvert (peu probable avec le await mais possible), on arrête
       if (_isPopupOpen) return;
 
       final results = provider.searchResults;
 
       if (results.length == 1) {
         final product = results.first;
+
+        // 1. On nettoie tout de suite pour éviter les conflits
         _searchController.clear();
         provider.clearSearchResults();
 
         if (provider.isQuickScanMode) {
-          await provider.addProductToCart(product, 1, isPrevente: widget.isPrevente);
+          // --- CORRECTION SCAN RAPIDE ---
+          // On vérifie le stock AVANT d'ajouter aveuglément
+          if (product.intNUMBERAVAILABLE < 1) {
+            // Stock insuffisant -> On demande confirmation
+            _showForceStockDialog(product, 1);
+          } else {
+            // Stock OK -> Ajout direct (Votre code existant)
+            await provider.addProductToCart(product, 1, isPrevente: widget.isPrevente);
+          }
         } else {
-          // Mode manuel : On ouvre le popup quantité
+          // Mode manuel -> Popup quantité (Déjà sécurisé)
           _showQuantityDialog(product);
         }
       } else if (results.isNotEmpty) {
-        // Plusieurs résultats : On ouvre le popup de sélection
         _showSelectionDialog(results);
       }
     } finally {
       if (mounted) {
         setState(() => _isProcessing = false);
-        // On ne redonne le focus que si aucun popup n'est resté ouvert
         if (!_isPopupOpen) _requestSearchFocus();
       }
     }
   }
 
-  void _showSelectionDialog(List<ProductSearchResult> products) {
+  void _showSelectionDialog(List<ProductSearchResult> results) {
     final provider = Provider.of<SaleProvider>(context, listen: false);
+
+    final dialogResults = List<ProductSearchResult>.from(results);
+    provider.clearSearchResults();
+
     setState(() => _isPopupOpen = true);
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Text("Résultats (${products.length})"),
+        title: Text("Résultats (${dialogResults.length})", style: const TextStyle(fontSize: 16)),
         content: SizedBox(
           width: double.maxFinite,
+          height: 300,
           child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: products.length,
-            separatorBuilder: (_, __) => const Divider(),
-            itemBuilder: (ctx, index) {
-              final p = products[index];
+            itemCount: dialogResults.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final p = dialogResults[index];
               return ListTile(
-                title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text("CIP: ${p.intCIP} | Stock: ${p.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(p.intPRICE)} F"),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(p.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                subtitle: RichText(
+                  text: TextSpan(
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    children: [
+                      const TextSpan(text: "CIP: "), TextSpan(text: "${p.intCIP} ", style: const TextStyle(color: Colors.black54)),
+                      const TextSpan(text: "| Stock: "), TextSpan(text: "${p.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                      const TextSpan(text: "| Prix: "), TextSpan(text: "${Constants.formatNumber(p.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                    ],
+                  ),
+                ),
                 onTap: () {
-                  provider.clearSearchResults();
-                  Navigator.of(ctx).pop();
-                  // Enchaînement vers le popup quantité
+                  // Important : on vide avant de fermer pour éviter tout scintillement
+                  _searchController.value = TextEditingValue.empty;
+                  Navigator.pop(ctx);
                   _showQuantityDialog(p);
                 },
               );
@@ -184,25 +215,37 @@ class _VenteTabState extends State<VenteTab> {
         ),
         actions: [
           TextButton(
-              onPressed: () {
-                provider.clearSearchResults();
-                Navigator.of(ctx).pop();
-              },
-              child: const Text("Fermer")
+            onPressed: () {
+              // FORCE LE VIDAGE ET LA MISE À JOUR DU CURSEUR
+              _searchController.value = TextEditingValue.empty;
+              Navigator.pop(ctx);
+            },
+            child: const Text("Fermer"),
           )
         ],
       ),
     ).then((_) {
       if (mounted) {
-        // Important : on marque le popup comme fermé AVANT de redonner le focus
         setState(() => _isPopupOpen = false);
-        _requestSearchFocus();
+
+        // --- CORRECTIF TABLETTE / BOUCLE INFINIE ---
+        // On attend 300ms (fin animation) + un petit délai pour le clavier
+        // avant de redonner le focus. Cela brise la boucle.
+        Future.delayed(const Duration(milliseconds: 350), () {
+          if (mounted && !_isPopupOpen) {
+            _requestSearchFocus();
+          }
+        });
       }
     });
   }
 
   void _showQuantityDialog(ProductSearchResult product) {
+    final provider = Provider.of<SaleProvider>(context, listen: false);
+    final formKey = GlobalKey<FormState>();
     final qteController = TextEditingController(text: '1');
+
+    // Auto-sélection du texte pour saisie rapide
     qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
 
     setState(() => _isPopupOpen = true);
@@ -211,27 +254,60 @@ class _VenteTabState extends State<VenteTab> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Text(product.strNAME),
-        content: TextField(
-          controller: qteController,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Quantité'),
-          keyboardType: TextInputType.number,
-          onSubmitted: (val) {
-            final q = int.tryParse(val) ?? 1;
-            Navigator.of(ctx).pop();
-            _executeAdd(product, q);
-          },
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+                product.strNAME,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)
+            ),
+            const SizedBox(height: 2),
+            RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                children: [
+                  const TextSpan(text: "CIP: "),
+                  TextSpan(text: "${product.intCIP} ", style: const TextStyle(color: Colors.black54)),
+                  const TextSpan(text: "| Stock: "),
+                  TextSpan(text: "${product.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                  const TextSpan(text: "| Prix: "),
+                  TextSpan(text: "${Constants.formatNumber(product.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: qteController,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Quantité',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+            ),
+            keyboardType: TextInputType.number,
+            validator: (val) {
+              if (val == null || val.isEmpty) return "Requis";
+              if (int.tryParse(val) == null) return "Invalide";
+              if (int.parse(val) <= 0) return "Min 1";
+              if (val.length > 4) return "Trop grand ! (Erreur Scan ?)";
+              return null;
+            },
+            onFieldSubmitted: (_) => _validateAndAdd(ctx, formKey, product, qteController),
+          ),
         ),
         actions: [
           TextButton(onPressed: () {
-            Provider.of<SaleProvider>(context, listen: false).clearSearchResults();
+            provider.clearSearchResults();
             Navigator.of(ctx).pop();
           }, child: const Text('Annuler')),
           ElevatedButton(onPressed: () {
-            final q = int.tryParse(qteController.text) ?? 1;
-            Navigator.of(ctx).pop();
-            _executeAdd(product, q);
+            _validateAndAdd(ctx, formKey, product, qteController);
           }, child: const Text('Ajouter')),
         ],
       ),
@@ -241,6 +317,86 @@ class _VenteTabState extends State<VenteTab> {
         _requestSearchFocus();
       }
     });
+  }
+
+  // Helper pour validation et alerte
+  void _validateAndAdd(BuildContext ctx, GlobalKey<FormState> key, ProductSearchResult product, TextEditingController ctrl) async {
+    // 1. PREMIER NIVEAU : Si le validateur échoue (ex: Code barre > 4 chiffres)
+    if (!key.currentState!.validate()) {
+      // ASTUCE : On re-sélectionne tout le texte fautif immédiatement.
+      // Comme ça, le prochain scan ou la prochaine frappe l'écrase direct.
+      ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length);
+      return;
+    }
+
+    final qty = int.parse(ctrl.text);
+
+    // 2. DEUXIÈME NIVEAU : Alerte Quantité Élevée (> 50)
+    if (qty > 50) {
+      final bool? confirm = await showDialog<bool>(
+        context: ctx,
+        builder: (alertCtx) => AlertDialog(
+          title: const Text("⚠️ Quantité élevée"),
+          content: Text("Vous allez ajouter $qty unités.\nConfirmer ?"),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(alertCtx, false),
+                child: const Text("Corriger", style: TextStyle(color: Colors.red))
+            ),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(alertCtx, true),
+                child: const Text("Confirmer", style: TextStyle(color: Colors.white))
+            ),
+          ],
+        ),
+      );
+
+      if (confirm != true) {
+        // Si l'utilisateur clique sur "Corriger", on re-sélectionne tout aussi
+        ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length);
+        return;
+      }
+    }
+
+    // Si tout est bon, on ferme et on valide
+    Navigator.of(ctx).pop();
+
+    if (qty > product.intNUMBERAVAILABLE) {
+      _showForceStockDialog(product, qty);
+    } else {
+      _executeAdd(product, qty);
+    }
+  }
+
+  Future<void> _showForceStockDialog(ProductSearchResult product, int qty) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Stock Insuffisant"),
+        content: Text(
+            "Le stock disponible est de ${product.intNUMBERAVAILABLE}.\nVoulez-vous forcer l'ajout de $qty ?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text("Non"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text("Oui, Forcer", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      _executeAdd(product, qty);
+    } else {
+      // Si on annule, on remet le focus pour la prochaine recherche
+      _requestSearchFocus();
+    }
   }
 
   void _executeAdd(ProductSearchResult product, int qty) async {
