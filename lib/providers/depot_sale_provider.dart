@@ -1,19 +1,16 @@
-// lib/providers/depot_sale_provider.dart
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/depot_model.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
-import 'package:prestige_vente_app/api/models/sale.dart'; // Pour SaleLine
-
+//import 'package:prestige_vente_app/api/models/product_search_result.dart'; // Assurez-vous d'importer ceci
+import 'package:prestige_vente_app/api/models/sale.dart';
 
 class DepotSaleProvider with ChangeNotifier {
   final ApiService _apiService;
 
-  // État de la vente en cours
+  // État de la vente
   String? _currentSaleId;
   String? get currentSaleId => _currentSaleId;
-
-  // Variable pour stocker la référence visible (ex: 260127_00005)
   String? _currentSaleRef;
   String? get currentSaleRef => _currentSaleRef;
 
@@ -23,6 +20,10 @@ class DepotSaleProvider with ChangeNotifier {
   List<SaleLine> _cartItems = [];
   List<SaleLine> get cartItems => _cartItems;
 
+  // --- NOUVEAU : GESTION RECHERCHE ---
+  List<ProductSearchResult> _searchResults = [];
+  List<ProductSearchResult> get searchResults => _searchResults;
+
   bool _isLoading = false;
   bool get isLoading => _isLoading;
   String _errorMessage = '';
@@ -31,7 +32,6 @@ class DepotSaleProvider with ChangeNotifier {
   int _totalAmount = 0;
   int get totalAmount => _totalAmount;
 
-  // NOUVEAU : Mode Scan Rapide
   bool _isQuickScanMode = false;
   bool get isQuickScanMode => _isQuickScanMode;
 
@@ -42,7 +42,28 @@ class DepotSaleProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // --- Gestion du Dépôt (Client) ---
+  // --- Recherche Produits ---
+  Future<void> searchProducts(String query) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      // Appel à l'API pour chercher
+      _searchResults = await _apiService.searchProducts(query);
+    } catch (e) {
+      _searchResults = [];
+      _errorMessage = "Erreur recherche: $e";
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  void clearSearchResults() {
+    _searchResults = [];
+    notifyListeners();
+  }
+
+  // --- Gestion Dépôt ---
   void selectDepot(DepotModel depot) {
     _selectedDepot = depot;
     notifyListeners();
@@ -52,30 +73,24 @@ class DepotSaleProvider with ChangeNotifier {
     _currentSaleId = null;
     _selectedDepot = null;
     _cartItems = [];
+    _searchResults = [];
     _totalAmount = 0;
     _errorMessage = '';
     _currentSaleRef = null;
     notifyListeners();
   }
 
-  // --- Actions Vente ---
-
-  // Initialiser une vente existante (Modification)
   Future<void> loadExistingSale(String saleId) async {
     _isLoading = true;
     notifyListeners();
-
     try {
       final data = await _apiService.getDepotSaleDetails(saleId);
       if (data != null) {
         _currentSaleId = saleId;
         _currentSaleRef = data['strREF'];
-
-        // Reconstitution de l'objet DepotModel à partir des détails de la vente
         if (data['magasin'] != null) {
           _selectedDepot = DepotModel.fromJson(data['magasin']);
         }
-
         await _refreshCart();
       }
     } catch (e) {
@@ -86,8 +101,14 @@ class DepotSaleProvider with ChangeNotifier {
     }
   }
 
-  // Ajouter un produit
-  Future<bool> addProduct(ProductSearchResult product, int quantity) async {
+  // --- Ajout au Panier (Alias pour compatibilité) ---
+  // L'écran appelle often 'addToCart(product, qty: x)', on adapte ici
+  Future<bool> addToCart(ProductSearchResult product, {int qty = 1}) async {
+    return _addProductInternal(product, qty);
+  }
+
+  // Logique interne d'ajout (anciennement addProduct)
+  Future<bool> _addProductInternal(ProductSearchResult product, int quantity) async {
     if (_selectedDepot == null) {
       _errorMessage = "Veuillez sélectionner un dépôt d'abord.";
       notifyListeners();
@@ -100,7 +121,7 @@ class DepotSaleProvider with ChangeNotifier {
 
     try {
       if (_currentSaleId == null) {
-        // PREMIER AJOUT -> Création de la vente (/vente/add/depot)
+        // Premier ajout -> Création vente
         final result = await _apiService.addFirstDepotItem(
           clientId: _selectedDepot!.lgCLIENTID,
           emplacementId: _selectedDepot!.lgEMPLACEMENTID,
@@ -116,7 +137,7 @@ class DepotSaleProvider with ChangeNotifier {
           success = true;
         }
       } else {
-        // AJOUT SUIVANT -> (/vente/add/item)
+        // Ajout suivant
         success = await _apiService.addNextDepotItem(
           venteId: _currentSaleId!,
           clientId: _selectedDepot!.lgCLIENTID,
@@ -143,82 +164,54 @@ class DepotSaleProvider with ChangeNotifier {
     return success;
   }
 
-  // Mettre à jour (Quantité ou Prix)
+  // --- Modification / Suppression ---
   Future<bool> updateItem(SaleLine item, int newQty, int newPrice) async {
     _isLoading = true;
     notifyListeners();
-
     final success = await _apiService.updateDepotItem(
       itemId: item.lgPREENREGISTREMENTDETAILID,
       produitId: item.lgFAMILLEID,
       itemPu: newPrice,
       qte: newQty,
     );
-
-    if (success) {
-      await _refreshCart();
-    } else {
-      _errorMessage = "Impossible de modifier la ligne";
-    }
-
+    if (success) await _refreshCart();
+    else _errorMessage = "Impossible de modifier la ligne";
     _isLoading = false;
     notifyListeners();
     return success;
   }
 
-  // Supprimer un article
   Future<bool> removeItem(String itemId) async {
     _isLoading = true;
     notifyListeners();
-
     final success = await _apiService.removeDepotItem(itemId);
-
-    if (success) {
-      await _refreshCart();
-    } else {
-      _errorMessage = "Impossible de supprimer la ligne";
-    }
-
+    if (success) await _refreshCart();
+    else _errorMessage = "Impossible de supprimer la ligne";
     _isLoading = false;
     notifyListeners();
     return success;
   }
 
-  // Clôturer la vente
   Future<bool> closeSale() async {
     if (_currentSaleId == null || _selectedDepot == null) return false;
-
     _isLoading = true;
     notifyListeners();
-
     final success = await _apiService.closeDepotSale(
       venteId: _currentSaleId!,
       clientId: _selectedDepot!.lgCLIENTID,
     );
-
-    if (success) {
-      // Si succès, on reset tout pour la prochaine vente
-      resetSale();
-    } else {
-      _errorMessage = "Erreur lors de la clôture de la vente";
-    }
-
+    if (success) resetSale();
+    else _errorMessage = "Erreur lors de la clôture";
     _isLoading = false;
     notifyListeners();
     return success;
   }
 
-  // Méthode interne pour recharger le panier complet
   Future<void> _refreshCart() async {
     if (_currentSaleId == null) return;
-
-    // Récupérer les items (/vente/deatails)
     final items = await _apiService.fetchSaleItems(_currentSaleId!);
     _cartItems = items;
-
-    // Recalcul du total localement ou via les items
     _totalAmount = items.fold(0, (sum, item) => sum + item.intPRICE);
-
     notifyListeners();
   }
 }

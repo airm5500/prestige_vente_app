@@ -2,13 +2,14 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/depot_model.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
-import 'package:prestige_vente_app/api/models/product.dart';
+//import 'package:prestige_vente_app/api/models/product_search_result.dart'; // IMPORTANT
 
 class DepotSaleScreen extends StatefulWidget {
   const DepotSaleScreen({Key? key}) : super(key: key);
@@ -25,8 +26,6 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
 
   List<DepotModel> _availableDepots = [];
   bool _isLoadingDepots = false;
-
-  // VERROU DE SÉCURITÉ ANTI-DOUBLON
   bool _isProcessing = false;
 
   String _scanBuffer = "";
@@ -41,7 +40,6 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
   void initState() {
     super.initState();
     _loadDepots();
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (Provider.of<DepotSaleProvider>(context, listen: false).selectedDepot == null) {
         _depotFocusNode.requestFocus();
@@ -67,8 +65,10 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     super.dispose();
   }
 
+  // --- GESTION CLAVIER / SCANNER ---
   void _handleKeyEvent(KeyEvent event) {
     final provider = Provider.of<DepotSaleProvider>(context, listen: false);
+    // Si on n'est pas en scan rapide, on laisse le comportement standard
     if (!provider.isQuickScanMode) return;
     if (_isPopupOpen) return;
 
@@ -80,7 +80,8 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.enter) {
         if (_scanBuffer.isNotEmpty) {
-          _performSearch(_scanBuffer.trim());
+          // CORRECTION: isScan: true
+          _performSearch(_scanBuffer.trim(), isScan: true);
           _scanBuffer = "";
         }
       } else if (event.character != null) {
@@ -101,17 +102,21 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     }
   }
 
+  // --- LISTENER CHAMPS DE RECHERCHE ---
   void _onSearchChanged(String value) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       if (value.trim().isNotEmpty) {
-        _performSearch(value.trim());
+        // CORRECTION: isScan: false (saisie manuelle)
+        _performSearch(value.trim(), isScan: false);
       }
     });
   }
 
-  Future<void> _performSearch(String query) async {
+  // --- CŒUR DE LA RECHERCHE ---
+  Future<void> _performSearch(String query, {required bool isScan}) async {
     if (_isProcessing) return;
+    if (_isPopupOpen) return;
     if (query.isEmpty) return;
 
     final provider = Provider.of<DepotSaleProvider>(context, listen: false);
@@ -123,26 +128,40 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     }
 
     setState(() => _isProcessing = true);
-    final api = Provider.of<ApiService>(context, listen: false);
 
     try {
-      final results = await api.searchProducts(query);
+      // 1. Appel Provider pour chercher
+      await provider.searchProducts(query);
+
       if (!mounted) return;
+      if (_isPopupOpen) return;
+
+      final results = provider.searchResults;
 
       if (results.length == 1) {
         final product = results.first;
-        _searchController.clear();
 
+        // On vide immédiatement
+        _searchController.clear();
+        provider.clearSearchResults();
+
+        // 2. LOGIQUE MODE
         if (provider.isQuickScanMode) {
-          await _checkStockAndAdd(product);
-        } else {
-          if (query.length > 5 && (query == product.intCIP || query == product.lgFAMILLEID)) {
-            await _checkStockAndAdd(product);
+          // --- MODE RAPIDE : AJOUT DIRECT (1) ---
+          // Mais on vérifie le stock quand même (Sécurité Stock)
+          if (product.intNUMBERAVAILABLE < 1) {
+            _showForceStockDialog(product, 1);
           } else {
-            _showSelectionDialog(results);
+            // Ajout direct
+            await _addProductToCart(product, qty: 1);
           }
+        } else {
+          // --- MODE MANUEL : POPUP QUANTITÉ ---
+          _showQuantityDialog(product);
         }
+
       } else if (results.isNotEmpty) {
+        // Plusieurs résultats
         _showSelectionDialog(results);
       }
     } catch (e) {
@@ -155,44 +174,16 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     }
   }
 
-  Future<void> _checkStockAndAdd(ProductSearchResult product) async {
-    if (product.intNUMBERAVAILABLE <= 0) {
-      setState(() => _isPopupOpen = true);
-      final bool? force = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("Stock Insuffisant", style: TextStyle(color: Colors.red)),
-          content: Text("Le produit ${product.strNAME} est en rupture (Stock: ${product.intNUMBERAVAILABLE}).\nVoulez-vous forcer le stock ?"),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Non")),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text("OUI, FORCER", style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      );
-      setState(() => _isPopupOpen = false);
-
-      if (force != true) {
-        _searchController.clear();
-        _requestSearchFocus();
-        return;
-      }
-    }
-    await _addProductToCart(product);
-  }
-
+  // --- AJOUTER AU PANIER ---
   Future<void> _addProductToCart(ProductSearchResult product, {int qty = 1}) async {
     final provider = Provider.of<DepotSaleProvider>(context, listen: false);
-    final success = await provider.addProduct(product, qty);
+    final success = await provider.addToCart(product, qty: qty);
 
     if (mounted) {
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("${product.strNAME} ajouté"),
+            content: Text("${product.strNAME} ajouté (+ $qty)"),
             duration: const Duration(milliseconds: 500),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
@@ -206,44 +197,223 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     }
   }
 
-  void _showSelectionDialog(List<ProductSearchResult> products) {
+  // --- POPUP SÉLECTION (PLUSIEURS RÉSULTATS) ---
+  void _showSelectionDialog(List<ProductSearchResult> results) {
+    final provider = Provider.of<DepotSaleProvider>(context, listen: false);
+    // On copie la liste pour le dialog
+    final dialogResults = List<ProductSearchResult>.from(results);
+    provider.clearSearchResults();
+
     setState(() => _isPopupOpen = true);
+
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Text("Résultats (${products.length})"),
+        title: Text("Résultats (${dialogResults.length})"),
         content: SizedBox(
           width: double.maxFinite,
           height: 300,
           child: ListView.separated(
-            itemCount: products.length,
-            separatorBuilder: (_, __) => const Divider(),
+            itemCount: dialogResults.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (ctx, index) {
-              final p = products[index];
-              final bool isRupture = p.intNUMBERAVAILABLE <= 0;
+              final p = dialogResults[index];
               return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
                 title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Text(
                   "Stock: ${p.intNUMBERAVAILABLE} | Prix: ${_formatCurrency(p.intPRICE)} F",
-                  style: TextStyle(color: isRupture ? Colors.red : Colors.grey[700], fontWeight: isRupture ? FontWeight.bold : FontWeight.normal),
+                  style: TextStyle(color: p.intNUMBERAVAILABLE <= 0 ? Colors.red : Colors.grey[700]),
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _checkStockAndAdd(p);
+                  // En manuel, on ouvre toujours le choix de quantité
+                  _showQuantityDialog(p);
                 },
               );
             },
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Fermer"))
+          TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _searchController.clear();
+              },
+              child: const Text("Fermer")
+          )
         ],
       ),
     ).then((_) {
-      setState(() => _isPopupOpen = false);
-      _searchController.clear();
-      _requestSearchFocus();
+      if (mounted) {
+        setState(() => _isPopupOpen = false);
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if(mounted && !_isPopupOpen) _requestSearchFocus();
+        });
+      }
     });
+  }
+
+  // --- POPUP QUANTITÉ SÉCURISÉ ---
+  void _showQuantityDialog(ProductSearchResult product) {
+    final provider = Provider.of<DepotSaleProvider>(context, listen: false);
+    final formKey = GlobalKey<FormState>();
+    final qteController = TextEditingController(text: "1");
+
+    // 1. Auto-sélection à l'ouverture
+    qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
+
+    setState(() => _isPopupOpen = true);
+
+    void submit() async {
+      // 2. BLOCAGE ANTI-CODE BARRES (Validateur)
+      if (!formKey.currentState!.validate()) {
+        // Si erreur, on re-sélectionne après un micro-délai (pour contrer le scanner)
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (mounted && qteController.text.isNotEmpty) {
+            qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
+          }
+        });
+        return;
+      }
+
+      final qty = int.parse(qteController.text);
+
+      // 3. ALERTE QUANTITÉ SUSPECTE (> 50)
+      if (qty > 50) {
+        final bool? confirm = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text("⚠️ Quantité élevée"),
+            content: Text("Vous allez ajouter $qty unités.\nConfirmer ?"),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(c, false),
+                  child: const Text("Corriger", style: TextStyle(color: Colors.red))
+              ),
+              ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(c, true),
+                  child: const Text("Confirmer", style: TextStyle(color: Colors.white))
+              ),
+            ],
+          ),
+        );
+
+        if (confirm != true) {
+          // Si annulation, on re-sélectionne tout
+          Future.delayed(const Duration(milliseconds: 50), () {
+            if (mounted) {
+              qteController.selection = TextSelection(baseOffset: 0, extentOffset: qteController.text.length);
+            }
+          });
+          return;
+        }
+      }
+
+      // Tout est bon
+      Navigator.pop(context);
+
+      // Vérification Stock et Ajout
+      if (qty > 0) {
+        if (qty > product.intNUMBERAVAILABLE) {
+          _showForceStockDialog(product, qty);
+        } else {
+          _addProductToCart(product, qty: qty);
+        }
+      }
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(product.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 2),
+            RichText(text: TextSpan(style: const TextStyle(fontSize: 11, color: Colors.grey), children: [
+              const TextSpan(text: "CIP: "), TextSpan(text: "${product.intCIP} ", style: const TextStyle(color: Colors.black54)),
+              const TextSpan(text: "| Stock: "), TextSpan(text: "${product.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+              const TextSpan(text: "| Prix: "), TextSpan(text: "${_formatCurrency(product.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+            ])),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: qteController,
+            autofocus: true,
+            decoration: const InputDecoration(
+                labelText: "Quantité",
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10)
+            ),
+            keyboardType: TextInputType.number,
+            validator: (val) {
+              if (val == null || val.isEmpty) return "Requis";
+              if (int.tryParse(val) == null) return "Invalide";
+              if (int.parse(val) <= 0) return "Min 1";
+              // BLOCAGE : Si plus de 4 chiffres, on considère que c'est un code barre scanné par erreur
+              if (val.length > 4) return "Trop grand !";
+              return null;
+            },
+            onFieldSubmitted: (_) => submit(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _searchController.clear();
+                provider.clearSearchResults();
+              },
+              child: const Text("Annuler")
+          ),
+          ElevatedButton(onPressed: submit, child: const Text("Valider")),
+        ],
+      ),
+    ).then((_) {
+      if (mounted) {
+        setState(() => _isPopupOpen = false);
+        Future.delayed(const Duration(milliseconds: 350), () {
+          if (mounted && !_isPopupOpen) _requestSearchFocus();
+        });
+      }
+    });
+  }
+
+  // --- FORCE STOCK DIALOG ---
+  Future<void> _showForceStockDialog(ProductSearchResult product, int qty) async {
+    setState(() => _isPopupOpen = true);
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Stock Insuffisant"),
+        content: Text("Stock disponible : ${product.intNUMBERAVAILABLE}.\nForcer l'ajout de $qty ?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Non")),
+          ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text("Oui, Forcer", style: TextStyle(color: Colors.white))
+          ),
+        ],
+      ),
+    );
+
+    if (mounted) setState(() => _isPopupOpen = false);
+
+    if (confirm == true) {
+      _addProductToCart(product, qty: qty);
+    } else {
+      _requestSearchFocus();
+    }
   }
 
   void _showError(String message) {
@@ -467,7 +637,8 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
                       fillColor: isScanMode ? Colors.green.withValues(alpha: 0.1) : Colors.blue.shade50.withValues(alpha: 0.3),
                     ),
                     onSubmitted: (val) {
-                      _performSearch(val);
+                      // CORRECTION: isScan: false
+                      _performSearch(val, isScan: false);
                       _requestSearchFocus();
                     },
                   ),
@@ -475,10 +646,8 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
 
                 const Divider(height: 1),
 
-                // ZONE 3 : LISTE PRODUITS (CORRECTION FLUIDITÉ)
+                // ZONE 3 : LISTE PRODUITS
                 Expanded(
-                  // CORRECTION MAJEURE: On affiche le Loader UNIQUEMENT si le panier est vide ET qu'on charge.
-                  // Sinon, on garde la liste affichée, ce qui supprime l'effet de "vidage/rechargement" lors de la suppression.
                   child: provider.cartItems.isEmpty
                       ? (provider.isLoading
                       ? const Center(child: CircularProgressIndicator())
@@ -494,47 +663,25 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
                             dense: true,
                             visualDensity: const VisualDensity(vertical: -2),
                             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-
-                            title: Text(
-                              item.strNAME,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-
+                            title: Text(item.strNAME, style: const TextStyle(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Padding(
                               padding: const EdgeInsets.only(top: 2.0),
                               child: Text("${_formatCurrency(item.intPRICEUNITAIR)} F x ${item.intQUANTITY}"),
                             ),
-
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  "${_formatCurrency(item.intPRICE)} F",
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary),
-                                ),
+                                Text("${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
                                 const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                  tooltip: "Supprimer",
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                  onPressed: () => _confirmDeleteItem(item),
-                                ),
+                                IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _confirmDeleteItem(item)),
                               ],
                             ),
-
                             onTap: () => _editLine(item),
                           );
                         },
                       ),
-                      // On peut ajouter un indicateur discret de chargement par-dessus la liste si nécessaire
                       if (provider.isLoading)
-                        const Positioned(
-                          top: 0, left: 0, right: 0,
-                          child: LinearProgressIndicator(minHeight: 2),
-                        ),
+                        const Positioned(top: 0, left: 0, right: 0, child: LinearProgressIndicator(minHeight: 2)),
                     ],
                   ),
                 ),
@@ -542,58 +689,13 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
                 // ZONE 4 : FOOTER
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: Colors.white,
-                      boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, -2))]
-                  ),
+                  decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, -2))]),
                   child: SafeArea(
                     child: Row(
                       children: [
-                        Expanded(
-                          flex: 4,
-                          child: ElevatedButton.icon(
-                            onPressed: provider.cartItems.isEmpty ? null : _validateSale,
-                            icon: const Icon(Icons.check_circle_outline),
-                            label: const Text("CLÔTURER"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green.shade700,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 18),
-                              elevation: 2,
-                            ),
-                          ),
-                        ),
+                        Expanded(flex: 4, child: ElevatedButton.icon(onPressed: provider.cartItems.isEmpty ? null : _validateSale, icon: const Icon(Icons.check_circle_outline), label: const Text("CLÔTURER"), style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 18)))),
                         const SizedBox(width: 15),
-                        Expanded(
-                          flex: 6,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey.shade300),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text("TOTAL NET", style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
-                                FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    "${_formatCurrency(provider.totalAmount)} F",
-                                    style: const TextStyle(
-                                        fontSize: 28,
-                                        fontWeight: FontWeight.w900,
-                                        color: Colors.black,
-                                        letterSpacing: 0.5
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
+                        Expanded(flex: 6, child: Container(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15), decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)), child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [const Text("TOTAL NET", style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)), FittedBox(fit: BoxFit.scaleDown, child: Text("${_formatCurrency(provider.totalAmount)} F", style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.black)))]))),
                       ],
                     ),
                   ),
