@@ -11,7 +11,7 @@ plugins {
 
 
 android {
-    namespace = "com.example.prestige_vente_app"
+    namespace = "com.dici.prestige_vente_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
     ndkVersion = "27.0.12077973"
@@ -26,14 +26,15 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.prestige_vente_app"
+        applicationId = "com.dici.prestige_vente_app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
 
         // MODIFICATION : Ces lignes DOIVENT être décommentées.
         // Flutter les remplit automatiquement pendant la compilation.
-        versionCode = flutter.versionCode
-        versionName = "3.0.9"
+        //versionCode = flutter.versionCode
+        versionCode = 2
+        versionName = "3.1.0"
     }
 
     buildTypes {
