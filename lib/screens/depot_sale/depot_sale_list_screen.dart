@@ -1,3 +1,4 @@
+// lib/screens/depot_sale/depot_sale_list_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
@@ -62,6 +63,16 @@ class _DepotSaleListScreenState extends State<DepotSaleListScreen> {
           )
         ],
       ),
+
+      // --- AJOUT DU BOUTON FLOTTANT (Toujours visible) ---
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _createNewSale,
+        label: const Text("Nouvelle Vente"),
+        icon: const Icon(Icons.add),
+        backgroundColor: Theme.of(context).primaryColor,
+        foregroundColor: Colors.white,
+      ),
+
       body: Consumer<DepotSaleProvider>(
         builder: (context, provider, child) {
           if (provider.isLoading) {
@@ -76,25 +87,22 @@ class _DepotSaleListScreenState extends State<DepotSaleListScreen> {
                   const Icon(Icons.shopping_basket_outlined, size: 60, color: Colors.grey),
                   const SizedBox(height: 10),
                   const Text("Aucune vente en cours", style: TextStyle(color: Colors.grey)),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: _createNewSale,
-                    icon: const Icon(Icons.add),
-                    label: const Text("Nouvelle Vente"),
-                  )
+                  // Le bouton ici est optionnel car le FloatingActionButton est présent,
+                  // mais on peut le garder pour l'ergonomie si la liste est vide.
                 ],
               ),
             );
           }
 
           return ListView.separated(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 80), // Padding bas pour éviter que le FAB cache le dernier élément
             itemCount: provider.ongoingSales.length,
-            separatorBuilder: (_, __) => const Divider(),
+            separatorBuilder: (_, __) => const SizedBox(height: 5), // Petit espace entre les cartes
             itemBuilder: (context, index) {
               final sale = provider.ongoingSales[index];
               return Card(
                 elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 child: ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   leading: CircleAvatar(
@@ -109,9 +117,7 @@ class _DepotSaleListScreenState extends State<DepotSaleListScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 4),
-                      // CORRECTION : Utilisation de strClientFullName
                       Text("Client: ${sale.strClientFullName}", style: const TextStyle(fontWeight: FontWeight.w500)),
-                      // CORRECTION : Affichage date et heure (ce sont des Strings dans le modèle)
                       Text(
                         "${sale.dtUPDATED} à ${sale.heure}",
                         style: const TextStyle(fontSize: 12, color: Colors.grey),
@@ -122,7 +128,6 @@ class _DepotSaleListScreenState extends State<DepotSaleListScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // CORRECTION : Utilisation de intPRICE
                       Text(
                         _formatCurrency(sale.intPRICE),
                         style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16),
