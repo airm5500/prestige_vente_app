@@ -34,7 +34,7 @@ android {
         // Flutter les remplit automatiquement pendant la compilation.
         //versionCode = flutter.versionCode
         versionCode = 2
-        versionName = "3.1.8"
+        versionName = "3.2.0"
     }
 
     buildTypes {
