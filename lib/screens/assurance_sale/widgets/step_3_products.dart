@@ -349,6 +349,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 class QuantityDialog extends StatefulWidget {
   final ProductSearchResult product;
   const QuantityDialog({super.key, required this.product});
+
   @override
   State<QuantityDialog> createState() => _QuantityDialogState();
 }
@@ -361,24 +362,35 @@ class _QuantityDialogState extends State<QuantityDialog> {
   @override
   void initState() {
     super.initState();
+    // Sélection automatique du texte pour modification rapide
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _qtyFocusNode.requestFocus();
-        _qteController.selection = TextSelection(baseOffset: 0, extentOffset: _qteController.text.length);
+        _qteController.selection = TextSelection(
+            baseOffset: 0, extentOffset: _qteController.text.length);
       }
     });
   }
 
   @override
-  void dispose() { _qtyFocusNode.dispose(); _qteController.dispose(); super.dispose(); }
+  void dispose() {
+    _qtyFocusNode.unfocus();
+    _qtyFocusNode.dispose();
+    _qteController.dispose();
+    super.dispose();
+  }
 
   void _submit() async {
     if (!_formKey.currentState!.validate()) {
       _qtyFocusNode.requestFocus();
-      _qteController.selection = TextSelection(baseOffset: 0, extentOffset: _qteController.text.length);
+      _qteController.selection = TextSelection(
+          baseOffset: 0, extentOffset: _qteController.text.length);
       return;
     }
+
     final qty = int.parse(_qteController.text);
+
+    // Alerte Sécurité Quantité > 50
     if (qty > 50) {
       final confirm = await showDialog<bool>(
         context: context,
@@ -386,14 +398,19 @@ class _QuantityDialogState extends State<QuantityDialog> {
           title: const Text("Confirmation"),
           content: Text("Ajouter $qty unités ?"),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("Annuler")),
-            TextButton(onPressed: () => Navigator.pop(c, true), child: const Text("Confirmer")),
+            TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: const Text("NON")),
+            TextButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text("OUI, CONFIRMER")),
           ],
         ),
       );
       if (confirm != true) {
         _qtyFocusNode.requestFocus();
-        _qteController.selection = TextSelection(baseOffset: 0, extentOffset: _qteController.text.length);
+        _qteController.selection = TextSelection(
+            baseOffset: 0, extentOffset: _qteController.text.length);
         return;
       }
     }
@@ -403,28 +420,61 @@ class _QuantityDialogState extends State<QuantityDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.product.strNAME),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+              widget.product.strNAME,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)
+          ),
+          const SizedBox(height: 2),
+          RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              children: [
+                const TextSpan(text: "CIP: "),
+                TextSpan(text: "${widget.product.intCIP} ", style: const TextStyle(color: Colors.black54)),
+                const TextSpan(text: "| Stock: "),
+                TextSpan(text: "${widget.product.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                const TextSpan(text: "| Prix: "),
+                TextSpan(text: "${Constants.formatNumber(widget.product.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+              ],
+            ),
+          ),
+        ],
+      ),
       content: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text("Stock: ${widget.product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(widget.product.intPRICE)} F"),
-            const SizedBox(height: 10),
-            TextFormField(
-              controller: _qteController,
-              focusNode: _qtyFocusNode,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: "Quantité", border: OutlineInputBorder()),
-              validator: (val) => (val == null || val.length > 4 || (int.tryParse(val) ?? 0) <= 0) ? "Invalide" : null,
-              onFieldSubmitted: (_) => _submit(),
-            ),
-          ],
+        child: TextFormField(
+          controller: _qteController,
+          focusNode: _qtyFocusNode,
+          autofocus: false, // Géré par initState pour la stabilité
+          decoration: const InputDecoration(
+            labelText: 'Quantité',
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+          ),
+          keyboardType: TextInputType.number,
+          validator: (val) {
+            if (val == null || val.isEmpty) return "Requis";
+            if (int.tryParse(val) == null) return "Invalide";
+            if (int.parse(val) <= 0) return "Min 1";
+            if (val.length > 4) return "Trop grand ! (Erreur Scan ?)";
+            return null;
+          },
+          onFieldSubmitted: (_) => _submit(),
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
-        ElevatedButton(onPressed: _submit, child: const Text("Valider")),
+        TextButton(onPressed: () {
+          Navigator.of(context).pop();
+        }, child: const Text('Annuler')),
+        ElevatedButton(onPressed: () {
+          _submit();
+        }, child: const Text('Ajouter')),
       ],
     );
   }
