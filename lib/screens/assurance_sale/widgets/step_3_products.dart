@@ -490,60 +490,108 @@ class ProductListModal extends StatefulWidget {
 }
 
 class _ProductListModalState extends State<ProductListModal> {
-  late List<ProductSearchResult> _filtered;
-  final _ctrl = TextEditingController();
-  final _node = FocusNode();
+  late List<ProductSearchResult> _filteredList;
+  final TextEditingController _modalSearchCtrl = TextEditingController();
+  final FocusNode _modalFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    _filtered = widget.results;
-    _ctrl.text = widget.initialQuery;
+    _filteredList = widget.results;
+    _modalSearchCtrl.text = widget.initialQuery;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _node.requestFocus();
-        _ctrl.selection = TextSelection.fromPosition(TextPosition(offset: _ctrl.text.length));
+        _modalFocusNode.requestFocus();
+        _modalSearchCtrl.selection = TextSelection.fromPosition(
+            TextPosition(offset: _modalSearchCtrl.text.length));
       }
     });
   }
 
   @override
-  void dispose() { _node.unfocus(); _node.dispose(); _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _modalFocusNode.unfocus();
+    _modalFocusNode.dispose();
+    _modalSearchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _filterResults(String query) {
+    setState(() {
+      _filteredList = widget.results
+          .where((p) =>
+      p.strNAME.toLowerCase().contains(query.toLowerCase()) ||
+          p.intCIP.toString().contains(query))
+          .toList();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    // RÉCUPÉRATION DE LA HAUTEUR DU CLAVIER
+    final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+
     return Container(
-      height: MediaQuery.of(context).size.height * 0.8,
-      padding: const EdgeInsets.all(16),
-      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      // On s'assure que le modal prend bien la taille nécessaire
+      height: MediaQuery.of(context).size.height * 0.85,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0), // Pas de padding bas fixe
+      decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       child: Column(
         children: [
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text("Résultats (${_filtered.length})", style: const TextStyle(fontWeight: FontWeight.bold)),
-            IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+            Text("Résultats (${_filteredList.length})",
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context)),
           ]),
+          const SizedBox(height: 10),
           TextField(
-            controller: _ctrl,
-            focusNode: _node,
-            decoration: const InputDecoration(hintText: "Filtrer...", prefixIcon: Icon(Icons.search)),
-            onChanged: (v) => setState(() => _filtered = widget.results.where((p) => (p.strNAME).toLowerCase().contains(v.toLowerCase())).toList()),
+            controller: _modalSearchCtrl,
+            focusNode: _modalFocusNode,
+            decoration: const InputDecoration(
+                hintText: "Filtrer dans la liste...",
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+                isDense: true),
+            onChanged: _filterResults,
           ),
-          const Divider(),
+          const SizedBox(height: 10),
+          const Divider(height: 1),
           Expanded(
             child: ListView.separated(
-              itemCount: _filtered.length,
-              separatorBuilder: (_, __) => const Divider(),
-              itemBuilder: (context, i) {
-                final p = _filtered[i];
+              // AJOUT DU PADDING BAS DYNAMIQUE
+              // On ajoute la hauteur du clavier + un petit bonus de 20px pour l'esthétique
+              padding: EdgeInsets.only(bottom: keyboardHeight + 20),
+              itemCount: _filteredList.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (ctx, index) {
+                final p = _filteredList[index];
                 return ListTile(
                   dense: true,
-                  title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: RichText(text: TextSpan(style: const TextStyle(color: Colors.black, fontSize: 12), children: [
-                    const TextSpan(text: "Stock: "),
-                    TextSpan(text: "${p.intNUMBERAVAILABLE}", style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                    const TextSpan(text: " | Prix: "),
-                    TextSpan(text: "${Constants.formatNumber(p.intPRICE)} F", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                  ])),
+                  title: Text(p.strNAME,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: RichText(
+                    text: TextSpan(
+                      style: const TextStyle(fontSize: 12, color: Colors.black87),
+                      children: [
+                        TextSpan(text: "CIP: ${p.intCIP} | "),
+                        TextSpan(
+                            text: "Stock: ${p.intNUMBERAVAILABLE}",
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.withValues(alpha: 1))),
+                        const TextSpan(text: " | "),
+                        TextSpan(
+                            text: "Prix: ${Constants.formatNumber(p.intPRICE)} F",
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green.withValues(alpha: 1))),
+                      ],
+                    ),
+                  ),
                   onTap: () => widget.onProductSelected(p),
                 );
               },
