@@ -32,6 +32,10 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
   Timer? _debounce;
   bool _isPopupOpen = false;
 
+  // --- VARIABLES INTELLIGENCE SCAN ---
+  String? _lastScannedCIP;
+  int _scanRepeatCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -107,6 +111,9 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
 
     if (value.isEmpty) {
       provider.clearSearchResults();
+      // Reset intelligence si on efface manuellement
+      _scanRepeatCount = 0;
+      _lastScannedCIP = null;
       return;
     }
 
@@ -151,8 +158,22 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
           provider.clearSearchResults();
 
           if (autoAddIfUnique) {
+            // --- LOGIQUE INTELLIGENTE "SCAN RÉPÉTÉ" ---
+            if (_lastScannedCIP == product.intCIP.toString()) {
+              _scanRepeatCount++;
+              if (_scanRepeatCount >= 3) {
+                _showSmartBulkDialog(product, provider);
+                return;
+              }
+            } else {
+              _lastScannedCIP = product.intCIP.toString();
+              _scanRepeatCount = 1;
+            }
             _checkStockAndAddDirectly(product);
           } else {
+            // Reset intelligence si on passe en manuel
+            _scanRepeatCount = 0;
+            _lastScannedCIP = null;
             _showQuantityDialog(product);
           }
         } else {
@@ -169,6 +190,36 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     }
   }
 
+  // --- NOUVEAU DIALOG INTELLIGENT ---
+  void _showSmartBulkDialog(ProductSearchResult product, DepotSaleProvider provider) async {
+    setState(() => _isPopupOpen = true);
+
+    final qty = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => QuantityDialog(product: product, isSmartMode: true),
+    );
+
+    if (mounted) setState(() => _isPopupOpen = false);
+
+    if (qty != null) {
+      // Si une masse est saisie (>1), on reset le compteur rafale
+      if (qty > 1) {
+        _scanRepeatCount = 0;
+        _lastScannedCIP = null;
+      }
+
+      if (qty > product.intNUMBERAVAILABLE) {
+        _showForceStockDialog(product, qty);
+      } else {
+        _addProductToCart(product, qty: qty);
+      }
+    } else {
+      // Annulation : on ajoute l'unité scannée mais on garde le compteur à 3 (persistance)
+      _checkStockAndAddDirectly(product);
+    }
+  }
+
   void _checkStockAndAddDirectly(ProductSearchResult product) {
     if (product.intNUMBERAVAILABLE <= 0) {
       _showForceStockDialog(product, 1);
@@ -177,7 +228,7 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     }
   }
 
-  // --- 4. MODAL RÉSULTATS (CLASSE LOCALE POUR PASSER LES RÉSULTATS + FIX CLAVIER) ---
+  // --- 4. MODAL RÉSULTATS ---
   void _showEnrichedSelectionModal(List<ProductSearchResult> results) async {
     setState(() => _isPopupOpen = true);
 
@@ -197,6 +248,9 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     if (selectedProduct != null) {
       _searchController.clear();
       Provider.of<DepotSaleProvider>(context, listen: false).clearSearchResults();
+      // Reset intelligence sur sélection manuelle
+      _scanRepeatCount = 0;
+      _lastScannedCIP = null;
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) _showQuantityDialog(selectedProduct);
       });
@@ -305,16 +359,13 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
     });
   }
 
-  // --- NOUVEAU POPUP MODIFICATION (Design Harmonisé) ---
   void _showEditDialog(SaleLine item) async {
     setState(() => _isPopupOpen = true);
-
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => EditLineDialog(item: item),
     );
-
     if (mounted) {
       setState(() => _isPopupOpen = false);
       _requestSearchFocus();
@@ -398,7 +449,6 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
               ),
               body: Column(
                 children: [
-                  // SÉLECTION DÉPÔT
                   Container(
                     padding: const EdgeInsets.all(10),
                     color: Colors.white,
@@ -430,7 +480,6 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
                       ),
                     ),
                   ),
-                  // CHAMP RECHERCHE
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     color: Colors.white,
@@ -452,7 +501,6 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
                     ),
                   ),
                   const Divider(height: 1),
-                  // LISTE PRODUITS
                   Expanded(
                     child: provider.cartItems.isEmpty
                         ? (provider.isLoading ? const Center(child: CircularProgressIndicator()) : const Center(child: Text("Panier vide. Scannez ou saisissez un produit.")))
@@ -476,7 +524,6 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
                               children: [
                                 Text("${Constants.formatNumber(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
                                 const SizedBox(width: 10),
-                                // BOUTON MODIFIER
                                 IconButton(
                                   icon: const Icon(Icons.edit, color: Colors.orange, size: 22),
                                   onPressed: () => _showEditDialog(item),
@@ -485,7 +532,6 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
                                   constraints: const BoxConstraints(),
                                 ),
                                 const SizedBox(width: 15),
-                                // BOUTON SUPPRIMER
                                 IconButton(
                                   icon: const Icon(Icons.delete_outline, color: Colors.red, size: 22),
                                   onPressed: () => _confirmDeleteItem(item),
@@ -502,7 +548,6 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
                       if (provider.isLoading) const Positioned(top: 0, left: 0, right: 0, child: LinearProgressIndicator(minHeight: 2)),
                     ]),
                   ),
-                  // FOOTER
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, -2))]),
@@ -523,11 +568,12 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> {
 }
 
 // =========================================================
-// QUANTITY DIALOG (AJOUT)
+// QUANTITY DIALOG (DESIGN COMPACT + INTELLIGENCE)
 // =========================================================
 class QuantityDialog extends StatefulWidget {
   final ProductSearchResult product;
-  const QuantityDialog({super.key, required this.product});
+  final bool isSmartMode; // AJOUTÉ
+  const QuantityDialog({super.key, required this.product, this.isSmartMode = false});
 
   @override
   State<QuantityDialog> createState() => _QuantityDialogState();
@@ -591,6 +637,28 @@ class _QuantityDialogState extends State<QuantityDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          // --- BANDEAU INTELLIGENCE ---
+          if (widget.isSmartMode)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.bolt, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Produit scanné plusieurs fois.\nCombien en reste-t-il ?",
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Text(widget.product.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
           const SizedBox(height: 2),
           RichText(text: TextSpan(style: const TextStyle(fontSize: 11, color: Colors.grey), children: [
@@ -605,7 +673,7 @@ class _QuantityDialogState extends State<QuantityDialog> {
         child: TextFormField(
           controller: _qteController,
           focusNode: _qtyFocusNode,
-          decoration: const InputDecoration(labelText: 'Quantité', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10)),
+          decoration: InputDecoration(labelText: widget.isSmartMode ? 'Quantité Restante' : 'Quantité', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10)),
           keyboardType: TextInputType.number,
           validator: (val) {
             if (val == null || val.isEmpty) return "Requis";
@@ -712,22 +780,15 @@ class _EditLineDialogState extends State<EditLineDialog> {
         ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("Annuler", style: TextStyle(color: Colors.grey)),
-        ),
-        ElevatedButton(
-          onPressed: _submit,
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-          child: const Text("Valider", style: TextStyle(color: Colors.white)),
-        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler", style: TextStyle(color: Colors.grey))),
+        ElevatedButton(onPressed: _submit, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue), child: const Text("Valider", style: TextStyle(color: Colors.white))),
       ],
     );
   }
 }
 
 // =========================================================
-// MODAL RÉSULTATS (AVEC FIX SCROLL CLAVIER + PASSAGE RESULTS)
+// MODAL RÉSULTATS
 // =========================================================
 class ProductListModal extends StatefulWidget {
   final List<ProductSearchResult> results;
