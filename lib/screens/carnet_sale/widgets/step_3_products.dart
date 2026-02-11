@@ -27,6 +27,10 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   bool _isPopupOpen = false;
   bool _isProcessing = false;
 
+  // --- VARIABLES INTELLIGENCE SCAN ---
+  String? _lastScannedCIP;
+  int _scanRepeatCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -36,7 +40,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   }
 
   void _requestSearchFocus() {
-    if (mounted && !_isPopupOpen) {
+    if (mounted && !_isPopupOpen && !_isProcessing) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     }
   }
@@ -83,6 +87,9 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     final text = _searchController.text.trim();
     if (text.isEmpty) {
       provider.clearProductSearch();
+      // Reset intelligence si on efface manuellement
+      _scanRepeatCount = 0;
+      _lastScannedCIP = null;
       return;
     }
 
@@ -101,8 +108,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   // --- 3. EXÉCUTION DE LA RECHERCHE ---
   Future<void> _performSearch(String query, {required bool autoAddIfUnique}) async {
     _debounce?.cancel();
-    if (_isPopupOpen) return;
-    if (query.isEmpty) return;
+    if (_isPopupOpen || query.isEmpty) return;
 
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
 
@@ -127,10 +133,22 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
         if (results.length == 1) {
           final product = results.first;
           if (autoAddIfUnique) {
-            _searchController.clear();
-            provider.clearProductSearch();
+            // --- LOGIQUE INTELLIGENTE "SCAN RÉPÉTÉ" ---
+            if (_lastScannedCIP == product.intCIP.toString()) {
+              _scanRepeatCount++;
+              if (_scanRepeatCount >= 3) {
+                _showSmartBulkDialog(product);
+                return;
+              }
+            } else {
+              _lastScannedCIP = product.intCIP.toString();
+              _scanRepeatCount = 1;
+            }
             _checkStockAndAddDirectly(product);
           } else {
+            // Reset intelligence si manuel
+            _scanRepeatCount = 0;
+            _lastScannedCIP = null;
             _searchController.clear();
             provider.clearProductSearch();
             _showQuantityDialog(product);
@@ -147,8 +165,41 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     }
   }
 
+  // --- NOUVEAU DIALOG INTELLIGENT ---
+  void _showSmartBulkDialog(ProductSearchResult product) async {
+    setState(() => _isPopupOpen = true);
+
+    final int? qty = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => QuantityDialog(product: product, isSmartMode: true),
+    );
+
+    if (mounted) setState(() => _isPopupOpen = false);
+
+    if (qty != null) {
+      // Si l'utilisateur saisit une masse (>1), on reset le compteur.
+      if (qty > 1) {
+        _scanRepeatCount = 0;
+        _lastScannedCIP = null;
+      }
+
+      if (qty > product.intNUMBERAVAILABLE) {
+        _showForceStockDialog(product, qty);
+      } else {
+        _executeAdd(product, qty);
+      }
+    } else {
+      // Annulation : on ajoute l'unité scannée mais on garde le compteur élevé pour persistance
+      _checkStockAndAddDirectly(product);
+    }
+  }
+
   // AJOUT DIRECT
   void _checkStockAndAddDirectly(ProductSearchResult product) {
+    _searchController.clear();
+    Provider.of<CarnetSaleProvider>(context, listen: false).clearProductSearch();
+
     if (product.intNUMBERAVAILABLE <= 0) {
       _showForceStockDialog(product, 1);
     } else {
@@ -156,6 +207,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("${product.strNAME} ajouté (+1)"), duration: const Duration(milliseconds: 500), backgroundColor: Colors.green),
       );
+      if (mounted) _requestSearchFocus();
     }
   }
 
@@ -178,17 +230,19 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       ),
     );
 
+    if (mounted) setState(() => _isPopupOpen = false);
+
     if (selectedProduct != null) {
       provider.clearProductSearch();
       _searchController.clear();
+      // Reset intelligence sur sélection manuelle
+      _scanRepeatCount = 0;
+      _lastScannedCIP = null;
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) _showQuantityDialog(selectedProduct);
       });
     } else {
-      if (mounted) {
-        setState(() => _isPopupOpen = false);
-        _requestSearchFocus();
-      }
+      _requestSearchFocus();
     }
   }
 
@@ -208,10 +262,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       if (qty > product.intNUMBERAVAILABLE) {
         _showForceStockDialog(product, qty);
       } else {
-        final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
-        provider.addProductToCart(product, qty);
-        _searchController.clear();
-        _requestSearchFocus();
+        _executeAdd(product, qty);
       }
     } else {
       _requestSearchFocus();
@@ -244,13 +295,18 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     if (mounted) setState(() => _isPopupOpen = false);
 
     if (confirm == true) {
-      final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
-      provider.addProductToCart(product, qty);
-      _searchController.clear();
-      _requestSearchFocus();
+      _executeAdd(product, qty);
     } else {
       _requestSearchFocus();
     }
+  }
+
+  void _executeAdd(ProductSearchResult product, int qty) {
+    final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
+    provider.addProductToCart(product, qty);
+    _searchController.clear();
+    provider.clearProductSearch();
+    if (mounted) _requestSearchFocus();
   }
 
   // --- UI PRINCIPALE ---
@@ -360,6 +416,9 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                 hintText: isActive ? 'MODE SCAN ACTIF (Saisir + Entrée)' : 'Recherche (Auto) ou Scanner',
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                prefixIcon: _isProcessing
+                    ? const Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(isActive ? Icons.bolt : Icons.search, color: isActive ? Colors.green : null),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
                   icon: const Icon(Icons.clear, size: 20),
@@ -402,11 +461,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
               ),
             ),
           ),
-          if (_isProcessing)
-            const Padding(
-              padding: EdgeInsets.only(left: 8.0),
-              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-            )
         ],
       ),
     );
@@ -414,11 +468,12 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
 }
 
 // =========================================================
-// WIDGET QUANTITY DIALOG (AVEC FIX ANTI-CRASH FINAL)
+// QUANTITY DIALOG (DESIGN COMPACT + INTELLIGENCE)
 // =========================================================
 class QuantityDialog extends StatefulWidget {
   final ProductSearchResult product;
-  const QuantityDialog({super.key, required this.product});
+  final bool isSmartMode; // AJOUTÉ
+  const QuantityDialog({super.key, required this.product, this.isSmartMode = false});
 
   @override
   State<QuantityDialog> createState() => _QuantityDialogState();
@@ -432,7 +487,6 @@ class _QuantityDialogState extends State<QuantityDialog> {
   @override
   void initState() {
     super.initState();
-    // Sélection automatique du texte pour modification rapide
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _qtyFocusNode.requestFocus();
@@ -460,7 +514,6 @@ class _QuantityDialogState extends State<QuantityDialog> {
 
     final qty = int.parse(_qteController.text);
 
-    // Alerte Sécurité Quantité > 50
     if (qty > 50) {
       final confirm = await showDialog<bool>(
         context: context,
@@ -494,6 +547,28 @@ class _QuantityDialogState extends State<QuantityDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          // --- BANDEAU INTELLIGENCE ---
+          if (widget.isSmartMode)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.bolt, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Produit scanné plusieurs fois.\nCombien en reste-t-il ?",
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Text(
               widget.product.strNAME,
               maxLines: 1,
@@ -521,49 +596,38 @@ class _QuantityDialogState extends State<QuantityDialog> {
         child: TextFormField(
           controller: _qteController,
           focusNode: _qtyFocusNode,
-          autofocus: false, // Géré par initState pour la stabilité
-          decoration: const InputDecoration(
-            labelText: 'Quantité',
-            border: OutlineInputBorder(),
-            contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+          decoration: InputDecoration(
+            labelText: widget.isSmartMode ? 'Quantité Restante' : 'Quantité',
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
           ),
           keyboardType: TextInputType.number,
           validator: (val) {
             if (val == null || val.isEmpty) return "Requis";
             if (int.tryParse(val) == null) return "Invalide";
             if (int.parse(val) <= 0) return "Min 1";
-            if (val.length > 4) return "Trop grand ! (Erreur Scan ?)";
+            if (val.length > 4) return "Trop grand !";
             return null;
           },
           onFieldSubmitted: (_) => _submit(),
         ),
       ),
       actions: [
-        TextButton(onPressed: () {
-          Navigator.of(context).pop();
-        }, child: const Text('Annuler')),
-        ElevatedButton(onPressed: () {
-          _submit();
-        }, child: const Text('Ajouter')),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
+        ElevatedButton(onPressed: _submit, child: const Text('Ajouter')),
       ],
     );
   }
 }
 
 // =========================================================
-// WIDGET MODAL RÉSULTATS (AVEC FIX ANTI-CRASH FINAL)
+// MODAL RÉSULTATS
 // =========================================================
 class ProductListModal extends StatefulWidget {
   final List<ProductSearchResult> results;
   final String initialQuery;
   final Function(ProductSearchResult) onProductSelected;
-
-  const ProductListModal({
-    super.key,
-    required this.results,
-    required this.initialQuery,
-    required this.onProductSelected,
-  });
+  const ProductListModal({super.key, required this.results, required this.initialQuery, required this.onProductSelected});
 
   @override
   State<ProductListModal> createState() => _ProductListModalState();
@@ -598,52 +662,34 @@ class _ProductListModalState extends State<ProductListModal> {
 
   void _filterResults(String query) {
     setState(() {
-      _filteredList = widget.results
-          .where((p) =>
-      p.strNAME.toLowerCase().contains(query.toLowerCase()) ||
-          p.intCIP.toString().contains(query))
-          .toList();
+      _filteredList = widget.results.where((p) => p.strNAME.toLowerCase().contains(query.toLowerCase()) || p.intCIP.toString().contains(query)).toList();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // RÉCUPÉRATION DE LA HAUTEUR DU CLAVIER
     final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-
     return Container(
-      // On s'assure que le modal prend bien la taille nécessaire
       height: MediaQuery.of(context).size.height * 0.85,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0), // Pas de padding bas fixe
-      decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       child: Column(
         children: [
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text("Résultats (${_filteredList.length})",
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context)),
+            Text("Résultats (${_filteredList.length})", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
           ]),
           const SizedBox(height: 10),
           TextField(
             controller: _modalSearchCtrl,
             focusNode: _modalFocusNode,
-            decoration: const InputDecoration(
-                hintText: "Filtrer dans la liste...",
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-                isDense: true),
+            decoration: const InputDecoration(hintText: "Filtrer dans la liste...", prefixIcon: Icon(Icons.search), border: OutlineInputBorder(), isDense: true),
             onChanged: _filterResults,
           ),
           const SizedBox(height: 10),
           const Divider(height: 1),
           Expanded(
             child: ListView.separated(
-              // AJOUT DU PADDING BAS DYNAMIQUE
-              // On ajoute la hauteur du clavier + un petit bonus de 20px pour l'esthétique
               padding: EdgeInsets.only(bottom: keyboardHeight + 20),
               itemCount: _filteredList.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
@@ -651,24 +697,15 @@ class _ProductListModalState extends State<ProductListModal> {
                 final p = _filteredList[index];
                 return ListTile(
                   dense: true,
-                  title: Text(p.strNAME,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: RichText(
                     text: TextSpan(
                       style: const TextStyle(fontSize: 12, color: Colors.black87),
                       children: [
                         TextSpan(text: "CIP: ${p.intCIP} | "),
-                        TextSpan(
-                            text: "Stock: ${p.intNUMBERAVAILABLE}",
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue.withValues(alpha: 1))),
+                        TextSpan(text: "Stock: ${p.intNUMBERAVAILABLE}", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.withValues(alpha: 1))),
                         const TextSpan(text: " | "),
-                        TextSpan(
-                            text: "Prix: ${Constants.formatNumber(p.intPRICE)} F",
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green.withValues(alpha: 1))),
+                        TextSpan(text: "Prix: ${Constants.formatNumber(p.intPRICE)} F", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.withValues(alpha: 1))),
                       ],
                     ),
                   ),
