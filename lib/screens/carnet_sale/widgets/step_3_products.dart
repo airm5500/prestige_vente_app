@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
-//import 'package:prestige_vente_app/api/models/product_search_result.dart'; // Import ajouté pour le type
+//import 'package:prestige_vente_app/api/models/product_search_result.dart';
 import 'package:prestige_vente_app/providers/carnet_sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -22,32 +22,27 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
   final _searchFocusNode = FocusNode();
   final _keyboardFocusNode = FocusNode();
 
-  // MODIF 1 : Timer pour le debounce
   Timer? _debounce;
-
-  bool _isProcessing = false;
   String _scanBuffer = "";
-  // MODIF 2 : Verrou pour éviter les popups multiples
   bool _isPopupOpen = false;
+  bool _isProcessing = false;
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_onSearchChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestSearchFocus();
     });
   }
 
   void _requestSearchFocus() {
-    if (mounted && !_isPopupOpen && !_isProcessing) {
+    if (mounted && !_isPopupOpen) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     }
   }
 
   @override
   void dispose() {
-    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _searchFocusNode.dispose();
     _keyboardFocusNode.dispose();
@@ -55,13 +50,16 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     super.dispose();
   }
 
+  // --- 1. GESTION SCAN PHYSIQUE (BUFFER DOUCHETTE) ---
   void _handleKeyEvent(KeyEvent event) {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
 
+    // Actif uniquement si le mode Scan Rapide est ON
     if (!provider.isQuickScanMode) return;
     if (_isPopupOpen) return;
 
-    if (_searchFocusNode.hasFocus) {
+    // Si le champ a le focus et n'est pas vide, on laisse le TextField gérer (cas saisie mixte)
+    if (_searchFocusNode.hasFocus && _searchController.text.isNotEmpty) {
       _scanBuffer = "";
       return;
     }
@@ -69,7 +67,8 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.enter) {
         if (_scanBuffer.isNotEmpty) {
-          _performSearch(_scanBuffer.trim(), isScan: true);
+          // Scan Douchette fini -> Auto Add activé
+          _performSearch(_scanBuffer.trim(), autoAddIfUnique: true);
           _scanBuffer = "";
         }
       } else if (event.character != null) {
@@ -78,140 +77,145 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     }
   }
 
-  // MODIF 3 : Logique de debounce (attendre 500ms avant de chercher)
+  // --- 2. GESTION SAISIE CLAVIER (LISTENER) ---
   void _onSearchChanged() {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
 
-    if (_searchController.text.isEmpty) {
+    // Si Scan Rapide est ON : Pas de recherche automatique pendant la frappe.
+    // On attend que l'utilisateur fasse "Entrée" (géré dans onSubmitted plus bas).
+    if (provider.isQuickScanMode) return;
+
+    // Si Scan Rapide est OFF (Mode Normal) : Recherche automatique (Debounce)
+    final text = _searchController.text.trim();
+    if (text.isEmpty) {
       provider.clearProductSearch();
       return;
     }
 
     if (_isPopupOpen) return;
-
-    // Si on tape encore, on annule le timer précédent
     if (_debounce?.isActive ?? false) _debounce!.cancel();
 
-    // On lance un nouveau timer
     _debounce = Timer(const Duration(milliseconds: 500), () {
       if (!mounted) return;
       if (_isPopupOpen) return;
-
-      final text = _searchController.text.trim();
-      if (text.isNotEmpty) {
-        _performSearch(text, isScan: false);
-      } else {
-        provider.clearProductSearch();
+      if (text.isNotEmpty && text.length >= 2) {
+        // Mode Normal : On n'ajoute JAMAIS automatiquement, on propose.
+        _performSearch(text, autoAddIfUnique: false);
       }
     });
   }
 
-  Future<void> _performSearch(String query, {required bool isScan}) async {
-    _debounce?.cancel(); // Annule le debounce si on valide manuellement (Entrée)
+  // --- 3. EXÉCUTION DE LA RECHERCHE (COEUR DU SYSTÈME) ---
+  // autoAddIfUnique = TRUE si Mode Scan Rapide (Douchette ou Entrée Clavier)
+  // autoAddIfUnique = FALSE si Mode Normal (Saisie Debounce)
+  Future<void> _performSearch(String query, {required bool autoAddIfUnique}) async {
+    _debounce?.cancel();
     if (_isPopupOpen) return;
     if (query.isEmpty) return;
 
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
 
     try {
+      if (mounted) setState(() => _isProcessing = true);
+
       await provider.searchProducts(query);
+
       if (!mounted) return;
       if (_isPopupOpen) return;
 
       final results = provider.productSearchResults;
 
-      if (results.length == 1) {
-        final product = results.first;
-        _searchController.clear();
-        provider.clearProductSearch();
-
-        if (provider.isQuickScanMode) {
-          if (product.intNUMBERAVAILABLE < 1) {
-            _showForceStockDialog(product, 1);
-          } else {
-            provider.addProductToCart(product, 1);
-          }
-        } else {
-          _showQuantityDialog(product);
+      if (results.isEmpty) {
+        // Uniquement si on attendait une action immédiate (Scan Rapide)
+        if (autoAddIfUnique) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Produit introuvable"), backgroundColor: Colors.orange, duration: Duration(seconds: 1)),
+          );
+          _searchController.clear();
         }
-      } else if (results.isNotEmpty) {
-        _showSelectionDialog(results);
+      } else {
+        // CAS A : RÉSULTAT UNIQUE
+        if (results.length == 1) {
+          final product = results.first;
+
+          if (autoAddIfUnique) {
+            // MODE SCAN RAPIDE -> AJOUT DIRECT (Qté 1)
+            _searchController.clear();
+            provider.clearProductSearch();
+            _checkStockAndAddDirectly(product);
+          } else {
+            // MODE NORMAL -> OUVERTURE POPUP QUANTITÉ
+            _searchController.clear();
+            provider.clearProductSearch();
+            _showQuantityDialog(product);
+          }
+        }
+        // CAS B : RÉSULTATS MULTIPLES
+        else {
+          // Dans tous les cas (Scan ou Normal), s'il y a plusieurs choix, on ouvre le modal
+          _openSearchModal(results);
+        }
       }
     } finally {
       if (mounted) {
+        setState(() => _isProcessing = false);
         if (!_isPopupOpen) _requestSearchFocus();
       }
     }
   }
 
-  // MODIF 4 : Verrouillage _isPopupOpen = true
-  void _showSelectionDialog(List<ProductSearchResult> results) {
+  // AJOUT DIRECT 1 UNITÉ (Avec vérif stock)
+  void _checkStockAndAddDirectly(ProductSearchResult product) {
+    // Si Stock épuisé -> On force l'utilisateur à confirmer via le dialogue
+    if (product.intNUMBERAVAILABLE <= 0) {
+      _showForceStockDialog(product, 1);
+    } else {
+      // Stock OK -> Ajout direct
+      Provider.of<CarnetSaleProvider>(context, listen: false).addProductToCart(product, 1);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${product.strNAME} ajouté (+1)"), duration: const Duration(milliseconds: 500), backgroundColor: Colors.green),
+      );
+    }
+  }
+
+  // --- 4. MODAL RÉSULTATS ---
+  void _openSearchModal(List<ProductSearchResult> results) async {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
-    final dialogResults = List<ProductSearchResult>.from(results);
-    provider.clearProductSearch();
 
     setState(() => _isPopupOpen = true);
 
-    showDialog(
+    final ProductSearchResult? selectedProduct = await showModalBottomSheet<ProductSearchResult>(
       context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: Text("Résultats (${dialogResults.length})", style: const TextStyle(fontSize: 16)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 300,
-          child: ListView.separated(
-            itemCount: dialogResults.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final p = dialogResults[index];
-              return ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  p.strNAME,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                ),
-                subtitle: RichText(
-                  text: TextSpan(
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
-                    children: [
-                      const TextSpan(text: "CIP: "),
-                      TextSpan(text: "${p.intCIP} ", style: const TextStyle(color: Colors.black54)),
-                      const TextSpan(text: "| Stock: "),
-                      TextSpan(text: "${p.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-                      const TextSpan(text: "| Prix: "),
-                      TextSpan(text: "${Constants.formatNumber(p.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-                    ],
-                  ),
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showQuantityDialog(p);
-                },
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Fermer"))
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ProductListModal(
+        results: results,
+        initialQuery: _searchController.text, // On transmet le texte saisi
+        onProductSelected: (product) {
+          Navigator.pop(ctx, product);
+        },
       ),
-    ).then((_) {
-      // Petite astuce : on retarde légèrement le déverrouillage pour laisser le temps
-      // à _showQuantityDialog de prendre le relais si on a cliqué sur un produit.
+    );
+
+    if (selectedProduct != null) {
+      provider.clearProductSearch();
+      _searchController.clear();
+      // Petit délai UI
       Future.delayed(const Duration(milliseconds: 100), () {
-        if (mounted && !_isPopupOpen) {
-          _requestSearchFocus();
+        if (mounted) {
+          // Choix manuel depuis la liste -> Toujours demander la quantité
+          _showQuantityDialog(selectedProduct);
         }
       });
-      // Si on a juste fermé, on libère le verrou (sauf si quantity dialog l'a repris)
-      if (mounted && !_isPopupOpen) setState(() => _isPopupOpen = false);
-    });
+    } else {
+      if (mounted) {
+        setState(() => _isPopupOpen = false);
+        _requestSearchFocus();
+      }
+    }
   }
 
+  // --- 5. POPUP QUANTITÉ ---
   void _showQuantityDialog(ProductSearchResult product) {
     final provider = Provider.of<CarnetSaleProvider>(context, listen: false);
     final formKey = GlobalKey<FormState>();
@@ -222,63 +226,31 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     setState(() => _isPopupOpen = true);
 
     void submit() async {
-      if (!formKey.currentState!.validate()) {
-        Future.delayed(const Duration(milliseconds: 50), () {
-          if (mounted && qteController.text.isNotEmpty) {
-            qteController.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: qteController.text.length
-            );
-          }
-        });
-        return;
-      }
-
+      if (!formKey.currentState!.validate()) return;
       final qty = int.parse(qteController.text);
 
       if (qty > 50) {
-        final bool? confirm = await showDialog<bool>(
+        final confirm = await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
-            title: const Text("⚠️ Quantité élevée"),
-            content: Text("Vous allez ajouter $qty unités.\nConfirmer ?"),
+            title: const Text("Quantité élevée"),
+            content: Text("Ajouter $qty unités ?"),
             actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(c, false),
-                  child: const Text("Corriger", style: TextStyle(color: Colors.red))
-              ),
-              ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                  onPressed: () => Navigator.pop(c, true),
-                  child: const Text("Confirmer", style: TextStyle(color: Colors.white))
-              ),
+              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("Non")),
+              ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text("Oui")),
             ],
           ),
         );
-
-        if (confirm != true) {
-          Future.delayed(const Duration(milliseconds: 50), () {
-            if (mounted) {
-              qteController.selection = TextSelection(
-                  baseOffset: 0,
-                  extentOffset: qteController.text.length
-              );
-            }
-          });
-          return;
-        }
+        if (confirm != true) return;
       }
 
       Navigator.pop(context);
 
-      if (qty > 0) {
-        if (qty > product.intNUMBERAVAILABLE) {
-          _showForceStockDialog(product, qty);
-        } else {
-          provider.addProductToCart(product, qty);
-          _searchController.clear();
-          provider.clearProductSearch();
-        }
+      if (qty > product.intNUMBERAVAILABLE) {
+        _showForceStockDialog(product, qty);
+      } else {
+        provider.addProductToCart(product, qty);
+        _searchController.clear();
       }
     }
 
@@ -286,58 +258,34 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(product.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 2),
-            RichText(text: TextSpan(style: const TextStyle(fontSize: 11, color: Colors.grey), children: [
-              const TextSpan(text: "CIP: "), TextSpan(text: "${product.intCIP} ", style: const TextStyle(color: Colors.black54)),
-              const TextSpan(text: "| Stock: "), TextSpan(text: "${product.intNUMBERAVAILABLE} ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-              const TextSpan(text: "| Prix: "), TextSpan(text: "${Constants.formatNumber(product.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-            ])),
-          ],
-        ),
+        title: Text(product.strNAME, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
         content: Form(
           key: formKey,
-          child: TextFormField(
-            controller: qteController,
-            autofocus: true,
-            decoration: const InputDecoration(
-                labelText: "Quantité",
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10)
-            ),
-            keyboardType: TextInputType.number,
-            validator: (val) {
-              if (val == null || val.isEmpty) return "Requis";
-              if (int.tryParse(val) == null) return "Invalide";
-              if (int.parse(val) <= 0) return "Min 1";
-              if (val.length > 4) return "Trop grand !";
-              return null;
-            },
-            onFieldSubmitted: (_) => submit(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("Stock: ${product.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(product.intPRICE)} F"),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: qteController,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: "Quantité", border: OutlineInputBorder()),
+                keyboardType: TextInputType.number,
+                validator: (val) => (int.tryParse(val ?? "") ?? 0) <= 0 ? "Invalide" : null,
+                onFieldSubmitted: (_) => submit(),
+              ),
+            ],
           ),
         ),
         actions: [
-          TextButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                _searchController.clear();
-                provider.clearProductSearch();
-              },
-              child: const Text("Annuler")
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
           ElevatedButton(onPressed: submit, child: const Text("Valider")),
         ],
       ),
     ).then((_) {
       if (mounted) {
         setState(() => _isPopupOpen = false);
-        Future.delayed(const Duration(milliseconds: 350), () {
-          if (mounted && !_isPopupOpen) _requestSearchFocus();
-        });
+        _requestSearchFocus();
       }
     });
   }
@@ -348,7 +296,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Stock insuffisant', style: TextStyle(color: Colors.red)),
-        content: Text('Stock disponible : ${product.intNUMBERAVAILABLE}.\nForcer l\'ajout de $qty ?'),
+        content: Text('Stock dispo : ${product.intNUMBERAVAILABLE}.\nForcer l\'ajout de $qty ?'),
         actions: [
           TextButton(child: const Text('Non'), onPressed: () => Navigator.pop(ctx)),
           ElevatedButton(
@@ -365,6 +313,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
     ).then((_) => setState(() => _isPopupOpen = false));
   }
 
+  // --- UI ---
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<CarnetSaleProvider>(context);
@@ -377,7 +326,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       onKeyEvent: _handleKeyEvent,
       child: Column(
         children: [
-          // EN-TÊTE
+          // HEADER CLIENT
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             color: Colors.grey[100],
@@ -402,7 +351,6 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.edit_note, color: Colors.orange),
-                  tooltip: "Modifier Bon / Ayant Droit",
                   onPressed: () => provider.returnToBonStep(),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
@@ -411,13 +359,12 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
             ),
           ),
           const Divider(height: 1),
-
+          // CONTENU
           Expanded(
             child: isTabletLandscape
                 ? _buildTabletLayout(provider, isActive)
                 : _buildMobileLayout(provider, isActive),
           ),
-
           const CarnetSummaryFooter(),
         ],
       ),
@@ -449,10 +396,7 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
           ),
         ),
         const VerticalDivider(width: 1),
-        const Expanded(
-          flex: 6,
-          child: CarnetCartWidget(),
-        ),
+        const Expanded(flex: 6, child: CarnetCartWidget()),
       ],
     );
   }
@@ -467,8 +411,19 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
               controller: _searchController,
               focusNode: _searchFocusNode,
               textInputAction: TextInputAction.go,
+              // EN SCAN RAPIDE, On ignore le onChanged (pas de debounce)
+              onChanged: (_) => _onSearchChanged(),
+              // EN SCAN RAPIDE, La touche Entrée vaut validation Douchette
+              onSubmitted: (val) {
+                if (val.isNotEmpty) {
+                  // Si Scan Rapide est ON, autoAddIfUnique est TRUE
+                  // Si Scan Rapide est OFF, autoAddIfUnique est FALSE (sécurité)
+                  _performSearch(val, autoAddIfUnique: isActive);
+                  _requestSearchFocus();
+                }
+              },
               decoration: InputDecoration(
-                hintText: isActive ? 'SCAN RAPIDE ACTIF' : 'Saisir (Auto) ou Scanner',
+                hintText: isActive ? 'MODE SCAN ACTIF (Saisir + Entrée)' : 'Recherche (Auto) ou Scanner',
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 suffixIcon: _searchController.text.isNotEmpty
@@ -491,15 +446,9 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
                 filled: true,
                 fillColor: isActive ? Colors.green.withValues(alpha: 0.05) : null,
               ),
-              onSubmitted: (val) {
-                _performSearch(val, isScan: false);
-                _requestSearchFocus();
-              },
             ),
           ),
-
           const SizedBox(width: 8),
-
           InkWell(
             onTap: () {
               provider.toggleQuickScanMode();
@@ -519,12 +468,132 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
               ),
             ),
           ),
-
           if (_isProcessing)
             const Padding(
               padding: EdgeInsets.only(left: 8.0),
               child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
             )
+        ],
+      ),
+    );
+  }
+}
+
+// =========================================================
+// MODAL RÉSULTATS (AVEC REPRISE TEXTE & FILTRE)
+// =========================================================
+class ProductListModal extends StatefulWidget {
+  final List<ProductSearchResult> results;
+  final String initialQuery;
+  final Function(ProductSearchResult) onProductSelected;
+
+  const ProductListModal({
+    super.key,
+    required this.results,
+    required this.initialQuery,
+    required this.onProductSelected,
+  });
+
+  @override
+  State<ProductListModal> createState() => _ProductListModalState();
+}
+
+class _ProductListModalState extends State<ProductListModal> {
+  late List<ProductSearchResult> _filteredList;
+  final TextEditingController _modalSearchCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _filteredList = widget.results;
+
+    // Reprise du texte et placement curseur
+    _modalSearchCtrl.text = widget.initialQuery;
+    _modalSearchCtrl.selection = TextSelection.fromPosition(
+        TextPosition(offset: _modalSearchCtrl.text.length)
+    );
+  }
+
+  @override
+  void dispose() {
+    _modalSearchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _filterResults(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredList = widget.results;
+      } else {
+        _filteredList = widget.results.where((p) {
+          final q = query.toLowerCase();
+          return p.strNAME.toLowerCase().contains(q) ||
+              p.intCIP.toString().contains(q);
+        }).toList();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      padding: const EdgeInsets.all(16),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Résultats (${widget.results.length})", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              )
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          TextField(
+            controller: _modalSearchCtrl,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: "Filtrer dans la liste...",
+              prefixIcon: Icon(Icons.search),
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              isDense: true,
+            ),
+            onChanged: _filterResults,
+          ),
+
+          const SizedBox(height: 10),
+          const Divider(height: 1),
+
+          Expanded(
+            child: _filteredList.isEmpty
+                ? const Center(child: Text("Aucun produit ne correspond au filtre."))
+                : ListView.separated(
+              itemCount: _filteredList.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (ctx, index) {
+                final p = _filteredList[index];
+                return ListTile(
+                  dense: true,
+                  title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text("CIP: ${p.intCIP} | Stock: ${p.intNUMBERAVAILABLE} | Prix: ${Constants.formatNumber(p.intPRICE)} F"),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                  onTap: () {
+                    widget.onProductSelected(p);
+                  },
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
