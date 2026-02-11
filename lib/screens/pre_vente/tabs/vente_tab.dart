@@ -33,6 +33,10 @@ class _VenteTabState extends State<VenteTab> {
   bool _isPopupOpen = false;
   bool _isProcessing = false;
 
+  // --- VARIABLES INTELLIGENCE SCAN ---
+  String? _lastScannedCIP;
+  int _scanRepeatCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -84,6 +88,9 @@ class _VenteTabState extends State<VenteTab> {
 
     if (val.isEmpty) {
       sale.clearSearchResults();
+      // Reset de l'intelligence si on efface manuellement
+      _scanRepeatCount = 0;
+      _lastScannedCIP = null;
       return;
     }
 
@@ -123,8 +130,22 @@ class _VenteTabState extends State<VenteTab> {
           provider.clearSearchResults();
 
           if (autoAddIfUnique) {
+            // --- LOGIQUE INTELLIGENTE "SCAN RÉPÉTÉ" ---
+            if (_lastScannedCIP == product.intCIP.toString()) {
+              _scanRepeatCount++;
+              if (_scanRepeatCount >= 3) {
+                _showSmartBulkDialog(product, provider);
+                return;
+              }
+            } else {
+              _lastScannedCIP = product.intCIP.toString();
+              _scanRepeatCount = 1;
+            }
             _checkStockAndAddDirectly(product);
           } else {
+            // Reset intelligence en mode manuel
+            _scanRepeatCount = 0;
+            _lastScannedCIP = null;
             _showQuantityDialog(product);
           }
         } else {
@@ -139,6 +160,37 @@ class _VenteTabState extends State<VenteTab> {
     }
   }
 
+  // --- NOUVEAU DIALOG INTELLIGENT ---
+  void _showSmartBulkDialog(ProductSearchResult product, SaleProvider provider) async {
+    setState(() => _isPopupOpen = true);
+
+    final qty = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => QuantityDialog(product: product, isSmartMode: true),
+    );
+
+    if (mounted) setState(() => _isPopupOpen = false);
+
+    if (qty != null) {
+      // Si l'utilisateur saisit une masse (>1), on reset le compteur.
+      // S'il saisit 1, le compteur reste >= 3 et la fenêtre reviendra au prochain scan.
+      if (qty > 1) {
+        _scanRepeatCount = 0;
+        _lastScannedCIP = null;
+      }
+
+      if (qty > product.intNUMBERAVAILABLE) {
+        _showForceStockDialog(product, qty);
+      } else {
+        _executeAdd(product, qty);
+      }
+    } else {
+      // Annulation : on ajoute l'unité scannée (3e, 4e...) mais on garde le compteur élevé
+      _checkStockAndAddDirectly(product);
+    }
+  }
+
   void _checkStockAndAddDirectly(ProductSearchResult product) {
     if (product.intNUMBERAVAILABLE <= 0) {
       _showForceStockDialog(product, 1);
@@ -147,6 +199,7 @@ class _VenteTabState extends State<VenteTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("${product.strNAME} ajouté (+1)"), duration: const Duration(milliseconds: 500), backgroundColor: Colors.green),
       );
+      if (mounted) _requestSearchFocus();
     }
   }
 
@@ -169,6 +222,9 @@ class _VenteTabState extends State<VenteTab> {
     if (selectedProduct != null) {
       _searchController.clear();
       Provider.of<SaleProvider>(context, listen: false).clearSearchResults();
+      // Reset intelligence sur sélection manuelle
+      _scanRepeatCount = 0;
+      _lastScannedCIP = null;
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) _showQuantityDialog(selectedProduct);
       });
@@ -460,7 +516,6 @@ class _VenteTabState extends State<VenteTab> {
                     borderSide: BorderSide(color: isActive ? Colors.green : Theme.of(context).primaryColor, width: isActive ? 2.5 : 2.0),
                   ),
                   filled: true,
-                  // CORRECTION : withValues au lieu de withOpacity
                   fillColor: isActive ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.05),
                 ),
                 onSubmitted: (val) => _performSearch(val, autoAddIfUnique: isActive),
@@ -526,11 +581,12 @@ class _VenteTabState extends State<VenteTab> {
 }
 
 // =========================================================
-// QUANTITY DIALOG (DESIGN COMPACT DEMANDÉ)
+// QUANTITY DIALOG (DESIGN COMPACT)
 // =========================================================
 class QuantityDialog extends StatefulWidget {
   final ProductSearchResult product;
-  const QuantityDialog({super.key, required this.product});
+  final bool isSmartMode; // AJOUTÉ
+  const QuantityDialog({super.key, required this.product, this.isSmartMode = false});
 
   @override
   State<QuantityDialog> createState() => _QuantityDialogState();
@@ -595,6 +651,28 @@ class _QuantityDialogState extends State<QuantityDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          // --- BANDEAU INTELLIGENCE ---
+          if (widget.isSmartMode)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.bolt, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Produit scanné plusieurs fois.\nCombien en reste-t-il ?",
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Text(widget.product.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
           const SizedBox(height: 2),
           RichText(
@@ -638,7 +716,7 @@ class _QuantityDialogState extends State<QuantityDialog> {
 }
 
 // =========================================================
-// MODAL RÉSULTATS (CLONE DESIGN CARNET)
+// MODAL RÉSULTATS
 // =========================================================
 class ProductListModal extends StatefulWidget {
   final List<ProductSearchResult> results;
@@ -689,13 +767,11 @@ class _ProductListModalState extends State<ProductListModal> {
 
   @override
   Widget build(BuildContext context) {
-    // RÉCUPÉRATION DE LA HAUTEUR DU CLAVIER
     final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
-      // On s'assure que le modal prend bien la taille nécessaire
       height: MediaQuery.of(context).size.height * 0.85,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0), // Pas de padding bas fixe
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
@@ -723,8 +799,6 @@ class _ProductListModalState extends State<ProductListModal> {
           const Divider(height: 1),
           Expanded(
             child: ListView.separated(
-              // AJOUT DU PADDING BAS DYNAMIQUE
-              // On ajoute la hauteur du clavier + un petit bonus de 20px pour l'esthétique
               padding: EdgeInsets.only(bottom: keyboardHeight + 20),
               itemCount: _filteredList.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
