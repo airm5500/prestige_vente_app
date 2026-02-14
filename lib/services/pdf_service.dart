@@ -259,7 +259,7 @@ class PdfService {
       cellStyle: pw.TextStyle(fontSize: 7),
       data: items.map((item) {
         final checkedQty = checkedQuantities[item.id] ?? 0;
-        final theoretical = item.stockTheorique;
+        final theoretical = item.stockFinalTheorique;
         final ecart = checkedQty - theoretical;
         final bool isControlled = checkedQuantities.containsKey(item.id);
         final bool hasEcart = ecart != 0;

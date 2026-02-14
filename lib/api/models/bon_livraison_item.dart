@@ -1,21 +1,26 @@
 // lib/api/models/bon_livraison_item.dart
-// 19/10/2025 03:00
+
 class BonLivraisonItem {
   final String id;
   final String produitId;
   final String nomProduit;
   final String cip;
   final int qteCommandee;
-  final int qteRecue;
-  final int stockInitial;
+  final int qteRecue;       // int_QTE_RECUE (Qté validée/facturée)
+
+  final int stockFinal;     // lg_FAMILLE_QTE_STOCK (Stock Actuel Temps Réel)
+  final int stockInitialReel; // Stock_Init (Stock figé AVANT mouvement)
+  final int freeQty;        // freeQty (Unités gratuites)
+
   final bool isChecked;
-  final int checkedQuantity;
+  final int checkedQuantity; // La quantité comptée par l'utilisateur
   final int prixAchat;
-  // AJOUTS
   final int prixVente;
   final String zoneGeoName;
 
-  int get stockTheorique => stockInitial;
+  // Calcul du stock théorique cible pour le contrôle
+  // Formule : Stock Avant + Entrées (Facturées + Gratuites)
+  int get stockFinalTheorique => stockInitialReel + qteRecue + freeQty;
 
   BonLivraisonItem({
     required this.id,
@@ -24,7 +29,9 @@ class BonLivraisonItem {
     required this.cip,
     required this.qteCommandee,
     required this.qteRecue,
-    required this.stockInitial,
+    required this.stockFinal,
+    required this.stockInitialReel,
+    required this.freeQty,
     required this.isChecked,
     required this.checkedQuantity,
     required this.prixAchat,
@@ -43,14 +50,20 @@ class BonLivraisonItem {
       produitId: json['lg_FAMILLE_ID'] ?? '',
       nomProduit: json['lg_FAMILLE_NAME'] ?? '',
       cip: cipValue,
-      qteCommandee: json['int_QTE_CMDE'] ?? 0,
-      qteRecue: json['int_QTE_RECUE'] ?? 0,
-      stockInitial: json['lg_FAMILLE_QTE_STOCK'] ?? 0,
+      qteCommandee: (json['int_QTE_CMDE'] as num?)?.toInt() ?? 0,
+      qteRecue: (json['int_QTE_RECUE'] as num?)?.toInt() ?? 0,
+
+      // Stock Temps Réel (bouge avec les ventes)
+      stockFinal: (json['lg_FAMILLE_QTE_STOCK'] as num?)?.toInt() ?? 0,
+
+      // Stock Historique (figé) & UG
+      stockInitialReel: (json['Stock_Init'] as num?)?.toInt() ?? 0,
+      freeQty: (json['freeQty'] as num?)?.toInt() ?? 0,
+
       isChecked: json['checked'] ?? false,
-      checkedQuantity: json['checkedQuantity'] ?? 0,
-      prixAchat: json['int_PA_REEL'] ?? 0,
-      // AJOUTS
-      prixVente: json['int_PRIX_VENTE'] ?? 0,
+      checkedQuantity: (json['quantiteSaisie'] ?? json['checkedQuantity'] as num?)?.toInt() ?? 0,
+      prixAchat: (json['int_PA_REEL'] as num?)?.toInt() ?? 0,
+      prixVente: (json['int_PRIX_VENTE'] as num?)?.toInt() ?? 0,
       zoneGeoName: json['lg_ZONE_GEO_NAME'] ?? 'Non défini',
     );
   }

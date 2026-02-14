@@ -183,7 +183,7 @@ class _BlReportScreenState extends State<BlReportScreen> {
                     final item = displayItems[index];
                     final isControlled = provider.checkedQuantities.containsKey(item.id);
                     final checkedQty = provider.checkedQuantities[item.id] ?? 0;
-                    final theoretical = item.stockTheorique;
+                    final theoretical = item.stockFinalTheorique;
                     final diff = checkedQty - theoretical;
 
                     // Définition des couleurs
