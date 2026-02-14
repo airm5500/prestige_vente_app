@@ -1,5 +1,4 @@
 // lib/screens/delivery_control/delivery_detail_screen.dart
-// 29/10/2025 22:55
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/commande_item.dart';
 import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
@@ -29,18 +28,15 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     super.initState();
     final provider = Provider.of<DeliveryControlProvider>(context, listen: false);
     _filteredItems = provider.items;
-
     final checkedQuantities = provider.checkedQuantities;
 
     for (var item in provider.items) {
       final savedQuantity = checkedQuantities[item.id];
-      // MODIFICATION : Le controller et le focus node sont créés en premier
       final controller = TextEditingController(
         text: savedQuantity != null ? savedQuantity.toString() : '',
       );
       final focusNode = FocusNode();
 
-      // MODIFICATION : Ajout du listener pour la pré-sélection
       focusNode.addListener(() {
         if (focusNode.hasFocus) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -57,7 +53,6 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     }
 
     _searchController.addListener(_filterList);
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     });
@@ -83,18 +78,49 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         _filteredItems = provider.items.where((item) {
           return item.nomProduit.toLowerCase().contains(query) || item.cip.contains(query);
         }).toList();
-
-        if (_filteredItems.length == 1) {
-          final itemId = _filteredItems.first.id;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if(mounted) {
-              FocusScope.of(context).requestFocus(_itemFocusNodes[itemId]);
-            }
-          });
-        }
       }
     });
   }
+
+  // --- NOUVELLE LOGIQUE SCAN ---
+  void _onSearchSubmitted(String val) {
+    if (_filteredItems.length == 1) {
+      _showQuickScanDialog(_filteredItems.first);
+    }
+  }
+
+  Future<void> _showQuickScanDialog(CommandeItem item) async {
+    final provider = Provider.of<DeliveryControlProvider>(context, listen: false);
+
+    // Récupération de la quantité actuelle
+    final currentQty = provider.checkedQuantities[item.id] ?? 0;
+    final String initialValue = currentQty > 0 ? currentQty.toString() : "";
+
+    // Ouverture du Dialog Sécurisé
+    final int? result = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _QuantityInputDialog(
+        nomProduit: item.nomProduit,
+        cip: item.cip,
+        initialValue: initialValue,
+      ),
+    );
+
+    if (result != null) {
+      provider.updateCheckedQuantity(item.id, result);
+      _itemControllers[item.id]?.text = result.toString();
+
+      // Reset pour enchaîner
+      _searchController.clear();
+      _searchFocusNode.requestFocus();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Quantité mise à jour : ${item.nomProduit}"), duration: const Duration(milliseconds: 500)),
+      );
+    }
+  }
+  // -----------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -154,12 +180,17 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
       child: TextField(
         controller: _searchController,
         focusNode: _searchFocusNode,
+        textInputAction: TextInputAction.search, // Important pour le déclenchement
+        onSubmitted: _onSearchSubmitted,         // Appel de la nouvelle fonction
         decoration: InputDecoration(
           labelText: 'Rechercher ou Scanner (Nom, CIP)',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: IconButton(
-            icon: const Icon(Icons.clear),
-            onPressed: () => _searchController.clear(),
+              icon: const Icon(Icons.clear),
+              onPressed: () {
+                _searchController.clear();
+                _searchFocusNode.requestFocus();
+              }
           ),
         ),
       ),
@@ -207,6 +238,112 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WIDGET POPUP SÉCURISÉ (Copie exacte pour Delivery)
+// ---------------------------------------------------------------------------
+class _QuantityInputDialog extends StatefulWidget {
+  final String nomProduit;
+  final String cip;
+  final String initialValue;
+
+  const _QuantityInputDialog({
+    Key? key,
+    required this.nomProduit,
+    required this.cip,
+    required this.initialValue,
+  }) : super(key: key);
+
+  @override
+  State<_QuantityInputDialog> createState() => _QuantityInputDialogState();
+}
+
+class _QuantityInputDialogState extends State<_QuantityInputDialog> {
+  late TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      _selectAllText();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _selectAllText() {
+    if (_controller.text.isNotEmpty) {
+      _controller.selection = TextSelection(baseOffset: 0, extentOffset: _controller.text.length);
+    }
+  }
+
+  void _validate() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) {
+      Navigator.of(context).pop(0);
+      return;
+    }
+
+    final value = int.tryParse(text);
+
+    // SÉCURITÉ ANTI-SCAN & COHÉRENCE
+    if (value == null || value < 0 || value > 10000) {
+      setState(() {
+        _errorText = "Mauvaise valeur (Trop grande)";
+      });
+      _selectAllText();
+      _focusNode.requestFocus();
+    } else {
+      Navigator.of(context).pop(value);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.nomProduit, style: const TextStyle(fontSize: 18)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text("CIP: ${widget.cip}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 20),
+          const Text("Saisir la quantité comptée :"),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              errorText: _errorText,
+              border: const OutlineInputBorder(),
+              contentPadding: const EdgeInsets.symmetric(vertical: 15),
+            ),
+            onChanged: (val) {
+              if (_errorText != null) setState(() => _errorText = null);
+            },
+            onSubmitted: (_) => _validate(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Annuler")),
+        ElevatedButton(onPressed: _validate, child: const Text("Valider")),
+      ],
     );
   }
 }

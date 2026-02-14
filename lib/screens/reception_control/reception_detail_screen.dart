@@ -1,6 +1,6 @@
 // lib/screens/reception_control/reception_detail_screen.dart
 import 'package:flutter/material.dart';
-import 'package:collection/collection.dart'; // Import nécessaire pour groupBy
+import 'package:collection/collection.dart';
 import 'package:prestige_vente_app/api/models/reception_model.dart';
 import 'package:prestige_vente_app/providers/reception_provider.dart';
 import 'package:prestige_vente_app/screens/reception_control/reception_report_screen.dart';
@@ -28,7 +28,7 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
   String _selectedStatus = "TOUS";
 
   static const String _groupAllKey = "__GROUP_ALL__";
-  static const String _allKey = "__ALL__"; // Liste plate (sans groupement)
+  static const String _allKey = "__ALL__";
   static const String _noLocKey = "__NO_LOC__";
 
   @override
@@ -39,7 +39,6 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
     if (bon != null) {
       _filteredItems = List.from(bon.details);
       _initializeControllers(provider);
-      // Appliquer le tri par défaut (Groupé)
       _applyFilters();
     }
     _searchController.addListener(_applyFilters);
@@ -80,8 +79,6 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
     super.dispose();
   }
 
-  // --- LOGIQUE METIER ---
-
   void _applyFilters() {
     final provider = Provider.of<ReceptionProvider>(context, listen: false);
     if (provider.selectedBon == null) return;
@@ -89,7 +86,6 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
     final query = _searchController.text.toLowerCase().trim();
     List<ReceptionItem> items = List.from(provider.selectedBon!.details);
 
-    // 1. Filtre Texte (Recherche)
     if (query.isNotEmpty) {
       items = items.where((item) {
         return item.nomProduit.toLowerCase().contains(query) ||
@@ -98,11 +94,8 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
       }).toList();
     }
 
-    // 2. Filtre Emplacement
     bool isGroupedMode = _selectedEmplacement == _groupAllKey;
-
     if (!isGroupedMode && _selectedEmplacement != _allKey) {
-      // Filtrage par emplacement spécifique
       if (_selectedEmplacement == _noLocKey) {
         items = items.where((item) => item.emplacement.isEmpty).toList();
       } else {
@@ -110,32 +103,23 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
       }
     }
 
-    // 3. Filtre Statut
     if (_selectedStatus != "TOUS") {
       items = items.where((item) {
         final currentQty = provider.currentCheckedQuantities[item.id] ?? 0;
         final bool isTraite = currentQty > 0 || provider.currentCheckedQuantities.containsKey(item.id);
 
         switch (_selectedStatus) {
-          case "A_TRAITER":
-            return !isTraite;
-          case "TRAITE":
-            return isTraite;
-          case "ECART":
-            return isTraite && (currentQty != item.qteRecue);
-          default:
-            return true;
+          case "A_TRAITER": return !isTraite;
+          case "TRAITE": return isTraite;
+          case "ECART": return isTraite && (currentQty != item.qteRecue);
+          default: return true;
         }
       }).toList();
     }
 
-    // 4. Tri et Groupement
     if (isGroupedMode) {
-      // Si mode groupé, on trie d'abord par emplacement, puis par nom
-      // Cela permet à la ListView de détecter les changements de groupe facilement
       final groupedItems = groupBy(items, (ReceptionItem item) => item.emplacement.isEmpty ? "Sans Emplacement" : item.emplacement);
       final sortedKeys = groupedItems.keys.toList()..sort();
-
       List<ReceptionItem> sortedList = [];
       for (var key in sortedKeys) {
         var group = groupedItems[key]!;
@@ -144,7 +128,6 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
       }
       items = sortedList;
     } else {
-      // Tri alpha simple
       items.sort((a, b) => a.nomProduit.compareTo(b.nomProduit));
     }
 
@@ -153,9 +136,42 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
     });
   }
 
+  // --- NOUVELLE LOGIQUE SCAN ---
   void _onSearchSubmitted(String val) {
     if (_filteredItems.length == 1) {
       _showQuickScanDialog(_filteredItems.first);
+    }
+  }
+
+  Future<void> _showQuickScanDialog(ReceptionItem item) async {
+    final provider = Provider.of<ReceptionProvider>(context, listen: false);
+
+    // Récupération de la quantité actuelle
+    final currentQty = provider.currentCheckedQuantities[item.id] ?? 0;
+    final String initialValue = currentQty > 0 ? currentQty.toString() : "";
+
+    // Ouverture du Dialog Sécurisé
+    final int? result = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _QuantityInputDialog(
+        nomProduit: item.nomProduit,
+        cip: item.cip,
+        initialValue: initialValue,
+      ),
+    );
+
+    if (result != null) {
+      provider.updateQuantity(item.id, result);
+      _itemControllers[item.id]?.text = result.toString();
+
+      // Reset pour enchaîner
+      _searchController.clear();
+      _searchFocusNode.requestFocus();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Quantité mise à jour : ${item.nomProduit}"), duration: const Duration(milliseconds: 500)),
+      );
     }
   }
 
@@ -171,58 +187,6 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
     }
   }
 
-  Future<void> _showQuickScanDialog(ReceptionItem item) async {
-    final provider = Provider.of<ReceptionProvider>(context, listen: false);
-    final controller = TextEditingController();
-
-    final currentQty = provider.currentCheckedQuantities[item.id] ?? 0;
-    if (currentQty > 0) controller.text = currentQty.toString();
-
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(item.nomProduit, style: const TextStyle(fontSize: 16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text("CIP: ${item.cip}", style: const TextStyle(fontWeight: FontWeight.bold)),
-            if (item.emplacement.isNotEmpty)
-              Text("Emplacement: ${item.emplacement}", style: const TextStyle(color: Colors.blueGrey)),
-            const SizedBox(height: 10),
-            const Text("Quantité Reçue (Physique) :"),
-            const SizedBox(height: 5),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => Navigator.pop(context),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
-          ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text("Valider")),
-        ],
-      ),
-    );
-
-    if (controller.text.isNotEmpty) {
-      final qty = int.tryParse(controller.text) ?? 0;
-      provider.updateQuantity(item.id, qty);
-      _itemControllers[item.id]?.text = qty.toString();
-
-      _searchController.clear();
-      _searchFocusNode.requestFocus();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Quantité mise à jour : ${item.nomProduit}"), duration: const Duration(milliseconds: 500)),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Consumer<ReceptionProvider>(
@@ -230,14 +194,9 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
         final bon = provider.selectedBon;
         if (bon == null) return const Scaffold(body: Center(child: Text("Erreur de sélection")));
 
-        // Liste des emplacements pour le filtre
-        final locations = bon.details.map((e) => e.emplacement).toSet().toList();
-        locations.sort();
-        final bool hasNoLoc = locations.contains('');
-
+        // CORRECTION : Suppression des lignes inutiles qui causaient le Warning
         int countTotal = _filteredItems.length;
         int countTraites = _filteredItems.where((i) => provider.currentCheckedQuantities.containsKey(i.id)).length;
-
         final bool isGroupedMode = _selectedEmplacement == _groupAllKey;
 
         return Scaffold(
@@ -288,65 +247,6 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
                       textInputAction: TextInputAction.search,
                       onSubmitted: _onSearchSubmitted,
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        // Filtre Emplacement
-                        Expanded(
-                          flex: 3,
-                          child: Container(
-                            height: 40,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: locations.contains(_selectedEmplacement) ||
-                                    _selectedEmplacement == _groupAllKey ||
-                                    _selectedEmplacement == _allKey ||
-                                    _selectedEmplacement == _noLocKey
-                                    ? _selectedEmplacement : _groupAllKey,
-                                isExpanded: true,
-                                icon: const Icon(Icons.filter_list, size: 18),
-                                items: [
-                                  const DropdownMenuItem(value: _groupAllKey, child: Text("Tous (Groupés)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
-                                  const DropdownMenuItem(value: _allKey, child: Text("Tous (Liste plate)", style: TextStyle(fontSize: 13))),
-                                  if (hasNoLoc) const DropdownMenuItem(value: _noLocKey, child: Text("Sans Emplacement", style: TextStyle(fontStyle: FontStyle.italic, fontSize: 13))),
-                                  ...locations.where((l) => l.isNotEmpty).map((loc) => DropdownMenuItem(value: loc, child: Text(loc, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis))),
-                                ],
-                                onChanged: (val) {
-                                  if (val != null) setState(() { _selectedEmplacement = val; _applyFilters(); });
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Filtre Statut
-                        Expanded(
-                          flex: 2,
-                          child: Container(
-                            height: 40,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: _selectedStatus,
-                                isExpanded: true,
-                                items: const [
-                                  DropdownMenuItem(value: "TOUS", child: Text("Tous", style: TextStyle(fontSize: 13))),
-                                  DropdownMenuItem(value: "A_TRAITER", child: Text("À Traiter", style: TextStyle(fontSize: 13, color: Colors.red))),
-                                  DropdownMenuItem(value: "TRAITE", child: Text("Traités", style: TextStyle(fontSize: 13, color: Colors.green))),
-                                  DropdownMenuItem(value: "ECART", child: Text("Écarts", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange))),
-                                ],
-                                onChanged: (val) {
-                                  if (val != null) setState(() { _selectedStatus = val; _applyFilters(); });
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),
@@ -362,29 +262,24 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
                   itemBuilder: (context, index) {
                     final item = _filteredItems[index];
 
-                    // Gestion de l'entête de groupe (Si mode groupé activé)
+                    // Header de groupe
                     bool showHeader = false;
                     if (isGroupedMode) {
                       if (index == 0) {
                         showHeader = true;
                       } else {
                         final prevItem = _filteredItems[index - 1];
-                        // Comparer les emplacements (vide vs vide ou nom vs nom)
                         String currentLoc = item.emplacement.isEmpty ? "Sans Emplacement" : item.emplacement;
                         String prevLoc = prevItem.emplacement.isEmpty ? "Sans Emplacement" : prevItem.emplacement;
-                        if (currentLoc != prevLoc) {
-                          showHeader = true;
-                        }
+                        if (currentLoc != prevLoc) showHeader = true;
                       }
                     }
 
-                    // Récupération des valeurs
                     final checkedQty = provider.currentCheckedQuantities[item.id];
                     final hasBeenChecked = provider.currentCheckedQuantities.containsKey(item.id);
                     final qtyRecueBL = item.qteRecue;
                     final qtySaisie = checkedQty ?? 0;
 
-                    // Couleurs & Icônes
                     Color? cardColor;
                     Icon leadingIcon;
                     if (hasBeenChecked) {
@@ -426,17 +321,15 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
                                   children: [
                                     const TextSpan(text: "CIP: ", style: TextStyle(color: Colors.grey)),
                                     TextSpan(text: "${item.cip}  "),
-                                    // Si groupé, on affiche moins l'emplacement dans la ligne car il est dans le header
                                     if (!isGroupedMode) ...[
                                       const TextSpan(text: "Zone: ", style: TextStyle(color: Colors.grey)),
                                       TextSpan(text: item.emplacement.isEmpty ? "-" : item.emplacement, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
                                       const TextSpan(text: "\n"),
                                     ] else ...[
-                                      const TextSpan(text: "\n"), // Saut de ligne simple si groupé
+                                      const TextSpan(text: "\n"),
                                     ],
-                                    const TextSpan(text: "Attendu BL: "),
+                                    const TextSpan(text: "Attendu: "),
                                     TextSpan(text: "$qtyRecueBL", style: const TextStyle(fontWeight: FontWeight.bold)),
-
                                     if (hasBeenChecked && qtySaisie != qtyRecueBL)
                                       TextSpan(
                                           text: " | Écart: ${qtySaisie - qtyRecueBL > 0 ? '+' : ''}${qtySaisie - qtyRecueBL}",
@@ -482,6 +375,112 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WIDGET POPUP SÉCURISÉ (Même logique que BL)
+// ---------------------------------------------------------------------------
+class _QuantityInputDialog extends StatefulWidget {
+  final String nomProduit;
+  final String cip;
+  final String initialValue;
+
+  const _QuantityInputDialog({
+    Key? key,
+    required this.nomProduit,
+    required this.cip,
+    required this.initialValue,
+  }) : super(key: key);
+
+  @override
+  State<_QuantityInputDialog> createState() => _QuantityInputDialogState();
+}
+
+class _QuantityInputDialogState extends State<_QuantityInputDialog> {
+  late TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      _selectAllText();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _selectAllText() {
+    if (_controller.text.isNotEmpty) {
+      _controller.selection = TextSelection(baseOffset: 0, extentOffset: _controller.text.length);
+    }
+  }
+
+  void _validate() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) {
+      Navigator.of(context).pop(0);
+      return;
+    }
+
+    final value = int.tryParse(text);
+
+    // SÉCURITÉ ANTI-SCAN & COHÉRENCE
+    if (value == null || value < 0 || value > 10000) {
+      setState(() {
+        _errorText = "Mauvaise valeur (Trop grande)";
+      });
+      _selectAllText();
+      _focusNode.requestFocus();
+    } else {
+      Navigator.of(context).pop(value);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.nomProduit, style: const TextStyle(fontSize: 18)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text("CIP: ${widget.cip}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 20),
+          const Text("Saisir la quantité comptée :"),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              errorText: _errorText,
+              border: const OutlineInputBorder(),
+              contentPadding: const EdgeInsets.symmetric(vertical: 15),
+            ),
+            onChanged: (val) {
+              if (_errorText != null) setState(() => _errorText = null);
+            },
+            onSubmitted: (_) => _validate(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Annuler")),
+        ElevatedButton(onPressed: _validate, child: const Text("Valider")),
+      ],
     );
   }
 }
