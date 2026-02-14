@@ -1,4 +1,3 @@
-// lib/providers/article_analysis_provider.dart
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
@@ -20,7 +19,7 @@ class ArticleAnalysisProvider with ChangeNotifier {
   }
 
   Future<void> searchArticles(String query) async {
-    // Règle métier : 2 chars pour libellé, 3 pour cip (approximatif, on bloque si < 2 globalement)
+    // Règle métier : on lance la recherche si au moins 2 caractères
     if (query.trim().length < 2) {
       _results = [];
       notifyListeners();
@@ -33,6 +32,7 @@ class ArticleAnalysisProvider with ChangeNotifier {
     try {
       _results = await _apiService.fetchArticleAnalysis(query);
     } catch (e) {
+      print("Erreur recherche analyse article: $e");
       _results = [];
     } finally {
       _isLoading = false;

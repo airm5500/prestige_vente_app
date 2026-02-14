@@ -151,21 +151,32 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
 }
 
 // Widget Popup Détails (Design "Ticket" / Card)
-// Widget Popup Détails (Design "Ticket" / Card)
 class _ArticleDetailDialog extends StatelessWidget {
   final ArticleAnalysis article;
   const _ArticleDetailDialog({Key? key, required this.article}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final chartData = article.getChartData();
+    // 1. Récupération des données brutes
+    final List<SalesPoint> rawData = article.getChartData();
+
+    // 2. CORRECTION DU TRI CHRONOLOGIQUE (Le cœur de votre demande)
+    final int currentMonth = DateTime.now().month;
+
+    rawData.sort((a, b) {
+      // Année 0 si mois > mois actuel (année dernière), Année 1 sinon
+      int yearA = (a.month > currentMonth) ? 0 : 1;
+      int yearB = (b.month > currentMonth) ? 0 : 1;
+
+      if (yearA != yearB) return yearA.compareTo(yearB);
+      return a.month.compareTo(b.month);
+    });
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         padding: const EdgeInsets.all(20),
         constraints: const BoxConstraints(maxWidth: 400),
-        // CORRECTION ICI : Ajout du SingleChildScrollView pour éviter l'erreur d'overflow
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -203,9 +214,9 @@ class _ArticleDetailDialog extends StatelessWidget {
                       _infoRow("Prix d'achat", "${article.prixAchat} FCFA"),
                       _infoRow("Prix de vente", "${article.prixVente} FCFA"),
                       _infoRow("Grossiste", article.grossiste.isEmpty ? "N/A" : article.grossiste),
-                      _infoRow("Moyenne sur 3 mois", article.moyenne.toStringAsFixed(2)),
+                      _infoRow("Moyenne sur 3 derniers mois", article.moyenne.toStringAsFixed(2)),
                       _infoRow("Emplacement", article.emplacement.isEmpty ? "N/A" : article.emplacement),
-                      _infoRow("Qté totale vendue", "${article.quantiteVendue}"),
+                      _infoRow("Qté totale vendue 6 derniers mois", "${article.quantiteVendue}"),
                     ],
                   ),
                   // Bulle Stock Actuel (Positionnée à droite)
@@ -238,26 +249,39 @@ class _ArticleDetailDialog extends StatelessWidget {
               // Graphique (Si données dispos)
               SizedBox(
                 height: 150,
-                child: chartData.isEmpty
+                child: rawData.isEmpty
                     ? const Center(child: Text("Pas d'historique de vente", style: TextStyle(color: Colors.grey)))
                     : LineChart(
                   LineChartData(
                     gridData: FlGridData(show: true, drawVerticalLine: false),
                     titlesData: FlTitlesData(
                       leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 30, getTitlesWidget: (val, meta) => Text(val.toInt().toString(), style: const TextStyle(fontSize: 10)))),
-                      bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (val, meta) => Text(_getMonthName(val.toInt()), style: const TextStyle(fontSize: 10)))),
+                      bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                              showTitles: true,
+                              getTitlesWidget: (val, meta) {
+                                // CORRECTION ICI : On utilise l'index pour retrouver le bon mois trié
+                                final index = val.toInt();
+                                if (index >= 0 && index < rawData.length) {
+                                  return Text(_getMonthName(rawData[index].month), style: const TextStyle(fontSize: 10));
+                                }
+                                return const Text("");
+                              }
+                          )
+                      ),
                       rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
                       topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
                     ),
                     borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.shade200)),
                     lineBarsData: [
                       LineChartBarData(
-                        spots: chartData.map((e) => FlSpot(e.month.toDouble(), e.qty)).toList(),
+                        // CORRECTION ICI : L'axe X est l'index (0, 1, 2...) pour respecter le tri
+                        spots: rawData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.qty)).toList(),
                         isCurved: true,
                         color: AppColors.primary,
                         barWidth: 3,
                         dotData: FlDotData(show: true),
-                        belowBarData: BarAreaData(show: true, color: AppColors.primary.withOpacity(0.1)),
+                        belowBarData: BarAreaData(show: true, color: AppColors.primary.withValues(alpha:0.1)),
                       ),
                     ],
                   ),
