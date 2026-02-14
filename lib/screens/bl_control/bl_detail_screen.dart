@@ -82,7 +82,7 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
   // Déclenché par la touche "Entrée" du clavier ou le caractère de fin de scan
   void _onSearchSubmitted(String value) {
     if (_filteredItems.length == 1) {
-      // Scan unique trouvé -> Ouverture Pop-up
+      // Scan unique trouvé -> Ouverture Pop-up sécurisé
       _showQuickScanDialog(_filteredItems.first);
     }
   }
@@ -110,68 +110,40 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
 
   Future<void> _showQuickScanDialog(BonLivraisonItem item) async {
     final provider = Provider.of<BlControlProvider>(context, listen: false);
-    final controller = TextEditingController(); // Nouveau controller temporaire
 
-    // Pré-remplir avec la valeur existante ou vide
+    // Valeur initiale (Quantité déjà saisie ou vide)
     final existingQty = provider.checkedQuantities[item.id];
-    if (existingQty != null && existingQty > 0) {
-      controller.text = existingQty.toString();
-    }
+    final String initialValue = (existingQty != null && existingQty > 0) ? existingQty.toString() : "";
 
-    await showDialog(
+    // Ouverture du Dialog personnalisé
+    final int? result = await showDialog<int>(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(item.nomProduit, style: const TextStyle(fontSize: 16)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text("CIP: ${item.cip}", style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              const Text("Saisir la quantité comptée :"),
-              const SizedBox(height: 10),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                onSubmitted: (val) {
-                  Navigator.of(context).pop();
-                },
-              )
-            ],
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text("Annuler")
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("Valider"),
-            )
-          ],
-        );
-      },
+      builder: (context) => _QuantityInputDialog(
+        item: item,
+        initialValue: initialValue,
+      ),
     );
 
-    // Après validation
-    if (controller.text.isNotEmpty) {
-      final qty = int.tryParse(controller.text) ?? 0;
-      provider.updateCheckedQuantity(item.id, qty);
+    // Si une valeur valide est retournée
+    if (result != null) {
+      provider.updateCheckedQuantity(item.id, result);
 
-      // Mettre à jour le controller de la liste principale aussi pour sync l'affichage
-      _itemControllers[item.id]?.text = qty.toString();
+      // Mise à jour du controller de la liste pour synchronisation visuelle
+      if (_itemControllers.containsKey(item.id)) {
+        _itemControllers[item.id]?.text = result.toString();
+      }
 
-      // Reset recherche et focus
+      // Reset total : On vide la recherche et on remet le focus pour le prochain scan
       _searchController.clear();
       _searchFocusNode.requestFocus();
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Quantité mise à jour pour ${item.nomProduit}"), duration: const Duration(milliseconds: 800)),
+        SnackBar(
+          content: Text("Quantité mise à jour : $result pour ${item.nomProduit}"),
+          duration: const Duration(milliseconds: 800),
+          backgroundColor: Colors.green,
+        ),
       );
     }
   }
@@ -208,7 +180,6 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
           itemsToDisplay.sort((a, b) => a.nomProduit.compareTo(b.nomProduit));
         }
 
-        // Déterminer le titre du filtre pour le rapport
         String filterName = "Tous";
         if (_selectedEmplacement != null && _selectedEmplacement != _groupAllKey) {
           filterName = "Emplacement $_selectedEmplacement";
@@ -224,11 +195,10 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
                 style: TextButton.styleFrom(foregroundColor: Colors.white),
                 icon: const Icon(Icons.assessment),
                 label: const Text('Rapport'),
-                // MODIFICATION : Bouton toujours actif, passe les éléments filtrés
                 onPressed: () {
                   Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => BlReportScreen(
-                        filteredItems: itemsToDisplay, // On passe la liste visible actuelle
+                        filteredItems: itemsToDisplay,
                         filterName: filterName,
                       )
                   ));
@@ -291,8 +261,8 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
             child: TextField(
               controller: _searchController,
               focusNode: _searchFocusNode,
-              textInputAction: TextInputAction.search, // Important pour les scanners
-              onSubmitted: _onSearchSubmitted, // Déclenche le scan rapide
+              textInputAction: TextInputAction.search,
+              onSubmitted: _onSearchSubmitted,
               decoration: InputDecoration(
                 labelText: 'Rechercher (Scan, Nom, CIP)',
                 prefixIcon: const Icon(Icons.search),
@@ -301,7 +271,6 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
                     onPressed: () {
                       _searchController.clear();
                       _searchFocusNode.requestFocus();
-                      // _applyFilters est appelé via le listener
                     }
                 ),
                 isDense: true,
@@ -363,9 +332,7 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
   }
 
   Widget _buildItemTile(BuildContext context, BonLivraisonItem item, BonLivraisonItem? nextItem, BlControlProvider provider, bool isEnabled) {
-    // S'assurer que le controller existe (cas de rechargement/filtrage)
     if (!_itemControllers.containsKey(item.id)) {
-      // Fallback simple si le controller manque, bien que initState le gère
       return const SizedBox();
     }
 
@@ -411,6 +378,132 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WIDGET POPUP PERSONNALISÉ POUR LA SAISIE RAPIDE
+// ---------------------------------------------------------------------------
+class _QuantityInputDialog extends StatefulWidget {
+  final BonLivraisonItem item;
+  final String initialValue;
+
+  const _QuantityInputDialog({
+    Key? key,
+    required this.item,
+    required this.initialValue,
+  }) : super(key: key);
+
+  @override
+  State<_QuantityInputDialog> createState() => _QuantityInputDialogState();
+}
+
+class _QuantityInputDialogState extends State<_QuantityInputDialog> {
+  late TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+
+    // Focus automatique + Sélection totale du texte pour remplacement rapide
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      _selectAllText();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _selectAllText() {
+    if (_controller.text.isNotEmpty) {
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+    }
+  }
+
+  void _validate() {
+    final text = _controller.text.trim();
+
+    // Si vide -> 0
+    if (text.isEmpty) {
+      Navigator.of(context).pop(0);
+      return;
+    }
+
+    final value = int.tryParse(text);
+
+    // SÉCURITÉ ANTI-SCAN & COHÉRENCE
+    // 1. value == null : Ce n'est pas un nombre
+    // 2. value < 0 : Pas de stock négatif
+    // 3. value > 10000 : C'est surement un code barre (CIP/EAN) scanné par erreur
+    //    (Un CIP fait au moins 7 chiffres, donc > 1 000 000)
+    if (value == null || value < 0 || value > 10000) {
+      setState(() {
+        _errorText = "Mauvaise valeur (Trop grande)";
+      });
+      // On re-sélectionne tout immédiatement pour que l'utilisateur
+      // puisse re-saisir ou re-scanner sans toucher au clavier/souris
+      _selectAllText();
+      _focusNode.requestFocus();
+    } else {
+      // Tout est bon
+      Navigator.of(context).pop(value);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.item.nomProduit, style: const TextStyle(fontSize: 18)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text("CIP: ${widget.item.cip}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 20),
+          const Text("Saisir la quantité comptée :"),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              errorText: _errorText, // Affiche l'erreur en rouge si besoin
+              border: const OutlineInputBorder(),
+              contentPadding: const EdgeInsets.symmetric(vertical: 15),
+            ),
+            onChanged: (val) {
+              if (_errorText != null) {
+                setState(() => _errorText = null);
+              }
+            },
+            onSubmitted: (_) => _validate(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(), // Annuler renvoie null
+            child: const Text("Annuler")
+        ),
+        ElevatedButton(
+          onPressed: _validate,
+          child: const Text("Valider"),
+        )
+      ],
     );
   }
 }
