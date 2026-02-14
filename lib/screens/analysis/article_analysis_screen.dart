@@ -2,10 +2,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:fl_chart/fl_chart.dart'; // Nécessite fl_chart dans pubspec.yaml
+import 'package:fl_chart/fl_chart.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/providers/article_analysis_provider.dart';
-import 'package:prestige_vente_app/utils/constants.dart'; // Pour AppColors
+import 'package:prestige_vente_app/utils/constants.dart';
 
 class ArticleAnalysisScreen extends StatefulWidget {
   const ArticleAnalysisScreen({Key? key}) : super(key: key);
@@ -29,8 +29,6 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       final q = query.trim();
-      // Règle : CIP >= 3 chars OU Libellé >= 2 chars
-      // Simplification : on lance si >= 2 chars
       if (q.length >= 2) {
         Provider.of<ArticleAnalysisProvider>(context, listen: false).searchArticles(q);
       }
@@ -117,7 +115,6 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text("CIP: ${item.codeCip}", style: TextStyle(color: Colors.grey.shade600)),
-                                  // Emplacement entre parenthèses comme sur l'image
                                   if (item.emplacement.isNotEmpty)
                                     Flexible(child: Text("(${item.emplacement})", overflow: TextOverflow.ellipsis, style: const TextStyle(fontStyle: FontStyle.italic))),
                                 ],
@@ -129,7 +126,6 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
                                   const SizedBox(width: 15),
                                   Text("Stock: ${item.stock}", style: const TextStyle(fontWeight: FontWeight.w600)),
                                   const Spacer(),
-                                  // Moyenne en gras
                                   Text("Moy 3Mois: ", style: TextStyle(color: Colors.grey.shade700)),
                                   Text("${item.moyenne.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                                 ],
@@ -150,7 +146,6 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
   }
 }
 
-// Widget Popup Détails (Design "Ticket" / Card)
 class _ArticleDetailDialog extends StatelessWidget {
   final ArticleAnalysis article;
   const _ArticleDetailDialog({Key? key, required this.article}) : super(key: key);
@@ -160,7 +155,7 @@ class _ArticleDetailDialog extends StatelessWidget {
     // 1. Récupération des données brutes
     final List<SalesPoint> rawData = article.getChartData();
 
-    // 2. CORRECTION DU TRI CHRONOLOGIQUE (Le cœur de votre demande)
+    // 2. CORRECTION DU TRI CHRONOLOGIQUE
     final int currentMonth = DateTime.now().month;
 
     rawData.sort((a, b) {
@@ -171,6 +166,46 @@ class _ArticleDetailDialog extends StatelessWidget {
       if (yearA != yearB) return yearA.compareTo(yearB);
       return a.month.compareTo(b.month);
     });
+
+    // 3. PRÉPARATION DES LIGNES BICOLORES (Rouge/Vert)
+    List<LineChartBarData> lines = [];
+
+    // Index où l'année bascule (premier mois de l'année en cours)
+    int splitIndex = rawData.indexWhere((p) => p.month <= currentMonth);
+
+    if (rawData.isNotEmpty) {
+      if (splitIndex == -1) {
+        // Cas rare : Tout est de l'année dernière -> Tout Rouge
+        lines.add(_createLineData(rawData, 0, Colors.red));
+      } else if (splitIndex == 0) {
+        // Cas : Tout est de l'année en cours -> Tout Vert
+        lines.add(_createLineData(rawData, 0, Colors.green));
+      } else {
+        // Cas Mixte : Données à cheval
+        // Ligne Rouge (Année passée) : Du début jusqu'au point de bascule
+        // Note: On arrête la ligne rouge à splitIndex pour qu'elle touche le premier point vert
+        // mais on peut aussi faire chevaucher pour la continuité.
+        // Ici: Rouge s'arrête juste avant le vert, et Vert commence au dernier point rouge pour faire le lien.
+
+        // Segment 1 : ROUGE (jusqu'à splitIndex inclus, pour que la ligne aille jusqu'au point de transition)
+        // Mais visuellement, on veut souvent que le trait ENTRE Dec et Jan soit vert (nouveau départ) ou rouge (fin d'année).
+        // Choisissons : Le trait de transition est VERT (l'année commence).
+
+        // Liste Rouge : 0 à splitIndex - 1
+        var redSpots = rawData.sublist(0, splitIndex);
+        if (redSpots.isNotEmpty) {
+          // On ajoute le point de transition pour fermer la ligne visuellement
+          // Ou on arrête avant. Pour un graphe continu, il faut partager un point.
+          // On va faire arrêter le rouge au dernier mois N-1.
+          lines.add(_createLineData(redSpots, 0, Colors.red));
+        }
+
+        // Liste Verte : de (splitIndex - 1) à la fin.
+        // On recule de 1 pour que la ligne verte parte du dernier point rouge (continuité).
+        var greenSpots = rawData.sublist(splitIndex - 1);
+        lines.add(_createLineData(greenSpots, splitIndex - 1, Colors.green));
+      }
+    }
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -204,7 +239,7 @@ class _ArticleDetailDialog extends StatelessWidget {
               ),
               const SizedBox(height: 20),
 
-              // Bloc Infos Central (Prix, Stock, Grossiste...)
+              // Bloc Infos Central
               Stack(
                 clipBehavior: Clip.none,
                 children: [
@@ -219,7 +254,6 @@ class _ArticleDetailDialog extends StatelessWidget {
                       _infoRow("Qté totale vendue 6 derniers mois", "${article.quantiteVendue}"),
                     ],
                   ),
-                  // Bulle Stock Actuel (Positionnée à droite)
                   Positioned(
                     right: 0,
                     top: 0,
@@ -243,10 +277,24 @@ class _ArticleDetailDialog extends StatelessWidget {
               ),
 
               const SizedBox(height: 20),
+
+              // Légende des couleurs
+              if (splitIndex > 0)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10.0),
+                  child: Row(
+                    children: [
+                      _legendItem(Colors.red, "Année précédente"),
+                      const SizedBox(width: 15),
+                      _legendItem(Colors.green, "Année en cours"),
+                    ],
+                  ),
+                ),
+
               const Text("Évolution des ventes mensuelles:", style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
 
-              // Graphique (Si données dispos)
+              // Graphique Bicolore
               SizedBox(
                 height: 150,
                 child: rawData.isEmpty
@@ -260,10 +308,15 @@ class _ArticleDetailDialog extends StatelessWidget {
                           sideTitles: SideTitles(
                               showTitles: true,
                               getTitlesWidget: (val, meta) {
-                                // CORRECTION ICI : On utilise l'index pour retrouver le bon mois trié
                                 final index = val.toInt();
                                 if (index >= 0 && index < rawData.length) {
-                                  return Text(_getMonthName(rawData[index].month), style: const TextStyle(fontSize: 10));
+                                  // Couleur du texte du mois selon l'année
+                                  // Si l'index est avant le split => Rouge, sinon Vert
+                                  Color monthColor = Colors.black;
+                                  if (splitIndex > 0) {
+                                    monthColor = index < splitIndex ? Colors.red : Colors.green;
+                                  }
+                                  return Text(_getMonthName(rawData[index].month), style: TextStyle(fontSize: 10, color: monthColor, fontWeight: FontWeight.bold));
                                 }
                                 return const Text("");
                               }
@@ -273,17 +326,7 @@ class _ArticleDetailDialog extends StatelessWidget {
                       topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
                     ),
                     borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.shade200)),
-                    lineBarsData: [
-                      LineChartBarData(
-                        // CORRECTION ICI : L'axe X est l'index (0, 1, 2...) pour respecter le tri
-                        spots: rawData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.qty)).toList(),
-                        isCurved: true,
-                        color: AppColors.primary,
-                        barWidth: 3,
-                        dotData: FlDotData(show: true),
-                        belowBarData: BarAreaData(show: true, color: AppColors.primary.withValues(alpha:0.1)),
-                      ),
-                    ],
+                    lineBarsData: lines, // On passe nos lignes multiples ici
                   ),
                 ),
               ),
@@ -297,6 +340,29 @@ class _ArticleDetailDialog extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  // Helper pour créer une ligne de graphique
+  LineChartBarData _createLineData(List<SalesPoint> points, int startIndexOffset, Color color) {
+    return LineChartBarData(
+      // On ajoute l'offset à l'index pour que la ligne se place au bon endroit sur l'axe X global
+      spots: points.asMap().entries.map((e) => FlSpot((e.key + startIndexOffset).toDouble(), e.value.qty)).toList(),
+      isCurved: true,
+      color: color,
+      barWidth: 3,
+      dotData: FlDotData(show: true),
+      belowBarData: BarAreaData(show: true, color: color.withValues(alpha:0.1)),
+    );
+  }
+
+  Widget _legendItem(Color color, String label) {
+    return Row(
+      children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 5),
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+      ],
     );
   }
 
