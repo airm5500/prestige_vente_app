@@ -278,7 +278,7 @@ class _ArticleDetailDialog extends StatelessWidget {
 
               const SizedBox(height: 20),
 
-              // Légende des couleurs
+              // Légende des couleurs rouge et vert
               if (splitIndex > 0)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10.0),
