@@ -129,14 +129,15 @@ class SettingsProvider with ChangeNotifier {
       ];
     }
 
-    if (prefs.containsKey('enabledPaymentMethodIds')) {
-      // L'utilisateur a déjà choisi ses paiements, on ne touche à rien
-      _enabledPaymentMethodIds = prefs.getStringList('enabledPaymentMethodIds') ?? [];
+    // CORRECTION : On utilise la bonne clé (_enabledPaymentMethodIdsKey)
+    // et on s'assure que la liste est modifiable (List.from)
+    if (prefs.containsKey(_enabledPaymentMethodIdsKey)) {
+      _enabledPaymentMethodIds = List<String>.from(prefs.getStringList(_enabledPaymentMethodIdsKey) ?? []);
     } else {
-      // PREMIÈRE INSTALLATION : On active WAVE, ORANGE, MTN, MOOV, CB
+      // PREMIÈRE INSTALLATION : On active WAVE, ORANGE, MTN, MOOV, CB par défaut
       _enabledPaymentMethodIds = [
         '10', // WAVE
-        '7', // ORANGE
+        '7',  // ORANGE
         '9',  // MTN
         '8',  // MOOV
         '3'   // CARTE BANCAIRE
