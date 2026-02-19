@@ -13,13 +13,12 @@ class BonLivraisonItem {
   final int freeQty;        // freeQty (Unités gratuites)
 
   final bool isChecked;
-  final int checkedQuantity; // La quantité comptée par l'utilisateur
+  final int checkedQuantity; // LA VRAIE SAISIE UTILISATEUR
   final int prixAchat;
   final int prixVente;
   final String zoneGeoName;
 
   // Calcul du stock théorique cible pour le contrôle
-  // Formule : Stock Avant + Entrées (Facturées + Gratuites)
   int get stockFinalTheorique => stockInitialReel + qteRecue + freeQty;
 
   BonLivraisonItem({
@@ -60,8 +59,12 @@ class BonLivraisonItem {
       stockInitialReel: (json['Stock_Init'] as num?)?.toInt() ?? 0,
       freeQty: (json['freeQty'] as num?)?.toInt() ?? 0,
 
+      // STATUT DE CONTROLE DU SERVEUR
       isChecked: json['checked'] ?? false,
-      checkedQuantity: (json['quantiteSaisie'] ?? json['checkedQuantity'] as num?)?.toInt() ?? 0,
+
+      // LA CORRECTION EST ICI : On lit STRICTEMENT checkedQuantity
+      checkedQuantity: (json['checkedQuantity'] as num?)?.toInt() ?? 0,
+
       prixAchat: (json['int_PA_REEL'] as num?)?.toInt() ?? 0,
       prixVente: (json['int_PRIX_VENTE'] as num?)?.toInt() ?? 0,
       zoneGeoName: json['lg_ZONE_GEO_NAME'] ?? 'Non défini',
