@@ -1,5 +1,5 @@
 // lib/widgets/cash_payment_dialog.dart
-// 09/11/2025 21:00
+// Mise à jour : Sécurité anti-scan et limite de rendu de monnaie
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
@@ -21,6 +21,9 @@ class _CashPaymentDialogState extends State<CashPaymentDialog> {
   int _monnaie = 0;
   bool _canValidate = false;
 
+  // Nouvelle variable pour afficher l'erreur
+  String? _errorText;
+
   @override
   void initState() {
     super.initState();
@@ -41,14 +44,55 @@ class _CashPaymentDialogState extends State<CashPaymentDialog> {
   }
 
   void _calculateMonnaie() {
-    final int montantVerse = int.tryParse(_verseController.text) ?? 0;
-    setState(() {
-      if (montantVerse >= widget.montantNet) {
-        _monnaie = montantVerse - widget.montantNet;
-        _canValidate = true;
-      } else {
+    final text = _verseController.text.trim();
+
+    // Si le champ est vide, on réinitialise tout proprement
+    if (text.isEmpty) {
+      setState(() {
         _monnaie = 0;
         _canValidate = false;
+        _errorText = null;
+      });
+      return;
+    }
+
+    final int? montantVerse = int.tryParse(text);
+
+    setState(() {
+      if (montantVerse == null) {
+        // Cas d'une saisie non numérique (impossible normalement avec le clavier num, mais sécurité au cas où)
+        _monnaie = 0;
+        _canValidate = false;
+        _errorText = "Valeur invalide";
+      }
+      // SÉCURITÉ ANTI-SCAN :
+      // Si la monnaie à rendre dépasse 500 000 FCFA, c'est obligatoirement
+      // une erreur de frappe ou le scan d'un code-barres (CIP/EAN).
+      else if ((montantVerse - widget.montantNet) > 500000) {
+        _monnaie = 0;
+        _canValidate = false;
+        _errorText = "Montant aberrant (Erreur de scan ?)";
+
+        // On sélectionne tout le texte pour que l'utilisateur puisse
+        // re-saisir immédiatement sans avoir à appuyer sur "effacer"
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _verseController.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: _verseController.text.length,
+          );
+        });
+      }
+      else if (montantVerse >= widget.montantNet) {
+        // Le montant est suffisant et cohérent, tout est OK
+        _monnaie = montantVerse - widget.montantNet;
+        _canValidate = true;
+        _errorText = null;
+      }
+      else {
+        // Le montant saisi est inférieur au net à payer
+        _monnaie = 0;
+        _canValidate = false;
+        _errorText = null; // On n'affiche pas d'erreur car l'utilisateur est peut-être encore en train de taper
       }
     });
   }
@@ -78,9 +122,10 @@ class _CashPaymentDialogState extends State<CashPaymentDialog> {
             controller: _verseController,
             focusNode: _verseFocusNode,
             autofocus: true,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Montant Versé *',
-              prefixIcon: Icon(Icons.money),
+              prefixIcon: const Icon(Icons.money),
+              errorText: _errorText, // Affichage dynamique du message d'erreur
             ),
             keyboardType: TextInputType.number,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -105,7 +150,7 @@ class _CashPaymentDialogState extends State<CashPaymentDialog> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         ElevatedButton(
-          // Le bouton est désactivé si le montant versé est insuffisant
+          // Le bouton est désactivé si le montant versé est insuffisant ou absurde
           onPressed: _canValidate ? _submit : null,
           child: const Text('Valider'),
         ),
