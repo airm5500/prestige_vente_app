@@ -28,34 +28,57 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     super.initState();
     final provider = Provider.of<DeliveryControlProvider>(context, listen: false);
     _filteredItems = provider.items;
-    final checkedQuantities = provider.checkedQuantities;
 
-    for (var item in provider.items) {
-      final savedQuantity = checkedQuantities[item.id];
-      final controller = TextEditingController(
-        text: savedQuantity != null ? savedQuantity.toString() : '',
-      );
-      final focusNode = FocusNode();
-
-      focusNode.addListener(() {
-        if (focusNode.hasFocus) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            controller.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: controller.text.length,
-            );
-          });
-        }
-      });
-
-      _itemFocusNodes[item.id] = focusNode;
-      _itemControllers[item.id] = controller;
-    }
+    _initializeControllers(provider);
 
     _searchController.addListener(_filterList);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     });
+  }
+
+  void _initializeControllers(DeliveryControlProvider provider) {
+    final checkedQuantities = provider.checkedQuantities;
+
+    for (var item in provider.items) {
+      if (!_itemControllers.containsKey(item.id)) {
+        final savedQuantity = checkedQuantities[item.id];
+        final controller = TextEditingController(
+          text: savedQuantity != null ? savedQuantity.toString() : '',
+        );
+        final focusNode = FocusNode();
+
+        focusNode.addListener(() {
+          if (focusNode.hasFocus) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              controller.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: controller.text.length,
+              );
+            });
+          } else {
+            // --- SÉCURITÉ : SAUVEGARDE À LA PERTE DU FOCUS ---
+            // Exactement comme pour les BL, on ne sauvegarde que quand
+            // l'utilisateur valide (Entrée) ou clique ailleurs.
+            final text = controller.text.trim();
+            if (text.isNotEmpty) {
+              final quantity = int.tryParse(text) ?? 0;
+              final currentProvider = Provider.of<DeliveryControlProvider>(context, listen: false);
+
+              // On vérifie si la valeur a changé pour ne pas spammer le serveur
+              final currentSaved = currentProvider.checkedQuantities[item.id];
+
+              if (currentSaved != quantity) {
+                currentProvider.updateCheckedQuantity(item.id, quantity);
+              }
+            }
+          }
+        });
+
+        _itemFocusNodes[item.id] = focusNode;
+        _itemControllers[item.id] = controller;
+      }
+    }
   }
 
   @override
@@ -82,7 +105,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     });
   }
 
-  // --- NOUVELLE LOGIQUE SCAN ---
+  // --- LOGIQUE SCAN RAPIDE ---
   void _onSearchSubmitted(String val) {
     if (_filteredItems.length == 1) {
       _showQuickScanDialog(_filteredItems.first);
@@ -109,7 +132,10 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
 
     if (result != null) {
       provider.updateCheckedQuantity(item.id, result);
-      _itemControllers[item.id]?.text = result.toString();
+
+      if (_itemControllers.containsKey(item.id)) {
+        _itemControllers[item.id]?.text = result.toString();
+      }
 
       // Reset pour enchaîner
       _searchController.clear();
@@ -181,7 +207,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
         controller: _searchController,
         focusNode: _searchFocusNode,
         textInputAction: TextInputAction.search, // Important pour le déclenchement
-        onSubmitted: _onSearchSubmitted,         // Appel de la nouvelle fonction
+        onSubmitted: _onSearchSubmitted,         // Appel de la fonction de scan
         decoration: InputDecoration(
           labelText: 'Rechercher ou Scanner (Nom, CIP)',
           prefixIcon: const Icon(Icons.search),
@@ -198,6 +224,10 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   }
 
   Widget _buildItemTile(BuildContext context, CommandeItem item, CommandeItem? nextItem, DeliveryControlProvider provider, bool isEnabled) {
+    if (!_itemControllers.containsKey(item.id)) {
+      return const SizedBox();
+    }
+
     final controller = _itemControllers[item.id]!;
     final focusNode = _itemFocusNodes[item.id]!;
     final isChecked = provider.checkedQuantities.containsKey(item.id);
@@ -225,10 +255,12 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
               border: OutlineInputBorder(),
             ),
             onChanged: (value) {
-              final quantity = int.tryParse(value) ?? 0;
-              provider.updateCheckedQuantity(item.id, quantity);
+              // FINIE LA COURSE DE REQUÊTES ICI AUSSI !
+              // On ne sauvegarde plus à chaque chiffre tapé.
             },
             onSubmitted: (_) {
+              // Le changement de focus valide l'input et déclenche la sauvegarde
+              // (via le listener focusNode défini dans l'initState)
               if (nextItem != null) {
                 FocusScope.of(context).requestFocus(_itemFocusNodes[nextItem.id]);
               } else {
@@ -243,7 +275,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// WIDGET POPUP SÉCURISÉ (Copie exacte pour Delivery)
+// WIDGET POPUP SÉCURISÉ
 // ---------------------------------------------------------------------------
 class _QuantityInputDialog extends StatefulWidget {
   final String nomProduit;

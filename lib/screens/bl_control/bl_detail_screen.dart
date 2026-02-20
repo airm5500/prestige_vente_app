@@ -43,13 +43,16 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
 
   void _initializeControllers(BlControlProvider provider) {
     final checkedQuantities = provider.checkedQuantities;
+
     for (var item in provider.items) {
       if (!_itemControllers.containsKey(item.id)) {
         final savedQuantity = checkedQuantities[item.id];
         final controller = TextEditingController(
           text: savedQuantity != null ? savedQuantity.toString() : '',
         );
+
         final focusNode = FocusNode();
+
         focusNode.addListener(() {
           if (focusNode.hasFocus) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -58,8 +61,27 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
                 extentOffset: controller.text.length,
               );
             });
+          } else {
+            // --- SÉCURITÉ : SAUVEGARDE À LA PERTE DU FOCUS ---
+            // Déclenché quand on appuie sur "Entrée" (changement de case)
+            // ou qu'on clique avec la souris sur un autre produit.
+            final text = controller.text.trim();
+            if (text.isNotEmpty) {
+              final quantity = int.tryParse(text) ?? 0;
+              final currentProvider = Provider.of<BlControlProvider>(context, listen: false);
+
+              // On vérifie si la valeur a changé par rapport à la base
+              // pour ne pas envoyer de requêtes inutiles au serveur
+              final currentSaved = currentProvider.checkedQuantities[item.id];
+
+              if (currentSaved != quantity) {
+                // C'est cet appel qui va sauvegarder en base ET mettre la ligne en vert !
+                currentProvider.updateCheckedQuantity(item.id, quantity);
+              }
+            }
           }
         });
+
         _itemFocusNodes[item.id] = focusNode;
         _itemControllers[item.id] = controller;
       }
@@ -79,10 +101,8 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
     _applyFilters();
   }
 
-  // Déclenché par la touche "Entrée" du clavier ou le caractère de fin de scan
   void _onSearchSubmitted(String value) {
     if (_filteredItems.length == 1) {
-      // Scan unique trouvé -> Ouverture Pop-up sécurisé
       _showQuickScanDialog(_filteredItems.first);
     }
   }
@@ -111,11 +131,9 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
   Future<void> _showQuickScanDialog(BonLivraisonItem item) async {
     final provider = Provider.of<BlControlProvider>(context, listen: false);
 
-    // Valeur initiale (Quantité déjà saisie ou vide)
     final existingQty = provider.checkedQuantities[item.id];
     final String initialValue = (existingQty != null && existingQty > 0) ? existingQty.toString() : "";
 
-    // Ouverture du Dialog personnalisé
     final int? result = await showDialog<int>(
       context: context,
       barrierDismissible: false,
@@ -125,16 +143,13 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
       ),
     );
 
-    // Si une valeur valide est retournée
     if (result != null) {
       provider.updateCheckedQuantity(item.id, result);
 
-      // Mise à jour du controller de la liste pour synchronisation visuelle
       if (_itemControllers.containsKey(item.id)) {
         _itemControllers[item.id]?.text = result.toString();
       }
 
-      // Reset total : On vide la recherche et on remet le focus pour le prochain scan
       _searchController.clear();
       _searchFocusNode.requestFocus();
 
@@ -365,10 +380,12 @@ class _BlDetailScreenState extends State<BlDetailScreen> {
                 contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 8)
             ),
             onChanged: (value) {
-              final quantity = int.tryParse(value) ?? 0;
-              provider.updateCheckedQuantity(item.id, quantity);
+              // FINIE LA COURSE DE REQUETES : On ne sauvegarde plus à chaque chiffre tapé.
+              // La ligne restera grise pendant la frappe.
             },
             onSubmitted: (_) {
+              // Le fait de changer le focus ci-dessous déclenchera l'enregistrement
+              // et la mise au vert de la ligne !
               if (nextItem != null) {
                 FocusScope.of(context).requestFocus(_itemFocusNodes[nextItem.id]);
               } else {
@@ -409,7 +426,6 @@ class _QuantityInputDialogState extends State<_QuantityInputDialog> {
     super.initState();
     _controller = TextEditingController(text: widget.initialValue);
 
-    // Focus automatique + Sélection totale du texte pour remplacement rapide
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
       _selectAllText();
@@ -435,7 +451,6 @@ class _QuantityInputDialogState extends State<_QuantityInputDialog> {
   void _validate() {
     final text = _controller.text.trim();
 
-    // Si vide -> 0
     if (text.isEmpty) {
       Navigator.of(context).pop(0);
       return;
@@ -443,21 +458,13 @@ class _QuantityInputDialogState extends State<_QuantityInputDialog> {
 
     final value = int.tryParse(text);
 
-    // SÉCURITÉ ANTI-SCAN & COHÉRENCE
-    // 1. value == null : Ce n'est pas un nombre
-    // 2. value < 0 : Pas de stock négatif
-    // 3. value > 10000 : C'est surement un code barre (CIP/EAN) scanné par erreur
-    //    (Un CIP fait au moins 7 chiffres, donc > 1 000 000)
     if (value == null || value < 0 || value > 10000) {
       setState(() {
         _errorText = "Mauvaise valeur (Trop grande)";
       });
-      // On re-sélectionne tout immédiatement pour que l'utilisateur
-      // puisse re-saisir ou re-scanner sans toucher au clavier/souris
       _selectAllText();
       _focusNode.requestFocus();
     } else {
-      // Tout est bon
       Navigator.of(context).pop(value);
     }
   }
@@ -481,7 +488,7 @@ class _QuantityInputDialogState extends State<_QuantityInputDialog> {
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             decoration: InputDecoration(
-              errorText: _errorText, // Affiche l'erreur en rouge si besoin
+              errorText: _errorText,
               border: const OutlineInputBorder(),
               contentPadding: const EdgeInsets.symmetric(vertical: 15),
             ),
@@ -496,7 +503,7 @@ class _QuantityInputDialogState extends State<_QuantityInputDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(), // Annuler renvoie null
+            onPressed: () => Navigator.of(context).pop(),
             child: const Text("Annuler")
         ),
         ElevatedButton(

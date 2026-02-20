@@ -60,7 +60,23 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
 
         focus.addListener(() {
           if (focus.hasFocus) {
-            ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length);
+            });
+          } else {
+            // --- SÉCURITÉ : SAUVEGARDE À LA PERTE DU FOCUS ---
+            final text = ctrl.text.trim();
+            if (text.isNotEmpty) {
+              final quantity = int.tryParse(text) ?? 0;
+              final currentProvider = Provider.of<ReceptionProvider>(context, listen: false);
+
+              final currentSaved = currentProvider.currentCheckedQuantities[item.id];
+
+              // On vérifie si la valeur a changé pour ne pas surcharger le serveur
+              if (currentSaved != quantity) {
+                currentProvider.updateQuantity(item.id, quantity);
+              }
+            }
           }
         });
 
@@ -136,7 +152,7 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
     });
   }
 
-  // --- NOUVELLE LOGIQUE SCAN ---
+  // --- LOGIQUE SCAN RAPIDE ---
   void _onSearchSubmitted(String val) {
     if (_filteredItems.length == 1) {
       _showQuickScanDialog(_filteredItems.first);
@@ -146,11 +162,9 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
   Future<void> _showQuickScanDialog(ReceptionItem item) async {
     final provider = Provider.of<ReceptionProvider>(context, listen: false);
 
-    // Récupération de la quantité actuelle
     final currentQty = provider.currentCheckedQuantities[item.id] ?? 0;
     final String initialValue = currentQty > 0 ? currentQty.toString() : "";
 
-    // Ouverture du Dialog Sécurisé
     final int? result = await showDialog<int>(
       context: context,
       barrierDismissible: false,
@@ -165,7 +179,6 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
       provider.updateQuantity(item.id, result);
       _itemControllers[item.id]?.text = result.toString();
 
-      // Reset pour enchaîner
       _searchController.clear();
       _searchFocusNode.requestFocus();
 
@@ -183,7 +196,7 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
         FocusScope.of(context).requestFocus(nextNode);
       }
     } else {
-      FocusScope.of(context).unfocus();
+      FocusScope.of(context).requestFocus(_searchFocusNode);
     }
   }
 
@@ -194,7 +207,6 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
         final bon = provider.selectedBon;
         if (bon == null) return const Scaffold(body: Center(child: Text("Erreur de sélection")));
 
-        // CORRECTION : Suppression des lignes inutiles qui causaient le Warning
         int countTotal = _filteredItems.length;
         int countTraites = _filteredItems.where((i) => provider.currentCheckedQuantities.containsKey(i.id)).length;
         final bool isGroupedMode = _selectedEmplacement == _groupAllKey;
@@ -354,12 +366,12 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
                                   isDense: true,
                                 ),
                                 onChanged: (val) {
-                                  final q = int.tryParse(val) ?? 0;
-                                  provider.updateQuantity(item.id, q);
+                                  // FIN DE LA COURSE DE REQUÊTES ICI !
+                                  // L'enregistrement se fera via le FocusNode quand on quittera la case
                                 },
-                                onSubmitted: (val) {
-                                  final q = int.tryParse(val) ?? 0;
-                                  provider.updateQuantity(item.id, q);
+                                onSubmitted: (_) {
+                                  // En appuyant sur "Entrée", on passe à la ligne suivante,
+                                  // ce qui fait perdre le focus à cette case et déclenche la sauvegarde.
                                   _focusNextProduct(index);
                                 },
                               ),
@@ -380,7 +392,7 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// WIDGET POPUP SÉCURISÉ (Même logique que BL)
+// WIDGET POPUP SÉCURISÉ
 // ---------------------------------------------------------------------------
 class _QuantityInputDialog extends StatefulWidget {
   final String nomProduit;
@@ -435,7 +447,6 @@ class _QuantityInputDialogState extends State<_QuantityInputDialog> {
 
     final value = int.tryParse(text);
 
-    // SÉCURITÉ ANTI-SCAN & COHÉRENCE
     if (value == null || value < 0 || value > 10000) {
       setState(() {
         _errorText = "Mauvaise valeur (Trop grande)";
