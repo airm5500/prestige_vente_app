@@ -27,11 +27,49 @@ class _ReceptionListScreenState extends State<ReceptionListScreen> {
     });
   }
 
+  // Chargement silencieux (utilisé au démarrage et au pull-to-refresh)
   Future<void> _fetchData() async {
     final startStr = DateFormat('yyyy-MM-dd').format(_startDate);
     final endStr = DateFormat('yyyy-MM-dd').format(_endDate);
     await Provider.of<ReceptionProvider>(context, listen: false)
         .fetchReceptionBons(dtStart: startStr, dtEnd: endStr, query: _searchController.text);
+  }
+
+  // --- Recherche manuelle avec Popup bloquant ---
+  Future<void> _searchWithPopup() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return const Dialog(
+          child: Padding(
+            padding: EdgeInsets.all(20.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Text("Recherche en cours..."),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    try {
+      await _fetchData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Erreur réseau"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        Navigator.of(context).pop(); // Ferme le popup
+      }
+    }
   }
 
   Future<void> _selectDate(BuildContext context, bool isStart) async {
@@ -102,12 +140,12 @@ class _ReceptionListScreenState extends State<ReceptionListScreen> {
                       prefixIcon: const Icon(Icons.search),
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.search),
-                        onPressed: _fetchData,
+                        onPressed: _searchWithPopup,
                       ),
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
-                    onSubmitted: (_) => _fetchData(),
+                    onSubmitted: (_) => _searchWithPopup(),
                   ),
                 ],
               ),
@@ -116,7 +154,7 @@ class _ReceptionListScreenState extends State<ReceptionListScreen> {
             Expanded(
               child: Consumer<ReceptionProvider>(
                 builder: (context, provider, child) {
-                  if (provider.isLoading) {
+                  if (provider.isLoading && provider.bonsAFaire.isEmpty && provider.bonsTermines.isEmpty) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
@@ -197,16 +235,64 @@ class _ReceptionListScreenState extends State<ReceptionListScreen> {
                 Text(Constants.formatNumber(bon.montantHt), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
               ],
             ),
-            onTap: () {
-              Provider.of<ReceptionProvider>(context, listen: false).selectBon(bon);
+            onTap: () async {
+              // --- SÉCURITÉ : POPUP DE CHARGEMENT BLOQUANT ---
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (BuildContext dialogContext) {
+                  return const Dialog(
+                    child: Padding(
+                      padding: EdgeInsets.all(20.0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(width: 20),
+                          Text("Ouverture de la réception..."),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
 
-              // Modification ici : on actualise la liste au retour
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ReceptionDetailScreen()),
-              ).then((_) {
-                _fetchData(); // Rafraichit la liste au retour
-              });
+              try {
+                // CORRECTION ICI : On retire le 'await' car la fonction est synchrone (void)
+                Provider.of<ReceptionProvider>(context, listen: false).selectBon(bon);
+
+                // Petit délai artificiel pour laisser le temps au popup de s'animer (100 ms)
+                await Future.delayed(const Duration(milliseconds: 100));
+
+                // Fermeture du popup
+                if (mounted) {
+                  Navigator.of(context).pop();
+                }
+
+                // Ouverture de l'écran des détails
+                if (mounted) {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ReceptionDetailScreen()),
+                  );
+
+                  // Rafraichissement au retour
+                  if (mounted) {
+                    _fetchData();
+                  }
+                }
+              } catch (e) {
+                // En cas d'erreur
+                if (mounted) {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Erreur lors de l'ouverture de la réception."),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
           ),
         );

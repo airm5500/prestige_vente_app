@@ -74,14 +74,55 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.secondary),
                     ),
                     onTap: () async {
-                      await provider.selectCommande(commande);
-                      if (mounted) {
-                        // On attend que l'écran de détail soit fermé (quand l'utilisateur appuie sur "retour")
-                        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeliveryDetailScreen()));
+                      // --- SÉCURITÉ : POPUP DE CHARGEMENT BLOQUANT ---
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false, // Empêche de cliquer à côté pour fermer
+                        builder: (BuildContext dialogContext) {
+                          return const Dialog(
+                            child: Padding(
+                              padding: EdgeInsets.all(20.0),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(),
+                                  SizedBox(width: 20),
+                                  Text("Ouverture de la commande..."),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      );
 
-                        // MODIFICATION : Une fois de retour, on rafraîchit la liste.
+                      try {
+                        // Téléchargement des données de la commande
+                        await provider.selectCommande(commande);
+
+                        // Fermeture du popup de chargement
                         if (mounted) {
-                          provider.fetchCommandes();
+                          Navigator.of(context).pop();
+                        }
+
+                        // Ouverture de la page de détail
+                        if (mounted) {
+                          await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeliveryDetailScreen()));
+
+                          // MODIFICATION : Une fois de retour, on rafraîchit la liste.
+                          if (mounted) {
+                            provider.fetchCommandes();
+                          }
+                        }
+                      } catch (e) {
+                        // En cas d'erreur (ex: problème réseau)
+                        if (mounted) {
+                          Navigator.of(context).pop(); // Ferme le popup
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("Erreur lors de l'ouverture de la commande."),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
                         }
                       }
                     },

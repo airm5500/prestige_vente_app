@@ -1,5 +1,4 @@
 // lib/screens/bl_control/bl_list_screen.dart
-// 19/10/2025 00:50
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison.dart';
@@ -9,7 +8,6 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 
 class BlListScreen extends StatefulWidget {
-  // MODIFICATION : Accepte un filtre initial
   final String? initialFilter;
 
   const BlListScreen({super.key, this.initialFilter});
@@ -26,7 +24,6 @@ class _BlListScreenState extends State<BlListScreen> {
   String? _dtStart;
   String? _dtEnd;
 
-  // MODIFICATION : État pour les ToggleButtons (0: À Traiter, 1: Terminés, 2: Tous)
   List<bool> _isSelected = [true, false, false];
 
   @override
@@ -36,13 +33,12 @@ class _BlListScreenState extends State<BlListScreen> {
     _setDate(now, _dtStartController, (val) => _dtStart = val);
     _setDate(now, _dtEndController, (val) => _dtEnd = val);
 
-    // Applique le filtre initial si fourni
     if (widget.initialFilter == 'A_TRAITER') {
-      _isSelected = [true, false, false]; // "À Traiter"
+      _isSelected = [true, false, false];
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchData();
+      _fetchData(); // Chargement initial silencieux
     });
   }
 
@@ -54,12 +50,50 @@ class _BlListScreenState extends State<BlListScreen> {
     super.dispose();
   }
 
-  void _fetchData() {
-    Provider.of<BlControlProvider>(context, listen: false).fetchBonsLivraison(
+  // Requête silencieuse (utilisée à l'ouverture ou au pull-to-refresh)
+  Future<void> _fetchData() async {
+    await Provider.of<BlControlProvider>(context, listen: false).fetchBonsLivraison(
       query: _searchController.text,
       dtStart: _dtStart,
       dtEnd: _dtEnd,
     );
+  }
+
+  // --- NOUVEAUTÉ : Recherche avec Popup bloquant ---
+  Future<void> _searchWithPopup() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return const Dialog(
+          child: Padding(
+            padding: EdgeInsets.all(20.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Text("Recherche en cours..."),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    try {
+      await _fetchData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Erreur réseau"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        Navigator.of(context).pop(); // Ferme le popup une fois la recherche finie
+      }
+    }
   }
 
   Future<void> _selectDate(BuildContext context, TextEditingController controller, Function(String) onDateSelected) async {
@@ -87,7 +121,6 @@ class _BlListScreenState extends State<BlListScreen> {
       appBar: AppBar(title: const Text('Bons de Livraison')),
       body: Column(
         children: [
-          // MODIFICATION : Zone de filtres réorganisée et réduite
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: Column(
@@ -99,12 +132,15 @@ class _BlListScreenState extends State<BlListScreen> {
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: IconButton(
                       icon: const Icon(Icons.clear),
-                      onPressed: () { _searchController.clear(); _fetchData(); },
+                      onPressed: () {
+                        _searchController.clear();
+                        _searchWithPopup(); // On relance la recherche bloquante
+                      },
                     ),
-                    isDense: true, // Réduit la hauteur
+                    isDense: true,
                   ),
                   textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _fetchData(),
+                  onSubmitted: (_) => _searchWithPopup(), // Recherche via la touche "Entrée" du clavier
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -129,7 +165,7 @@ class _BlListScreenState extends State<BlListScreen> {
                     const SizedBox(width: 8),
                     IconButton(
                       icon: const Icon(Icons.search),
-                      onPressed: _fetchData,
+                      onPressed: _searchWithPopup, // Recherche bloquante via le bouton
                       style: IconButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
                     ),
                   ],
@@ -162,14 +198,12 @@ class _BlListScreenState extends State<BlListScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                // MODIFICATION : Logique de filtrage locale
                 List<BonLivraison> filteredList = provider.bonsLivraison;
-                if (_isSelected[0]) { // À Traiter
+                if (_isSelected[0]) {
                   filteredList = provider.bonsLivraison.where((bl) => bl.statutTraitement != 'TERMINE').toList();
-                } else if (_isSelected[1]) { // Terminés
+                } else if (_isSelected[1]) {
                   filteredList = provider.bonsLivraison.where((bl) => bl.statutTraitement == 'TERMINE').toList();
                 }
-                // Si _isSelected[2] (Tous), on n'applique pas de filtre
 
                 if (filteredList.isEmpty) {
                   return const Center(child: Text('Aucun bon de livraison trouvé.'));
@@ -196,7 +230,7 @@ class _BlListScreenState extends State<BlListScreen> {
                         cardColor = Colors.orange.shade50;
                         iconData = Icons.pending_actions;
                         iconColor = Colors.orange;
-                      } else { // A_FAIRE
+                      } else {
                         cardColor = null;
                         iconData = Icons.receipt_long;
                         iconColor = AppColors.primary;
@@ -213,11 +247,49 @@ class _BlListScreenState extends State<BlListScreen> {
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.secondary),
                           ),
                           onTap: () async {
-                            await provider.selectBonLivraison(bl);
-                            if (mounted) {
-                              await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlDetailScreen()));
-                              if (mounted) {
-                                _fetchData();
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (BuildContext dialogContext) {
+                                return const Dialog(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(20.0),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        CircularProgressIndicator(),
+                                        SizedBox(width: 20),
+                                        Text("Ouverture du BL en cours..."),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+
+                            try {
+                              await provider.selectBonLivraison(bl);
+
+                              if (context.mounted) {
+                                Navigator.of(context).pop();
+                              }
+
+                              if (context.mounted) {
+                                await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlDetailScreen()));
+
+                                if (context.mounted) {
+                                  _fetchData();
+                                }
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                Navigator.of(context).pop();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text("Erreur lors de l'ouverture du BL. Vérifiez le réseau."),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
                               }
                             }
                           },
