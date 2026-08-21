@@ -32,8 +32,8 @@ android {
 
         // MODIFICATION : Ces lignes DOIVENT être décommentées.
         //versionCode = flutter.versionCode
-        versionCode = 7
-        versionName = "3.3.1"
+        versionCode = 8
+        versionName = "3.4.1"
     }
 
     buildTypes {
