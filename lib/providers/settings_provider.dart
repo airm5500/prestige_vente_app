@@ -1,5 +1,5 @@
 // lib/providers/settings_provider.dart
-// 13/11/2025 10:00 (Complet : Assurance + Menu Organizer + Fix Crash URL)
+// Mise à jour : Ajout du mode de comparaison de stock pour le contrôle BL
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
@@ -21,12 +21,13 @@ class SettingsProvider with ChangeNotifier {
   static const String _enabledPaymentMethodIdsKey = 'enabled_payment_method_ids';
   static const String _numberOfTicketsKey = 'number_of_tickets';
   static const String _ticketCodeTypeKey = 'ticket_code_type';
-
   static const String _numberOfTicketsAssuranceKey = 'number_of_tickets_assurance';
   static const String _maxTiersPayantsKey = 'max_tiers_payants';
-
   static const String _menuOrderKey = 'menuOrder';
   static const String _hiddenMenuIdsKey = 'hiddenMenuIds';
+
+  // NOUVEAU PARAMÈTRE : Mode de comparaison Stock BL
+  static const String _blStockComparisonModeKey = 'bl_stock_comparison_mode';
 
   String _localIp = '';
   String _remoteIp = '';
@@ -43,12 +44,13 @@ class SettingsProvider with ChangeNotifier {
   List<String> _enabledPaymentMethodIds = [];
   int _numberOfTickets = 1;
   String _ticketCodeType = 'QR_CODE';
-
   int _numberOfTicketsAssurance = 1;
   int _maxTiersPayants = 2;
-
   List<String> _menuOrder = [];
   List<String> _hiddenMenuIds = [];
+
+  // NOUVELLE VARIABLE
+  String _blStockComparisonMode = 'theorique';
 
   // Getters
   String get localIp => _localIp;
@@ -66,25 +68,21 @@ class SettingsProvider with ChangeNotifier {
   List<String> get enabledPaymentMethodIds => _enabledPaymentMethodIds;
   int get numberOfTickets => _numberOfTickets;
   String get ticketCodeType => _ticketCodeType;
-
   int get numberOfTicketsAssurance => _numberOfTicketsAssurance;
   int get maxTiersPayants => _maxTiersPayants;
-
   List<String> get menuOrder => _menuOrder;
   List<String> get hiddenMenuIds => _hiddenMenuIds;
 
-  // AJOUT : Getter manquant pour vérifier si la configuration existe
+  // NOUVEAU GETTER
+  String get blStockComparisonMode => _blStockComparisonMode;
+
   bool get isConfigured => _localIp.isNotEmpty || _remoteIp.isNotEmpty;
 
   String get baseUrl {
     String ip = _isRemote ? _remoteIp : _localIp;
-
-    // CORRECTION CRASH : Si l'IP est vide, on met une valeur par défaut "safe"
-    // pour que Dio ne plante pas au démarrage. Le SplashScreen s'occupera de la redirection.
     if (ip.isEmpty) {
       ip = "localhost";
     }
-
     return 'http://$ip:$_port/$_appName/api/v1';
   }
 
@@ -108,33 +106,29 @@ class SettingsProvider with ChangeNotifier {
     _enabledPaymentMethodIds = prefs.getStringList(_enabledPaymentMethodIdsKey) ?? [];
     _numberOfTickets = prefs.getInt(_numberOfTicketsKey) ?? 1;
     _ticketCodeType = prefs.getString(_ticketCodeTypeKey) ?? 'QR_CODE';
-
     _numberOfTicketsAssurance = prefs.getInt(_numberOfTicketsAssuranceKey) ?? 2;
     _maxTiersPayants = prefs.getInt(_maxTiersPayantsKey) ?? 2;
-
     _menuOrder = prefs.getStringList(_menuOrderKey) ?? [];
     _hiddenMenuIds = prefs.getStringList(_hiddenMenuIdsKey) ?? [];
     _hideRvProducts = prefs.getBool('hide_rv_products') ?? true;
 
+    // CHARGEMENT DU NOUVEAU PARAMÈTRE
+    _blStockComparisonMode = prefs.getString(_blStockComparisonModeKey) ?? 'theorique';
+
     if (prefs.containsKey('hiddenMenuIds')) {
-      // L'utilisateur a déjà touché à sa config, on respecte son choix
       _hiddenMenuIds = prefs.getStringList('hiddenMenuIds') ?? [];
     } else {
-      // PREMIÈRE INSTALLATION : On masque les menus demandés
       _hiddenMenuIds = [
-        'evaluation', // Évaluation Vente
-        'search', // Recherche Article
-        'ajustement', // Ajustement Stock
-        'depot' // Vente Dépôt
+        'evaluation',
+        'search',
+        'ajustement',
+        'depot'
       ];
     }
 
-    // CORRECTION : On utilise la bonne clé (_enabledPaymentMethodIdsKey)
-    // et on s'assure que la liste est modifiable (List.from)
     if (prefs.containsKey(_enabledPaymentMethodIdsKey)) {
       _enabledPaymentMethodIds = List<String>.from(prefs.getStringList(_enabledPaymentMethodIdsKey) ?? []);
     } else {
-      // PREMIÈRE INSTALLATION : On active WAVE, ORANGE, MTN, MOOV, CB par défaut
       _enabledPaymentMethodIds = [
         '10', // WAVE
         '7',  // ORANGE
@@ -143,7 +137,14 @@ class SettingsProvider with ChangeNotifier {
         '3'   // CARTE BANCAIRE
       ];
     }
+    notifyListeners();
+  }
 
+  // --- NOUVEAU SETTER POUR LE BL ---
+  Future<void> setBlStockComparisonMode(String mode) async {
+    _blStockComparisonMode = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_blStockComparisonModeKey, mode);
     notifyListeners();
   }
 
@@ -313,12 +314,9 @@ class SettingsProvider with ChangeNotifier {
     }
   }
 
-  // NOUVEAU : Variable pour masquer les produits RV
-  bool _hideRvProducts = true; // PAR DÉFAUT : ACTIVE (Masque les RV)
-
+  bool _hideRvProducts = true;
   bool get hideRvProducts => _hideRvProducts;
 
-  // AJOUTEZ CETTE MÉTHODE
   Future<void> setHideRvProducts(bool value) async {
     _hideRvProducts = value;
     final prefs = await SharedPreferences.getInstance();

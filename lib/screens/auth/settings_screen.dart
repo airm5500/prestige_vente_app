@@ -1,5 +1,5 @@
 // lib/screens/auth/settings_screen.dart
-// 13/11/2025 10:00 (Complet : Assurance + Menu Organizer + Sécurité PIN)
+// 13/11/2025 10:00 (Complet : Assurance + Menu Organizer + Sécurité PIN + Stock BL Mode)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:provider/provider.dart';
@@ -222,6 +222,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Modifier Contrôle Livraison", style: TextStyle(fontSize: 16))), Switch( value: settings.canEditDeliveryControl, onChanged: (value) { settings.setCanEditDeliveryControl(value); } ), ], ),
                       const SizedBox(height: 10),
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Modifier Pointage BL", style: TextStyle(fontSize: 16))), Switch( value: settings.canEditBlControl, onChanged: (value) { settings.setCanEditBlControl(value); } ), ], ),
+
+                      // NOUVEAU PARAMÈTRE : COMPARAISON STOCK
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Flexible(child: Text("Comparaison Stock BL", style: TextStyle(fontSize: 16))),
+                          ToggleButtons(
+                            isSelected: [
+                              settings.blStockComparisonMode == 'theorique',
+                              settings.blStockComparisonMode == 'machine'
+                            ],
+                            onPressed: (index) {
+                              settings.setBlStockComparisonMode(index == 0 ? 'theorique' : 'machine');
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            children: const [
+                              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Théorique')),
+                              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Machine'))
+                            ],
+                          ),
+                        ],
+                      ),
+
                       const SizedBox(height: 10),
                       SwitchListTile(
                         title: const Text("Masquer les produits 'RV'"),

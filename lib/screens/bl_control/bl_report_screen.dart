@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/pdf_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -22,15 +23,29 @@ class BlReportScreen extends StatefulWidget {
 
 class _BlReportScreenState extends State<BlReportScreen> {
   bool _isGeneratingPdf = false;
-  String _currentFilter = 'TOUS'; // Options: TOUS, CONTROLE, NON_CONTROLE
+  String _currentFilter = 'TOUS'; // Options: TOUS, CONTROLE, NON_CONTROLE, AVEC_ECART, SANS_ECART
 
-  // Récupère la liste filtrée selon le choix de l'utilisateur (Dropdown)
-  List<BonLivraisonItem> _getDisplayList(List<BonLivraisonItem> sourceList, Map<String, int> checkedQuantities) {
+  // Récupère la liste filtrée selon le choix de l'utilisateur
+  List<BonLivraisonItem> _getDisplayList(List<BonLivraisonItem> sourceList, Map<String, int> checkedQuantities, String comparisonMode) {
     switch (_currentFilter) {
       case 'CONTROLE':
         return sourceList.where((item) => checkedQuantities.containsKey(item.id)).toList();
       case 'NON_CONTROLE':
         return sourceList.where((item) => !checkedQuantities.containsKey(item.id)).toList();
+      case 'AVEC_ECART':
+        return sourceList.where((item) {
+          if (!checkedQuantities.containsKey(item.id)) return false;
+          final checkedQty = checkedQuantities[item.id] ?? 0;
+          final refStock = comparisonMode == 'machine' ? item.stockFinal : item.stockFinalTheorique;
+          return checkedQty != refStock;
+        }).toList();
+      case 'SANS_ECART':
+        return sourceList.where((item) {
+          if (!checkedQuantities.containsKey(item.id)) return false;
+          final checkedQty = checkedQuantities[item.id] ?? 0;
+          final refStock = comparisonMode == 'machine' ? item.stockFinal : item.stockFinalTheorique;
+          return checkedQty == refStock;
+        }).toList();
       case 'TOUS':
       default:
         return sourceList;
@@ -44,25 +59,29 @@ class _BlReportScreenState extends State<BlReportScreen> {
 
     try {
       final provider = Provider.of<BlControlProvider>(context, listen: false);
+      final settings = Provider.of<SettingsProvider>(context, listen: false);
       final bl = provider.selectedBonLivraison;
 
       // Liste source (venant de l'écran précédent, potentiellement déjà filtrée par emplacement)
       final sourceList = widget.filteredItems ?? provider.items;
-      // Application du filtre local (Contrôlé/Non contrôlé)
-      final itemsToPrint = _getDisplayList(sourceList, provider.checkedQuantities);
+      // Application du filtre local
+      final itemsToPrint = _getDisplayList(sourceList, provider.checkedQuantities, settings.blStockComparisonMode);
 
       // Construction du titre du filtre pour le PDF
       String pdfFilterTitle = "${widget.filterName} - ";
       if (_currentFilter == 'TOUS') pdfFilterTitle += "Tout";
       if (_currentFilter == 'CONTROLE') pdfFilterTitle += "Contrôlés";
       if (_currentFilter == 'NON_CONTROLE') pdfFilterTitle += "Non Contrôlés";
+      if (_currentFilter == 'AVEC_ECART') pdfFilterTitle += "Avec Écarts";
+      if (_currentFilter == 'SANS_ECART') pdfFilterTitle += "Sans Écarts";
 
       if (bl != null) {
         await PdfService().generateAndPrintBlReport(
-            bl: bl,
-            items: itemsToPrint,
-            checkedQuantities: provider.checkedQuantities,
-            filterTitle: pdfFilterTitle
+          bl: bl,
+          items: itemsToPrint,
+          checkedQuantities: provider.checkedQuantities,
+          filterTitle: pdfFilterTitle,
+          comparisonMode: settings.blStockComparisonMode, // Nouveau paramètre
         );
       }
     } catch (e) {
@@ -80,6 +99,9 @@ class _BlReportScreenState extends State<BlReportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final settings = Provider.of<SettingsProvider>(context);
+    final comparisonMode = settings.blStockComparisonMode;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Rapport & Supervision'),
@@ -110,10 +132,10 @@ class _BlReportScreenState extends State<BlReportScreen> {
           // 1. Liste de base (venant du filtre emplacement écran précédent)
           final baseItems = widget.filteredItems ?? provider.items;
 
-          // 2. Liste affichée (après filtre Contrôlé/Pas Contrôlé)
-          final displayItems = _getDisplayList(baseItems, provider.checkedQuantities);
+          // 2. Liste affichée (après filtre Contrôlé/Pas Contrôlé/Ecarts)
+          final displayItems = _getDisplayList(baseItems, provider.checkedQuantities, comparisonMode);
 
-          // Stats pour le header (sur la baseItems pour voir l'avancement global de la zone)
+          // Stats pour le header
           int totalLines = baseItems.length;
           int completedLines = baseItems.where((i) => provider.checkedQuantities.containsKey(i.id)).length;
 
@@ -145,7 +167,7 @@ class _BlReportScreenState extends State<BlReportScreen> {
                 ),
               ),
 
-              // Barre de Filtre
+              // Barre de Filtre Élargie
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: Row(
@@ -160,6 +182,8 @@ class _BlReportScreenState extends State<BlReportScreen> {
                           DropdownMenuItem(value: 'TOUS', child: Text("Tout")),
                           DropdownMenuItem(value: 'CONTROLE', child: Text("Contrôlés uniquement")),
                           DropdownMenuItem(value: 'NON_CONTROLE', child: Text("Non Contrôlés uniquement")),
+                          DropdownMenuItem(value: 'AVEC_ECART', child: Text("Avec écart uniquement")),
+                          DropdownMenuItem(value: 'SANS_ECART', child: Text("Sans écart (Conformes)")),
                         ],
                         onChanged: (val) {
                           if (val != null) setState(() => _currentFilter = val);
@@ -183,18 +207,16 @@ class _BlReportScreenState extends State<BlReportScreen> {
                     final item = displayItems[index];
                     final isControlled = provider.checkedQuantities.containsKey(item.id);
                     final checkedQty = provider.checkedQuantities[item.id] ?? 0;
-                    final theoretical = item.stockFinalTheorique;
-                    final diff = checkedQty - theoretical;
+
+                    // Calcul basé sur le paramètre choisi
+                    final refStock = comparisonMode == 'machine' ? item.stockFinal : item.stockFinalTheorique;
+                    final diff = checkedQty - refStock;
 
                     // Définition des couleurs
                     Color? cardColor;
                     if (isControlled) {
-                      // Vert si contrôlé
-                      // Optionnel : Orange si contrôlé AVEC écart, mais vous avez demandé Vert pour contrôlé
                       cardColor = Colors.green.shade50;
                       if (diff != 0) {
-                        // On peut nuancer légèrement si écart, ou garder vert.
-                        // Gardons vert comme demandé, mais marquons l'écart en rouge texte
                         cardColor = Colors.green.shade100;
                       }
                     } else {
@@ -218,7 +240,7 @@ class _BlReportScreenState extends State<BlReportScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text('Théo: $theoretical', style: const TextStyle(fontSize: 12)),
+                            Text('${comparisonMode == 'machine' ? 'Mach.' : 'Théo.'}: $refStock', style: const TextStyle(fontSize: 12)),
                             Text('Cpté: $checkedQty', style: const TextStyle(fontWeight: FontWeight.bold)),
                             if (diff != 0)
                               Text(

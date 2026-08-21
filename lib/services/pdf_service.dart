@@ -1,5 +1,5 @@
 // lib/services/pdf_service.dart
-// VERSION CORRIGÉE : Zéro const, construction impérative stricte.
+// VERSION CORRIGÉE : Inclus les nouvelles colonnes de pointage et la base de comparaison
 import 'package:collection/collection.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -23,6 +23,7 @@ class PdfService {
     required List<BonLivraisonItem> items,
     required Map<String, int> checkedQuantities,
     String filterTitle = "Tous",
+    required String comparisonMode, // NOUVEAU PARAMÈTRE POUR LE PDF
   }) async {
     final doc = pw.Document();
     final bool isGroupedMode = filterTitle.contains("Tous (Groupés)");
@@ -35,7 +36,7 @@ class PdfService {
         margin: pw.EdgeInsets.all(20),
         build: (pw.Context context) {
           List<pw.Widget> content = [];
-          content.add(_buildBlHeader(bl, filterTitle));
+          content.add(_buildBlHeader(bl, filterTitle, comparisonMode));
           content.add(pw.SizedBox(height: 15));
 
           if (isGroupedMode) {
@@ -53,10 +54,10 @@ class PdfService {
                 margin: pw.EdgeInsets.only(top: 10, bottom: 4),
                 child: pw.Text("Emplacement : $location", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
               ));
-              content.add(_buildBlTable(groupItems, checkedQuantities, hideLocationColumn: true));
+              content.add(_buildBlTable(groupItems, checkedQuantities, hideLocationColumn: true, comparisonMode: comparisonMode));
             }
           } else {
-            content.add(_buildBlTable(items, checkedQuantities, hideLocationColumn: hideLocationColumn));
+            content.add(_buildBlTable(items, checkedQuantities, hideLocationColumn: hideLocationColumn, comparisonMode: comparisonMode));
           }
 
           content.add(pw.SizedBox(height: 15));
@@ -204,7 +205,9 @@ class PdfService {
     );
   }
 
-  pw.Widget _buildBlHeader(BonLivraison bl, String filterTitle) {
+  // MISE À JOUR : Ajout de la note de comparaison
+  pw.Widget _buildBlHeader(BonLivraison bl, String filterTitle, String comparisonMode) {
+    String modeStr = comparisonMode == 'machine' ? "Stock Machine Actuel" : "Stock Théorique (Avant + Entrée)";
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -219,28 +222,36 @@ class PdfService {
         pw.Text("BL Réf: ${bl.ref}", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
         pw.Text("Fournisseur: ${bl.grossiste}", style: pw.TextStyle(fontSize: 10)),
         pw.Text("Filtre: $filterTitle", style: pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic, color: PdfColors.blue700)),
+        pw.SizedBox(height: 8),
+        pw.Text("** Comparé au stock : $modeStr **", style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.red700)),
       ],
     );
   }
 
-  pw.Widget _buildBlTable(List<BonLivraisonItem> items, Map<String, int> checkedQuantities, {required bool hideLocationColumn}) {
+  // MISE À JOUR : Redéfinition totale des largeurs de colonnes pour accommoder les nouveaux champs
+  pw.Widget _buildBlTable(List<BonLivraisonItem> items, Map<String, int> checkedQuantities, {required bool hideLocationColumn, required String comparisonMode}) {
     final Map<int, pw.TableColumnWidth> columnWidths = {};
-    columnWidths[0] = pw.FixedColumnWidth(50);
-    columnWidths[1] = pw.FlexColumnWidth(3);
+    columnWidths[0] = pw.FixedColumnWidth(45); // CIP
+    columnWidths[1] = pw.FlexColumnWidth(3);   // Nom
 
     int colIndex = 2;
     if (!hideLocationColumn) {
-      columnWidths[colIndex] = pw.FlexColumnWidth(1);
+      columnWidths[colIndex] = pw.FlexColumnWidth(1); // Zone
       colIndex++;
     }
-    columnWidths[colIndex] = pw.FixedColumnWidth(40);
-    columnWidths[colIndex + 1] = pw.FixedColumnWidth(30);
-    columnWidths[colIndex + 2] = pw.FixedColumnWidth(30);
-    columnWidths[colIndex + 3] = pw.FixedColumnWidth(30);
+
+    // NOUVELLES COLONNES ET TAILLES
+    columnWidths[colIndex] = pw.FixedColumnWidth(30);     // Avant
+    columnWidths[colIndex + 1] = pw.FixedColumnWidth(30); // Entrée
+    columnWidths[colIndex + 2] = pw.FixedColumnWidth(30); // Mach.
+    columnWidths[colIndex + 3] = pw.FixedColumnWidth(30); // Cpté
+    columnWidths[colIndex + 4] = pw.FixedColumnWidth(30); // Ecart
 
     final List<String> headers = ['CIP', 'Désignation'];
     if (!hideLocationColumn) headers.add('Zone');
-    headers.addAll(['PA', 'Théo.', 'Cpté', 'Ecart']);
+
+    // NOUVEAUX TITRES
+    headers.addAll(['Avant', 'Entrée', 'Mach.', 'Cpté', 'Ecart']);
 
     return pw.TableHelper.fromTextArray(
       headers: headers,
@@ -250,17 +261,20 @@ class PdfService {
       rowDecoration: pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.5))),
       cellAlignment: pw.Alignment.centerLeft,
       cellAlignments: {
-        colIndex: pw.Alignment.centerRight,
+        colIndex: pw.Alignment.center,
         colIndex + 1: pw.Alignment.center,
         colIndex + 2: pw.Alignment.center,
         colIndex + 3: pw.Alignment.center,
+        colIndex + 4: pw.Alignment.center,
       },
       cellPadding: pw.EdgeInsets.symmetric(vertical: 2, horizontal: 4),
       cellStyle: pw.TextStyle(fontSize: 7),
       data: items.map((item) {
         final checkedQty = checkedQuantities[item.id] ?? 0;
-        final theoretical = item.stockFinalTheorique;
-        final ecart = checkedQty - theoretical;
+        final refStock = comparisonMode == 'machine' ? item.stockFinal : item.stockFinalTheorique;
+        final ecart = checkedQty - refStock;
+        final entreeBL = item.qteRecue + item.freeQty; // Calcul de l'entrée réelle
+
         final bool isControlled = checkedQuantities.containsKey(item.id);
         final bool hasEcart = ecart != 0;
 
@@ -283,8 +297,11 @@ class PdfService {
           row.add(cell(item.zoneGeoName));
         }
 
-        row.add(cell(_currencyFormat.format(item.prixAchat).replaceAll('FCFA', '')));
-        row.add(cell(theoretical.toString()));
+        // AJOUT DES NOUVELLES DONNÉES
+        row.add(cell(item.stockInitialReel.toString()));
+        row.add(cell(entreeBL.toString()));
+        row.add(cell(item.stockFinal.toString()));
+
         row.add(cell(isControlled ? checkedQty.toString() : "-"));
 
         if (hasEcart && isControlled) {
