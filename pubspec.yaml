@@ -43,7 +43,7 @@ dependencies:
   cupertino_icons: ^1.0.6
 
   collection: any
-  mobile_scanner: 6.0.2 # Version figée : CameraX 1.3 (minSdk 21, compileSdk 34)
+  mobile_scanner: 7.0.1 # Version figée : CameraX 1.4 (minSdk 21, compileSdk 35), rendu compatible Impeller
   google_mlkit_text_recognition: ^0.15.0
   image_picker: ^1.1.2
 dev_dependencies:

@@ -29,7 +29,7 @@ jobs:
         run: flutter pub get
 
       - name: Tests DataMatrix et ordonnance
-        run: flutter test test/datamatrix_parser_test.dart test/expiration_update_datamatrix_test.dart test/prescription_check_test.dart test/label_text_parser_test.dart
+        run: flutter test test/datamatrix_parser_test.dart test/expiration_update_datamatrix_test.dart test/prescription_check_test.dart test/label_text_parser_test.dart test/camera_scan_value_test.dart
 
       - name: Build APK
         run: flutter build apk --release

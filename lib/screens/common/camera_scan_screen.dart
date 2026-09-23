@@ -22,12 +22,39 @@ class CameraScanScreen extends StatefulWidget {
   });
 
   /// Ouvre le scanner et renvoie le contenu du premier code lu (ou `null` si annulé).
-  static Future<String?> open(BuildContext context, {String? title}) {
+  /// [dataMatrixOnly] : ne lit que les DataMatrix (évite de capter l'EAN de la boîte).
+  static Future<String?> open(BuildContext context, {String? title, bool dataMatrixOnly = false}) {
     return Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (_) => title == null ? const CameraScanScreen() : CameraScanScreen(title: title),
+        builder: (_) => CameraScanScreen(
+          title: title ?? 'Scanner avec l\'appareil photo',
+          formats: dataMatrixOnly
+              ? const [BarcodeFormat.dataMatrix]
+              : const [
+                  BarcodeFormat.dataMatrix,
+                  BarcodeFormat.ean13,
+                  BarcodeFormat.ean8,
+                  BarcodeFormat.code128,
+                  BarcodeFormat.qrCode,
+                ],
+        ),
       ),
     );
+  }
+
+  /// Contenu du code. Si le texte a perdu les séparateurs GS (ASCII 29) du GS1
+  /// mais que les octets bruts les contiennent, on reprend les octets : le lot
+  /// et le numéro de série restent ainsi séparés sans ambiguïté.
+  static String? valueOf(Barcode barcode) {
+    final value = barcode.rawValue;
+    final bytes = barcode.rawBytes;
+    if (bytes != null &&
+        bytes.contains(29) &&
+        (value == null || !value.contains('\u001d')) &&
+        bytes.every((b) => b == 29 || (b >= 32 && b <= 126))) {
+      return String.fromCharCodes(bytes);
+    }
+    return value;
   }
 
   @override
@@ -65,7 +92,7 @@ class _CameraScanScreenState extends State<CameraScanScreen> {
   void _onDetect(BarcodeCapture capture) {
     if (_done) return;
     for (final barcode in capture.barcodes) {
-      final value = barcode.rawValue;
+      final value = CameraScanScreen.valueOf(barcode);
       if (value != null && value.isNotEmpty) {
         _done = true;
         Navigator.of(context).pop(value);
@@ -94,7 +121,7 @@ class _CameraScanScreenState extends State<CameraScanScreen> {
           MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
-            errorBuilder: (context, error, child) => _buildError(error),
+            errorBuilder: (context, error) => _buildError(error),
           ),
           if (_startTimedOut)
             _buildMessage(

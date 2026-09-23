@@ -206,8 +206,9 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   // ---------------------------------------------------------------------------
   // Aide à la saisie : scan DataMatrix par la caméra, ou photo de l'étiquette
   // ---------------------------------------------------------------------------
-  Future<String?> _openCamera(String title) {
-    final scanner = widget.codeScanner ?? (ctx) => CameraScanScreen.open(ctx, title: title);
+  Future<String?> _openCamera(String title, {bool dataMatrixOnly = false}) {
+    final scanner = widget.codeScanner ??
+        (ctx) => CameraScanScreen.open(ctx, title: title, dataMatrixOnly: dataMatrixOnly);
     return scanner(context);
   }
 
@@ -221,7 +222,8 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
 
   /// Bouton du formulaire : lit le DataMatrix et ne reprend que le lot et la date.
   Future<void> _scanLotDateWithCamera() async {
-    final value = await _openCamera('Scanner le lot / la date');
+    // DataMatrix uniquement : l'EAN de la boîte ne contient ni lot ni date.
+    final value = await _openCamera('Scanner le DataMatrix (lot / date)', dataMatrixOnly: true);
     if (!mounted || value == null || value.isEmpty) return;
     final scan = DataMatrixParser.parse(value);
     if (scan == null) {
