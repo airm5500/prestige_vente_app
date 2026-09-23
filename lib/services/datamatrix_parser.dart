@@ -15,7 +15,14 @@ const String _gs = '\u001d'; // Group Separator (FNC1)
 const String _rs = '\u001e'; // Record Separator
 const String _eot = '\u0004'; // End Of Transmission
 
-enum DataMatrixFormat { gs1, asc, namedFields }
+enum DataMatrixFormat {
+  gs1,
+  asc,
+  namedFields,
+
+  /// Valeurs lues sur une photo de l'étiquette (OCR) puis confirmées par l'opérateur.
+  ocrLabel,
+}
 
 class DataMatrixData {
   /// Contenu brut tel que reçu.

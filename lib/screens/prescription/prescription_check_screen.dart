@@ -2,10 +2,10 @@
 // Scan d'ordonnance : photo -> reconnaissance du texte (sur le téléphone, hors ligne)
 // -> extraction des produits -> vérification de la disponibilité dans le stock Prestige.
 import 'package:flutter/material.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -52,28 +52,13 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   // ---------------------------------------------------------------------------
   // Lecture de l'ordonnance
   // ---------------------------------------------------------------------------
-  Future<List<String>?> _defaultReader(ImageSource source) async {
-    final file = await ImagePicker().pickImage(source: source, maxWidth: 2400, maxHeight: 2400, imageQuality: 92);
-    if (file == null) return null;
-    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
-    try {
-      final recognized = await recognizer.processImage(InputImage.fromFilePath(file.path));
-      return [
-        for (final block in recognized.blocks)
-          for (final line in block.lines) line.text,
-      ];
-    } finally {
-      recognizer.close();
-    }
-  }
-
   Future<void> _scan(ImageSource source) async {
     setState(() => _reading = true);
     List<String>? lines;
     try {
-      lines = await (widget.textReader ?? _defaultReader)(source);
+      lines = await (widget.textReader ?? OcrService.captureAndRead)(source);
     } catch (e) {
-      if (mounted) Constants.showSnackBar(context, 'Lecture impossible : $e', isError: true);
+      if (mounted) _showError(OcrService.friendlyError(e));
     }
     if (!mounted) return;
     setState(() => _reading = false);
@@ -94,6 +79,12 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     for (final rx in List.of(_lines)) {
       await _search(rx, generation);
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error, duration: const Duration(seconds: 6)),
+    );
   }
 
   Future<void> _search(_RxLine rx, int generation) async {
