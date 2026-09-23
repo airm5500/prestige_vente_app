@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
+import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -150,6 +151,19 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
       }
     }
     // Plusieurs résultats : l'opérateur choisit dans la liste, le scan sera appliqué.
+  }
+
+  Future<void> _scanWithCamera() async {
+    final value = await CameraScanScreen.open(context, title: 'Scanner la boîte');
+    if (!mounted || value == null || value.isEmpty) return;
+    final scan = DataMatrixParser.parse(value);
+    if (scan != null) {
+      final current = Provider.of<ExpirationUpdateProvider>(context, listen: false).selectedProduct;
+      await _handleScan(scan, fallbackProduct: current);
+    } else {
+      // Code-barres simple (EAN, CIP) : même traitement qu'une saisie dans la recherche.
+      _searchController.text = value;
+    }
   }
 
   void _selectProduct(ProductSearchResult product) {
@@ -328,14 +342,25 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
         decoration: InputDecoration(
           labelText: 'Rechercher par CIP, Nom ou Scan (DataMatrix)',
           prefixIcon: const Icon(Icons.search),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.clear),
-            onPressed: () {
-              _searchController.clear();
-              provider.clearSearch();
-              // MODIFICATION : Maintien du focus
-              _searchFocusNode.requestFocus();
-            },
+          suffixIcon: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Scan par l'appareil photo (téléphone) ; la douchette Sunmi reste utilisable.
+              IconButton(
+                icon: const Icon(Icons.photo_camera),
+                tooltip: 'Scanner avec l\'appareil photo',
+                onPressed: _scanWithCamera,
+              ),
+              IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _searchController.clear();
+                  provider.clearSearch();
+                  // MODIFICATION : Maintien du focus
+                  _searchFocusNode.requestFocus();
+                },
+              ),
+            ],
           ),
         ),
         onSubmitted: (_) => _onSearchChanged(),

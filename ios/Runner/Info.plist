@@ -43,6 +43,10 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>L'appareil photo sert à scanner les codes DataMatrix et à photographier les ordonnances.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choisir la photo d'une ordonnance.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>
