@@ -20,6 +20,8 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # Version alignée sur le projet (Gradle 8.12 / AGP 8.7.3 / Dart >= 3.8)
+          flutter-version: '3.32.8'
           channel: stable
           cache: true
 
