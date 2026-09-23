@@ -55,7 +55,9 @@ class SunmiFingerprintBridge(private val context: Context, messenger: BinaryMess
         events = null
     }
 
-    private fun emit(event: String) = main.post { events?.success(event) }
+    private fun emit(event: String) {
+        main.post { events?.success(event) }
+    }
 
     /** Réponse unique garantie (les callbacks du service arrivent sur des threads binder). */
     private class Once(private val result: MethodChannel.Result, private val main: Handler) {
