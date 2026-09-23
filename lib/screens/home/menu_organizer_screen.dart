@@ -33,6 +33,7 @@ final List<MenuMetadata> allMenuMetadata = [
   MenuMetadata('analyse_article', 'Analyse Article', Icons.analytics, Colors.blueGrey.shade700),
   MenuMetadata('ajustement', 'Ajustement Stock', Icons.inventory_2, Colors.orange.shade700),
   MenuMetadata('ordonnance', 'Vérification Ordonnance', Icons.receipt_long, Colors.teal.shade600),
+  MenuMetadata('empreinte', 'Empreinte (diagnostic)', Icons.fingerprint, Colors.deepPurple.shade400),
 ];
 
 class MenuOrganizerScreen extends StatefulWidget {

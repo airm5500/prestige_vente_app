@@ -5,3 +5,6 @@
 -dontwarn com.google.mlkit.vision.text.devanagari.**
 -dontwarn com.google.mlkit.vision.text.japanese.**
 -dontwarn com.google.mlkit.vision.text.korean.**
+
+# Service d'empreinte Sunmi : interfaces AIDL et objets transmis au service (Parcelable).
+-keep class com.sunmi.fingerprintservice.** { *; }

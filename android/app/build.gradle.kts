@@ -58,4 +58,6 @@ flutter {
 
 dependencies {
     // Vos dépendances ici...
+    // Service d'empreinte Sunmi (SDK SunmiFingerprintDemo, capteur Aratek A400)
+    implementation(files("libs/libsunmifingeprint_v1.0.0.aar"))
 }
