@@ -199,44 +199,132 @@ void main() {
     expect(find.text('DataMatrix lu'), findsNothing);
   });
 
-  testWidgets('bouton Scanner DataMatrix (caméra) : même résultat que la douchette', (tester) async {
+  Future<void> selectDoliprane(WidgetTester tester) async {
+    await tester.enterText(search, 'doliprane');
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
+  }
+
+  bool hasFocus(WidgetTester tester, String label) => tester
+      .widget<EditableText>(find.descendant(of: field(label), matching: find.byType(EditableText)))
+      .focusNode
+      .hasFocus;
+
+  const unknownGtin = '03400930000007'; // GTIN valide absent du stock
+
+  testWidgets('icône caméra de la recherche = douchette Sunmi (DataMatrix)', (tester) async {
     await pumpScreen(tester, cameraCode: '01${gtin}17261002${gs}107445');
-    expect(find.byIcon(Icons.photo_camera), findsNothing); // plus d'icône dans la recherche
-    await tester.tap(find.text('Scanner DataMatrix'));
+    await tester.tap(find.byIcon(Icons.photo_camera));
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
     expect(text(tester, 'N° de Lot'), '7445');
     expect(text(tester, 'Date de Péremption (JJMMYY)'), '02/10/2026');
   });
 
-  testWidgets('Photo étiquette : confirmation obligatoire puis remplissage', (tester) async {
+  testWidgets('icône caméra de la recherche : code-barres EAN simple affiche le produit', (tester) async {
+    await pumpScreen(tester, cameraCode: '3400935955838');
+    await tester.tap(find.byIcon(Icons.photo_camera));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
+    expect(text(tester, 'N° de Lot'), '');
+    expect(find.text('DataMatrix lu'), findsNothing);
+  });
+
+  testWidgets('produit affiché + scan Sunmi (code inconnu) : lot et date seulement, focus quantité', (tester) async {
+    await pumpScreen(tester);
+    await selectDoliprane(tester);
+    await tester.enterText(search, '01${unknownGtin}17271031${gs}10GT22254');
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+
+    expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget); // même produit
+    expect(text(tester, 'N° de Lot'), 'GT22254');
+    expect(text(tester, 'Date de Péremption (JJMMYY)'), '31/10/2027');
+    expect(find.textContaining('introuvable'), findsNothing);
+    expect(find.textContaining('Attention'), findsNothing);
+    expect(hasFocus(tester, 'Quantité'), isTrue);
+  });
+
+  testWidgets('bouton Scanner lot / date du formulaire', (tester) async {
+    await pumpScreen(tester, cameraCode: '01${unknownGtin}17271031${gs}10GT22254');
+    await selectDoliprane(tester);
+    await tester.tap(find.text('Scanner lot / date'));
+    await tester.pumpAndSettle();
+    expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
+    expect(text(tester, 'N° de Lot'), 'GT22254');
+    expect(text(tester, 'Date de Péremption (JJMMYY)'), '31/10/2027');
+    expect(hasFocus(tester, 'Quantité'), isTrue);
+
+    await tester.enterText(field('Quantité'), '4');
+    await tester.ensureVisible(find.text('Valider'));
+    await tester.tap(find.text('Valider'));
+    await tester.pumpAndSettle();
+    expect(api.addLotCalls.single,
+        {'produitId': '15712354735457071135', 'datePeremption': '2027-10-31', 'numLot': 'GT22254', 'quantity': 4});
+    await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('bouton Scanner lot / date avec un code-barres simple : message, rien ne change', (tester) async {
+    await pumpScreen(tester, cameraCode: '3400935955838');
+    await selectDoliprane(tester);
+    await tester.tap(find.text('Scanner lot / date'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Code-barres simple'), findsOneWidget);
+    expect(text(tester, 'N° de Lot'), '');
+    await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('garde-fou : le code correspond à un autre produit du stock', (tester) async {
+    await pumpScreen(tester, cameraCode: '01${gtin}17271031${gs}10GT22254');
+    await tester.enterText(search, 'efferalgan');
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Scanner lot / date'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('EFFERALGAN 500'), findsOneWidget);
+    expect(text(tester, 'N° de Lot'), 'GT22254');
+    expect(find.textContaining('ce code correspond à « DOLIPRANE 1000MG CP »'), findsOneWidget);
+
+    await tester.tap(find.text('Utiliser DOLIPRANE 1000MG CP'));
+    await tester.pumpAndSettle();
+    expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
+    expect(text(tester, 'N° de Lot'), 'GT22254');
+    expect(find.textContaining('Attention'), findsNothing);
+  });
+
+  testWidgets('Photo étiquette (formulaire) : confirmation obligatoire puis remplissage', (tester) async {
     await pumpScreen(tester, labelLines: ['DOLIPRANE 1000 mg', 'LOT: A1234B', 'EXP: 10/2027', '3 400935 955838']);
+    await selectDoliprane(tester);
     await tester.tap(find.text('Photo étiquette'));
     await tester.pumpAndSettle();
 
     expect(find.text('Vérifiez avec la boîte'), findsOneWidget);
-    expect(field('N° de Lot'), findsNothing); // rien rempli avant validation
-    // correction par l'opérateur dans la fenêtre
-    await tester.enterText(find.widgetWithText(TextField, 'N° de Lot').last, 'a1234c');
-    await tester.ensureVisible(find.text('Valider'));
-    await tester.tap(find.text('Valider'));
+    expect(text(tester, 'N° de Lot'), ''); // rien rempli avant validation
+    await tester.enterText(find.descendant(of: find.byType(AlertDialog), matching: find.widgetWithText(TextField, 'N° de Lot')), 'a1234c');
+    await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Valider')));
     await tester.pumpAndSettle();
 
-    expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget); // produit retrouvé par l'EAN imprimé
+    expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
     expect(text(tester, 'N° de Lot'), 'A1234C');
     expect(text(tester, 'Date de Péremption (JJMMYY)'), '31/10/2027');
     expect(find.text('Étiquette lue (valeurs confirmées)'), findsOneWidget);
+    expect(find.textContaining('Attention'), findsNothing);
+    expect(hasFocus(tester, 'Quantité'), isTrue);
     expect(api.addLotCalls, isEmpty);
   });
 
   testWidgets('Photo étiquette annulée : rien ne change', (tester) async {
     await pumpScreen(tester, labelLines: ['LOT: A1', 'EXP: 10/2027']);
+    await selectDoliprane(tester);
     await tester.tap(find.text('Photo étiquette'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Annuler'));
     await tester.pumpAndSettle();
-    expect(find.text('DataMatrix lu'), findsNothing);
     expect(find.textContaining('Étiquette lue'), findsNothing);
-    expect(api.searches, isEmpty);
+    expect(text(tester, 'N° de Lot'), '');
   });
 }

@@ -66,6 +66,15 @@ class ExpirationUpdateProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Comme [searchFirstMatch] mais sans modifier l'état de l'écran (contrôle en arrière-plan).
+  Future<List<ProductSearchResult>> lookupFirstMatch(List<String> queries) async {
+    for (final query in queries) {
+      final results = await _apiService.searchProducts(query);
+      if (results.isNotEmpty) return results;
+    }
+    return [];
+  }
+
   // MODIFICATION : La sélection est maintenant une simple affectation, sans appel API
   void selectProduct(ProductSearchResult product) {
     _selectedProduct = product;

@@ -53,6 +53,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   int _searchSeq = 0; // Ignore les réponses de recherche devenues obsolètes
   String? _focusedProductId; // Produit pour lequel le focus initial a déjà été donné
   bool _readingLabel = false;
+  ProductSearchResult? _otherProduct; // Produit auquel correspond le code scanné, s'il diffère
 
   void _setupFocusNodeSelection(FocusNode node, TextEditingController controller) {
     node.addListener(() {
@@ -97,10 +98,10 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
 
       if (query.isEmpty) return;
 
-      // 0. Lecture d'un DataMatrix : recherche par GTIN + pré-remplissage lot / date
+      // 0. Lecture d'un DataMatrix (douchette Sunmi ou caméra)
       final scan = DataMatrixParser.parse(query);
       if (scan != null) {
-        await _handleScan(scan);
+        await _onScan(scan);
         return;
       }
 
@@ -120,10 +121,54 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     });
   }
 
+  /// Aiguillage d'un scan :
+  /// - un produit est affiché : on ne reprend que le lot et la date pour CE produit ;
+  /// - aucun produit : on recherche le produit par son code puis on pré-remplit.
+  Future<void> _onScan(DataMatrixData scan) async {
+    final current = Provider.of<ExpirationUpdateProvider>(context, listen: false).selectedProduct;
+    if (current != null) {
+      await _applyLotDateToCurrent(scan, current);
+    } else {
+      await _handleScan(scan);
+    }
+  }
+
+  /// Reporte uniquement le lot et la péremption du scan sur le produit affiché,
+  /// puis place le curseur sur la quantité. Aucune recherche produit n'est relancée.
+  Future<void> _applyLotDateToCurrent(DataMatrixData scan, ProductSearchResult current) async {
+    final provider = Provider.of<ExpirationUpdateProvider>(context, listen: false);
+    final seq = ++_searchSeq;
+    _debounce?.cancel();
+    _fieldScanDebounce?.cancel();
+    if (_searchController.text.isNotEmpty) _searchController.clear();
+
+    if (scan.lotCandidates.isEmpty && scan.expiryCandidates.isEmpty && !scan.invalidExpiry) {
+      Constants.showSnackBar(context, 'Ce code ne contient ni lot ni date. Scannez le DataMatrix de la boîte.', isError: true);
+      return;
+    }
+
+    _formKey.currentState?.reset();
+    setState(() {
+      _scanData = scan;
+      _scanProductNotFound = false;
+      _scanAwaitingProduct = true;
+      _otherProduct = null;
+    });
+    _applyScanToForm();
+
+    // Garde-fou : le code correspond-il à un autre produit de la base ?
+    final queries = scan.productSearchQueries;
+    if (queries.isEmpty) return;
+    final found = await provider.lookupFirstMatch(queries);
+    if (!mounted || seq != _searchSeq) return;
+    if (found.length == 1 && found.first.lgFAMILLEID != current.lgFAMILLEID) {
+      setState(() => _otherProduct = found.first);
+    }
+  }
+
   /// Traite un DataMatrix lu (depuis la recherche ou depuis un champ du formulaire) :
   /// retrouve le produit par son GTIN puis pré-remplit le lot et la péremption.
-  /// Si le produit n'est pas trouvé, [fallbackProduct] (produit déjà affiché) est conservé.
-  Future<void> _handleScan(DataMatrixData scan, {ProductSearchResult? fallbackProduct}) async {
+  Future<void> _handleScan(DataMatrixData scan) async {
     final provider = Provider.of<ExpirationUpdateProvider>(context, listen: false);
     final seq = ++_searchSeq;
     _debounce?.cancel();
@@ -136,6 +181,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
       _scanData = scan;
       _scanProductNotFound = false;
       _scanAwaitingProduct = true;
+      _otherProduct = null;
       _lotChoices = const [];
       _expiryChoices = const [];
       _focusedProductId = null;
@@ -152,11 +198,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
       _selectProduct(results.first);
     } else if (results.isEmpty) {
       setState(() => _scanProductNotFound = true);
-      if (fallbackProduct != null) {
-        _selectProduct(fallbackProduct);
-      } else {
-        FocusScope.of(context).requestFocus(_searchFocusNode);
-      }
+      FocusScope.of(context).requestFocus(_searchFocusNode);
     }
     // Plusieurs résultats : l'opérateur choisit dans la liste, le scan sera appliqué.
   }
@@ -164,18 +206,33 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   // ---------------------------------------------------------------------------
   // Aide à la saisie : scan DataMatrix par la caméra, ou photo de l'étiquette
   // ---------------------------------------------------------------------------
-  Future<void> _scanWithCamera() async {
-    final scanner = widget.codeScanner ?? (ctx) => CameraScanScreen.open(ctx, title: 'Scanner le DataMatrix');
-    final value = await scanner(context);
+  Future<String?> _openCamera(String title) {
+    final scanner = widget.codeScanner ?? (ctx) => CameraScanScreen.open(ctx, title: title);
+    return scanner(context);
+  }
+
+  /// Icône caméra de la recherche : équivalent exact d'un scan à la douchette Sunmi.
+  Future<void> _scanProductWithCamera() async {
+    final value = await _openCamera('Scanner le produit');
+    if (!mounted || value == null || value.isEmpty) return;
+    _searchController.text = value;
+    _searchController.selection = TextSelection.collapsed(offset: value.length);
+  }
+
+  /// Bouton du formulaire : lit le DataMatrix et ne reprend que le lot et la date.
+  Future<void> _scanLotDateWithCamera() async {
+    final value = await _openCamera('Scanner le lot / la date');
     if (!mounted || value == null || value.isEmpty) return;
     final scan = DataMatrixParser.parse(value);
-    if (scan != null) {
-      final current = Provider.of<ExpirationUpdateProvider>(context, listen: false).selectedProduct;
-      await _handleScan(scan, fallbackProduct: current);
-    } else {
-      // Code-barres simple (EAN, CIP) : même traitement qu'une saisie dans la recherche.
-      _searchController.text = value;
+    if (scan == null) {
+      Constants.showSnackBar(
+        context,
+        'Code-barres simple : il ne contient ni lot ni date. Scannez le DataMatrix (petit carré) ou utilisez Photo étiquette.',
+        isError: true,
+      );
+      return;
     }
+    await _onScan(scan);
   }
 
   Future<void> _photoLabel() async {
@@ -223,20 +280,20 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
       expiryCandidates: confirmed.expiry == null ? const [] : [confirmed.expiry!],
       expiryCertain: confirmed.expiry != null,
     );
-    final current = Provider.of<ExpirationUpdateProvider>(context, listen: false).selectedProduct;
-    await _handleScan(data, fallbackProduct: current);
+    await _onScan(data);
   }
 
+  /// Aide à la saisie du lot et de la date (dans le formulaire du produit affiché).
   Widget _buildAssistButtons() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
           Expanded(
             child: OutlinedButton.icon(
               icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Scanner DataMatrix'),
-              onPressed: _readingLabel ? null : _scanWithCamera,
+              label: const Text('Scanner lot / date'),
+              onPressed: _readingLabel ? null : _scanLotDateWithCamera,
             ),
           ),
           const SizedBox(width: 8),
@@ -305,8 +362,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     final scan = DataMatrixParser.parse(value);
     if (scan == null) return false;
     _fieldScanDebounce?.cancel();
-    final current = Provider.of<ExpirationUpdateProvider>(context, listen: false).selectedProduct;
-    _handleScan(scan, fallbackProduct: current);
+    _onScan(scan);
     return true;
   }
 
@@ -315,6 +371,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
       _scanData = null;
       _scanProductNotFound = false;
       _scanAwaitingProduct = false;
+      _otherProduct = null;
       _lotChoices = const [];
       _expiryChoices = const [];
     });
@@ -341,6 +398,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
       _scanAwaitingProduct = false;
       _lotChoices = const [];
       _expiryChoices = const [];
+      _otherProduct = null;
       _focusedProductId = null;
     });
 
@@ -407,7 +465,6 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
           return Column(
             children: [
               _buildSearchBar(provider),
-              _buildAssistButtons(),
               if (provider.isLoading) const LinearProgressIndicator(),
               if (_scanData != null) _buildScanBanner(_scanData!, provider),
               Expanded(
@@ -431,14 +488,25 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
         decoration: InputDecoration(
           labelText: 'Rechercher par CIP, Nom ou Scan (DataMatrix)',
           prefixIcon: const Icon(Icons.search),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.clear),
-            onPressed: () {
-              _searchController.clear();
-              provider.clearSearch();
-              // MODIFICATION : Maintien du focus
-              _searchFocusNode.requestFocus();
-            },
+          suffixIcon: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Scan du code-barres avec la caméra : même effet que la douchette Sunmi.
+              IconButton(
+                icon: const Icon(Icons.photo_camera),
+                tooltip: 'Scanner le produit (caméra)',
+                onPressed: _scanProductWithCamera,
+              ),
+              IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _searchController.clear();
+                  provider.clearSearch();
+                  // MODIFICATION : Maintien du focus
+                  _searchFocusNode.requestFocus();
+                },
+              ),
+            ],
           ),
         ),
         onSubmitted: (_) => _onSearchChanged(),
@@ -501,6 +569,27 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                     padding: const EdgeInsets.only(top: 4.0),
                     child: Text(w, style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w500)),
                   ),
+                if (_otherProduct != null && provider.selectedProduct != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      'Attention : ce code correspond à « ${_otherProduct!.strNAME} », '
+                      'pas au produit affiché. Vérifiez la boîte.',
+                      style: TextStyle(color: Colors.red.shade800, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      final other = _otherProduct!;
+                      setState(() {
+                        _otherProduct = null;
+                        _scanAwaitingProduct = true;
+                      });
+                      _selectProduct(other);
+                    },
+                    child: Text('Utiliser ${_otherProduct!.strNAME}'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -593,6 +682,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                 ),
                 Text('CIP: ${product.intCIP}'),
                 const Divider(height: 30),
+                _buildAssistButtons(),
                 TextFormField(
                   key: _dateFieldKey,
                   controller: _dateController,
