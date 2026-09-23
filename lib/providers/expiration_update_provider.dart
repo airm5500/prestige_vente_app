@@ -49,6 +49,23 @@ class ExpirationUpdateProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Recherche successivement chaque code (EAN-13, CIP7...) issu d'un DataMatrix
+  /// et conserve les résultats du premier code qui trouve au moins un produit.
+  Future<void> searchFirstMatch(List<String> queries) async {
+    _isLoading = true;
+    _searchResults = [];
+    notifyListeners();
+    for (final query in queries) {
+      final results = await _apiService.searchProducts(query);
+      if (results.isNotEmpty) {
+        _searchResults = results;
+        break;
+      }
+    }
+    _isLoading = false;
+    notifyListeners();
+  }
+
   // MODIFICATION : La sélection est maintenant une simple affectation, sans appel API
   void selectProduct(ProductSearchResult product) {
     _selectedProduct = product;

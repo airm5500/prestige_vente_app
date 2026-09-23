@@ -1,9 +1,12 @@
 // lib/screens/expiration_update/expiration_update_screen.dart
 // 11/11/2025 12:00 (Ajout Auto-Open & Focus)
+// 23/09/2026 (Ajout lecture DataMatrix : produit, lot et péremption pré-remplis)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
+import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
 
@@ -20,6 +23,8 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   Timer? _debounce;
 
   final _formKey = GlobalKey<FormState>();
+  final _dateFieldKey = GlobalKey<FormFieldState<String>>();
+  final _lotFieldKey = GlobalKey<FormFieldState<String>>();
   final _dateController = TextEditingController();
   final _lotController = TextEditingController();
   final _quantityController = TextEditingController(text: '1');
@@ -27,6 +32,18 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   final _dateFocusNode = FocusNode();
   final _lotFocusNode = FocusNode();
   final _quantityFocusNode = FocusNode();
+
+  static final _displayDateFormat = DateFormat('dd/MM/yyyy');
+
+  // --- DataMatrix ---
+  DataMatrixData? _scanData; // Dernier DataMatrix lu (lot / péremption à reporter)
+  bool _scanProductNotFound = false;
+  bool _scanAwaitingProduct = false; // Scan pas encore reporté sur un produit
+  List<String> _lotChoices = const [];
+  List<DateTime> _expiryChoices = const [];
+  Timer? _fieldScanDebounce;
+  int _searchSeq = 0; // Ignore les réponses de recherche devenues obsolètes
+  String? _focusedProductId; // Produit pour lequel le focus initial a déjà été donné
 
   void _setupFocusNodeSelection(FocusNode node, TextEditingController controller) {
     node.addListener(() {
@@ -56,7 +73,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
 
   @override
   void dispose() {
-    _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel();
+    _searchController.dispose(); _searchFocusNode.dispose(); _debounce?.cancel(); _fieldScanDebounce?.cancel();
     _dateController.dispose(); _lotController.dispose(); _quantityController.dispose();
     _dateFocusNode.dispose(); _lotFocusNode.dispose(); _quantityFocusNode.dispose();
     super.dispose();
@@ -71,29 +88,159 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
 
       if (query.isEmpty) return;
 
+      // 0. Lecture d'un DataMatrix : recherche par GTIN + pré-remplissage lot / date
+      final scan = DataMatrixParser.parse(query);
+      if (scan != null) {
+        await _handleScan(scan);
+        return;
+      }
+
       // 1. Lance la recherche
+      final seq = ++_searchSeq;
       await provider.search(query);
+      if (seq != _searchSeq) return;
 
       // 2. Si résultat unique, on sélectionne automatiquement
       if (mounted && provider.searchResults.length == 1) {
         final product = provider.searchResults.first;
 
-        provider.selectProduct(product);
+        _selectProduct(product);
         _searchController.clear(); // Nettoyage immédiat
         // Le focus ira sur le formulaire grâce au bloc 'else' du build (via selectProduct)
       }
     });
   }
 
-  void _resetForm() {
+  /// Traite un DataMatrix lu (depuis la recherche ou depuis un champ du formulaire) :
+  /// retrouve le produit par son GTIN puis pré-remplit le lot et la péremption.
+  /// Si le produit n'est pas trouvé, [fallbackProduct] (produit déjà affiché) est conservé.
+  Future<void> _handleScan(DataMatrixData scan, {ProductSearchResult? fallbackProduct}) async {
     final provider = Provider.of<ExpirationUpdateProvider>(context, listen: false);
-    provider.clearSelection();
+    final seq = ++_searchSeq;
+    _debounce?.cancel();
+    _fieldScanDebounce?.cancel();
+
+    _clearFormFields();
+    provider.clearSearch();
+    _searchController.clear();
+    setState(() {
+      _scanData = scan;
+      _scanProductNotFound = false;
+      _scanAwaitingProduct = true;
+      _lotChoices = const [];
+      _expiryChoices = const [];
+      _focusedProductId = null;
+    });
+
+    final queries = scan.productSearchQueries;
+    if (queries.isNotEmpty) {
+      await provider.searchFirstMatch(queries);
+      if (!mounted || seq != _searchSeq) return;
+    }
+
+    final results = provider.searchResults;
+    if (results.length == 1) {
+      _selectProduct(results.first);
+    } else if (results.isEmpty) {
+      setState(() => _scanProductNotFound = true);
+      if (fallbackProduct != null) {
+        _selectProduct(fallbackProduct);
+      } else {
+        FocusScope.of(context).requestFocus(_searchFocusNode);
+      }
+    }
+    // Plusieurs résultats : l'opérateur choisit dans la liste, le scan sera appliqué.
+  }
+
+  void _selectProduct(ProductSearchResult product) {
+    if (_scanData != null && !_scanAwaitingProduct) {
+      // Le scan a déjà été reporté sur un autre produit : il ne concerne pas celui-ci.
+      _discardScan();
+      _dateController.clear();
+      _lotController.clear();
+      _quantityController.text = '1';
+    }
+    Provider.of<ExpirationUpdateProvider>(context, listen: false).selectProduct(product);
+    _applyScanToForm();
+  }
+
+  void _applyScanToForm() {
+    final scan = _scanData;
+    if (scan == null || !_scanAwaitingProduct) return;
+    final expiry = scan.expiry;
+    _dateController.text = expiry != null ? _displayDateFormat.format(expiry) : '';
+    _lotController.text = scan.lot ?? '';
+    _quantityController.text = '1';
+    setState(() {
+      _lotChoices = scan.lot == null ? scan.lotCandidates : const [];
+      _expiryChoices = expiry == null ? scan.expiryCandidates : const [];
+      _scanAwaitingProduct = false;
+      _focusedProductId = null;
+    });
+  }
+
+  bool _isExpired(DateTime date) => date.isBefore(DateTime.now().subtract(const Duration(days: 1)));
+
+  /// Premier champ à renseigner : date, lot puis quantité.
+  FocusNode _initialFormFocus() {
+    final expiry = _scanData?.expiry;
+    if (_dateController.text.isEmpty || (expiry != null && _isExpired(expiry))) return _dateFocusNode;
+    if (_lotController.text.isEmpty) return _lotFocusNode;
+    return _quantityFocusNode;
+  }
+
+  /// Un DataMatrix lu alors que le curseur est dans un champ du formulaire.
+  void _onFormFieldChanged(String value) {
+    _fieldScanDebounce?.cancel();
+    if (value.length < 16) return;
+    _fieldScanDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) _interceptScan(value);
+    });
+  }
+
+  bool _interceptScan(String value) {
+    if (value.length < 16) return false;
+    final scan = DataMatrixParser.parse(value);
+    if (scan == null) return false;
+    _fieldScanDebounce?.cancel();
+    final current = Provider.of<ExpirationUpdateProvider>(context, listen: false).selectedProduct;
+    _handleScan(scan, fallbackProduct: current);
+    return true;
+  }
+
+  void _discardScan() {
+    setState(() {
+      _scanData = null;
+      _scanProductNotFound = false;
+      _scanAwaitingProduct = false;
+      _lotChoices = const [];
+      _expiryChoices = const [];
+    });
+  }
+
+  void _clearFormFields() {
     if (_formKey.currentState != null) {
       _formKey.currentState!.reset();
     }
     _dateController.clear();
     _lotController.clear();
     _quantityController.text = '1';
+  }
+
+  void _resetForm() {
+    final provider = Provider.of<ExpirationUpdateProvider>(context, listen: false);
+    _searchSeq++;
+    _fieldScanDebounce?.cancel();
+    provider.clearSelection();
+    _clearFormFields();
+    setState(() {
+      _scanData = null;
+      _scanProductNotFound = false;
+      _scanAwaitingProduct = false;
+      _lotChoices = const [];
+      _expiryChoices = const [];
+      _focusedProductId = null;
+    });
 
     FocusScope.of(context).requestFocus(_searchFocusNode);
     _searchController.selection = TextSelection(baseOffset: 0, extentOffset: _searchController.text.length);
@@ -123,6 +270,11 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   }
 
   Future<void> _submitForm() async {
+    // Un DataMatrix lu dans un champ ne doit jamais être envoyé comme valeur.
+    for (final controller in [_dateController, _lotController, _quantityController]) {
+      if (_interceptScan(controller.text)) return;
+    }
+
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
@@ -154,6 +306,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
             children: [
               _buildSearchBar(provider),
               if (provider.isLoading) const LinearProgressIndicator(),
+              if (_scanData != null) _buildScanBanner(_scanData!, provider),
               Expanded(
                 child: provider.selectedProduct == null
                     ? _buildSearchResults(provider)
@@ -173,7 +326,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
         controller: _searchController,
         focusNode: _searchFocusNode,
         decoration: InputDecoration(
-          labelText: 'Rechercher par CIP, Nom ou Scan',
+          labelText: 'Rechercher par CIP, Nom ou Scan (DataMatrix)',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: IconButton(
             icon: const Icon(Icons.clear),
@@ -187,6 +340,70 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
         ),
         onSubmitted: (_) => _onSearchChanged(),
         textInputAction: TextInputAction.search,
+      ),
+    );
+  }
+
+  Widget _buildScanBanner(DataMatrixData scan, ExpirationUpdateProvider provider) {
+    final expiry = scan.expiry;
+    final code = scan.ean13 ?? scan.gtin ?? scan.productCode ?? 'non lu';
+    final lotText = scan.lot ?? (scan.isLotAmbiguous ? 'à choisir' : 'non lu');
+    final dateText = expiry != null
+        ? _displayDateFormat.format(expiry)
+        : scan.isExpiryAmbiguous
+            ? 'à choisir'
+            : scan.invalidExpiry
+                ? 'invalide'
+                : 'non lue';
+
+    final warnings = <String>[
+      if (expiry != null && _isExpired(expiry)) 'Produit périmé : la date ne peut pas être enregistrée.',
+      if (scan.invalidExpiry) 'Date de péremption illisible dans le code : saisissez-la.',
+      if (scan.isLotAmbiguous) 'Lot ambigu dans le code : choisissez la valeur imprimée sur la boîte.',
+      if (scan.isExpiryAmbiguous) 'Date ambiguë dans le code : choisissez la valeur imprimée sur la boîte.',
+      if (_scanProductNotFound && provider.selectedProduct != null)
+        'Code produit introuvable : vérifiez que la boîte correspond bien au produit affiché.',
+      if (_scanProductNotFound && provider.selectedProduct == null)
+        'Produit introuvable pour ce code : recherchez-le par nom ou CIP, le lot et la date seront repris.',
+    ];
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 8.0),
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2.0, right: 8.0),
+            child: Icon(Icons.qr_code_2, color: AppColors.primary),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('DataMatrix lu', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text('Code : $code'),
+                Text('Lot : $lotText  |  Péremption : $dateText'),
+                for (final w in warnings)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(w, style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w500)),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 20),
+            tooltip: 'Ignorer ce scan',
+            onPressed: _discardScan,
+          ),
+        ],
       ),
     );
   }
@@ -205,7 +422,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
             subtitle: Text('CIP: ${product.intCIP} | Prix: ${Constants.formatNumber(product.intPRICE)} | Stock: ${product.intNUMBERAVAILABLE}'),
             onTap: () {
               _searchFocusNode.unfocus();
-              provider.selectProduct(product);
+              _selectProduct(product);
               _searchController.clear(); // Nettoyage manuel si clic
             },
           ),
@@ -214,14 +431,42 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     );
   }
 
+  Widget _buildChoices<T>({
+    required String label,
+    required List<T> values,
+    required String Function(T) format,
+    required void Function(T) onSelected,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(color: Colors.orange.shade900, fontSize: 12)),
+          Wrap(
+            spacing: 8.0,
+            children: [
+              for (final v in values)
+                ActionChip(label: Text(format(v)), onPressed: () => onSelected(v)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildUpdateForm(ExpirationUpdateProvider provider) {
     final product = provider.selectedProduct!;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        FocusScope.of(context).requestFocus(_dateFocusNode);
-      }
-    });
+    // Focus initial une seule fois par produit (et non à chaque reconstruction)
+    if (_focusedProductId != product.lgFAMILLEID) {
+      _focusedProductId = product.lgFAMILLEID;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          FocusScope.of(context).requestFocus(_initialFormFocus());
+        }
+      });
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -243,6 +488,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                 Text('CIP: ${product.intCIP}'),
                 const Divider(height: 30),
                 TextFormField(
+                  key: _dateFieldKey,
                   controller: _dateController,
                   focusNode: _dateFocusNode,
                   decoration: const InputDecoration(labelText: 'Date de Péremption (JJMMYY)'),
@@ -254,14 +500,28 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                     }
                     return null;
                   },
-                  onFieldSubmitted: (_) {
-                    if (_formKey.currentState?.validate() ?? false) {
+                  onChanged: _onFormFieldChanged,
+                  onFieldSubmitted: (value) {
+                    if (_interceptScan(value)) return;
+                    if (_dateFieldKey.currentState?.validate() ?? false) {
                       FocusScope.of(context).requestFocus(_lotFocusNode);
                     }
                   },
                 ),
+                if (_expiryChoices.isNotEmpty)
+                  _buildChoices<DateTime>(
+                    label: 'Date ambiguë dans le DataMatrix, choisissez :',
+                    values: _expiryChoices,
+                    format: _displayDateFormat.format,
+                    onSelected: (d) {
+                      _dateController.text = _displayDateFormat.format(d);
+                      setState(() => _expiryChoices = const []);
+                      FocusScope.of(context).requestFocus(_lotController.text.isEmpty ? _lotFocusNode : _quantityFocusNode);
+                    },
+                  ),
                 const SizedBox(height: 16),
                 TextFormField(
+                  key: _lotFieldKey,
                   controller: _lotController,
                   focusNode: _lotFocusNode,
                   decoration: const InputDecoration(labelText: 'N° de Lot'),
@@ -272,12 +532,25 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                     }
                     return null;
                   },
-                  onFieldSubmitted: (_) {
-                    if (_formKey.currentState?.validate() ?? false) {
+                  onChanged: _onFormFieldChanged,
+                  onFieldSubmitted: (value) {
+                    if (_interceptScan(value)) return;
+                    if (_lotFieldKey.currentState?.validate() ?? false) {
                       FocusScope.of(context).requestFocus(_quantityFocusNode);
                     }
                   },
                 ),
+                if (_lotChoices.isNotEmpty)
+                  _buildChoices<String>(
+                    label: 'Lot ambigu dans le DataMatrix, choisissez :',
+                    values: _lotChoices,
+                    format: (v) => v,
+                    onSelected: (v) {
+                      _lotController.text = v;
+                      setState(() => _lotChoices = const []);
+                      FocusScope.of(context).requestFocus(_quantityFocusNode);
+                    },
+                  ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _quantityController,
@@ -292,7 +565,11 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                     }
                     return null;
                   },
-                  onFieldSubmitted: (_) => _submitForm(),
+                  onChanged: _onFormFieldChanged,
+                  onFieldSubmitted: (value) {
+                    if (_interceptScan(value)) return;
+                    _submitForm();
+                  },
                 ),
                 const SizedBox(height: 24),
                 if(provider.isLoading)
