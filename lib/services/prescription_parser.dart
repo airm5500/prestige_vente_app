@@ -1,21 +1,39 @@
 // lib/services/prescription_parser.dart
 // Extraction des lignes "médicament" d'une ordonnance à partir du texte reconnu (OCR),
-// et classement des produits du stock par ressemblance avec la ligne lue.
+// et rapprochement avec les produits du stock.
 //
-// Principe : l'OCR ne remplace pas la lecture du pharmacien. Les lignes proposées
-// sont modifiables, et tout le texte lu reste consultable pour ajouter une ligne oubliée.
+// Précision : quand la ligne porte un CIP (ordonnance éditée par un logiciel), c'est le
+// CIP qui désigne le produit, jamais une ressemblance de nom. Sans CIP, un seul produit
+// est proposé et marqué "à vérifier" ; l'opérateur confirme ou change.
+import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 
 class PrescriptionLine {
-  /// Texte de la ligne tel que lu (ou corrigé par l'opérateur).
+  /// Désignation lue (colonne produit), ou ligne saisie / corrigée par l'opérateur.
   final String text;
 
-  /// Requête envoyée à la recherche produit (nom sans dosage ni forme).
+  /// Requête de recherche par nom (nom sans dosage ni forme).
   final String query;
 
   /// Dosage lu, ex. "1000 mg" -> "1000".
   final String? dosage;
 
-  const PrescriptionLine({required this.text, required this.query, this.dosage});
+  /// CIP (7 chiffres) ou code 13 chiffres lu sur la ligne.
+  final String? cip;
+
+  /// Quantité prescrite lue (colonne Qté), sinon null.
+  final int? quantity;
+
+  /// Posologie lue, sinon null.
+  final String? posology;
+
+  const PrescriptionLine({
+    required this.text,
+    required this.query,
+    this.dosage,
+    this.cip,
+    this.quantity,
+    this.posology,
+  });
 }
 
 class PrescriptionParser {
@@ -27,13 +45,13 @@ class PrescriptionParser {
     'inj', 'injectable', 'suppo', 'suppositoire', 'suppositoires', 'supp', 'pommade', 'pom', 'creme',
     'collyre', 'coll', 'gouttes', 'gtt', 'fl', 'flacon', 'flacons', 'sol', 'solution',
     'buv', 'buvable', 'susp', 'suspension', 'ovule', 'ovules', 'spray', 'aerosol', 'patch', 'lp',
-    'effervescent', 'eff', 'orodispersible', 'lyoc', 'tube', 'boite', 'bte', 'bt', 'sec', 'ped',
+    'effervescent', 'eff', 'effv', 'orodispersible', 'lyoc', 'tube', 'boite', 'bte', 'bt', 'sec', 'ped',
     'pediatrique', 'nourrisson', 'adulte', 'enfant', 'perf', 'poudre', 'pdre', 'granules', 'emulsion',
   };
 
   static const _units = <String>{'mg', 'g', 'gr', 'ml', 'mcg', 'µg', 'ug', 'ui', '%', 'mui', 'l', 'cl'};
 
-  /// Mots qui signalent une ligne d'en-tête, d'identité ou de posologie (non produit).
+  /// Mots qui signalent une ligne d'en-tête, d'identité, de tableau ou de posologie (non produit).
   static const _noiseWords = <String>{
     'docteur', 'dr', 'medecin', 'pr', 'professeur', 'clinique', 'hopital', 'chu', 'chr', 'centre',
     'cabinet', 'tel', 'telephone', 'cel', 'cell', 'fax', 'email', 'mail', 'bp', 'adresse', 'rue',
@@ -43,6 +61,10 @@ class PrescriptionParser {
     'avant', 'apres', 'repas', 'prendre', 'par', 'toutes', 'heures', 'si', 'besoin', 'douleur',
     'fievre', 'specialiste', 'generaliste', 'ordre', 'inscrit', 'onmci', 'rccm', 'cnps', 'mutuelle',
     'assurance', 'matricule', 'sexe', 'service', 'consultation', 'diagnostic',
+    // En-têtes de tableaux / documents édités par logiciel
+    'client', 'produit', 'produits', 'cip', 'qte', 'quantite', 'servie', 'posologie', 'total',
+    'prescrit', 'prescrits', 'prescrite', 'prescripteur', 'etablissement', 'observations', 'type',
+    'pieces', 'piece', 'jointe', 'fiche', 'document', 'renseigne', 'designation', 'libelle',
   };
 
   static String normalize(String s) {
@@ -59,8 +81,12 @@ class PrescriptionParser {
   static List<String> _tokens(String s) =>
       normalize(s).split(RegExp(r'[^a-z0-9%µ]+')).where((t) => t.isNotEmpty).toList();
 
+  /// Nom comparable : minuscules, sans accents ni ponctuation, espaces uniques.
+  static String comparableName(String s) => _tokens(s).join(' ');
+
   static final _dosageRe = RegExp(r'(\d+(?:[.,]\d+)?)\s*(mg|g|gr|ml|mcg|µg|ug|ui|mui|%)(?![a-z])', caseSensitive: false);
   static final _listPrefixRe = RegExp(r'^\s*(?:\d{1,2}\s*[).\-/]|[-•*·>]+)\s*');
+  static final _cipRe = RegExp(r'(?<![\d/.,\-])(\d{13}|\d{7})(?![\d/.,%\-])');
 
   /// Extrait les lignes susceptibles de désigner un médicament.
   static List<PrescriptionLine> extract(List<String> rawLines) {
@@ -71,48 +97,87 @@ class PrescriptionParser {
       if (line == null) continue;
       final candidate = parseLine(line);
       if (candidate == null) continue;
-      if (seen.add(normalize(candidate.query))) result.add(candidate);
+      final key = candidate.cip ?? normalize(candidate.query);
+      if (seen.add(key)) result.add(candidate);
     }
     return result;
   }
 
-  /// Nettoie une ligne OCR (puces, numérotation, espaces). `null` si vide.
+  /// Nettoie une ligne OCR (puces, numérotation). `null` si vide.
   static String? cleanLine(String raw) {
-    var s = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+    var s = raw.replaceAll(RegExp(r'[ \t]+$'), '').trim();
     s = s.replaceFirst(_listPrefixRe, '').trim();
     return s.length < 3 ? null : s;
   }
 
-  /// Analyse une ligne : renvoie un candidat produit, ou `null` si la ligne
-  /// ressemble à un en-tête, une identité ou une posologie.
+  /// Analyse une ligne (éventuellement une ligne de tableau : colonnes séparées
+  /// par deux espaces ou plus). Renvoie un candidat produit, ou `null`.
   static PrescriptionLine? parseLine(String line, {bool force = false}) {
-    final tokens = _tokens(line);
-    if (tokens.isEmpty) return null;
-
-    final hasDosage = _dosageRe.hasMatch(line);
-    final hasForm = tokens.any(_forms.contains);
-    final noise = tokens.where(_noiseWords.contains).length;
-    final letters = RegExp(r'[A-Za-zÀ-ÿ]').allMatches(line).length;
-
-    if (!force) {
-      if (letters < 3) return null;
-      // Posologie : "1 cp matin et soir", "2 fois par jour pendant 5 jours"
-      if (RegExp(r'^\d+(?:[.,/]\d+)?\s*(?:cp|cps|comprim|gel|sachet|cuill|c\.|goutte|amp|suppo|inj|fois|x\b)', caseSensitive: false)
-          .hasMatch(normalize(line))) {
-        return null;
-      }
-      if (RegExp(r'\d{2}[ .]?\d{2}[ .]?\d{2}[ .]?\d{2}').hasMatch(line) && !hasDosage) return null; // téléphone
-      if (RegExp(r'\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}').hasMatch(line) && !hasDosage) return null; // date
-      if (noise > 0 && !(hasDosage && noise == 1)) return null;
-      if (!hasDosage && !hasForm) return null;
+    // Saisie manuelle d'un CIP seul
+    if (force && RegExp(r'^\d{7}$|^\d{13}$').hasMatch(line.trim())) {
+      final code = line.trim();
+      return PrescriptionLine(text: code, query: code, cip: code);
+    }
+    // 1. Ligne de tableau avec CIP : "EFFERALGAN 500MG CPR EFFV B/16  3257001  1  —  1CP par jour"
+    for (final m in _cipRe.allMatches(line)) {
+      final code = m.group(1)!;
+      if (code.length == 13 && !DataMatrixParser.isValidGs1CheckDigit(code)) continue;
+      final name = line.substring(0, m.start).trim().replaceAll(RegExp(r'[\s|:;,\-]+$'), '');
+      if (!_isProductName(name, requireDosageOrForm: false)) continue;
+      final after = line.substring(m.end).trim();
+      final q = RegExp(r'^(\d{1,3})(?![\d.,]|\s*(?:mg|g|ml|cp|comp|gel|sach|%|ui))').firstMatch(after);
+      final qty = q == null ? null : int.parse(q.group(1)!);
+      var posology = (q == null ? after : after.substring(q.end)).trim();
+      posology = posology.replaceFirst(RegExp(r'^(?:[—–\-|]+\s*|\d{1,3}\s{2,})+'), '').trim();
+      return PrescriptionLine(
+        text: name,
+        query: _nameQuery(name),
+        dosage: _dosage(name),
+        cip: code,
+        quantity: qty != null && qty > 0 ? qty : null,
+        posology: posology.isEmpty ? null : posology,
+      );
     }
 
-    final query = _nameQuery(line);
-    if (query.isEmpty) return null;
-    final m = _dosageRe.firstMatch(line);
-    final dosage = m?.group(1)?.replaceAll(',', '.');
-    return PrescriptionLine(text: line, query: query, dosage: dosage);
+    // 2. Sans CIP : on juge la première colonne (la posologie est souvent à droite).
+    final columns = line.split(RegExp(r'\s{2,}'));
+    final name = columns.first.trim();
+    if (force) {
+      final q = _nameQuery(name.isEmpty ? line : name);
+      if (q.isEmpty) return null;
+      return PrescriptionLine(text: name.isEmpty ? line : name, query: q, dosage: _dosage(line));
+    }
+    if (!_isProductName(name, requireDosageOrForm: true)) return null;
+    final rest = columns.skip(1).join('  ').trim();
+    return PrescriptionLine(
+      text: name,
+      query: _nameQuery(name),
+      dosage: _dosage(name),
+      posology: rest.isEmpty ? null : rest,
+    );
   }
+
+  static bool _isProductName(String name, {required bool requireDosageOrForm}) {
+    final tokens = _tokens(name);
+    if (tokens.isEmpty) return false;
+    final letters = RegExp(r'[A-Za-zÀ-ÿ]').allMatches(name).length;
+    if (letters < 3) return false;
+    final hasDosage = _dosageRe.hasMatch(name);
+    final hasForm = tokens.any(_forms.contains);
+    final noise = tokens.where(_noiseWords.contains).length;
+    // Posologie : "1 cp matin et soir", "2 fois par jour pendant 5 jours"
+    if (RegExp(r'^\d+(?:[.,/]\d+)?\s*(?:cp|cps|comprim|gel|sachet|cuill|c\.|goutte|amp|suppo|inj|fois|x\b)', caseSensitive: false)
+        .hasMatch(normalize(name))) {
+      return false;
+    }
+    if (RegExp(r'\d{2}[ .]?\d{2}[ .]?\d{2}[ .]?\d{2}').hasMatch(name) && !hasDosage) return false; // téléphone
+    if (RegExp(r'\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}').hasMatch(name) && !hasDosage) return false; // date
+    if (noise > 0 && !(hasDosage && noise == 1)) return false;
+    if (requireDosageOrForm && !hasDosage && !hasForm) return false;
+    return true;
+  }
+
+  static String? _dosage(String s) => _dosageRe.firstMatch(s)?.group(1)?.replaceAll(',', '.');
 
   /// Nom commercial / DCI : mots avant le premier dosage ou la première forme.
   static String _nameQuery(String line) {
@@ -129,7 +194,7 @@ class PrescriptionParser {
     return kept.where((w) => w.isNotEmpty).join(' ');
   }
 
-  /// Requêtes de recherche à essayer dans l'ordre (nom complet, puis premier mot).
+  /// Requêtes de recherche par nom à essayer dans l'ordre (nom complet, puis premier mot).
   static List<String> searchQueries(PrescriptionLine line) {
     final q = line.query.trim();
     final first = q.split(' ').first;
@@ -153,9 +218,9 @@ class PrescriptionParser {
       final dn = d.endsWith('.0') ? d.substring(0, d.length - 2) : d;
       if (RegExp('(^|[^0-9])${RegExp.escape(dn)}([^0-9]|\$)').hasMatch(normalize(productName))) s += 8;
     }
-    final lineTokens = _tokens(line.text);
-    for (final f in lineTokens.where(_forms.contains)) {
-      if (p.contains(f)) s += 2;
+    // Chaque mot de la désignation lue retrouvé dans le produit (forme, conditionnement...)
+    for (final t in _tokens(line.text)) {
+      if (!l.contains(t) && p.contains(t)) s += 2;
     }
     return s;
   }

@@ -120,7 +120,10 @@ class LabelTextParser {
       }
 
       final expMatch = _expLabel.firstMatch(line);
-      if (expMatch != null && !_isInsideWord(line, expMatch.start) && !_mfgLabel.hasMatch(line.substring(0, expMatch.start))) {
+      // Libellé de fabrication collé juste avant (ex. "FAB./PER.") : ce n'est pas une péremption.
+      if (expMatch != null &&
+          !_isInsideWord(line, expMatch.start) &&
+          !_mfgLabel.hasMatch(line.substring((expMatch.start - 6).clamp(0, line.length), expMatch.start))) {
         var rest = line.substring(expMatch.end).trim();
         var dates = _datesIn(rest, today);
         if (dates.isEmpty && rest.isEmpty) dates = _datesIn(next, today);
@@ -146,9 +149,12 @@ class LabelTextParser {
     if (expiries.isEmpty) {
       final found = <DateTime>[];
       for (final line in norm) {
-        if (_mfgLabel.hasMatch(line)) continue;
-        for (final d in _datesIn(line, today)) {
+        // Sur une ligne fusionnée "MFG 09/2024  EXP ...", seules les parties hors fabrication comptent.
+        for (final part in line.split(RegExp(r'\s{2,}'))) {
+        if (_mfgLabel.hasMatch(part)) continue;
+        for (final d in _datesIn(part, today)) {
           if (!found.contains(d)) found.add(d);
+        }
         }
       }
       found.sort((a, b) => b.compareTo(a));

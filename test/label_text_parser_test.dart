@@ -68,4 +68,11 @@ void main() {
     expect(d.expiryCandidates.first, DateTime(2026, 8, 31)); // pas la date de fabrication
     expect(d.expiryFromLabel, isTrue);
   });
+
+  test('ligne fusionnée (tableau) : fabrication et péremption sur la même ligne', () {
+    final d = parse(['B.No.: XKB0136  Mfd.: 09/2024  Exp.: 08/2026']);
+    expect(d.lotCandidates.first, 'XKB0136');
+    expect(d.expiryCandidates.first, DateTime(2026, 8, 31));
+    expect(d.expiryFromLabel, isTrue);
+  });
 }
