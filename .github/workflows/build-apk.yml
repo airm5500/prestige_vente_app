@@ -1,0 +1,39 @@
+name: Build APK (test terminal)
+
+on:
+  push:
+    branches:
+      - 'pres-/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dépendances
+        run: flutter pub get
+
+      - name: Tests DataMatrix
+        run: flutter test test/datamatrix_parser_test.dart test/expiration_update_datamatrix_test.dart
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prestige-vente-apk
+          path: build/app/outputs/flutter-apk/*.apk
+          retention-days: 30
