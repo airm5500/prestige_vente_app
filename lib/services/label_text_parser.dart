@@ -47,7 +47,7 @@ class LabelTextParser {
   };
 
   static final _lotLabel = RegExp(
-    r'(?:N[°O]\s*DE\s*LOT|LOT\s*N[°O]?|LOT|BATCH\s*(?:NO|N[°O]|NUMBER)?|\bB\.?\s?N\b|\bCH\.?-?B\b)\s*[:.#/]*\s*',
+    r'(?:N[°O]\s*DE\s*LOT|LOT\s*N[°O]?|LOT|BATCH\s*(?:NO|N[°O]|NUMBER)?|\bB\s?\.?\s?N(?:O|°)?\b\.*|\bCH\.?-?B\b)\s*[:.#/]*\s*',
   );
   static final _expLabel = RegExp(
     r'(?:EXPIRY\s*DATE|EXP(?:IRY|IRATION)?\.?\s*(?:DATE)?|DATE\s*(?:DE\s*)?(?:PER(?:EMPTION)?|EXP)\.?|PER(?:EMPTION)?\.?|UTILISER\s*AVANT|USE\s*BY|DLU|DLC|\bVAL\.?)\s*[:./]*\s*',
@@ -131,7 +131,15 @@ class LabelTextParser {
       }
     }
 
-    // 3. EAN-13 imprimé sous le code-barres (chiffres éventuellement espacés), ligne par ligne
+    // 3. GTIN libellé ("GTIN : 08901296107140"), sinon EAN-13 imprimé sous le code-barres
+    for (final line in norm) {
+      if (gtin != null) break;
+      final m = RegExp(r'\b(?:GTIN|EAN)\s*[:.]*\s*(\d{13,14})(?![0-9])').firstMatch(line);
+      if (m != null) {
+        final g = m.group(1)!.padLeft(14, '0');
+        if (DataMatrixParser.isValidGs1CheckDigit(g)) gtin = g;
+      }
+    }
     gtin ??= _findEan13(norm);
 
     // 4. Sans libellé de péremption : dates proposées (hors fabrication), la plus tardive d'abord.

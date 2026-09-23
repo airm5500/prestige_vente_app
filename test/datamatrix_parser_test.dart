@@ -74,6 +74,20 @@ void main() {
     });
   });
 
+  group('Boîte réelle (GTIN 08901296107140, lot XKB0136, série XKB0136QZ8URD5)', () {
+    test('avec séparateur GS', () {
+      final d = parse('010890129610714017260800${'10'}XKB0136${gs}21XKB0136QZ8URD5')!;
+      expect(d.gtin, '08901296107140');
+      expect(d.lot, 'XKB0136');
+      expect(d.expiry, DateTime(2026, 8, 31));
+    });
+    test('sans séparateur : le lot reste déterminé (un lot de 23 caractères est impossible)', () {
+      final d = parse('01089012961071401726083110XKB013621XKB0136QZ8URD5')!;
+      expect(d.lot, 'XKB0136');
+      expect(d.expiry, DateTime(2026, 8, 31));
+    });
+  });
+
   group('GS1 lisible', () {
     test('avec AI supplémentaires', () {
       final d = parse('(01)$gtin(21)SERIE-99(17)271231(10)LOT42(30)12')!;

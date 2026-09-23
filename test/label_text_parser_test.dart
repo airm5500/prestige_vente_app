@@ -52,4 +52,20 @@ void main() {
   test('mot contenant LOT (PILOTE) ignoré', () {
     expect(parse(['PILOTE 123']).lotCandidates, isEmpty);
   });
+
+  test('boîte format indien : GTIN, B.No., Mfd., Exp., S.N. (photo réelle)', () {
+    final d = parse([
+      '8 901296 107140',
+      'GTIN :08901296107140',
+      'B.No..:XKB0136',
+      'Mfd. :09/2024',
+      'Exp. :08/2026',
+      'S.N. :XKB0136QZ8URD5',
+    ]);
+    expect(d.gtin, '08901296107140');
+    expect(d.lotCandidates, ['XKB0136']); // pas le numéro de série
+    expect(d.lotFromLabel, isTrue);
+    expect(d.expiryCandidates.first, DateTime(2026, 8, 31)); // pas la date de fabrication
+    expect(d.expiryFromLabel, isTrue);
+  });
 }
