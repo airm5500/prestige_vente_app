@@ -47,6 +47,22 @@ class FingerprintService {
     }
   }
 
+  /// Informations sur le lecteur du terminal (système Android et services Sunmi).
+  static Future<Map<String, Object?>> hardwareInfo() async {
+    final m = await _call<Map<Object?, Object?>>('hardwareInfo') ?? const {};
+    return {for (final e in m.entries) '${e.key}': e.value};
+  }
+
+  /// Traduction du code BiometricManager.canAuthenticate() (Android 10+).
+  static String biometricStatusLabel(Object? code) => switch (code) {
+        0 => 'prêt (empreinte(s) enregistrée(s) dans Android)',
+        11 => 'aucune empreinte enregistrée dans les Paramètres Android',
+        12 => 'pas de lecteur',
+        1 => 'lecteur indisponible',
+        null => 'non vérifiable (Android < 10)',
+        _ => 'code $code',
+      };
+
   static Future<void> connect() => _call<bool>('connect');
   static Future<void> engage() => _call<bool>('engage');
   static Future<void> release() => _call<int>('release');

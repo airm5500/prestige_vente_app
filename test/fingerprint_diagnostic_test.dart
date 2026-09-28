@@ -20,6 +20,13 @@ void main() {
       switch (call.method) {
         case 'isServiceInstalled':
           return installed;
+        case 'hardwareInfo':
+          return {
+            'manufacturer': 'SUNMI', 'model': 'V3H', 'android': '13', 'sdk': 33,
+            'featureFingerprint': true, 'biometricStatus': 0,
+            'sunmiServices': installed ? ['com.sunmi.fingerprintservice/.FingerprintService'] : <String>[],
+            'sunmiPackages': <String>[],
+          };
         case 'connect':
         case 'engage':
           return true;
@@ -47,9 +54,14 @@ void main() {
 
   testWidgets('terminal sans service Sunmi : message clair, tests désactivés', (tester) async {
     mock(installed: false);
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(const MaterialApp(home: FingerprintDiagnosticScreen()));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Service absent'), findsOneWidget);
+    // Lecteur Android présent, mais pas le service Sunmi d'identification : explication précise
+    expect(find.textContaining('Lecteur présent'), findsOneWidget);
+    expect(find.textContaining('Le lecteur existe, mais le service Sunmi'), findsOneWidget);
     expect(calls, isNot(contains('connect')));
     final enrollBtn = tester.widget<ButtonStyleButton>(
         find.ancestor(of: find.text('Tester l\'enregistrement'), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton)));
@@ -58,6 +70,9 @@ void main() {
 
   testWidgets('parcours complet : capteur, enregistrement, reconnaissance, libération', (tester) async {
     mock();
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(const MaterialApp(home: FingerprintDiagnosticScreen()));
     await tester.pumpAndSettle();
     expect(find.textContaining('Aratek · A400'), findsOneWidget);

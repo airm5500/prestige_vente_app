@@ -1,5 +1,7 @@
 // lib/api/api_service.dart
 // 10/11/2025 09:00 (Ajout updateClientAssurance)
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
@@ -32,6 +34,7 @@ import 'package:prestige_vente_app/api/models/stock_report_models.dart';
 import 'package:prestige_vente_app/api/models/reception_model.dart';
 
 import 'package:prestige_vente_app/api/models/licence_model.dart';
+import 'package:prestige_vente_app/api/models/licence_lookup.dart';
 import 'package:prestige_vente_app/api/models/depot_model.dart'; // Pour DepotSaleListItem
 
 class ApiService {
@@ -275,6 +278,63 @@ class ApiService {
       return false;
     } catch (e) {
       print("Error saving licence: $e");
+      return false;
+    }
+  }
+
+  /// Vérification de licence qui distingue la cause d'un échec :
+  /// serveur injoignable, application Prestige absente à cette adresse,
+  /// erreur du serveur, ou réponse normale (licence présente / absente).
+  Future<LicenceLookup> lookupLicence() async {
+    try {
+      final response = await _dio.get('/licence/find');
+      final data = response.data;
+      if (data == null || (data is String && data.trim().isEmpty)) {
+        return const LicenceLookup.noLicence();
+      }
+      if (data is! Map) {
+        return LicenceLookup.failure(LicenceIssue.unexpectedResponse, 'Réponse inattendue du serveur (${response.statusCode}).');
+      }
+      return LicenceLookup.found(LicenceModel.fromJson(Map<String, dynamic>.from(data)));
+    } on DioException catch (e) {
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+        case DioExceptionType.connectionError:
+          return LicenceLookup.failure(LicenceIssue.unreachable, e.message ?? e.type.name);
+        case DioExceptionType.badResponse:
+          final code = e.response?.statusCode ?? 0;
+          if (code == 404) {
+            // 404 : soit l'application Prestige n'est pas déployée à cette adresse,
+            // soit elle l'est et n'a simplement pas de licence enregistrée.
+            return await _prestigeAppResponds()
+                ? const LicenceLookup.noLicence()
+                : LicenceLookup.failure(LicenceIssue.appNotFound, 'HTTP 404 sur ${e.requestOptions.uri}');
+          }
+          return LicenceLookup.failure(LicenceIssue.serverError, 'HTTP $code');
+        default:
+          if (e.error is SocketException) {
+            return LicenceLookup.failure(LicenceIssue.unreachable, e.error.toString());
+          }
+          return LicenceLookup.failure(LicenceIssue.unreachable, e.message ?? e.toString());
+      }
+    } on SocketException catch (e) {
+      return LicenceLookup.failure(LicenceIssue.unreachable, e.message);
+    } catch (e) {
+      return LicenceLookup.failure(LicenceIssue.unexpectedResponse, e.toString());
+    }
+  }
+
+  /// L'application Prestige est-elle déployée à cette adresse ?
+  /// On interroge la racine de l'application (http://ip:port/<app>/) : Payara répond 404
+  /// uniquement si aucune application n'y est déployée.
+  Future<bool> _prestigeAppResponds() async {
+    try {
+      final base = _dio.options.baseUrl.replaceFirst(RegExp(r'/api/v1/?$'), '/');
+      final r = await _dio.getUri(Uri.parse(base), options: Options(validateStatus: (_) => true, responseType: ResponseType.plain));
+      return (r.statusCode ?? 404) != 404;
+    } catch (_) {
       return false;
     }
   }

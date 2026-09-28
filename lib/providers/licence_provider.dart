@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/licence_model.dart';
+import 'package:prestige_vente_app/api/models/licence_lookup.dart';
 
 enum LicenceStatus {
   loading,
@@ -19,12 +20,36 @@ class LicenceProvider with ChangeNotifier {
   LicenceModel? _licence;
   LicenceStatus _status = LicenceStatus.loading;
   String _errorMessage = '';
+  LicenceIssue? _issue; // Cause précise quand status == error (connexion / serveur)
 
   LicenceProvider(this._apiService);
 
   LicenceModel? get licence => _licence;
   LicenceStatus get status => _status;
   String get errorMessage => _errorMessage;
+  LicenceIssue? get issue => _issue;
+
+  /// Titre court selon la cause (connexion ou serveur), pour les boîtes de dialogue.
+  String get errorTitle => switch (_issue) {
+        LicenceIssue.unreachable => 'Serveur injoignable',
+        LicenceIssue.appNotFound => 'Application Prestige introuvable',
+        LicenceIssue.serverError => 'Erreur du serveur Prestige',
+        LicenceIssue.unexpectedResponse => 'Réponse inattendue du serveur',
+        null => 'Erreur de connexion',
+      };
+
+  static String messageFor(LicenceIssue issue, String? detail) {
+    final base = switch (issue) {
+      LicenceIssue.unreachable => 'Aucun serveur ne répond à l\'adresse configurée.\n\n'
+          'Vérifiez :\n1. Que le serveur (PC) est allumé.\n2. Que le Wifi est activé.\n3. Que l\'adresse IP et le port sont corrects.',
+      LicenceIssue.appNotFound => 'Le serveur répond, mais l\'application Prestige n\'est pas à cette adresse.\n\n'
+          'Vérifiez dans Configuration :\n1. Le port.\n2. Le nom de l\'application (ex. "prestige").\n'
+          '3. Que l\'application est démarrée sur le serveur (console Payara).',
+      LicenceIssue.serverError => 'Le serveur Prestige répond avec une erreur.\n\nRedémarrez l\'application sur le serveur ou contactez le support.',
+      LicenceIssue.unexpectedResponse => 'Le serveur répond, mais ce n\'est pas une réponse Prestige.\n\nVérifiez l\'adresse IP, le port et le nom de l\'application.',
+    };
+    return detail == null || detail.isEmpty ? base : '$base\n\nDétail : $detail';
+  }
 
   // CORRECTION CRITIQUE : Cette méthode doit vraiment mettre à jour la variable
   void updateApiService(ApiService newApiService) {
@@ -53,11 +78,18 @@ class LicenceProvider with ChangeNotifier {
     _status = LicenceStatus.loading;
     notifyListeners();
 
+    _issue = null;
     try {
-      // Appel direct au serveur (Pas de cache)
-      final result = await _apiService.findLicence();
+      // Appel direct au serveur (Pas de cache). La cause d'un échec est distinguée :
+      // un problème de connexion ne doit jamais être présenté comme "pas de licence".
+      final lookup = await _apiService.lookupLicence();
+      final result = lookup.licence;
 
-      if (result != null) {
+      if (lookup.issue != null) {
+        _status = LicenceStatus.error;
+        _issue = lookup.issue;
+        _errorMessage = messageFor(lookup.issue!, lookup.detail);
+      } else if (result != null) {
         _licence = result;
         if (_isExpired(result.dateEnd)) {
           _status = LicenceStatus.expired;
@@ -65,15 +97,15 @@ class LicenceProvider with ChangeNotifier {
           _status = LicenceStatus.valid;
         }
       } else {
-        // Le serveur a répondu (200 OK) mais renvoie null -> Pas de licence enregistrée
+        // Le serveur Prestige a répondu : aucune licence enregistrée
         _licence = null;
         _status = LicenceStatus.none;
       }
     } catch (e) {
-      // Le serveur est injoignable ou renvoie une erreur 500/404
       print("Erreur Licence: $e");
       _status = LicenceStatus.error;
-      _errorMessage = "Impossible de joindre le serveur local. Vérifiez votre Wifi/Câble.";
+      _issue = LicenceIssue.unreachable;
+      _errorMessage = messageFor(LicenceIssue.unreachable, e.toString());
     }
 
     notifyListeners();

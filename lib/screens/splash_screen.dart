@@ -96,14 +96,13 @@ class _SplashScreenState extends State<SplashScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text("Erreur de Connexion"),
-        content: const Text(
-          "Impossible de vérifier la licence.\n"
-              "Le serveur est injoignable.\n\n"
-              "Vérifiez :\n"
-              "1. Que le serveur (PC) est allumé.\n"
-              "2. Que le Wifi est activé.\n"
-              "3. Que l'adresse IP est correcte.",
+        title: Text(Provider.of<LicenceProvider>(context, listen: false).errorTitle),
+        content: SingleChildScrollView(
+          child: Text(
+            "Impossible de vérifier la licence : c'est un problème de connexion, pas de licence.\n\n"
+            "${Provider.of<LicenceProvider>(context, listen: false).errorMessage}\n\n"
+            "Adresse utilisée : ${Provider.of<SettingsProvider>(context, listen: false).baseUrl}",
+          ),
         ),
         actions: [
           TextButton(

@@ -2,6 +2,8 @@ package com.dici.prestige_vente_app
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -74,6 +76,7 @@ class SunmiFingerprintBridge(private val context: Context, messenger: BinaryMess
         try {
             when (call.method) {
                 "isServiceInstalled" -> result.success(isServiceInstalled())
+                "hardwareInfo" -> result.success(hardwareInfo())
                 "connect" -> connect(Once(result, main))
                 "engage" -> engage(Once(result, main))
                 "release" -> result.success(release())
@@ -101,6 +104,47 @@ class SunmiFingerprintBridge(private val context: Context, messenger: BinaryMess
     private fun isServiceInstalled(): Boolean {
         val intent = Intent(SERVICE_ACTION).setPackage(SERVICE_PACKAGE)
         return context.packageManager.queryIntentServices(intent, 0).isNotEmpty()
+    }
+
+    /**
+     * Ce que le terminal propose réellement : lecteur d'empreinte Android (système),
+     * empreintes enregistrées, et services d'empreinte Sunmi quel que soit leur nom de paquet.
+     */
+    private fun hardwareInfo(): Map<String, Any?> {
+        val pm = context.packageManager
+        val info = mutableMapOf<String, Any?>(
+            "manufacturer" to Build.MANUFACTURER,
+            "model" to Build.MODEL,
+            "device" to Build.DEVICE,
+            "android" to Build.VERSION.RELEASE,
+            "sdk" to Build.VERSION.SDK_INT,
+            "featureFingerprint" to pm.hasSystemFeature(PackageManager.FEATURE_FINGERPRINT),
+        )
+        // Lecteur système (API Android standard) : 0 = prêt, 11 = aucune empreinte enregistrée,
+        // 12 = pas de matériel, 1 = matériel indisponible.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val bm = context.getSystemService(android.hardware.biometrics.BiometricManager::class.java)
+                @Suppress("DEPRECATION")
+                info["biometricStatus"] = bm?.canAuthenticate()
+            } catch (e: Exception) {
+                info["biometricStatus"] = "erreur: ${e.message}"
+            }
+        }
+        // Services répondant à l'action Sunmi, quel que soit le paquet.
+        val sunmi = pm.queryIntentServices(Intent(SERVICE_ACTION), 0).map { it.serviceInfo.packageName + "/" + it.serviceInfo.name }
+        info["sunmiServices"] = sunmi
+        // Paquets d'empreinte Sunmi connus.
+        info["sunmiPackages"] = listOf(
+            SERVICE_PACKAGE, "com.sunmi.fingerprint", "com.sunmi.biometric", "com.sunmi.fingerprintserver",
+        ).filter { pkg ->
+            try {
+                pm.getPackageInfo(pkg, 0); true
+            } catch (e: Exception) {
+                false
+            }
+        }
+        return info
     }
 
     private fun requireOpt(): FingerprintOpt = opt ?: throw IllegalStateException("Service d'empreinte non connecté")

@@ -5,6 +5,9 @@
     <!-- Appareil photo : scan DataMatrix et photo d'ordonnance (facultatif : terminaux sans caméra) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Lecteur d'empreinte (pointage) : facultatif, l'application s'installe aussi sans -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
     <application
         android:label="Prestige Mobile"
         android:name="${applicationName}"
@@ -50,5 +53,13 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Service d'empreinte Sunmi (visibilité des paquets, Android 11+) -->
+        <intent>
+            <action android:name="com.sunmi.fingerprint.service"/>
+        </intent>
+        <package android:name="com.sunmi.fingerprintservice"/>
+        <package android:name="com.sunmi.fingerprint"/>
+        <package android:name="com.sunmi.biometric"/>
+        <package android:name="com.sunmi.fingerprintserver"/>
     </queries>
 </manifest>

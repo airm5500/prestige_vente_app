@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
 
-enum _Step { service, connect, sensor, enroll, identify }
+enum _Step { hardware, service, connect, sensor, enroll, identify }
 
 enum _State { todo, running, ok, failed }
 
@@ -22,12 +22,14 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
   final Map<_Step, _State> _states = {for (final s in _Step.values) s: _State.todo};
   final Map<_Step, String> _details = {};
   final List<Uint8List> _testTemplates = [];
+  Map<String, Object?> _hardware = const {};
   String? _hint;
   bool _busy = false;
   StreamSubscription<String>? _hintSub;
 
   static const _labels = {
-    _Step.service: 'Service d\'empreinte Sunmi présent',
+    _Step.hardware: 'Lecteur d\'empreinte du terminal (Android)',
+    _Step.service: 'Service d\'identification Sunmi',
     _Step.connect: 'Connexion au service',
     _Step.sensor: 'Activation du capteur',
     _Step.enroll: 'Test d\'enregistrement',
@@ -81,12 +83,30 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
   /// Étapes automatiques : service, connexion, capteur.
   Future<void> _runChecks() async {
     setState(() => _busy = true);
-    final installed = await _step(_Step.service, () async {
-      if (!await FingerprintService.isServiceInstalled()) {
-        throw const FingerprintException('NO_SERVICE',
-            'Service absent : ce terminal n\'a pas de lecteur d\'empreinte Sunmi compatible (version V3H "fingerprint" requise).');
+    var hasReader = false;
+    await _step(_Step.hardware, () async {
+      _hardware = await FingerprintService.hardwareInfo();
+      hasReader = _hardware['featureFingerprint'] == true;
+      final device = '${_hardware['manufacturer'] ?? ''} ${_hardware['model'] ?? ''} · Android ${_hardware['android'] ?? '?'}'.trim();
+      if (!hasReader) {
+        throw FingerprintException('NO_READER', 'Aucun lecteur d\'empreinte déclaré par Android ($device).');
       }
-      return 'com.sunmi.fingerprintservice';
+      return 'Lecteur présent · ${FingerprintService.biometricStatusLabel(_hardware['biometricStatus'])} · $device';
+    });
+    final installed = await _step(_Step.service, () async {
+      final services = (_hardware['sunmiServices'] as List?)?.cast<Object?>() ?? const [];
+      if (!await FingerprintService.isServiceInstalled() && services.isEmpty) {
+        throw FingerprintException(
+          'NO_SERVICE',
+          hasReader
+              ? 'Le lecteur existe, mais le service Sunmi qui permet de savoir QUI pose le doigt '
+                  '(com.sunmi.fingerprintservice) n\'est pas installé sur ce terminal. Le lecteur n\'est '
+                  'accessible que par l\'API Android standard, qui confirme "une empreinte enregistrée" '
+                  'sans identifier la personne.'
+              : 'Service com.sunmi.fingerprintservice absent.',
+        );
+      }
+      return services.isEmpty ? 'com.sunmi.fingerprintservice' : services.join(', ');
     });
     if (installed && await _step(_Step.connect, () async {
       await FingerprintService.connect();
@@ -146,6 +166,7 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
 
   String _report() => [
         'Diagnostic empreinte Sunmi',
+        'Terminal : ${_hardware.entries.map((e) => '${e.key}=${e.value}').join(' ; ')}',
         for (final s in _Step.values) '${_labels[s]} : ${_states[s]!.name}${_details[s] == null || _details[s]!.isEmpty ? '' : ' — ${_details[s]}'}',
       ].join('\n');
 
