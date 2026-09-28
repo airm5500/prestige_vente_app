@@ -48,7 +48,26 @@ class LicenceProvider with ChangeNotifier {
       LicenceIssue.serverError => 'Le serveur Prestige répond avec une erreur.\n\nRedémarrez l\'application sur le serveur ou contactez le support.',
       LicenceIssue.unexpectedResponse => 'Le serveur répond, mais ce n\'est pas une réponse Prestige.\n\nVérifiez l\'adresse IP, le port et le nom de l\'application.',
     };
-    return detail == null || detail.isEmpty ? base : '$base\n\nDétail : $detail';
+    // Le détail technique (exception réseau) reste dans les logs, pas à l'écran.
+    if (detail != null && detail.isNotEmpty) print('Licence - détail : $detail');
+    return base;
+  }
+
+  /// Adresse du serveur à afficher : l'IP (ou le nom) seule, sans port ni chemin d'API.
+  static String serverHost(String baseUrl) {
+    final host = Uri.tryParse(baseUrl)?.host ?? '';
+    return host.isEmpty ? baseUrl : host;
+  }
+
+  /// Vérification auprès du serveur pendant l'utilisation (connexion, retour dans
+  /// l'application, contrôle périodique). Renvoie true si l'accès doit être bloqué :
+  /// licence absente ou expirée. Une coupure réseau ne bloque pas le travail en cours :
+  /// on s'appuie alors sur la date de fin de la dernière licence connue.
+  Future<bool> mustBlockAccess() async {
+    final status = await checkLicence();
+    if (status == LicenceStatus.none || status == LicenceStatus.expired) return true;
+    if (status == LicenceStatus.error) return _licence != null && _isExpired(_licence!.dateEnd);
+    return false;
   }
 
   // CORRECTION CRITIQUE : Cette méthode doit vraiment mettre à jour la variable

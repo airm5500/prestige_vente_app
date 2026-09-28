@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
+import 'package:prestige_vente_app/providers/licence_provider.dart';
+import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
@@ -61,6 +63,20 @@ class _LoginScreenState extends State<LoginScreen> {
         );
 
         if (mounted && success) {
+          // Licence vérifiée à chaque connexion (elle a pu être supprimée ou expirer
+          // pendant que l'application tournait).
+          final licenceProvider = Provider.of<LicenceProvider>(context, listen: false);
+          if (await licenceProvider.mustBlockAccess()) {
+            await authProvider.logout();
+            if (mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LicenceRegistrationScreen()),
+                (route) => false,
+              );
+            }
+            return;
+          }
+          if (!mounted) return;
           await settingsProvider.saveCredentials(
             _loginController.text,
             _passwordController.text,

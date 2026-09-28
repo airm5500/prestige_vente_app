@@ -76,7 +76,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       Provider.of<LicenceProvider>(context, listen: false).checkReminders(context);
     });
 
-    _licenceWatchdogTimer = Timer.periodic(const Duration(hours: 1), (timer) {
+    _licenceWatchdogTimer = Timer.periodic(const Duration(minutes: 15), (timer) {
       _performSecurityCheck();
     });
   }
@@ -102,9 +102,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  bool _securityCheckRunning = false;
+
   void _performSecurityCheck() async {
+    if (_securityCheckRunning) return;
+    _securityCheckRunning = true;
     final licenceProvider = Provider.of<LicenceProvider>(context, listen: false);
-    bool isExpired = licenceProvider.checkLocalExpiration();
+    // Vérification auprès du serveur (licence supprimée ou expirée pendant l'utilisation)
+    bool isExpired;
+    try {
+      isExpired = await licenceProvider.mustBlockAccess();
+    } finally {
+      _securityCheckRunning = false;
+    }
 
     if (isExpired) {
       if (mounted) {

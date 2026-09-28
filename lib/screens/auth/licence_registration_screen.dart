@@ -162,7 +162,7 @@ class _LicenceRegistrationScreenState extends State<LicenceRegistrationScreen> {
                           ),
                         const SizedBox(height: 6),
                         Text(
-                          "Serveur : ${context.watch<SettingsProvider>().baseUrl}",
+                          "Serveur : ${LicenceProvider.serverHost(context.watch<SettingsProvider>().baseUrl)}",
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey[600], fontSize: 12),
                         ),

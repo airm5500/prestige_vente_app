@@ -102,6 +102,7 @@ void main() {
     expect(p.issue, LicenceIssue.appNotFound);
     expect(p.errorTitle, 'Application Prestige introuvable');
     expect(p.errorMessage, contains('nom de l\'application'));
+    expect(p.errorMessage, isNot(contains('Détail')));
 
     serve((o) async => ResponseBody.fromString('', 200));
     final p2 = LicenceProvider(api);
@@ -149,6 +150,42 @@ void main() {
       await server.close(force: true);
       expect(await settings.ping('127.0.0.1', '$port', 'prestige'), isFalse);
       expect(settings.pingError, contains('Aucun serveur'));
+    });
+  });
+
+  test('adresse affichée : IP seule', () {
+    expect(LicenceProvider.serverHost('http://192.168.1.175:8080/prestige/api/v1'), '192.168.1.175');
+  });
+
+  group('licence supprimée pendant l\'utilisation', () {
+    const valid = {'id': 'a2e6', 'dateStart': '2026-02-02', 'dateEnd': '2099-02-01', 'typeLicence': '1'};
+
+    test('supprimée côté serveur : accès bloqué à la vérification suivante', () async {
+      serve((o) async => _json(valid));
+      final p = LicenceProvider(api);
+      expect(await p.mustBlockAccess(), isFalse);
+      // La licence est supprimée : le serveur Prestige répond sans licence
+      serve((o) async => ResponseBody.fromString('', 200));
+      p.updateApiService(api);
+      expect(await p.mustBlockAccess(), isTrue);
+    });
+
+    test('coupure réseau : le travail continue avec la dernière licence connue', () async {
+      serve((o) async => _json(valid));
+      final p = LicenceProvider(api);
+      expect(await p.mustBlockAccess(), isFalse);
+      serve((o) async => throw DioException.connectionTimeout(requestOptions: o, timeout: const Duration(seconds: 10)));
+      p.updateApiService(api);
+      expect(await p.mustBlockAccess(), isFalse);
+    });
+
+    test('coupure réseau mais licence connue expirée : accès bloqué', () async {
+      serve((o) async => _json({...valid, 'dateEnd': '2020-01-01'}));
+      final p = LicenceProvider(api);
+      expect(await p.mustBlockAccess(), isTrue);
+      serve((o) async => throw DioException.connectionTimeout(requestOptions: o, timeout: const Duration(seconds: 10)));
+      p.updateApiService(api);
+      expect(await p.mustBlockAccess(), isTrue);
     });
   });
 }
