@@ -299,17 +299,35 @@ class SettingsProvider with ChangeNotifier {
     return true;
   }
 
+  /// Raison du dernier échec de [ping] (affichée à l'écran Configuration).
+  String _pingError = '';
+  String get pingError => _pingError;
+
+  /// Vérifie que l'application Prestige répond à l'adresse saisie (IP, port, nom d'application).
+  /// Un serveur qui répond 404 n'est pas un serveur Prestige : c'est un échec.
   Future<bool> ping(String ip, String port, String appName) async {
-    if (ip.isEmpty) return false;
-    final url = 'http://$ip:$port/$_appName/api/v1/user/auth';
+    _pingError = '';
+    if (ip.isEmpty) {
+      _pingError = 'Adresse IP vide.';
+      return false;
+    }
+    final url = 'http://$ip:$port/$appName/api/v1/user/auth';
     try {
-      final dio = Dio();
+      final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 8), receiveTimeout: const Duration(seconds: 8)));
       await dio.post(url, data: {}, options: Options(receiveDataWhenStatusError: true));
       return true;
     } on DioException catch (e) {
-      if (e.response != null) { return true; }
+      final code = e.response?.statusCode;
+      if (code == 404) {
+        _pingError = 'Un serveur répond à $ip:$port, mais l\'application "$appName" n\'y est pas '
+            '(vérifiez le nom de l\'application et le port).';
+        return false;
+      }
+      if (e.response != null) return true; // 400/401/500 : l'application Prestige répond
+      _pingError = 'Aucun serveur ne répond à $ip:$port (Wifi, IP, serveur éteint).';
       return false;
-    } catch (_) {
+    } catch (e) {
+      _pingError = 'Aucun serveur ne répond à $ip:$port.';
       return false;
     }
   }

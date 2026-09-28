@@ -63,7 +63,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _onPing(String ip, String port, String appName) async {
     setState(() => _pingResult = 'Test en cours...');
     final success = await Provider.of<SettingsProvider>(context, listen: false).ping(ip, port, appName);
-    setState(() => _pingResult = success ? 'Connexion réussie !' : 'Échec de la connexion.');
+    if (!mounted) return;
+    final reason = Provider.of<SettingsProvider>(context, listen: false).pingError;
+    setState(() => _pingResult = success ? 'Connexion réussie !' : 'Échec de la connexion. $reason');
   }
 
   Future<void> _onSave() async {
@@ -78,7 +80,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Constants.showSnackBar(context, 'Paramètres enregistrés avec succès.');
           Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const SplashScreen()));
         } else {
-          Constants.showSnackBar(context, 'Impossible de joindre le serveur.', isError: true);
+          final reason = provider.pingError;
+          Constants.showSnackBar(context, reason.isEmpty ? 'Impossible de joindre le serveur.' : reason, isError: true);
         }
       }
     }

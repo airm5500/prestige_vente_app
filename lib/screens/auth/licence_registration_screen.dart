@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
@@ -142,7 +143,30 @@ class _LicenceRegistrationScreenState extends State<LicenceRegistrationScreen> {
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey[600]),
                         ),
-                        const SizedBox(height: 30),
+                        const SizedBox(height: 12),
+                        // Problème de connexion : ce n'est pas la licence qui est en cause
+                        if (status == LicenceStatus.error && context.watch<LicenceProvider>().issue != null)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              border: Border.all(color: Colors.orange.shade300),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              "${context.watch<LicenceProvider>().errorTitle} : vérifiez la configuration serveur "
+                              "avant de saisir une clé.",
+                              style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        const SizedBox(height: 6),
+                        Text(
+                          "Serveur : ${context.watch<SettingsProvider>().baseUrl}",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        ),
+                        const SizedBox(height: 18),
 
                         // Champ de saisie
                         TextFormField(

@@ -327,12 +327,12 @@ class ApiService {
   }
 
   /// L'application Prestige est-elle déployée à cette adresse ?
-  /// On interroge la racine de l'application (http://ip:port/<app>/) : Payara répond 404
-  /// uniquement si aucune application n'y est déployée.
+  /// On interroge une route REST connue (/user/auth, sans identifiants) : si l'application
+  /// est déployée elle répond (400/401/500...), sinon Payara répond 404.
   Future<bool> _prestigeAppResponds() async {
     try {
-      final base = _dio.options.baseUrl.replaceFirst(RegExp(r'/api/v1/?$'), '/');
-      final r = await _dio.getUri(Uri.parse(base), options: Options(validateStatus: (_) => true, responseType: ResponseType.plain));
+      final r = await _dio.post('/user/auth',
+          data: const {}, options: Options(validateStatus: (_) => true, responseType: ResponseType.plain));
       return (r.statusCode ?? 404) != 404;
     } catch (_) {
       return false;

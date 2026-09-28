@@ -123,8 +123,13 @@ class LicenceProvider with ChangeNotifier {
         await checkLicence();
         return _status == LicenceStatus.valid;
       } else {
+        // Échec : clé refusée, ou serveur inaccessible ? On vérifie la connexion.
+        final lookup = await _apiService.lookupLicence();
         _status = LicenceStatus.error;
-        _errorMessage = "Clé invalide ou refusée par le serveur.";
+        _issue = lookup.issue;
+        _errorMessage = lookup.issue != null
+            ? messageFor(lookup.issue!, lookup.detail)
+            : "Clé invalide ou refusée par le serveur.";
         notifyListeners();
         return false;
       }

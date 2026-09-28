@@ -99,8 +99,8 @@ class _SplashScreenState extends State<SplashScreen> {
         title: Text(Provider.of<LicenceProvider>(context, listen: false).errorTitle),
         content: SingleChildScrollView(
           child: Text(
-            "Impossible de vérifier la licence : c'est un problème de connexion, pas de licence.\n\n"
             "${Provider.of<LicenceProvider>(context, listen: false).errorMessage}\n\n"
+            "(Problème de connexion : la licence n'a pas pu être vérifiée, elle n'est pas en cause.)\n\n"
             "Adresse utilisée : ${Provider.of<SettingsProvider>(context, listen: false).baseUrl}",
           ),
         ),
