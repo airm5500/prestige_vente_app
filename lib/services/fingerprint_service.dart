@@ -63,6 +63,17 @@ class FingerprintService {
         _ => 'code $code',
       };
 
+  /// Confirmation par l'empreinte via l'API Android standard (lecteur du téléphone / terminal).
+  /// true = une empreinte enregistrée dans Android a été reconnue ; false = annulé.
+  static Future<bool> authenticate({String title = 'Pointage', String subtitle = ''}) async {
+    try {
+      return await _call<bool>('authenticate', {'title': title, 'subtitle': subtitle}) ?? false;
+    } on FingerprintException catch (e) {
+      if (e.code == 'CANCELED') return false;
+      rethrow;
+    }
+  }
+
   static Future<void> connect() => _call<bool>('connect');
   static Future<void> engage() => _call<bool>('engage');
   static Future<void> release() => _call<int>('release');

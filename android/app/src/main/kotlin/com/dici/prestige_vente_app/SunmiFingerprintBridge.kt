@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
 import com.sunmi.fingerprintservice.ConnectStatusCallback
@@ -92,6 +93,11 @@ class SunmiFingerprintBridge(private val context: Context, messenger: BinaryMess
                     Once(result, main),
                 )
                 "cancel" -> result.success(cancel())
+                "authenticate" -> authenticate(
+                    call.argument<String>("title") ?: "Pointage",
+                    call.argument<String>("subtitle") ?: "",
+                    Once(result, main),
+                )
                 else -> result.notImplemented()
             }
         } catch (e: IllegalStateException) {
@@ -145,6 +151,40 @@ class SunmiFingerprintBridge(private val context: Context, messenger: BinaryMess
             }
         }
         return info
+    }
+
+    /**
+     * Confirmation par l'empreinte via l'API Android standard (tout appareil Android 9+ avec lecteur).
+     * Renvoie true si une empreinte enregistrée dans Android est reconnue. N'identifie pas la personne.
+     */
+    private fun authenticate(title: String, subtitle: String, reply: Once) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return reply.error("NOT_SUPPORTED", "Confirmation par empreinte indisponible (Android 9 minimum)")
+        }
+        val executor = context.mainExecutor
+        val prompt = android.hardware.biometrics.BiometricPrompt.Builder(context)
+            .setTitle(title)
+            .apply { if (subtitle.isNotEmpty()) setSubtitle(subtitle) }
+            .setNegativeButton("Annuler", executor) { _, _ -> reply.error("CANCELED", "Annulé") }
+            .build()
+        prompt.authenticate(CancellationSignal(), executor, object : android.hardware.biometrics.BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: android.hardware.biometrics.BiometricPrompt.AuthenticationResult?) {
+                reply.success(true)
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                val code = when (errorCode) {
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED,
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_CANCELED -> "CANCELED"
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT,
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT -> "LOCKOUT"
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS -> "NONE_ENROLLED"
+                    else -> "AUTH_ERROR"
+                }
+                reply.error(code, errString?.toString() ?: "Erreur d'empreinte ($errorCode)")
+            }
+            // onAuthenticationFailed : doigt non reconnu, le système redemande automatiquement.
+        })
     }
 
     private fun requireOpt(): FingerprintOpt = opt ?: throw IllegalStateException("Service d'empreinte non connecté")

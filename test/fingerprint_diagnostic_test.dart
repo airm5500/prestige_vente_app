@@ -92,4 +92,34 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, contains('release'));
   });
+
+  testWidgets('téléphone non Sunmi : étapes Sunmi masquées, test de la confirmation Android', (tester) async {
+    calls.clear();
+    messenger.setMockMethodCallHandler(events, (_) async => null);
+    messenger.setMockMethodCallHandler(methods, (call) async {
+      calls.add(call.method);
+      return switch (call.method) {
+        'hardwareInfo' => {
+            'manufacturer': 'Nothing', 'model': 'A015', 'android': '16',
+            'featureFingerprint': true, 'biometricStatus': 0, 'sunmiServices': <String>[],
+          },
+        'isServiceInstalled' => false,
+        'authenticate' => true,
+        _ => 0,
+      };
+    });
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(const MaterialApp(home: FingerprintDiagnosticScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Lecteur présent'), findsOneWidget);
+    expect(find.text('Service d\'identification Sunmi'), findsNothing);
+    expect(find.text('Tester l\'enregistrement'), findsNothing);
+    expect(calls, isNot(contains('connect')));
+    await tester.tap(find.text('Tester la confirmation par empreinte'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Empreinte reconnue'), findsOneWidget);
+  });
 }

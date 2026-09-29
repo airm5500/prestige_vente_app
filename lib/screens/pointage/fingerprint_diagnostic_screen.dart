@@ -23,6 +23,12 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
   final Map<_Step, String> _details = {};
   final List<Uint8List> _testTemplates = [];
   Map<String, Object?> _hardware = const {};
+
+  /// Terminal Sunmi (ou service Sunmi présent) : les étapes Sunmi sont affichées.
+  /// Sur un autre appareil, seul le lecteur Android est vérifié.
+  bool _sunmiRelevant = false;
+  bool _checked = false;
+  String? _authResult;
   String? _hint;
   bool _busy = false;
   StreamSubscription<String>? _hintSub;
@@ -93,6 +99,15 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
       }
       return 'Lecteur présent · ${FingerprintService.biometricStatusLabel(_hardware['biometricStatus'])} · $device';
     });
+    final sunmiServices = (_hardware['sunmiServices'] as List?) ?? const [];
+    _sunmiRelevant = '${_hardware['manufacturer'] ?? ''}'.toUpperCase().contains('SUNMI') ||
+        sunmiServices.isNotEmpty ||
+        await FingerprintService.isServiceInstalled();
+    if (mounted) setState(() => _checked = true);
+    if (!_sunmiRelevant) {
+      if (mounted) setState(() => _busy = false);
+      return;
+    }
     final installed = await _step(_Step.service, () async {
       final services = (_hardware['sunmiServices'] as List?)?.cast<Object?>() ?? const [];
       if (!await FingerprintService.isServiceInstalled() && services.isEmpty) {
@@ -127,6 +142,56 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
       });
     }
     if (mounted) setState(() => _busy = false);
+  }
+
+  /// Test de la confirmation par empreinte Android (mode de pointage des appareils non Sunmi).
+  Future<void> _testAndroidFingerprint() async {
+    setState(() => _busy = true);
+    try {
+      final ok = await FingerprintService.authenticate(title: 'Test du lecteur', subtitle: 'Posez un doigt enregistré');
+      _authResult = ok ? 'Empreinte reconnue : le pointage par nom + empreinte fonctionne.' : 'Test annulé.';
+    } catch (e) {
+      _authResult = 'Échec : $e';
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Widget _androidModeCard() {
+    final ready = _hardware['biometricStatus'] == 0;
+    final hasReader = _hardware['featureFingerprint'] == true;
+    final text = !hasReader
+        ? 'Pas de lecteur d\'empreinte : sur cet appareil, le pointage se fait par nom + code PIN.'
+        : ready
+            ? 'Appareil non Sunmi : le pointage se fait par nom de l\'employé + confirmation avec une '
+                'empreinte enregistrée dans les Paramètres de l\'appareil.'
+            : 'Lecteur présent mais aucune empreinte enregistrée dans les Paramètres de l\'appareil : '
+                'enregistrez-en une pour pointer par empreinte, sinon le pointage se fait par nom + code PIN.';
+    return Card(
+      color: Colors.blue.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Pointage sur cet appareil', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(text),
+            if (ready) ...[
+              const SizedBox(height: 8),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.fingerprint),
+                label: const Text('Tester la confirmation par empreinte'),
+                onPressed: _busy ? null : _testAndroidFingerprint,
+              ),
+            ],
+            if (_authResult != null) ...[
+              const SizedBox(height: 8),
+              Text(_authResult!, style: const TextStyle(fontWeight: FontWeight.w600)),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _testEnroll() async {
@@ -175,7 +240,7 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
     final ready = _states[_Step.sensor] == _State.ok;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Empreinte : diagnostic'),
+        title: const Text('Lecteur : diagnostic'),
         actions: [
           IconButton(
             icon: const Icon(Icons.copy),
@@ -196,7 +261,9 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
             style: TextStyle(fontSize: 13),
           ),
           const SizedBox(height: 12),
-          for (final s in _Step.values) _tile(s),
+          for (final s in _Step.values)
+            if (s == _Step.hardware || _sunmiRelevant || !_checked) _tile(s),
+          if (_checked && !_sunmiRelevant) _androidModeCard(),
           if (_hint != null)
             Card(
               color: Colors.blue.shade50,
@@ -205,18 +272,20 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
                 title: Text(_hint!, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
             ),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.fingerprint),
-            label: Text(_testTemplates.isEmpty ? 'Tester l\'enregistrement' : 'Enregistrer une autre empreinte'),
-            onPressed: ready && !_busy ? _testEnroll : null,
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.how_to_reg),
-            label: const Text('Tester la reconnaissance'),
-            onPressed: ready && !_busy && _testTemplates.isNotEmpty ? _testIdentify : null,
-          ),
+          if (_sunmiRelevant || !_checked) ...[
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.fingerprint),
+              label: Text(_testTemplates.isEmpty ? 'Tester l\'enregistrement' : 'Enregistrer une autre empreinte'),
+              onPressed: ready && !_busy ? _testEnroll : null,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.how_to_reg),
+              label: const Text('Tester la reconnaissance'),
+              onPressed: ready && !_busy && _testTemplates.isNotEmpty ? _testIdentify : null,
+            ),
+          ],
           const SizedBox(height: 8),
           TextButton.icon(
             icon: const Icon(Icons.refresh),

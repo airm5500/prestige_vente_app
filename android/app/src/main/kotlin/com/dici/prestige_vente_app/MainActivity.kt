@@ -7,6 +7,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // Empreinte Sunmi (pointage) : canal inactif tant que l'écran d'empreinte n'est pas utilisé.
-        SunmiFingerprintBridge(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
+        // Contexte de l'activité : nécessaire pour afficher la confirmation d'empreinte Android.
+        SunmiFingerprintBridge(this, flutterEngine.dartExecutor.binaryMessenger)
     }
 }

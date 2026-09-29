@@ -35,7 +35,7 @@ import 'package:prestige_vente_app/screens/proforma/proforma_list_screen.dart';
 import 'package:prestige_vente_app/screens/analysis/article_analysis_screen.dart';
 import 'package:prestige_vente_app/screens/ajustement/ajustement_screen.dart';
 import 'package:prestige_vente_app/screens/prescription/prescription_check_screen.dart';
-import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
+import 'package:prestige_vente_app/screens/pointage/pointage_home_screen.dart';
 
 class MenuItem {
   final String id;
@@ -161,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // SÉCURITÉ MAINTENUE ICI
       'ajustement': MenuItem(id: 'ajustement', label: 'Ajustement Stock', icon: Icons.inventory_2, color: Colors.orange.shade700, onTap: () => _secureNavigate(const AjustementScreen())),
       'ordonnance': MenuItem(id: 'ordonnance', label: 'Vérification Ordonnance', icon: Icons.receipt_long, color: Colors.teal.shade600, onTap: () => navigate(const PrescriptionCheckScreen())),
-      'empreinte': MenuItem(id: 'empreinte', label: 'Empreinte (diagnostic)', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, onTap: () => navigate(const FingerprintDiagnosticScreen())),
+      'empreinte': MenuItem(id: 'empreinte', label: 'Pointage', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, onTap: () => navigate(const PointageHomeScreen())),
     };
 
     final settings = Provider.of<SettingsProvider>(context);
