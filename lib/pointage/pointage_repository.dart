@@ -13,11 +13,28 @@ abstract class PointageRepository {
   Future<List<PointageRecord>> loadRecords({DateTime? from, DateTime? to});
   Future<void> addRecord(PointageRecord r);
   Future<void> deleteRecord(String id);
+  Future<PointageSettings> loadSettings();
+  Future<void> saveSettings(PointageSettings s);
 }
 
 class LocalPointageRepository implements PointageRepository {
   static const _employeesKey = 'pointage_employees_v1';
   static const _recordsKey = 'pointage_records_v1';
+  static const _settingsKey = 'pointage_settings_v1';
+
+  @override
+  Future<PointageSettings> loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_settingsKey);
+    if (raw == null || raw.isEmpty) return const PointageSettings();
+    return PointageSettings.fromJson(Map<String, dynamic>.from(jsonDecode(raw) as Map));
+  }
+
+  @override
+  Future<void> saveSettings(PointageSettings s) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_settingsKey, jsonEncode(s.toJson()));
+  }
 
   Future<List<Map<String, dynamic>>> _read(String key) async {
     final prefs = await SharedPreferences.getInstance();
@@ -87,6 +104,13 @@ class LocalPointageRepository implements PointageRepository {
 class MemoryPointageRepository implements PointageRepository {
   final List<Employee> employees = [];
   final List<PointageRecord> records = [];
+  PointageSettings settings = const PointageSettings();
+
+  @override
+  Future<PointageSettings> loadSettings() async => settings;
+
+  @override
+  Future<void> saveSettings(PointageSettings s) async => settings = s;
 
   @override
   Future<List<Employee>> loadEmployees() async => List.of(employees)..sort((a, b) => a.name.compareTo(b.name));

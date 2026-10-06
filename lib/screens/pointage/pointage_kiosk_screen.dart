@@ -3,6 +3,9 @@
 // - Sunmi avec service d'identification : l'employé pose son doigt, il est reconnu ;
 // - lecteur Android : l'employé choisit son nom puis confirme avec son empreinte ;
 // - sans lecteur : l'employé choisit son nom puis saisit son code PIN.
+// Option badge (réglage administrateur) : l'employé scanne son badge (scanner Sunmi ou caméra),
+// seul ou en complément de l'empreinte / du PIN, avec si besoin le code PIN après le badge.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -11,6 +14,7 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
 import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
+import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:uuid/uuid.dart';
@@ -48,15 +52,21 @@ class PointageVerifier {
 class PointageKioskScreen extends StatefulWidget {
   final PointageRepository repository;
   final DeviceCapability capability;
+  final PointageSettings settings;
   final PointageVerifier? verifier;
   final DateTime Function()? clock;
+
+  /// Lecture du badge par la caméra (remplaçable pour les tests).
+  final Future<String?> Function(BuildContext context)? badgeCamera;
 
   const PointageKioskScreen({
     super.key,
     required this.repository,
     required this.capability,
+    this.settings = const PointageSettings(),
     this.verifier,
     this.clock,
+    this.badgeCamera,
   });
 
   @override
@@ -70,6 +80,12 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
   bool _busy = false;
   String? _lastMessage;
 
+  // Badge : le scanner Sunmi "tape" le code dans ce champ (sans afficher le clavier).
+  final _badgeController = TextEditingController();
+  final _badgeFocus = FocusNode();
+  Timer? _badgeDebounce;
+  bool _badgeKeyboard = false;
+
   PointageVerifier get _verifier => widget.verifier ?? PointageVerifier.device;
   DateTime _now() => (widget.clock ?? DateTime.now)();
   static final _hm = DateFormat('HH:mm');
@@ -78,6 +94,14 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
   void initState() {
     super.initState();
     _reload();
+  }
+
+  @override
+  void dispose() {
+    _badgeDebounce?.cancel();
+    _badgeController.dispose();
+    _badgeFocus.dispose();
+    super.dispose();
   }
 
   Future<void> _reload() async {
@@ -149,6 +173,54 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Badge
+  // ---------------------------------------------------------------------------
+  void _onBadgeChanged(String value) {
+    _badgeDebounce?.cancel();
+    // Saisie au clavier : on attend "Entrée". Scanner : le code arrive d'un coup, on valide après une courte pause.
+    if (_badgeKeyboard || value.trim().isEmpty) return;
+    _badgeDebounce = Timer(const Duration(milliseconds: 300), () => _onBadge(_badgeController.text));
+  }
+
+  Future<void> _scanBadgeWithCamera() async {
+    final value = await (widget.badgeCamera ?? (ctx) => CameraScanScreen.open(ctx, title: 'Scanner votre badge'))(context);
+    if (value != null && mounted) await _onBadge(value);
+  }
+
+  Future<void> _onBadge(String raw) async {
+    _badgeDebounce?.cancel();
+    _badgeController.clear();
+    final code = normalizeBadge(raw);
+    if (code.isEmpty || _busy) return;
+    final matches = _employees.where((e) => e.hasBadge && normalizeBadge(e.badgeCode) == code).toList();
+    if (matches.isEmpty) {
+      _toast('Badge non reconnu. Demandez à l\'administrateur de l\'associer à votre fiche.', error: true);
+      _refocusBadge();
+      return;
+    }
+    final e = matches.first;
+    var method = PointageMethod.badge;
+    if (widget.settings.pinAfterBadge) {
+      if (!e.hasPin) {
+        _toast('Code PIN demandé après le badge, mais aucun PIN n\'est défini pour ${e.name}.', error: true);
+        _refocusBadge();
+        return;
+      }
+      if (!await _askPin(e)) {
+        _refocusBadge();
+        return;
+      }
+      method = PointageMethod.badgePin;
+    }
+    if (mounted) await _chooseAction(e, method);
+    _refocusBadge();
+  }
+
+  void _refocusBadge() {
+    if (mounted && widget.settings.badgeEnabled) _badgeFocus.requestFocus();
   }
 
   Future<bool> _askPin(Employee e) async {
@@ -246,12 +318,18 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
   Widget build(BuildContext context) {
     final byId = {for (final e in _employees) e.id: e};
     return Scaffold(
-      appBar: AppBar(title: Text('Pointage · ${widget.capability.modeLabel}')),
+      appBar: AppBar(
+        title: Text('Pointage · ${widget.settings.badgeMode == BadgeMode.only ? 'Badge' : widget.capability.modeLabel}'),
+      ),
       body: Column(
         children: [
           if (_busy) const LinearProgressIndicator(),
+          if (widget.settings.badgeMode == BadgeMode.both) _buildBadgeZone(compact: true),
           Expanded(
-            child: widget.capability.mode == PointageMode.sunmiIdentify ? _buildSunmi() : _buildEmployeeList(),
+            child: switch (widget.settings.badgeMode) {
+              BadgeMode.only => _buildBadgeZone(compact: false),
+              _ => widget.capability.mode == PointageMode.sunmiIdentify ? _buildSunmi() : _buildEmployeeList(),
+            },
           ),
           if (_today.isNotEmpty)
             Container(
@@ -268,6 +346,62 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBadgeZone({required bool compact}) {
+    final field = TextField(
+      controller: _badgeController,
+      focusNode: _badgeFocus,
+      autofocus: true,
+      // Sans clavier à l'écran : le scanner Sunmi saisit le code directement.
+      keyboardType: _badgeKeyboard ? TextInputType.text : TextInputType.none,
+      decoration: InputDecoration(
+        prefixIcon: const Icon(Icons.badge),
+        labelText: 'Scannez votre badge',
+        suffixIcon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.photo_camera),
+              tooltip: 'Scanner le badge (caméra)',
+              onPressed: _busy ? null : _scanBadgeWithCamera,
+            ),
+            IconButton(
+              icon: Icon(_badgeKeyboard ? Icons.keyboard_hide : Icons.keyboard),
+              tooltip: 'Saisir le code du badge',
+              onPressed: () {
+                setState(() => _badgeKeyboard = !_badgeKeyboard);
+                _badgeFocus.unfocus();
+                Future.microtask(() => _badgeFocus.requestFocus());
+              },
+            ),
+          ],
+        ),
+      ),
+      onChanged: _onBadgeChanged,
+      onSubmitted: _onBadge,
+    );
+    if (compact) return Padding(padding: const EdgeInsets.fromLTRB(8, 8, 8, 0), child: field);
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.badge, size: 120, color: AppColors.primary),
+            const SizedBox(height: 16),
+            const Text('Présentez votre badge au scanner\nou touchez l\'appareil photo',
+                style: TextStyle(fontSize: 20), textAlign: TextAlign.center),
+            const SizedBox(height: 24),
+            field,
+            if (_lastMessage != null) ...[
+              const SizedBox(height: 16),
+              Text(_lastMessage!, textAlign: TextAlign.center),
+            ],
+          ],
+        ),
       ),
     );
   }

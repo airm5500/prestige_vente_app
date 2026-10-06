@@ -2,6 +2,7 @@
 // Accueil du pointage : mode adapté à l'appareil, accès au pointage, aux employés et au rapport.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
+import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
 import 'package:prestige_vente_app/screens/pointage/employees_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
@@ -25,12 +26,69 @@ class PointageHomeScreen extends StatefulWidget {
 class _PointageHomeScreenState extends State<PointageHomeScreen> {
   late final PointageRepository _repo = widget.repository ?? LocalPointageRepository();
   DeviceCapability? _capability;
+  PointageSettings _settings = const PointageSettings();
 
   @override
   void initState() {
     super.initState();
     _detect();
+    _loadSettings();
   }
+
+  Future<void> _loadSettings() async {
+    final s = await _repo.loadSettings();
+    if (mounted) setState(() => _settings = s);
+  }
+
+  Future<void> _editSettings() async {
+    if (!await (widget.adminCheck ?? PinCodeDialog.show)(context) || !mounted) return;
+    var draft = _settings;
+    final saved = await showDialog<PointageSettings>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Méthode de pointage'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final m in BadgeMode.values)
+                  RadioListTile<BadgeMode>(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(m.label),
+                    value: m,
+                    groupValue: draft.badgeMode,
+                    onChanged: (v) => setLocal(() => draft = draft.copyWith(badgeMode: v)),
+                  ),
+                if (draft.badgeEnabled)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Code PIN après le badge'),
+                    subtitle: const Text('Empêche de pointer avec le badge d\'un collègue.'),
+                    value: draft.pinAfterBadge,
+                    onChanged: (v) => setLocal(() => draft = draft.copyWith(pinAfterBadge: v ?? false)),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.of(ctx).pop(draft), child: const Text('Enregistrer')),
+          ],
+        ),
+      ),
+    );
+    if (saved == null) return;
+    await _repo.saveSettings(saved);
+    if (mounted) setState(() => _settings = saved);
+  }
+
+  String get _methodSummary => switch (_settings.badgeMode) {
+        BadgeMode.off => 'Empreinte / PIN selon l\'appareil',
+        BadgeMode.only => 'Badge uniquement',
+        BadgeMode.both => 'Badge ou ${_capability?.modeLabel ?? 'empreinte / PIN'}',
+      } +
+      (_settings.badgeEnabled && _settings.pinAfterBadge ? ' · PIN après le badge' : '');
 
   Future<void> _detect() async {
     final c = await (widget.detectCapability ?? DeviceCapability.detect)();
@@ -71,12 +129,13 @@ class _PointageHomeScreenState extends State<PointageHomeScreen> {
               onPressed: c == null
                   ? null
                   : () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => PointageKioskScreen(repository: _repo, capability: c),
+                        builder: (_) => PointageKioskScreen(repository: _repo, capability: c, settings: _settings),
                       )),
             ),
           ),
           const SizedBox(height: 16),
-          _tile(Icons.people, 'Employés', 'Ajouter, horaires, code PIN, empreinte',
+          _tile(Icons.tune, 'Méthode de pointage', _methodSummary, _editSettings),
+          _tile(Icons.people, 'Employés', 'Ajouter, horaires, code PIN, badge, empreinte',
               () => _admin(EmployeesScreen(repository: _repo, capability: c))),
           _tile(Icons.insights, 'Rapport et analyse', 'Présence, retards, heures, comportement',
               () => _admin(PointageReportScreen(repository: _repo))),

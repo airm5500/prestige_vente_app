@@ -83,12 +83,12 @@ void main() {
 
   testWidgets('scan DataMatrix : produit trouvé, lot et date pré-remplis, envoi add-lot', (tester) async {
     await pumpScreen(tester);
-    await tester.enterText(search, '01${gtin}17261002${gs}107445');
+    await tester.enterText(search, '01${gtin}17281002${gs}107445');
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
 
     expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
-    expect(text(tester, 'Date de Péremption (JJMMYY)'), '02/10/2026');
+    expect(text(tester, 'Date de Péremption (JJMMYY)'), '02/10/2028');
     expect(text(tester, 'N° de Lot'), '7445');
     expect(text(tester, 'Quantité'), '1');
     // Le focus est sur la quantité : l'opérateur saisit la quantité du lot et valide.
@@ -101,7 +101,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.addLotCalls, [
-      {'produitId': '15712354735457071135', 'datePeremption': '2026-10-02', 'numLot': '7445', 'quantity': 3},
+      {'produitId': '15712354735457071135', 'datePeremption': '2028-10-02', 'numLot': '7445', 'quantity': 3},
     ]);
     // Retour à la recherche, prêt pour la boîte suivante
     expect(find.text('DataMatrix lu'), findsNothing);
@@ -120,7 +120,7 @@ void main() {
     expect(text(tester, 'Date de Péremption (JJMMYY)'), '');
     expect(text(tester, 'N° de Lot'), '');
 
-    await tester.enterText(field('Date de Péremption (JJMMYY)'), '021026');
+    await tester.enterText(field('Date de Péremption (JJMMYY)'), '021028');
     await tester.testTextInput.receiveAction(TextInputAction.next);
     await tester.pumpAndSettle();
     final lotEditable = tester.widget<EditableText>(find.descendant(of: field('N° de Lot'), matching: find.byType(EditableText)));
@@ -132,7 +132,7 @@ void main() {
     await tester.tap(find.text('Valider'));
     await tester.pumpAndSettle();
     expect(api.addLotCalls.single,
-        {'produitId': '15712354735457071135', 'datePeremption': '2026-10-02', 'numLot': 'A1', 'quantity': 2});
+        {'produitId': '15712354735457071135', 'datePeremption': '2028-10-02', 'numLot': 'A1', 'quantity': 2});
     await tester.pump(const Duration(seconds: 3));
   });
 
@@ -174,19 +174,19 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
 
-    await tester.enterText(field('Date de Péremption (JJMMYY)'), '01${gtin}17261002${gs}107445');
+    await tester.enterText(field('Date de Péremption (JJMMYY)'), '01${gtin}17281002${gs}107445');
     await tester.testTextInput.receiveAction(TextInputAction.next);
     await tester.pumpAndSettle();
 
     expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
-    expect(text(tester, 'Date de Péremption (JJMMYY)'), '02/10/2026');
+    expect(text(tester, 'Date de Péremption (JJMMYY)'), '02/10/2028');
     expect(text(tester, 'N° de Lot'), '7445');
     expect(api.addLotCalls, isEmpty);
   });
 
   testWidgets('changement manuel de produit après un scan : le scan est abandonné', (tester) async {
     await pumpScreen(tester);
-    await tester.enterText(search, '01${gtin}17261002${gs}107445');
+    await tester.enterText(search, '01${gtin}17281002${gs}107445');
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     expect(text(tester, 'N° de Lot'), '7445');
@@ -214,13 +214,13 @@ void main() {
   const unknownGtin = '03400930000007'; // GTIN valide absent du stock
 
   testWidgets('icône caméra de la recherche = douchette Sunmi (DataMatrix)', (tester) async {
-    await pumpScreen(tester, cameraCode: '01${gtin}17261002${gs}107445');
+    await pumpScreen(tester, cameraCode: '01${gtin}17281002${gs}107445');
     await tester.tap(find.byIcon(Icons.photo_camera));
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
     expect(text(tester, 'N° de Lot'), '7445');
-    expect(text(tester, 'Date de Péremption (JJMMYY)'), '02/10/2026');
+    expect(text(tester, 'Date de Péremption (JJMMYY)'), '02/10/2028');
   });
 
   testWidgets('icône caméra de la recherche : code-barres EAN simple affiche le produit', (tester) async {

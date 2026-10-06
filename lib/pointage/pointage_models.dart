@@ -25,6 +25,12 @@ enum PointageMethod {
 
   /// Nom choisi sans vérification (appareil sans lecteur, employé sans PIN).
   manual,
+
+  /// Badge scanné (scanner Sunmi ou caméra).
+  badge,
+
+  /// Badge scanné + code PIN.
+  badgePin,
 }
 
 extension PointageMethodLabel on PointageMethod {
@@ -33,8 +39,57 @@ extension PointageMethodLabel on PointageMethod {
         PointageMethod.androidBiometric => 'Nom + empreinte',
         PointageMethod.pin => 'Nom + PIN',
         PointageMethod.manual => 'Nom seul',
+        PointageMethod.badge => 'Badge',
+        PointageMethod.badgePin => 'Badge + PIN',
       };
 }
+
+/// Comment les employés s'identifient sur cet appareil (choisi par l'administrateur).
+enum BadgeMode {
+  /// Empreinte ou PIN selon l'appareil (sans badge).
+  off,
+
+  /// Badge uniquement.
+  only,
+
+  /// Badge ou empreinte / PIN, au choix de l'employé.
+  both,
+}
+
+extension BadgeModeLabel on BadgeMode {
+  String get label => switch (this) {
+        BadgeMode.off => 'Empreinte / PIN (selon l\'appareil)',
+        BadgeMode.only => 'Badge uniquement',
+        BadgeMode.both => 'Badge ou empreinte / PIN',
+      };
+}
+
+class PointageSettings {
+  final BadgeMode badgeMode;
+
+  /// Demande le code PIN après le badge (évite le prêt de badge).
+  final bool pinAfterBadge;
+
+  const PointageSettings({this.badgeMode = BadgeMode.off, this.pinAfterBadge = false});
+
+  bool get badgeEnabled => badgeMode != BadgeMode.off;
+
+  PointageSettings copyWith({BadgeMode? badgeMode, bool? pinAfterBadge}) => PointageSettings(
+        badgeMode: badgeMode ?? this.badgeMode,
+        pinAfterBadge: pinAfterBadge ?? this.pinAfterBadge,
+      );
+
+  Map<String, dynamic> toJson() => {'badgeMode': badgeMode.name, 'pinAfterBadge': pinAfterBadge};
+
+  factory PointageSettings.fromJson(Map<String, dynamic> j) => PointageSettings(
+        badgeMode: BadgeMode.values.asNameMap()[j['badgeMode']] ?? BadgeMode.off,
+        pinAfterBadge: j['pinAfterBadge'] as bool? ?? false,
+      );
+}
+
+/// Code de badge comparable : sans espaces ni caractères de contrôle (retour chariot du scanner, GS...),
+/// sans distinction majuscules / minuscules.
+String normalizeBadge(String raw) => raw.replaceAll(RegExp(r'[\x00-\x20\x7F]'), '').toUpperCase();
 
 class Employee {
   final String id;
@@ -54,6 +109,9 @@ class Employee {
 
   /// Gabarits d'empreinte Sunmi (base64), si enregistrés sur un terminal compatible.
   final List<String> fingerprintTemplates;
+
+  /// Code du badge (code-barres ou QR), vide si aucun.
+  final String badgeCode;
   final bool active;
 
   const Employee({
@@ -66,10 +124,12 @@ class Employee {
     this.workdays = const [1, 2, 3, 4, 5, 6],
     this.toleranceMinutes = 10,
     this.fingerprintTemplates = const [],
+    this.badgeCode = '',
     this.active = true,
   });
 
   bool get hasPin => pin != null && pin!.isNotEmpty;
+  bool get hasBadge => badgeCode.isNotEmpty;
 
   /// Minutes depuis minuit pour "HH:mm".
   static int minutesOf(String hhmm) {
@@ -90,6 +150,7 @@ class Employee {
     List<int>? workdays,
     int? toleranceMinutes,
     List<String>? fingerprintTemplates,
+    String? badgeCode,
     bool? active,
   }) =>
       Employee(
@@ -102,6 +163,7 @@ class Employee {
         workdays: workdays ?? this.workdays,
         toleranceMinutes: toleranceMinutes ?? this.toleranceMinutes,
         fingerprintTemplates: fingerprintTemplates ?? this.fingerprintTemplates,
+        badgeCode: badgeCode ?? this.badgeCode,
         active: active ?? this.active,
       );
 
@@ -115,6 +177,7 @@ class Employee {
         'workdays': workdays,
         'toleranceMinutes': toleranceMinutes,
         'fingerprintTemplates': fingerprintTemplates,
+        'badgeCode': badgeCode,
         'active': active,
       };
 
@@ -128,6 +191,7 @@ class Employee {
         workdays: (j['workdays'] as List?)?.map((e) => e as int).toList() ?? const [1, 2, 3, 4, 5, 6],
         toleranceMinutes: j['toleranceMinutes'] as int? ?? 10,
         fingerprintTemplates: (j['fingerprintTemplates'] as List?)?.map((e) => e as String).toList() ?? const [],
+        badgeCode: j['badgeCode'] as String? ?? '',
         active: j['active'] as bool? ?? true,
       );
 }

@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
 import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
+import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 class EmployeesScreen extends StatefulWidget {
@@ -66,6 +68,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         '${e.scheduleStart}–${e.scheduleEnd}',
                         e.workdays.map((d) => _dayNames[d - 1]).join(''),
                         if (e.hasPin) 'PIN',
+                        if (e.hasBadge) 'Badge',
                         if (e.fingerprintTemplates.isNotEmpty) '${e.fingerprintTemplates.length} empreinte(s)',
                       ].join(' · ')),
                       onTap: () => _edit(e),
@@ -81,7 +84,10 @@ class EmployeeEditScreen extends StatefulWidget {
   final PointageRepository repository;
   final Employee? employee;
   final DeviceCapability? capability;
-  const EmployeeEditScreen({super.key, required this.repository, this.employee, this.capability});
+
+  /// Lecture du badge par la caméra (remplaçable pour les tests).
+  final Future<String?> Function(BuildContext context)? badgeCamera;
+  const EmployeeEditScreen({super.key, required this.repository, this.employee, this.capability, this.badgeCamera});
 
   @override
   State<EmployeeEditScreen> createState() => _EmployeeEditScreenState();
@@ -95,6 +101,7 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
   late final _start = TextEditingController(text: widget.employee?.scheduleStart ?? '08:00');
   late final _end = TextEditingController(text: widget.employee?.scheduleEnd ?? '17:00');
   late final _tolerance = TextEditingController(text: '${widget.employee?.toleranceMinutes ?? 10}');
+  late final _badge = TextEditingController(text: widget.employee?.badgeCode ?? '');
   late final Set<int> _days = {...(widget.employee?.workdays ?? const [1, 2, 3, 4, 5, 6])};
   late bool _active = widget.employee?.active ?? true;
   late List<String> _templates = List.of(widget.employee?.fingerprintTemplates ?? const []);
@@ -105,7 +112,7 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
 
   @override
   void dispose() {
-    for (final c in [_name, _matricule, _pin, _start, _end, _tolerance]) {
+    for (final c in [_name, _matricule, _pin, _start, _end, _tolerance, _badge]) {
       c.dispose();
     }
     super.dispose();
@@ -118,6 +125,15 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
       return;
     }
     final base = widget.employee ?? Employee(id: const Uuid().v4(), name: '');
+    final badge = _badge.text.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '').trim();
+    if (badge.isNotEmpty) {
+      final others = await widget.repository.loadEmployees();
+      final owner = others.where((o) => o.id != base.id && o.hasBadge && normalizeBadge(o.badgeCode) == normalizeBadge(badge));
+      if (owner.isNotEmpty) {
+        if (mounted) Constants.showSnackBar(context, 'Ce badge est déjà attribué à ${owner.first.name}.', isError: true);
+        return;
+      }
+    }
     final e = base.copyWith(
       name: _name.text.trim(),
       matricule: _matricule.text.trim(),
@@ -129,6 +145,7 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
       workdays: (_days.toList()..sort()),
       active: _active,
       fingerprintTemplates: _templates,
+      badgeCode: badge,
     );
     await widget.repository.saveEmployee(e);
     if (mounted) Navigator.of(context).pop(true);
@@ -165,6 +182,41 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
     } finally {
       if (mounted) setState(() => _enrolling = false);
     }
+  }
+
+  Future<void> _scanBadge() async {
+    final value = await (widget.badgeCamera ?? (ctx) => CameraScanScreen.open(ctx, title: 'Scanner le badge'))(context);
+    if (value != null && mounted) setState(() => _badge.text = value.trim());
+  }
+
+  void _generateBadge() {
+    setState(() => _badge.text = 'PV${const Uuid().v4().replaceAll('-', '').substring(0, 8).toUpperCase()}');
+  }
+
+  void _showBadgeQr() {
+    final code = _badge.text.trim();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_name.text.trim().isEmpty ? 'Badge' : _name.text.trim()),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 220,
+              height: 220,
+              child: QrImageView(data: code, version: QrVersions.auto, backgroundColor: Colors.white),
+            ),
+            const SizedBox(height: 8),
+            Text(code, style: const TextStyle(fontSize: 18, letterSpacing: 2)),
+            const SizedBox(height: 8),
+            const Text('Imprimez ce QR code ou faites une capture d\'écran pour l\'employé.',
+                textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+          ],
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Fermer'))],
+      ),
+    );
   }
 
   String? _timeValidator(String? v) => _hhmm.hasMatch(v?.trim() ?? '') ? null : 'Format HH:mm';
@@ -246,6 +298,31 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
               title: const Text('Actif'),
               value: _active,
               onChanged: (v) => setState(() => _active = v),
+            ),
+            const Divider(),
+            TextFormField(
+              controller: _badge,
+              decoration: InputDecoration(
+                labelText: 'Badge (code-barres ou QR)',
+                helperText: 'Scannez le badge existant ou générez un code.',
+                prefixIcon: const Icon(Icons.badge),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.photo_camera),
+                  tooltip: 'Scanner le badge (caméra)',
+                  onPressed: _scanBadge,
+                ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton.icon(icon: const Icon(Icons.auto_awesome), label: const Text('Générer un code'), onPressed: _generateBadge),
+                if (_badge.text.trim().isNotEmpty) ...[
+                  TextButton.icon(icon: const Icon(Icons.qr_code_2), label: const Text('Afficher le QR'), onPressed: _showBadgeQr),
+                  TextButton(onPressed: () => setState(_badge.clear), child: const Text('Retirer')),
+                ],
+              ],
             ),
             const Divider(),
             ListTile(
