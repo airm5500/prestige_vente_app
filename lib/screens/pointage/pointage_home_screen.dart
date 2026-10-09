@@ -135,7 +135,7 @@ class _PointageHomeScreenState extends State<PointageHomeScreen> {
           ),
           const SizedBox(height: 16),
           _tile(Icons.tune, 'Méthode de pointage', _methodSummary, _editSettings),
-          _tile(Icons.people, 'Employés', 'Ajouter, horaires, code PIN, badge, empreinte',
+          _tile(Icons.people, 'Employés', 'Ajouter, horaires, code PIN, badge (code-barres, QR, NFC), empreinte',
               () => _admin(EmployeesScreen(repository: _repo, capability: c))),
           _tile(Icons.insights, 'Rapport et analyse', 'Présence, retards, heures, comportement',
               () => _admin(PointageReportScreen(repository: _repo))),

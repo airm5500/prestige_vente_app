@@ -161,7 +161,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Méthode de pointage'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Badge uniquement'));
+    await tester.tap(find.text('Badge uniquement (code-barres, QR ou NFC)'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Code PIN après le badge'));
     await tester.pumpAndSettle();

@@ -59,7 +59,7 @@ enum BadgeMode {
 extension BadgeModeLabel on BadgeMode {
   String get label => switch (this) {
         BadgeMode.off => 'Empreinte / PIN (selon l\'appareil)',
-        BadgeMode.only => 'Badge uniquement',
+        BadgeMode.only => 'Badge uniquement (code-barres, QR ou NFC)',
         BadgeMode.both => 'Badge ou empreinte / PIN',
       };
 }
@@ -112,6 +112,9 @@ class Employee {
 
   /// Code du badge (code-barres ou QR), vide si aucun.
   final String badgeCode;
+
+  /// Identifiant (UID hexadécimal) du badge NFC, vide si aucun.
+  final String nfcUid;
   final bool active;
 
   const Employee({
@@ -125,11 +128,13 @@ class Employee {
     this.toleranceMinutes = 10,
     this.fingerprintTemplates = const [],
     this.badgeCode = '',
+    this.nfcUid = '',
     this.active = true,
   });
 
   bool get hasPin => pin != null && pin!.isNotEmpty;
   bool get hasBadge => badgeCode.isNotEmpty;
+  bool get hasNfc => nfcUid.isNotEmpty;
 
   /// Minutes depuis minuit pour "HH:mm".
   static int minutesOf(String hhmm) {
@@ -151,6 +156,7 @@ class Employee {
     int? toleranceMinutes,
     List<String>? fingerprintTemplates,
     String? badgeCode,
+    String? nfcUid,
     bool? active,
   }) =>
       Employee(
@@ -164,6 +170,7 @@ class Employee {
         toleranceMinutes: toleranceMinutes ?? this.toleranceMinutes,
         fingerprintTemplates: fingerprintTemplates ?? this.fingerprintTemplates,
         badgeCode: badgeCode ?? this.badgeCode,
+        nfcUid: nfcUid ?? this.nfcUid,
         active: active ?? this.active,
       );
 
@@ -178,6 +185,7 @@ class Employee {
         'toleranceMinutes': toleranceMinutes,
         'fingerprintTemplates': fingerprintTemplates,
         'badgeCode': badgeCode,
+        'nfcUid': nfcUid,
         'active': active,
       };
 
@@ -192,6 +200,7 @@ class Employee {
         toleranceMinutes: j['toleranceMinutes'] as int? ?? 10,
         fingerprintTemplates: (j['fingerprintTemplates'] as List?)?.map((e) => e as String).toList() ?? const [],
         badgeCode: j['badgeCode'] as String? ?? '',
+        nfcUid: j['nfcUid'] as String? ?? '',
         active: j['active'] as bool? ?? true,
       );
 }

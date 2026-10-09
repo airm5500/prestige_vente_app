@@ -1,5 +1,6 @@
 // lib/screens/pointage/employees_screen.dart
 // Employés du pointage (données de test locales, en attendant la configuration côté serveur).
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
+import 'package:prestige_vente_app/services/nfc_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -69,6 +71,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         e.workdays.map((d) => _dayNames[d - 1]).join(''),
                         if (e.hasPin) 'PIN',
                         if (e.hasBadge) 'Badge',
+                        if (e.hasNfc) 'NFC',
                         if (e.fingerprintTemplates.isNotEmpty) '${e.fingerprintTemplates.length} empreinte(s)',
                       ].join(' · ')),
                       onTap: () => _edit(e),
@@ -87,7 +90,17 @@ class EmployeeEditScreen extends StatefulWidget {
 
   /// Lecture du badge par la caméra (remplaçable pour les tests).
   final Future<String?> Function(BuildContext context)? badgeCamera;
-  const EmployeeEditScreen({super.key, required this.repository, this.employee, this.capability, this.badgeCamera});
+
+  /// Lecteur de badges NFC (remplaçable pour les tests).
+  final NfcReader nfc;
+  const EmployeeEditScreen({
+    super.key,
+    required this.repository,
+    this.employee,
+    this.capability,
+    this.badgeCamera,
+    this.nfc = const DeviceNfcReader(),
+  });
 
   @override
   State<EmployeeEditScreen> createState() => _EmployeeEditScreenState();
@@ -102,6 +115,7 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
   late final _end = TextEditingController(text: widget.employee?.scheduleEnd ?? '17:00');
   late final _tolerance = TextEditingController(text: '${widget.employee?.toleranceMinutes ?? 10}');
   late final _badge = TextEditingController(text: widget.employee?.badgeCode ?? '');
+  late String _nfcUid = widget.employee?.nfcUid ?? '';
   late final Set<int> _days = {...(widget.employee?.workdays ?? const [1, 2, 3, 4, 5, 6])};
   late bool _active = widget.employee?.active ?? true;
   late List<String> _templates = List.of(widget.employee?.fingerprintTemplates ?? const []);
@@ -126,11 +140,20 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
     }
     final base = widget.employee ?? Employee(id: const Uuid().v4(), name: '');
     final badge = _badge.text.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '').trim();
-    if (badge.isNotEmpty) {
-      final others = await widget.repository.loadEmployees();
-      final owner = others.where((o) => o.id != base.id && o.hasBadge && normalizeBadge(o.badgeCode) == normalizeBadge(badge));
-      if (owner.isNotEmpty) {
-        if (mounted) Constants.showSnackBar(context, 'Ce badge est déjà attribué à ${owner.first.name}.', isError: true);
+    if (badge.isNotEmpty || _nfcUid.isNotEmpty) {
+      final others = (await widget.repository.loadEmployees()).where((o) => o.id != base.id);
+      final badgeOwner = badge.isEmpty ? null : others.where((o) => o.hasBadge && normalizeBadge(o.badgeCode) == normalizeBadge(badge)).firstOrNull;
+      final nfcOwner = _nfcUid.isEmpty ? null : others.where((o) => o.hasNfc && normalizeBadge(o.nfcUid) == normalizeBadge(_nfcUid)).firstOrNull;
+      if (badgeOwner != null || nfcOwner != null) {
+        if (mounted) {
+          Constants.showSnackBar(
+            context,
+            badgeOwner != null
+                ? 'Ce badge est déjà attribué à ${badgeOwner.name}.'
+                : 'Ce badge NFC est déjà attribué à ${nfcOwner!.name}.',
+            isError: true,
+          );
+        }
         return;
       }
     }
@@ -146,6 +169,7 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
       active: _active,
       fingerprintTemplates: _templates,
       badgeCode: badge,
+      nfcUid: _nfcUid,
     );
     await widget.repository.saveEmployee(e);
     if (mounted) Navigator.of(context).pop(true);
@@ -187,6 +211,66 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
   Future<void> _scanBadge() async {
     final value = await (widget.badgeCamera ?? (ctx) => CameraScanScreen.open(ctx, title: 'Scanner le badge'))(context);
     if (value != null && mounted) setState(() => _badge.text = value.trim());
+  }
+
+  Future<void> _readNfc() async {
+    final state = await widget.nfc.availability();
+    if (!mounted) return;
+    if (state == NfcAvailability.absent) {
+      Constants.showSnackBar(context, 'Cet appareil n\'a pas de lecteur NFC.', isError: true);
+      return;
+    }
+    if (state == NfcAvailability.disabled) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('NFC désactivé'),
+          content: const Text('Activez le NFC dans les réglages Android, puis revenez lire le badge.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Fermer')),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                widget.nfc.openSettings();
+              },
+              child: const Text('Activer'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    BuildContext? dialogCtx;
+    final sub = widget.nfc.tags.listen((uid) {
+      final c = dialogCtx;
+      if (c != null && c.mounted) {
+        dialogCtx = null;
+        Navigator.of(c).pop(uid);
+      }
+    });
+    final read = showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        dialogCtx = ctx;
+        return AlertDialog(
+          title: const Text('Badge NFC'),
+          content: const Row(
+            children: [
+              Icon(Icons.nfc, size: 48, color: AppColors.primary),
+              SizedBox(width: 12),
+              Expanded(child: Text('Approchez le badge du dos de l\'appareil...')),
+            ],
+          ),
+          actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler'))],
+        );
+      },
+    );
+    await widget.nfc.start();
+    final uid = await read;
+    unawaited(sub.cancel());
+    await widget.nfc.stop();
+    if (uid != null && mounted) setState(() => _nfcUid = normalizeBadge(uid));
   }
 
   void _generateBadge() {
@@ -322,6 +406,20 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> {
                   TextButton.icon(icon: const Icon(Icons.qr_code_2), label: const Text('Afficher le QR'), onPressed: _showBadgeQr),
                   TextButton(onPressed: () => setState(_badge.clear), child: const Text('Retirer')),
                 ],
+              ],
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.nfc),
+              title: Text(_nfcUid.isEmpty ? 'Badge NFC : aucun' : 'Badge NFC : $_nfcUid'),
+              subtitle: const Text('Carte sans contact approchée du dos de l\'appareil.'),
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton.icon(icon: const Icon(Icons.contactless), label: const Text('Lire le badge NFC'), onPressed: _readNfc),
+                if (_nfcUid.isNotEmpty)
+                  TextButton(onPressed: () => setState(() => _nfcUid = ''), child: const Text('Retirer le NFC')),
               ],
             ),
             const Divider(),

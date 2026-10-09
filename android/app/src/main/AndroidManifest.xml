@@ -8,6 +8,9 @@
     <!-- Lecteur d'empreinte (pointage) : facultatif, l'application s'installe aussi sans -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
+    <!-- Badges NFC (pointage) : facultatif, l'application s'installe aussi sans NFC. -->
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
     <application
         android:label="Prestige Mobile"
         android:name="${applicationName}"

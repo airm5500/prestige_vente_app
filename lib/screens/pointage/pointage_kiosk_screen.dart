@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
+import 'package:prestige_vente_app/services/nfc_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:uuid/uuid.dart';
 
@@ -59,6 +60,9 @@ class PointageKioskScreen extends StatefulWidget {
   /// Lecture du badge par la caméra (remplaçable pour les tests).
   final Future<String?> Function(BuildContext context)? badgeCamera;
 
+  /// Lecteur de badges NFC (remplaçable pour les tests).
+  final NfcReader nfc;
+
   const PointageKioskScreen({
     super.key,
     required this.repository,
@@ -67,13 +71,14 @@ class PointageKioskScreen extends StatefulWidget {
     this.verifier,
     this.clock,
     this.badgeCamera,
+    this.nfc = const DeviceNfcReader(),
   });
 
   @override
   State<PointageKioskScreen> createState() => _PointageKioskScreenState();
 }
 
-class _PointageKioskScreenState extends State<PointageKioskScreen> {
+class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsBindingObserver {
   List<Employee> _employees = [];
   List<PointageRecord> _today = [];
   String _filter = '';
@@ -86,6 +91,13 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
   Timer? _badgeDebounce;
   bool _badgeKeyboard = false;
 
+  // Badge NFC
+  NfcAvailability? _nfcState;
+  StreamSubscription<String>? _nfcSub;
+
+  /// Un badge est en cours de traitement (PIN, choix de l'action) : les lectures suivantes sont ignorées.
+  bool _badgeFlow = false;
+
   PointageVerifier get _verifier => widget.verifier ?? PointageVerifier.device;
   DateTime _now() => (widget.clock ?? DateTime.now)();
   static final _hm = DateFormat('HH:mm');
@@ -94,10 +106,34 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
   void initState() {
     super.initState();
     _reload();
+    if (widget.settings.badgeEnabled) {
+      WidgetsBinding.instance.addObserver(this);
+      _initNfc();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Retour des réglages Android (NFC activé ?) : on revérifie.
+    if (state == AppLifecycleState.resumed && _nfcState != NfcAvailability.ready) _initNfc();
+  }
+
+  Future<void> _initNfc() async {
+    final state = await widget.nfc.availability();
+    if (!mounted) return;
+    setState(() => _nfcState = state);
+    if (state != NfcAvailability.ready) return;
+    _nfcSub ??= widget.nfc.tags.listen(_onNfc);
+    await widget.nfc.start();
   }
 
   @override
   void dispose() {
+    if (widget.settings.badgeEnabled) {
+      WidgetsBinding.instance.removeObserver(this);
+      _nfcSub?.cancel();
+      widget.nfc.stop();
+    }
     _badgeDebounce?.cancel();
     _badgeController.dispose();
     _badgeFocus.dispose();
@@ -194,29 +230,39 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
     _badgeDebounce?.cancel();
     _badgeController.clear();
     final code = normalizeBadge(raw);
-    if (code.isEmpty || _busy) return;
-    final matches = _employees.where((e) => e.hasBadge && normalizeBadge(e.badgeCode) == code).toList();
-    if (matches.isEmpty) {
-      _toast('Badge non reconnu. Demandez à l\'administrateur de l\'associer à votre fiche.', error: true);
+    if (code.isEmpty) return;
+    await _identifiedByBadge(_employees.where((e) => e.hasBadge && normalizeBadge(e.badgeCode) == code).toList());
+  }
+
+  Future<void> _onNfc(String uid) async {
+    final code = normalizeBadge(uid);
+    if (code.isEmpty) return;
+    await _identifiedByBadge(_employees.where((e) => e.hasNfc && normalizeBadge(e.nfcUid) == code).toList());
+  }
+
+  Future<void> _identifiedByBadge(List<Employee> matches) async {
+    if (_busy || _badgeFlow) return;
+    _badgeFlow = true;
+    try {
+      if (matches.isEmpty) {
+        _toast('Badge non reconnu. Demandez à l\'administrateur de l\'associer à votre fiche.', error: true);
+        return;
+      }
+      final e = matches.first;
+      var method = PointageMethod.badge;
+      if (widget.settings.pinAfterBadge) {
+        if (!e.hasPin) {
+          _toast('Code PIN demandé après le badge, mais aucun PIN n\'est défini pour ${e.name}.', error: true);
+          return;
+        }
+        if (!await _askPin(e)) return;
+        method = PointageMethod.badgePin;
+      }
+      if (mounted) await _chooseAction(e, method);
+    } finally {
+      _badgeFlow = false;
       _refocusBadge();
-      return;
     }
-    final e = matches.first;
-    var method = PointageMethod.badge;
-    if (widget.settings.pinAfterBadge) {
-      if (!e.hasPin) {
-        _toast('Code PIN demandé après le badge, mais aucun PIN n\'est défini pour ${e.name}.', error: true);
-        _refocusBadge();
-        return;
-      }
-      if (!await _askPin(e)) {
-        _refocusBadge();
-        return;
-      }
-      method = PointageMethod.badgePin;
-    }
-    if (mounted) await _chooseAction(e, method);
-    _refocusBadge();
   }
 
   void _refocusBadge() {
@@ -383,7 +429,13 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
       onChanged: _onBadgeChanged,
       onSubmitted: _onBadge,
     );
-    if (compact) return Padding(padding: const EdgeInsets.fromLTRB(8, 8, 8, 0), child: field);
+    final nfcLine = _nfcLine();
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [field, if (nfcLine != null) nfcLine]),
+      );
+    }
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
@@ -396,6 +448,7 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
                 style: TextStyle(fontSize: 20), textAlign: TextAlign.center),
             const SizedBox(height: 24),
             field,
+            if (nfcLine != null) nfcLine,
             if (_lastMessage != null) ...[
               const SizedBox(height: 16),
               Text(_lastMessage!, textAlign: TextAlign.center),
@@ -405,6 +458,34 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> {
       ),
     );
   }
+
+  /// État du NFC sous le champ badge (rien si l'appareil n'a pas de NFC).
+  Widget? _nfcLine() => switch (_nfcState) {
+        NfcAvailability.ready => const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.nfc, color: AppColors.primary),
+                SizedBox(width: 8),
+                Flexible(child: Text('Badge NFC : approchez-le du dos de l\'appareil')),
+              ],
+            ),
+          ),
+        NfcAvailability.disabled => Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.nfc, color: Colors.grey.shade600),
+                const SizedBox(width: 8),
+                const Flexible(child: Text('NFC désactivé')),
+                TextButton(onPressed: widget.nfc.openSettings, child: const Text('Activer')),
+              ],
+            ),
+          ),
+        _ => null,
+      };
 
   Widget _buildSunmi() {
     return Center(
