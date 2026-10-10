@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
 /// Tiers payant d'une vente (forme attendue par le serveur).
@@ -213,6 +214,19 @@ class DioVenteGateway implements VenteGateway {
         'recherche produit',
         ProductSearchResult.fromJson,
       );
+
+  /// Recherche par pages avec le total du serveur (« 50 sur 252 »), pour ne plus couper la liste.
+  Future<VenteResult<ProductPage>> searchProductsPage(String query, int start, int limit) async {
+    final r = await _call(
+      () => _dio.get('/vente/search', queryParameters: {'query': query, 'page': start ~/ limit + 1, 'start': start, 'limit': limit}),
+      what: 'rechercher le produit',
+    );
+    final list = _list(r, 'recherche produit', ProductSearchResult.fromJson);
+    if (list is! VenteOk<List<ProductSearchResult>>) return list.map((_) => const ProductPage([], 0));
+    final body = (r as VenteOk).value;
+    final total = body is Map ? int.tryParse('${body['total'] ?? ''}') : null;
+    return VenteOk(ProductPage(list.value, total ?? list.value.length));
+  }
 
   @override
   Future<VenteResult<List<SaleItemDetail>>> saleDetails(String venteId) async => _list(
