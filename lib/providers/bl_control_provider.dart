@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
+import 'package:prestige_vente_app/providers/quantity_sync.dart';
 
-class BlControlProvider with ChangeNotifier {
+class BlControlProvider with ChangeNotifier, QuantitySync {
 
   ApiService _apiService;
 
@@ -16,6 +17,14 @@ class BlControlProvider with ChangeNotifier {
   }
 
   bool _isLoading = false;
+
+  /// Message si le dernier chargement de la liste des BL a échoué (null si chargé, même vide).
+  String? _loadError;
+  String? get loadError => _loadError;
+
+  /// Message si le chargement des lignes du BL ouvert a échoué.
+  String? _itemsError;
+  String? get itemsError => _itemsError;
 
   List<BonLivraison> _bonsLivraison = [];
 
@@ -88,16 +97,20 @@ class BlControlProvider with ChangeNotifier {
     _currentBlQuery = query ?? _currentBlQuery;
     _currentBlDtStart = dtStart;
     _currentBlDtEnd = dtEnd;
+    _loadError = null;
 
     notifyListeners();
 
-    final allBLs = await _apiService.getBonsLivraison(
-      query: _currentBlQuery,
-      dtStart: _currentBlDtStart,
-      dtEnd: _currentBlDtEnd,
-    );
-
-    _bonsLivraison = allBLs;
+    try {
+      _bonsLivraison = await _apiService.getBonsLivraison(
+        query: _currentBlQuery,
+        dtStart: _currentBlDtStart,
+        dtEnd: _currentBlDtEnd,
+      );
+    } catch (e) {
+      // La liste précédente reste affichée ; l'écran montre l'erreur avec « Réessayer ».
+      _loadError = e is ApiLoadException ? e.message : 'Impossible de charger les BL : $e';
+    }
 
     _isLoading = false;
     notifyListeners();
@@ -108,9 +121,15 @@ class BlControlProvider with ChangeNotifier {
     _selectedBonLivraison = bl;
 
     _checkedQuantitiesPerBl.putIfAbsent(bl.id, () => {});
+    _itemsError = null;
+    _items = [];
     notifyListeners();
 
-    _items = await _apiService.getBonLivraisonItems(bl.id);
+    try {
+      _items = await _apiService.getBonLivraisonItems(bl.id);
+    } catch (e) {
+      _itemsError = e is ApiLoadException ? e.message : 'Impossible de charger les lignes du BL : $e';
+    }
 
     // --- LA CORRECTION EST ICI ---
     // On restaure la valeur si :
@@ -129,12 +148,24 @@ class BlControlProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void updateCheckedQuantity(String detailId, int quantity) {
-    if (_selectedBonLivraison == null) return;
+  @override
+  int? localQuantity(String detailId) {
+    for (final m in _checkedQuantitiesPerBl.values) {
+      if (m.containsKey(detailId)) return m[detailId];
+    }
+    return null;
+  }
+
+  /// Enregistre la quantité localement puis attend le serveur ; `false` si elle n'est pas enregistrée.
+  Future<bool> updateCheckedQuantity(String detailId, int quantity) async {
+    if (_selectedBonLivraison == null) return false;
 
     _checkedQuantitiesPerBl[_selectedBonLivraison!.id]![detailId] = quantity;
     notifyListeners();
 
-    _apiService.postBonItemCheckedQuantity(detailId: detailId, quantity: quantity);
+    return sendQuantity(detailId, quantity, () => _apiService.postBonItemCheckedQuantity(detailId: detailId, quantity: quantity));
   }
+
+  Future<int> retryUnsyncedQuantities() =>
+      retryUnsynced((id, q) => _apiService.postBonItemCheckedQuantity(detailId: id, quantity: q));
 }

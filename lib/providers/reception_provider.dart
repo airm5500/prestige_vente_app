@@ -2,8 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/reception_model.dart';
+import 'package:prestige_vente_app/providers/quantity_sync.dart';
 
-class ReceptionProvider with ChangeNotifier {
+class ReceptionProvider with ChangeNotifier, QuantitySync {
   ApiService _apiService;
   ReceptionProvider(this._apiService);
 
@@ -12,6 +13,10 @@ class ReceptionProvider with ChangeNotifier {
   }
 
   bool _isLoading = false;
+
+  /// Message si le dernier chargement de la liste a échoué (null si chargé, même vide).
+  String? _loadError;
+  String? get loadError => _loadError;
   List<ReceptionBon> _receptionBons = [];
   ReceptionBon? _selectedBon;
 
@@ -31,6 +36,7 @@ class ReceptionProvider with ChangeNotifier {
 
   Future<void> fetchReceptionBons({String? dtStart, String? dtEnd, String query = ''}) async {
     _isLoading = true;
+    _loadError = null;
     notifyListeners();
 
     try {
@@ -47,7 +53,8 @@ class ReceptionProvider with ChangeNotifier {
         }
       }
     } catch (e) {
-      print("Erreur fetchReceptionBons: $e");
+      // La liste précédente reste affichée ; l'écran montre l'erreur avec « Réessayer ».
+      _loadError = e is ApiLoadException ? e.message : 'Impossible de charger les bons : $e';
     }
 
     _isLoading = false;
@@ -60,8 +67,17 @@ class ReceptionProvider with ChangeNotifier {
     // Plus besoin d'appeler _enrichSelectedBonLocations() ici !
   }
 
-  void updateQuantity(String itemId, int quantity) {
-    if (_selectedBon == null) return;
+  @override
+  int? localQuantity(String detailId) {
+    for (final m in _checkedQuantitiesPerBon.values) {
+      if (m.containsKey(detailId)) return m[detailId];
+    }
+    return null;
+  }
+
+  /// Enregistre la quantité localement puis attend le serveur ; `false` si elle n'est pas enregistrée.
+  Future<bool> updateQuantity(String itemId, int quantity) async {
+    if (_selectedBon == null) return false;
 
     if (!_checkedQuantitiesPerBon.containsKey(_selectedBon!.id)) {
       _checkedQuantitiesPerBon[_selectedBon!.id] = {};
@@ -69,9 +85,9 @@ class ReceptionProvider with ChangeNotifier {
     _checkedQuantitiesPerBon[_selectedBon!.id]![itemId] = quantity;
     notifyListeners();
 
-    _apiService.postBonItemCheckedQuantity(
-      detailId: itemId,
-      quantity: quantity,
-    );
+    return sendQuantity(itemId, quantity, () => _apiService.postBonItemCheckedQuantity(detailId: itemId, quantity: quantity));
   }
+
+  Future<int> retryUnsyncedQuantities() =>
+      retryUnsynced((id, q) => _apiService.postBonItemCheckedQuantity(detailId: id, quantity: q));
 }

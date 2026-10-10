@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/providers/bl_control_provider.dart';
 import 'package:prestige_vente_app/screens/bl_control/bl_detail_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
 class BlListScreen extends StatefulWidget {
@@ -143,6 +144,11 @@ class _BlListScreenState extends State<BlListScreen> with PresentationAware {
       await provider.selectBonLivraison(bl);
       if (!mounted) return;
       Navigator.of(context).pop();
+      if (provider.itemsError != null) {
+        // Lignes non chargées : on n'ouvre pas un BL vide qui ferait croire qu'il n'y a rien à pointer.
+        Constants.showSnackBar(context, provider.itemsError!, isError: true);
+        return;
+      }
       await Navigator.of(context).push(MaterialPageRoute(builder: (_) => BlDetailScreen(presentation: style)));
       if (mounted) _fetchData();
     } catch (e) {
@@ -224,6 +230,8 @@ class _BlListScreenState extends State<BlListScreen> with PresentationAware {
         compactHeader: [_searchField(fill: Pal.page)],
         body: Column(children: [
           if (provider.isLoading) const LinearProgressIndicator(minHeight: 2),
+          if (provider.loadError != null && !provider.isLoading)
+            LoadErrorBanner(message: provider.loadError!, onRetry: _searchWithPopup),
           // Période et filtres défilent avec la liste : plus de place sur un petit écran.
           Expanded(
             child: _buildList(
@@ -362,6 +370,12 @@ class _BlListScreenState extends State<BlListScreen> with PresentationAware {
           top,
           if (loading)
             const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()))
+          else if (provider.loadError != null)
+            // Échec de chargement : surtout pas « aucun BL » (le bandeau au-dessus donne la cause).
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Text('Liste non chargée.', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Pal.muted)),
+            )
           else
             Padding(
               padding: const EdgeInsets.all(32),

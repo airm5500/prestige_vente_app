@@ -37,6 +37,15 @@ import 'package:prestige_vente_app/api/models/licence_model.dart';
 import 'package:prestige_vente_app/api/models/licence_lookup.dart';
 import 'package:prestige_vente_app/api/models/depot_model.dart'; // Pour DepotSaleListItem
 
+/// Échec de chargement d'une liste (à distinguer d'une liste vide).
+class ApiLoadException implements Exception {
+  final String message;
+  const ApiLoadException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class ApiService {
   late Dio _dio;
 
@@ -65,11 +74,35 @@ class ApiService {
   Future<bool> updateExpirationDate(String productId, String newDate) async { print('Mise à jour de la date de péremption pour $productId à $newDate'); await Future.delayed(const Duration(seconds: 1)); return true; }
   Future<ProductInfo?> getProductInfo(String codeCip) async { try { final response = await _dio.get( '/info', queryParameters: {'search': codeCip}); if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) { return ProductInfo.fromJson(response.data[0]); } return null; } catch (e) { print("Error fetching product info: $e"); return null; } }
   Future<bool> addLot({ required String produitId, required String datePeremption, required String numLot, required int quantity, }) async { try { final response = await _dio.post( '/fichearticle/add-lot', data: { "produitId": produitId, "datePeremption": datePeremption, "numLot": numLot, "quantity": quantity }, ); return response.statusCode == 202; } catch (e) { print("Error adding lot: $e"); return false; } }
-  Future<List<Commande>> getCommandes() async { try { final response = await _dio.get( '/commande/list', queryParameters: { 'page': 1, 'start': 0, 'limit': 100 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List) .map((c) => Commande.fromJson(c)) .toList(); } return []; } catch (e) { print("Error fetching commandes: $e"); return []; } }
-  Future<List<CommandeItem>> getCommandeItems(String orderId) async { try { final response = await _dio.get( '/commande/commande-en-cours-items', queryParameters: { 'orderId': orderId, 'page': 1, 'start': 0, 'limit': 9999 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((i) => CommandeItem.fromJson(i)).toList(); } return []; } catch (e) { print("Error fetching commande items: $e"); return []; } }
+  Future<List<Commande>> getCommandes() => _loadList(
+        'commandes',
+        () => _dio.get('/commande/list', queryParameters: {'page': 1, 'start': 0, 'limit': 100}),
+        Commande.fromJson,
+      );
+  Future<List<CommandeItem>> getCommandeItems(String orderId) => _loadList(
+        'produits de la commande',
+        () => _dio.get('/commande/commande-en-cours-items', queryParameters: {'orderId': orderId, 'page': 1, 'start': 0, 'limit': 9999}),
+        CommandeItem.fromJson,
+      );
   Future<bool> postCheckedQuantity({ required String detailId, required int quantity, }) async { try { final response = await _dio.post( '/commande/item/checked-quantities', data: { "id": detailId, "checked": true, "checkedQuantity": quantity}, ); return response.statusCode == 200; } catch (e) { print("Error posting checked quantity: $e"); return false; } }
-  Future<List<BonLivraison>> getBonsLivraison({ String query = '', String? dtStart, String? dtEnd, }) async { try { var queryParameters = { 'query': query, 'page': 1, 'start': 0, 'limit': 9999, 'sort': '[{"property":"dt_DATE_LIVRAISON","direction":"ASC"}]', 'statut': 'is_Closed' }; if (dtStart != null && dtStart.isNotEmpty) { queryParameters['dtStart'] = dtStart; } if (dtEnd != null && dtEnd.isNotEmpty) { queryParameters['dtEnd'] = dtEnd; } final response = await _dio.get( '/commande/list-bons', queryParameters: queryParameters, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((bl) => BonLivraison.fromJson(bl)).toList(); } return []; } catch (e) { print("Error fetching bons livraison: $e"); return []; } }
-  Future<List<BonLivraisonItem>> getBonLivraisonItems(String blId) async { try { final response = await _dio.get( '/commande/bon/items/$blId', queryParameters: {'page': 1, 'start': 0, 'limit': 9999}, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((i) => BonLivraisonItem.fromJson(i)).toList(); } return []; } catch (e) { print("Error fetching BL items: $e"); return []; } }
+  Future<List<BonLivraison>> getBonsLivraison({String query = '', String? dtStart, String? dtEnd}) {
+    final queryParameters = <String, dynamic>{
+      'query': query,
+      'page': 1,
+      'start': 0,
+      'limit': 9999,
+      'sort': '[{"property":"dt_DATE_LIVRAISON","direction":"ASC"}]',
+      'statut': 'is_Closed',
+    };
+    if (dtStart != null && dtStart.isNotEmpty) queryParameters['dtStart'] = dtStart;
+    if (dtEnd != null && dtEnd.isNotEmpty) queryParameters['dtEnd'] = dtEnd;
+    return _loadList('bons de livraison', () => _dio.get('/commande/list-bons', queryParameters: queryParameters), BonLivraison.fromJson);
+  }
+  Future<List<BonLivraisonItem>> getBonLivraisonItems(String blId) => _loadList(
+        'lignes du BL',
+        () => _dio.get('/commande/bon/items/$blId', queryParameters: {'page': 1, 'start': 0, 'limit': 9999}),
+        BonLivraisonItem.fromJson,
+      );
   Future<bool> postBonItemCheckedQuantity({ required String detailId, required int quantity, }) async { try { final response = await _dio.post( '/commande/bon/items/checked-quantities', data: { "id": detailId, "checked": true, "checkedQuantity": quantity}, ); return response.statusCode == 200 || response.statusCode == 202; } catch (e) { print("Error posting BL checked quantity: $e"); return false; } }
   Future<List<Rayon>> getRayons() async { try { final response = await _dio.get( '/common/rayons', queryParameters: { 'query': '', 'page': 1, 'start': 0, 'limit': 9999 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((r) => Rayon.fromJson(r)).toList(); } return []; } catch (e) { print("Error fetching rayons: $e"); return []; } }
   Future<bool> updateLiteInfo(Map<String, dynamic> data) async { try { final response = await _dio.post( '/fichearticle/produit/update-lite-info', data: data, ); if (response.statusCode == 202) { return true; } if (response.statusCode == 200 && response.data['success'] == true) { return true; } return false; } on DioException catch (e) { if (e.response?.statusCode == 202) return true; print("Error in updateLiteInfo: $e"); return false; } catch (e) { print("Error in updateLiteInfo: $e"); return false; } }
@@ -231,36 +264,71 @@ class ApiService {
     String query = '',
     String? dtStart,
     String? dtEnd,
-  }) async {
+  }) {
+    final queryParameters = <String, dynamic>{
+      'search': query,
+      'grossisteId': '',
+      'page': 1,
+      'start': 0,
+      'limit': 9999,
+      // Les paramètres de tri/groupe du JSON fourni
+      'group': '[{"property":"fournisseurId","direction":"ASC"}]',
+      'sort': '[{"property":"fournisseurId","direction":"ASC"}]',
+    };
+    if (dtStart != null) queryParameters['dtStart'] = dtStart;
+    if (dtEnd != null) queryParameters['dtEnd'] = dtEnd;
+    return _loadList(
+      'bons de réception',
+      () => _dio.get('/etat-control-bon/list', queryParameters: queryParameters),
+      ReceptionBon.fromJson,
+    );
+  }
+
+  /// Charge une liste `{data: [...]}`. Une liste vide n'est renvoyée que si le serveur
+  /// a bien répondu ; un échec (réseau, session, erreur serveur, réponse illisible)
+  /// lève [ApiLoadException] avec un message clair, pour ne pas le confondre avec « aucun résultat ».
+  Future<List<T>> _loadList<T>(String what, Future<Response<dynamic>> Function() request, T Function(Map<String, dynamic>) parse) async {
+    final Response<dynamic> response;
     try {
-      var queryParameters = {
-        'search': query,
-        'grossisteId': '',
-        'page': 1,
-        'start': 0,
-        'limit': 9999,
-        // Les paramètres de tri/groupe du JSON fourni
-        'group': '[{"property":"fournisseurId","direction":"ASC"}]',
-        'sort': '[{"property":"fournisseurId","direction":"ASC"}]',
-      };
-
-      if (dtStart != null) queryParameters['dtStart'] = dtStart;
-      if (dtEnd != null) queryParameters['dtEnd'] = dtEnd;
-
-      final response = await _dio.get(
-        '/etat-control-bon/list',
-        queryParameters: queryParameters,
-      );
-
-      if (response.statusCode == 200 && response.data['data'] is List) {
-        return (response.data['data'] as List)
-            .map((item) => ReceptionBon.fromJson(item))
-            .toList();
-      }
-      return [];
+      response = await request();
+    } on DioException catch (e) {
+      throw ApiLoadException(_networkMessage(e, what));
     } catch (e) {
-      print("Error fetching reception bons: $e");
-      return [];
+      throw ApiLoadException('Impossible de charger les $what : $e');
+    }
+    final code = response.statusCode ?? 0;
+    if (code != 200) throw ApiLoadException('Le serveur a refusé le chargement des $what (code $code).');
+    final body = response.data;
+    if (body is! Map) {
+      throw ApiLoadException('Réponse inattendue du serveur pour les $what. La session a peut-être expiré : reconnectez-vous.');
+    }
+    final data = body['data'];
+    if (data == null) return [];
+    if (data is! List) throw ApiLoadException('Réponse inattendue du serveur pour les $what.');
+    try {
+      return [for (final item in data) parse(Map<String, dynamic>.from(item as Map))];
+    } catch (e) {
+      throw ApiLoadException('Données des $what illisibles : $e');
+    }
+  }
+
+  static String _networkMessage(DioException e, String what) {
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'Le serveur met trop de temps à répondre ($what non chargés). Vérifiez le réseau puis réessayez.';
+      case DioExceptionType.connectionError:
+        return 'Serveur injoignable ($what non chargés). Vérifiez le Wi-Fi ou les données mobiles puis réessayez.';
+      case DioExceptionType.badResponse:
+        final code = e.response?.statusCode ?? 0;
+        if (code == 401 || code == 403) return 'Session expirée ou accès refusé ($what). Reconnectez-vous.';
+        return 'Erreur du serveur (code $code) lors du chargement des $what.';
+      default:
+        if (e.error is SocketException) {
+          return 'Serveur injoignable ($what non chargés). Vérifiez le Wi-Fi ou les données mobiles puis réessayez.';
+        }
+        return 'Impossible de charger les $what : ${e.message ?? e.type.name}.';
     }
   }
 

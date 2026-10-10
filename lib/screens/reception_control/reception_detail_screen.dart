@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/api/models/reception_model.dart';
 import 'package:prestige_vente_app/providers/reception_provider.dart';
 import 'package:prestige_vente_app/screens/reception_control/reception_report_screen.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
 /// Règles de saisie des quantités comptées (testables sans écran).
@@ -181,8 +182,16 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> with Pres
         return;
       }
     }
-    _provider.updateQuantity(item.id, quantity);
+    _provider.updateQuantity(item.id, quantity).then((ok) {
+      if (!ok && mounted) showUnsyncedSnack(context);
+    });
     if (mounted) setState(() => _touched.add(item.id));
+  }
+
+  Future<void> _retryUnsynced() async {
+    final left = await _provider.retryUnsyncedQuantities();
+    if (!mounted) return;
+    _snack(left == 0 ? 'Quantités enregistrées.' : '$left quantité(s) toujours non enregistrée(s). Vérifiez le réseau.', error: left > 0);
   }
 
   /// Enregistre la case en cours de saisie (avant de quitter l'écran ou d'ouvrir le rapport).
@@ -196,6 +205,12 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> with Pres
     await _commitFocused();
     if (!mounted) return;
     _leaving = true;
+    final canLeave = await confirmLeaveWithUnsynced(context, _provider, _provider.retryUnsyncedQuantities);
+    if (!mounted) return;
+    if (!canLeave) {
+      _leaving = false;
+      return;
+    }
     Navigator.of(context).pop();
   }
 
@@ -296,7 +311,9 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> with Pres
       }
     }
 
-    provider.updateQuantity(item.id, result);
+    provider.updateQuantity(item.id, result).then((ok) {
+      if (!ok && mounted) showUnsyncedSnack(context);
+    });
     _itemControllers[item.id]?.text = result.toString();
     setState(() => _touched.add(item.id));
 
@@ -394,6 +411,7 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> with Pres
             ],
             body: Column(children: [
               if (provider.isLoading) const LinearProgressIndicator(minHeight: 2),
+              UnsyncedBanner(count: provider.unsyncedCount, retrying: provider.isRetrying, onRetry: _retryUnsynced),
               _filtersBar(bon, q),
               Expanded(child: _buildList(q, isGroupedMode)),
             ]),
@@ -622,7 +640,8 @@ class _ReceptionDetailScreenState extends State<ReceptionDetailScreen> with Pres
           ),
         ]),
       ),
-      const SizedBox(width: 8),
+      LineSyncMark(unsynced: _provider.isUnsynced(item.id), sending: _provider.isSending(item.id)),
+      const SizedBox(width: 4),
       SizedBox(
         width: 76,
         child: TextField(

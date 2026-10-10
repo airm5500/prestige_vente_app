@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/delivery_control/delivery_report_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
 /// Quantité contrôlée maximale acceptée (au-delà : scan de code-barres ou faute de frappe).
@@ -111,8 +112,34 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> with Presen
     }
     // On vérifie si la valeur a changé pour ne pas spammer le serveur
     if (currentSaved != quantity) {
-      _provider.updateCheckedQuantity(item.id, quantity);
+      _provider.updateCheckedQuantity(item.id, quantity).then((ok) {
+        if (!ok && mounted) showUnsyncedSnack(context);
+      });
     }
+  }
+
+  bool _leaving = false;
+
+  /// Retour : enregistre la case en cours, attend les envois, prévient s'il reste des quantités non enregistrées.
+  Future<void> _leave() async {
+    if (_leaving) return;
+    _leaving = true;
+    FocusScope.of(context).unfocus();
+    await Future.delayed(const Duration(milliseconds: 100));
+    if (!mounted) return;
+    final canLeave = await confirmLeaveWithUnsynced(context, _provider, _provider.retryUnsyncedQuantities);
+    if (!mounted) return;
+    if (!canLeave) {
+      _leaving = false;
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _retryUnsynced() async {
+    final left = await _provider.retryUnsyncedQuantities();
+    if (!mounted) return;
+    _toast(left == 0 ? 'Quantités enregistrées.' : '$left quantité(s) toujours non enregistrée(s). Vérifiez le réseau.', error: left > 0);
   }
 
   void _toast(String message, {bool error = false, Duration? duration}) {
@@ -202,7 +229,9 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> with Presen
     if (!mounted) return;
 
     if (result != null) {
-      provider.updateCheckedQuantity(item.id, result);
+      provider.updateCheckedQuantity(item.id, result).then((ok) {
+        if (!ok && mounted) showUnsyncedSnack(context);
+      });
       _itemControllers[item.id]?.text = result.toString();
 
       // Reset pour enchaîner
@@ -243,7 +272,12 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> with Presen
         final guided = style == ListPresentation.guided;
         final title = commande.ref.trim().isEmpty ? 'Commande' : commande.ref;
 
-        return PresentationScaffold(
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _leave();
+          },
+          child: PresentationScaffold(
           style: style,
           title: title,
           subtitle: commande.grossiste.trim().isEmpty ? null : commande.grossiste,
@@ -283,6 +317,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> with Presen
           body: Column(
             children: [
               if (provider.isLoading) const LinearProgressIndicator(minHeight: 2),
+              UnsyncedBanner(count: provider.unsyncedCount, retrying: provider.isRetrying, onRetry: _retryUnsynced),
               Padding(
                 padding: EdgeInsets.fromLTRB(compact ? 16 : 12, 10, compact ? 16 : 12, 0),
                 child: ThinProgress(
@@ -327,6 +362,7 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> with Presen
                 ),
               ),
             ),
+          ),
           ),
         );
       },
@@ -477,7 +513,8 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> with Presen
       Icon(isChecked ? Icons.check_circle : Icons.radio_button_unchecked, color: isEnabled ? statusColor : Colors.grey),
       const SizedBox(width: 10),
       Expanded(child: info),
-      const SizedBox(width: 8),
+      LineSyncMark(unsynced: provider.isUnsynced(item.id), sending: provider.isSending(item.id)),
+      const SizedBox(width: 4),
       field,
     ]);
 

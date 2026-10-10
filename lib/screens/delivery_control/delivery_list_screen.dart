@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
 import 'package:prestige_vente_app/screens/delivery_control/delivery_detail_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
 class DeliveryListScreen extends StatefulWidget {
@@ -164,6 +165,11 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> with Presentati
     _opening = false;
     if (!mounted) return;
     Navigator.of(context).pop(); // Fermeture du popup de chargement
+    if (provider.itemsError != null) {
+      // Produits non chargés : on n'ouvre pas une commande vide qui ferait croire qu'il n'y a rien à contrôler.
+      Constants.showSnackBar(context, provider.itemsError!, isError: true);
+      return;
+    }
 
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DeliveryDetailScreen(presentation: style)));
     // Une fois de retour, on rafraîchit la liste.
@@ -245,8 +251,16 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> with Presentati
                 ),
               ),
               if (provider.isLoading) const LinearProgressIndicator(minHeight: 2),
+              if (provider.loadError != null && !provider.isLoading)
+                LoadErrorBanner(message: provider.loadError!, onRetry: _refresh),
               if (provider.isLoading && provider.commandes.isEmpty)
                 const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()))
+              else if (provider.loadError != null && provider.commandes.isEmpty)
+                // Échec de chargement : surtout pas « aucune commande » (le bandeau donne la cause).
+                const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Text('Liste non chargée.', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Pal.muted)),
+                )
               else if (visible.isEmpty)
                 _empty(provider)
               else

@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/providers/reception_provider.dart';
 import 'package:prestige_vente_app/screens/reception_control/reception_detail_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
 class ReceptionListScreen extends StatefulWidget {
@@ -276,9 +277,13 @@ class _ReceptionListScreenState extends State<ReceptionListScreen> with SingleTi
         body: Column(children: [
           Padding(padding: const EdgeInsets.fromLTRB(12, 10, 12, 4), child: _searchField()),
           if (provider.isLoading) const LinearProgressIndicator(minHeight: 2),
+          if (provider.loadError != null && !provider.isLoading && (aFaire.isNotEmpty || termines.isNotEmpty))
+            LoadErrorBanner(message: provider.loadError!, onRetry: _searchWithPopup),
           Expanded(
             child: provider.isLoading && aFaire.isEmpty && termines.isEmpty
                 ? const Center(child: CircularProgressIndicator())
+                : provider.loadError != null && aFaire.isEmpty && termines.isEmpty
+                ? LoadErrorView(message: provider.loadError!, onRetry: _searchWithPopup)
                 : TabBarView(controller: _tabs, children: [
                     RefreshIndicator(onRefresh: _fetchData, child: _buildBonList(aFaire, done: false)),
                     RefreshIndicator(onRefresh: _fetchData, child: _buildBonList(termines, done: true)),

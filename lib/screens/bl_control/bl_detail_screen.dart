@@ -11,6 +11,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/bl_control/bl_report_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
 /// Quantité comptée maximale acceptée pour une ligne.
@@ -165,8 +166,43 @@ class _BlDetailScreenState extends State<BlDetailScreen> with PresentationAware 
       final provider = _provider;
       Future.microtask(() => provider.updateCheckedQuantity(item.id, quantity));
     } else {
-      _provider.updateCheckedQuantity(item.id, quantity);
+      _provider.updateCheckedQuantity(item.id, quantity).then((ok) {
+        if (!ok && mounted) showUnsyncedSnack(context);
+      });
     }
+  }
+
+  bool _leaving = false;
+
+  /// Retour : enregistre la case en cours, attend les envois, prévient s'il reste des quantités non enregistrées.
+  Future<void> _leave() async {
+    if (_leaving) return;
+    _leaving = true;
+    FocusScope.of(context).unfocus();
+    await Future.delayed(const Duration(milliseconds: 100));
+    if (!mounted) return;
+    if (_confirming.isNotEmpty) {
+      // Une confirmation d'écart est ouverte : on la laisse se terminer d'abord.
+      _leaving = false;
+      return;
+    }
+    final canLeave = await confirmLeaveWithUnsynced(context, _provider, _provider.retryUnsyncedQuantities);
+    if (!mounted) return;
+    if (!canLeave) {
+      _leaving = false;
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _retryUnsynced() async {
+    final left = await _provider.retryUnsyncedQuantities();
+    if (!mounted) return;
+    Constants.showSnackBar(
+      context,
+      left == 0 ? 'Quantités enregistrées.' : '$left quantité(s) toujours non enregistrée(s). Vérifiez le réseau.',
+      isError: left > 0,
+    );
   }
 
   Future<bool> _confirmEcart(BonLivraisonItem item, int quantity) async {
@@ -239,7 +275,9 @@ class _BlDetailScreenState extends State<BlDetailScreen> with PresentationAware 
     }
     if (!mounted) return;
 
-    _provider.updateCheckedQuantity(item.id, result);
+    _provider.updateCheckedQuantity(item.id, result).then((ok) {
+      if (!ok && mounted) showUnsyncedSnack(context);
+    });
 
     if (_itemControllers.containsKey(item.id)) {
       _itemControllers[item.id]?.text = result.toString();
@@ -312,7 +350,12 @@ class _BlDetailScreenState extends State<BlDetailScreen> with PresentationAware 
         final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
         final compact = style == ListPresentation.compact;
 
-        return PresentationScaffold(
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _leave();
+          },
+          child: PresentationScaffold(
           style: style,
           title: bl.ref.trim().isEmpty ? 'BL —' : 'BL ${bl.ref}',
           subtitle: bl.grossiste.trim().isEmpty ? null : bl.grossiste,
@@ -350,6 +393,7 @@ class _BlDetailScreenState extends State<BlDetailScreen> with PresentationAware 
                   child: _buildFilterBar(provider.isLoading, provider.emplacements),
                 ),
               if (provider.isLoading) const LinearProgressIndicator(minHeight: 2),
+              UnsyncedBanner(count: provider.unsyncedCount, retrying: provider.isRetrying, onRetry: _retryUnsynced),
               Expanded(
                 child: itemsToDisplay.isEmpty
                     ? _empty(provider.isLoading)
@@ -422,6 +466,7 @@ class _BlDetailScreenState extends State<BlDetailScreen> with PresentationAware 
                 ]),
               ),
             ),
+          ),
           ),
         );
       },
@@ -596,7 +641,8 @@ class _BlDetailScreenState extends State<BlDetailScreen> with PresentationAware 
           Text('Empl: ${item.zoneGeoName}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.muted)),
         ]),
       ),
-      const SizedBox(width: 8),
+      LineSyncMark(unsynced: provider.isUnsynced(item.id), sending: provider.isSending(item.id)),
+      const SizedBox(width: 4),
       qtyField,
     ]);
 
