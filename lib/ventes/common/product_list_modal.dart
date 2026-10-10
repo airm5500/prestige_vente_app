@@ -2,6 +2,7 @@
 // Liste de choix produit commune (plusieurs résultats) avec filtre local.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -121,6 +122,7 @@ class _ProductListModalState extends State<ProductListModal> {
           ),
           IconButton(icon: const Icon(Icons.close), tooltip: 'Fermer', onPressed: () => Navigator.pop(context)),
         ]),
+        const HorsLigneCatalogueNote(padding: EdgeInsets.only(bottom: 4)),
         const SizedBox(height: 6),
         if (widget.pager?.hasMore ?? false)
           Padding(

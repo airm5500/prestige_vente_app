@@ -50,7 +50,7 @@ class ParametresChecks {
 }
 
 /// Rubriques de la page d'entrée des réglages.
-enum Rubrique { connexion, ventes, impression, stock, apparence, equipe, securite, licence }
+enum Rubrique { connexion, ventes, impression, stock, apparence, equipe, securite, licence, horsLigne }
 
 extension RubriqueInfo on Rubrique {
   String get title => switch (this) {
@@ -58,6 +58,7 @@ extension RubriqueInfo on Rubrique {
         Rubrique.ventes => 'Ventes',
         Rubrique.impression => 'Impression',
         Rubrique.stock => 'Stock & contrôles',
+        Rubrique.horsLigne => 'Hors ligne',
         Rubrique.apparence => 'Apparence',
         Rubrique.equipe => 'Équipe & pointage',
         Rubrique.securite => 'Sécurité',
@@ -79,6 +80,8 @@ extension RubriqueInfo on Rubrique {
             'nombre tickets assurance essai sunmi',
         Rubrique.stock => 'contrôle livraison pointage bl comparaison stock théorique machine réception '
             'péremption courte validation entrée',
+        Rubrique.horsLigne => 'hors ligne coupure panne serveur injoignable réseau copie locale catalogue synchro '
+            'mise à jour produits clients vider',
         Rubrique.apparence => 'présentation tableau de bord compact guidé a b c accueil organiser menu interface '
             'nouvel accueil version recherche commence par contient début milieu nom',
         Rubrique.equipe => 'pointage employés badge nfc empreinte pin rapport diagnostic lecteur',

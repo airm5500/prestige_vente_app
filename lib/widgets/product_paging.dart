@@ -2,6 +2,8 @@
 // Éléments communs des listes de produits chargées par pages (menus hors ventes) :
 // compteur « 50 sur 120 », ligne « Charger la suite » / « Réessayer », chargement en défilant.
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 
@@ -14,6 +16,14 @@ class ProductPagingCount extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Hors ligne : « catalogue du … » au-dessus des résultats (rien en ligne).
+    if (HorsLigne.instance.offline && search.query.isNotEmpty) {
+      return Column(mainAxisSize: MainAxisSize.min, children: [const HorsLigneCatalogueNote(), _count(context)]);
+    }
+    return _count(context);
+  }
+
+  Widget _count(BuildContext context) {
     if (!search.showCount) return const SizedBox.shrink();
     final c = color ?? Colors.grey.shade700;
     return Padding(

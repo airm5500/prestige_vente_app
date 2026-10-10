@@ -11,6 +11,7 @@ import 'package:prestige_vente_app/accueil/accueil_menus.dart';
 import 'package:prestige_vente_app/accueil/fiche_produit_screen.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/screens/product_search/product_search_widgets.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
@@ -269,7 +270,7 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
         children.add(const Padding(padding: EdgeInsets.all(8), child: Text('Aucun produit trouvé.', style: TextStyle(color: Pal.muted))));
       }
     } else {
-      if (_search.showCount) children.add(ProductPagingCount(_search, padding: const EdgeInsets.fromLTRB(4, 0, 4, 6)));
+      if (_search.showCount || HorsLigne.instance.offline) children.add(ProductPagingCount(_search, padding: const EdgeInsets.fromLTRB(4, 0, 4, 6)));
       for (final p in _search.items) {
         children.add(_produit(p));
       }
