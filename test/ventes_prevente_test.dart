@@ -326,7 +326,9 @@ Future<void> _open(WidgetTester tester, _FakeGateway gw, {String? resumeVenteId,
 String? _resume;
 int _tab = 0;
 
-String _net(int v) => 'Net : ${Constants.formatNumber(v)}';
+/// Net à payer affiché dans le pied de l'écran (« 3 000 F », « — » si non calculé).
+Finder _netText(String t) => find.byWidgetPredicate((w) => w is Text && w.key == const ValueKey('vente-net') && w.data == t);
+Finder _net(int v) => _netText('${Constants.formatNumber(v)} F');
 
 Finder get _field => find.byKey(const ValueKey('vente-recherche'));
 Finder get _encaisser => find.byKey(const ValueKey('vente-encaisser'));
@@ -370,7 +372,7 @@ void main() {
 
     await _addManual(tester, 'doli', qty: '2');
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
-    expect(find.text(_net(3000)), findsOneWidget);
+    expect(_net(3000), findsOneWidget);
     expect(gw.addPrevente, [true]);
     expect((await PendingSaleStore.load(VenteMenu.prevente))?.venteId, 'V1');
 
@@ -385,23 +387,21 @@ void main() {
     await tester.enterText(fields.first, '3');
     await tester.tap(find.text('Valider'));
     await tester.pumpAndSettle();
-    expect(find.text(_net(4500)), findsOneWidget);
+    expect(_net(4500), findsOneWidget);
 
     await tester.tap(_encaisser);
     await tester.pumpAndSettle();
     expect(find.text('ORANGE'), findsNothing); // mode non activé dans les réglages
     await tester.tap(find.text('Espèces'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)), '5000');
+    await tester.enterText(find.byKey(const ValueKey('encaissement-recu')), '5000');
     await tester.pump();
-    expect(find.text('Monnaie à rendre : ${Constants.formatNumber(500)} F'), findsOneWidget);
-    await tester.tap(find.text('Valider'));
+    expect(tester.widget<Text>(find.byKey(const ValueKey('encaissement-monnaie'))).data, '${Constants.formatNumber(500)} F');
+    await tester.tap(find.byKey(const ValueKey('encaissement-imprimer'))); // pas d'impression
+    await tester.pump();
+    await tester.tap(find.text('VALIDER L\'ENCAISSEMENT'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('VALIDER'));
-    await tester.pumpAndSettle();
-    expect(find.text('Vente encaissée'), findsOneWidget);
-    await tester.tap(find.text('Non'));
-    await tester.pumpAndSettle();
+    expect(find.textContaining('Vente encaissée'), findsOneWidget);
 
     expect(gw.clotureCalls, 1);
     expect(gw.clients, ['espèces']); // même règle qu'avant (seul « é » est remplacé)
@@ -509,7 +509,7 @@ void main() {
     expect(gw.addVenteIds.length, 2);
     expect(gw.sales['V1']!.length, 2);
     expect(find.text('EFFERALGAN 500MG'), findsOneWidget);
-    expect(find.text(_net(2700)), findsOneWidget);
+    expect(_net(2700), findsOneWidget);
 
     gw.addMode = _Mode.lostNotApplied; // rien appliqué : message, pas d'« ajouté »
     await _addManual(tester, 'effer');
@@ -537,10 +537,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('WAVE'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('VALIDER'));
+    await tester.tap(find.text('PAIEMENT REÇU — VALIDER'));
     await tester.pumpAndSettle();
     expect(find.text('Caisse Fermée'), findsOneWidget);
     await tester.tap(find.text('Non'));
+    await tester.pumpAndSettle();
+    expect(find.text('Caisse fermée : ouvrez-la avant de valider.'), findsOneWidget);
+    await tester.tap(find.byTooltip('Retour'));
     await tester.pumpAndSettle();
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
     expect(_enabled(tester, _encaisser), isTrue);
@@ -557,13 +560,13 @@ void main() {
     expect(find.textContaining('Net à payer non calculé'), findsWidgets);
     expect(_enabled(tester, _encaisser), isFalse);
     expect(_enabled(tester, _enregistrer), isFalse);
-    expect(find.text('Net : —'), findsOneWidget);
+    expect(_netText('—'), findsOneWidget);
 
     gw.netFails = false;
     await tester.tap(find.text('Réessayer').first);
     await tester.pumpAndSettle();
     expect(_enabled(tester, _encaisser), isTrue);
-    expect(find.text(_net(2700)), findsOneWidget);
+    expect(_net(2700), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -589,14 +592,15 @@ void main() {
     await tester.tap(_encaisser);
     await tester.tap(_encaisser, warnIfMissed: false);
     await tester.pumpAndSettle();
-    expect(find.text('Mode de règlement'), findsOneWidget);
+    expect(find.text('MODE DE PAIEMENT'), findsOneWidget); // une seule page d'encaissement
     await tester.tap(find.text('WAVE'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('VALIDER'));
-    await tester.tap(find.text('VALIDER'), warnIfMissed: false);
+    await tester.tap(find.byKey(const ValueKey('encaissement-imprimer')));
+    await tester.pump();
+    await tester.tap(find.text('PAIEMENT REÇU — VALIDER'));
+    await tester.tap(find.byKey(const ValueKey('encaissement-valider')), warnIfMissed: false);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Non'));
-    await tester.pumpAndSettle();
+    expect(find.textContaining('Vente encaissée'), findsOneWidget);
     expect(gw.clotureCalls, 1);
     expect(gw.clients, ['wave']);
     expect(tester.takeException(), isNull);
@@ -641,14 +645,14 @@ void main() {
     await _open(tester, gw);
     await _addManual(tester, 'doli');
 
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('Retour')); // flèche de l'en-tête
     await tester.pumpAndSettle();
     expect(find.text('Quitter la vente en cours ?'), findsOneWidget);
     await tester.tap(find.text('Rester'));
     await tester.pumpAndSettle();
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
 
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('Retour')); // flèche de l'en-tête
     await tester.pumpAndSettle();
     await tester.tap(find.text('Quitter'));
     await tester.pumpAndSettle();
@@ -657,7 +661,7 @@ void main() {
     await _open(tester, gw, pumpApp: false);
     expect(find.text('Reprendre la vente ?'), findsOneWidget);
     expect(find.textContaining('REF-V1'), findsOneWidget);
-    await tester.tap(find.text('Reprendre'));
+    await tester.tap(find.text('REPRENDRE'));
     await tester.pumpAndSettle();
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
     await _addManual(tester, 'effer');
@@ -674,7 +678,7 @@ void main() {
     await _open(tester, gw, resumeVenteId: 'V9');
     expect(find.text('Reprendre la vente ?'), findsNothing);
     expect(find.text('EFFERALGAN 500MG'), findsOneWidget);
-    expect(find.text(_net(2400)), findsOneWidget);
+    expect(_net(2400), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -694,7 +698,7 @@ void main() {
     await _open(tester, gw);
     await _addManual(tester, 'doli');
 
-    await tester.tap(find.text('PRÉVENTES'));
+    await tester.tap(find.byTooltip('Préventes à encaisser'));
     await tester.pumpAndSettle();
     expect(find.textContaining('03/09/2026 09:41'), findsOneWidget);
     expect(find.textContaining('05/09/2026 10:00'), findsOneWidget);
@@ -705,13 +709,17 @@ void main() {
     await tester.tap(find.text('PV-0007'));
     await tester.pumpAndSettle();
     expect(find.text('Un panier est en cours'), findsOneWidget);
-    await tester.tap(find.text('Annuler'));
+    await tester.tap(find.text('LA GARDER ET REVENIR'));
     await tester.pumpAndSettle();
-    expect(find.text('PV-0007'), findsOneWidget);
+    // Retour au panier, inchangé.
+    expect(find.text('PV-0007'), findsNothing);
+    expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
 
+    await tester.tap(find.byTooltip('Préventes à encaisser'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('PV-0007'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Ouvrir'));
+    await tester.tap(find.text('Ouvrir PV-0007 sans l\'enregistrer'));
     await tester.pumpAndSettle();
     expect(find.text('EFFERALGAN 500MG'), findsOneWidget);
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsNothing);
@@ -727,7 +735,8 @@ void main() {
     await tester.tap(_encaisser);
     await tester.pumpAndSettle();
     expect(find.textContaining('Aucun mode de règlement n\'est activé'), findsOneWidget);
-    await tester.tap(find.text('Fermer'));
+    expect(find.text('OUVRIR LES RÉGLAGES'), findsOneWidget);
+    await tester.tap(find.text('RETOUR'));
     await tester.pumpAndSettle();
     expect(gw.clotureCalls, 0);
     expect(tester.takeException(), isNull);

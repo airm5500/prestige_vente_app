@@ -55,6 +55,12 @@ class VenteProductSearch extends StatefulWidget {
   /// Délai de frappe avant la recherche en saisie manuelle.
   final Duration debounce;
 
+  /// Champ géant blanc pour un en-tête bleu (présentations A et C).
+  final bool onDark;
+
+  /// Marges autour du champ (par défaut 8 px).
+  final EdgeInsets? padding;
+
   const VenteProductSearch({
     super.key,
     required this.search,
@@ -63,6 +69,8 @@ class VenteProductSearch extends StatefulWidget {
     this.visible,
     this.enabled = true,
     this.debounce = const Duration(milliseconds: 500),
+    this.onDark = false,
+    this.padding,
   });
 
   @override
@@ -386,11 +394,12 @@ class VenteProductSearchState extends State<VenteProductSearch> {
   @override
   Widget build(BuildContext context) {
     final active = _quick;
+    if (widget.onDark) return _buildOnDark(active);
     return KeyboardListener(
       focusNode: _keyFocus,
       onKeyEvent: _onKey,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+        padding: widget.padding ?? const EdgeInsets.fromLTRB(8, 8, 8, 4),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(
@@ -407,19 +416,8 @@ class VenteProductSearchState extends State<VenteProductSearch> {
                   hintText: active ? 'SCAN RAPIDE ACTIF' : 'Rechercher (nom / CIP, 3 car. min.)',
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                  prefixIcon: _loading
-                      ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
-                      : Icon(active ? Icons.bolt : Icons.search, color: active ? Colors.green : null),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear),
-                    tooltip: 'Effacer',
-                    onPressed: () {
-                      _ctrl.clear();
-                      _resetRepeat();
-                      setState(() => _hint = null);
-                      requestFocus();
-                    },
-                  ),
+                  prefixIcon: _prefix(active),
+                  suffixIcon: _clearButton(),
                   border: const OutlineInputBorder(),
                   enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: active ? Colors.green : Colors.grey, width: active ? 2.5 : 1)),
                   focusedBorder: OutlineInputBorder(
@@ -451,6 +449,94 @@ class VenteProductSearchState extends State<VenteProductSearch> {
             Padding(
               padding: const EdgeInsets.only(left: 4, top: 4),
               child: Text(_hint!, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _prefix(bool active) => _loading
+      ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
+      : Icon(active ? Icons.bolt : Icons.search, color: active ? Colors.green : null);
+
+  Widget _clearButton() => IconButton(
+        icon: const Icon(Icons.clear),
+        tooltip: 'Effacer',
+        onPressed: () {
+          _ctrl.clear();
+          _resetRepeat();
+          setState(() => _hint = null);
+          requestFocus();
+        },
+      );
+
+  /// Champ géant blanc sur fond bleu + bouton ⚡ carré (même comportement).
+  Widget _buildOnDark(bool active) {
+    final radius = BorderRadius.circular(14);
+    return KeyboardListener(
+      focusNode: _keyFocus,
+      onKeyEvent: _onKey,
+      child: Padding(
+        padding: widget.padding ?? EdgeInsets.zero,
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: TextField(
+                key: const ValueKey('vente-recherche'),
+                controller: _ctrl,
+                focusNode: _fieldFocus,
+                enabled: widget.enabled,
+                onChanged: _onChanged,
+                inputFormatters: VenteInput.queryFormatters,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (v) => _submit(v, scan: active),
+                style: const TextStyle(fontSize: 17),
+                decoration: InputDecoration(
+                  hintText: active ? 'SCAN RAPIDE ACTIF' : 'Scanner ou rechercher (nom, CIP)',
+                  hintStyle: TextStyle(color: active ? Colors.green.shade800 : const Color(0xFF5B6B82), fontSize: 15),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                  prefixIcon: _prefix(active),
+                  suffixIcon: _clearButton(),
+                  filled: true,
+                  fillColor: active ? const Color(0xFFE6F4EA) : Colors.white,
+                  border: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide.none),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: radius, borderSide: active ? const BorderSide(color: Colors.green, width: 2.5) : BorderSide.none),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: radius, borderSide: BorderSide(color: active ? Colors.green : const Color(0xFFF59E0B), width: 2.5)),
+                  disabledBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide.none),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Tooltip(
+              message: active ? 'Désactiver le scan rapide' : 'Activer le scan rapide',
+              child: SizedBox(
+                width: 54,
+                height: 54,
+                child: OutlinedButton(
+                  key: const ValueKey('vente-scan-rapide'),
+                  style: OutlinedButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(borderRadius: radius),
+                    backgroundColor: active ? Colors.green : Colors.white.withValues(alpha: 0.12),
+                    foregroundColor: Colors.white,
+                    side: BorderSide(color: active ? Colors.green.shade300 : Colors.white.withValues(alpha: 0.35)),
+                  ),
+                  onPressed: _toggleQuick,
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(active ? Icons.flash_on : Icons.flash_off, size: 22),
+                    const Text('Scan', style: TextStyle(fontSize: 10, height: 1.1)),
+                  ]),
+                ),
+              ),
+            ),
+          ]),
+          if (_hint != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, top: 6),
+              child: Text(_hint!, style: const TextStyle(fontSize: 12.5, color: Color(0xFFDCE6F2))),
             ),
         ]),
       ),
