@@ -1,6 +1,6 @@
 # Écran d'accueil et Paramétrage : propositions
 
-> Statut : **propositions à valider** — aucun code écrit.
+> Statut : **validé en partie** — à réaliser **après la refonte des ventes**. Aperçus en images : `docs/maquettes/apercus/`.
 > Maquettes visuelles : `docs/maquettes/accueil_parametres_maquettes.html`.
 > Même charte que les menus déjà refaits (bleu Prestige, ambre pour l'action principale, présentations A / B / C).
 
@@ -104,6 +104,19 @@
 7. Réglages par rubriques avec recherche et résumé — d'accord ? Quelles rubriques protéger par le code admin ?
 8. « Présentation par défaut A / B / C » commune à tous les menus dans Apparence — d'accord ?
 9. Ordre : on fait l'accueil et le paramétrage **après** la refonte des ventes, ou en parallèle ?
+
+### Réponses du client
+| # | Décision |
+|---|---|
+| 1 | Oui : une seule page par familles. |
+| 2 | 4 favoris (par défaut : Pré-vente, Vente assurance, Recherche article, Réception BL). |
+| 3 | Oui : barre du bas ; déconnexion dans Réglages. |
+| 4 | Oui : recherche / scan global. |
+| 5 | Oui : pastille d'état du serveur. |
+| 6 | Oui : licence affichée à moins de 30 jours. |
+| 7 | À préciser (proposition : Connexion, Ventes, Stock & contrôles, Équipe, Sécurité protégés). |
+| 8 | À préciser (proposition : oui). |
+| 9 | Après les ventes. |
 
 ## 4. Plan proposé (après validation)
 
