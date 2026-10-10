@@ -1,0 +1,579 @@
+From f9532d96469e902341721e19c7f1620092ece9fb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 22:55:23 +0000
+Subject: [PATCH] =?UTF-8?q?Prestige=20Mobile=20H4=20:=20cl=C3=A9=20client?=
+ =?UTF-8?q?=20anti-doublon=20(X-Client-Ref)=20sur=20la=20cr=C3=A9ation=20d?=
+ =?UTF-8?q?e=20vente=20et=20de=20retour=20fournisseur?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- En-tête HTTP facultatif X-Client-Ref sur v1/vente/add/vno, add/assurance, add/depot et
+  v1/retourfournisseur/new : même clé = même vente / même retour (réponse initiale renvoyée, rien recréé),
+  y compris pour des envois simultanés (clé primaire posée dans la même transaction que la création).
+- Création refusée ou en erreur : tout est annulé, la clé n'est pas gardée.
+- Sans en-tête, ou table absente : comportement d'origine inchangé.
+- GET v1/mobile/client-ref/{ref} : {type, id, reference, statut} ou 404 ; GET v1/mobile/capacites :
+  {clientRef: true}. Ces deux chemins suivent la session habituelle (pas le jeton Bearer des autres v1/mobile).
+- Migration V6.9.129.1 (numéro intercalé, sans collision avec la suite 6.9.x) : table mobile_client_ref (CREATE TABLE IF NOT EXISTS, aucune table existante modifiée).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DmdojchP92w3JjfyVDXDv5
+---
+ .../java/filter/AuthenticationFilter.java     |   9 +-
+ .../java/rest/MobileCapacitesRessource.java   |  34 +++
+ .../java/rest/MobileClientRefRessource.java   |  46 ++++
+ .../java/rest/RetourFournisseurRessource.java |  27 +-
+ src/main/java/rest/SalesRessource.java        |  50 +++-
+ .../mobile/MobileClientRefService.java        | 233 ++++++++++++++++++
+ .../V6.9.129.1__mobile_client_ref.sql         |  14 ++
+ 7 files changed, 400 insertions(+), 13 deletions(-)
+ create mode 100644 src/main/java/rest/MobileCapacitesRessource.java
+ create mode 100644 src/main/java/rest/MobileClientRefRessource.java
+ create mode 100644 src/main/java/rest/service/mobile/MobileClientRefService.java
+ create mode 100644 src/main/resources/db/migration/V6.9.129.1__mobile_client_ref.sql
+
+diff --git a/src/main/java/filter/AuthenticationFilter.java b/src/main/java/filter/AuthenticationFilter.java
+index 8296f72..0fecb40 100644
+--- a/src/main/java/filter/AuthenticationFilter.java
++++ b/src/main/java/filter/AuthenticationFilter.java
+@@ -53,6 +53,13 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
+ 
+     private static final String CHEMIN_MOBILE = "v1/mobile/";
+     private static final String CONNEXION_MOBILE = "v1/mobile/connexion";
++    /*
++     * H4 (Prestige Mobile) : relecture par cle client et capacites. Appeles par l'application de vente avec sa session
++     * habituelle (cookie), comme les routes de creation de vente : ils suivent donc le controle de session ci-dessous
++     * et non celui du jeton Bearer des autres chemins v1/mobile/.
++     */
++    private static final String CLIENT_REF_MOBILE = "v1/mobile/client-ref/";
++    private static final String CAPACITES_MOBILE = "v1/mobile/capacites";
+ 
+     @Inject
+     private HttpServletRequest servletRequest;
+@@ -79,7 +86,7 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
+          * L13 : les nouveaux chemins des telephones exigent le jeton signe, et rien d'autre (ni session, ni
+          * X-User-Info). Les chemins mobiles existants ne passent pas ici : leur fonctionnement est inchange.
+          */
+-        if (path.startsWith(CHEMIN_MOBILE)) {
++        if (path.startsWith(CHEMIN_MOBILE) && !path.startsWith(CLIENT_REF_MOBILE) && !CAPACITES_MOBILE.equals(path)) {
+             if (!CONNEXION_MOBILE.equals(path)) {
+                 String a = requestContext.getHeaderString("Authorization");
+                 TUser u = a != null && a.startsWith("Bearer ")
+diff --git a/src/main/java/rest/MobileCapacitesRessource.java b/src/main/java/rest/MobileCapacitesRessource.java
+new file mode 100644
+index 0000000..df41719
+--- /dev/null
++++ b/src/main/java/rest/MobileCapacitesRessource.java
+@@ -0,0 +1,34 @@
++package rest;
++
++import javax.ejb.EJB;
++import javax.ws.rs.GET;
++import javax.ws.rs.Path;
++import javax.ws.rs.Produces;
++import javax.ws.rs.core.MediaType;
++import javax.ws.rs.core.Response;
++import org.json.JSONObject;
++import rest.service.mobile.MobileClientRefService;
++
++/**
++ * Capacites du serveur pour Prestige Mobile : l'application n'utilise une evolution du serveur que si celui-ci
++ * l'annonce ici (un ancien serveur repond 401/404 : l'application garde alors son fonctionnement d'origine).
++ * <p>
++ * {@code clientRef} (H4) : en-tete {@code X-Client-Ref} pris en compte sur {@code v1/vente/add/vno},
++ * {@code v1/vente/add/assurance}, {@code v1/vente/add/depot} et {@code v1/retourfournisseur/new}, et relecture par
++ * {@code GET v1/mobile/client-ref/{ref}}. Faux si la table mobile_client_ref n'existe pas.
++ */
++@Path("v1/mobile/capacites")
++@Produces(MediaType.APPLICATION_JSON)
++public class MobileCapacitesRessource {
++
++    @EJB
++    private MobileClientRefService clientRefService;
++
++    @GET
++    public Response capacites() {
++        boolean clientRef = clientRefService.disponible();
++        JSONObject o = new JSONObject().put("success", true).put("clientRef", clientRef).put("clientRefVersion",
++                clientRef ? 1 : 0);
++        return Response.ok(o.toString(), MediaType.APPLICATION_JSON).build();
++    }
++}
+diff --git a/src/main/java/rest/MobileClientRefRessource.java b/src/main/java/rest/MobileClientRefRessource.java
+new file mode 100644
+index 0000000..e32f9ff
+--- /dev/null
++++ b/src/main/java/rest/MobileClientRefRessource.java
+@@ -0,0 +1,46 @@
++package rest;
++
++import java.util.Optional;
++import javax.ejb.EJB;
++import javax.ws.rs.GET;
++import javax.ws.rs.Path;
++import javax.ws.rs.PathParam;
++import javax.ws.rs.Produces;
++import javax.ws.rs.core.MediaType;
++import javax.ws.rs.core.Response;
++import org.json.JSONObject;
++import rest.service.mobile.MobileClientRefService;
++
++/**
++ * H4 (Prestige Mobile) : relecture d'une creation faite avec l'en-tete {@code X-Client-Ref}.
++ * <p>
++ * {@code GET v1/mobile/client-ref/{ref}} : {@code {success, type, id, reference, statut}} ou 404 si la cle est inconnue
++ * (la creation n'a jamais eu lieu : le telephone peut la renvoyer sans risque de doublon).
++ * <p>
++ * Authentification : session habituelle de l'application (cookie), comme les routes de vente ; voir
++ * filter.AuthenticationFilter (ces chemins ne demandent pas le jeton Bearer des autres chemins v1/mobile).
++ */
++@Path("v1/mobile/client-ref")
++@Produces(MediaType.APPLICATION_JSON)
++public class MobileClientRefRessource {
++
++    @EJB
++    private MobileClientRefService service;
++
++    @GET
++    @Path("{ref}")
++    public Response lire(@PathParam("ref") String ref) {
++        Optional<MobileClientRefService.Entree> e = service.lire(ref);
++        if (!e.isPresent() || e.get().entityId == null) {
++            return Response.status(Response.Status.NOT_FOUND).type(MediaType.APPLICATION_JSON)
++                    .entity(new JSONObject().put("success", false).put("msg", "Clé client inconnue.").toString())
++                    .build();
++        }
++        MobileClientRefService.Entree x = e.get();
++        String statut = service.statut(x);
++        JSONObject o = new JSONObject().put("success", true).put("ref", x.ref).put("type", x.type).put("id", x.entityId)
++                .put("reference", x.reference == null ? JSONObject.NULL : x.reference)
++                .put("statut", statut == null ? JSONObject.NULL : statut).put("existe", statut != null);
++        return Response.ok(o.toString(), MediaType.APPLICATION_JSON).build();
++    }
++}
+diff --git a/src/main/java/rest/RetourFournisseurRessource.java b/src/main/java/rest/RetourFournisseurRessource.java
+index cccd6d7..832a942 100644
+--- a/src/main/java/rest/RetourFournisseurRessource.java
++++ b/src/main/java/rest/RetourFournisseurRessource.java
+@@ -16,6 +16,7 @@ import javax.servlet.http.HttpSession;
+ import javax.ws.rs.Consumes;
+ import javax.ws.rs.DELETE;
+ import javax.ws.rs.GET;
++import javax.ws.rs.HeaderParam;
+ import javax.ws.rs.POST;
+ import javax.ws.rs.PUT;
+ import javax.ws.rs.Path;
+@@ -24,6 +25,7 @@ import javax.ws.rs.Produces;
+ import javax.ws.rs.QueryParam;
+ import javax.ws.rs.core.Response;
+ import rest.service.RetourFournisseurService;
++import rest.service.mobile.MobileClientRefService;
+ import rest.service.dto.UpdateRetourDTO;
+ import rest.service.dto.UpdateRetourItemDTO;
+ 
+@@ -39,6 +41,8 @@ public class RetourFournisseurRessource {
+     @EJB
+     private RetourFournisseurService retourFournisseurService;
+     @EJB
++    private MobileClientRefService mobileClientRefService;
++    @EJB
+     private rest.service.MvtProduitService mvtProduitService;
+     @EJB
+     private rest.service.InventaireService inventaireService;
+@@ -144,9 +148,26 @@ public class RetourFournisseurRessource {
+ 
+     @POST
+     @Path("new")
+-    public Response create(RetourFournisseurDTO params) {
+-
+-        RetourFournisseurDTO data = retourFournisseurService.createRetour(params);
++    public Response create(RetourFournisseurDTO params, @HeaderParam("X-Client-Ref") String clientRef) {
++
++        RetourFournisseurDTO data;
++        if (MobileClientRefService.normaliser(clientRef) == null) {
++            data = retourFournisseurService.createRetour(params);
++        } else {
++            // H4 (Prestige Mobile) : meme cle = meme retour ; la creation n'est jamais refaite.
++            String[] refus = new String[1];
++            data = mobileClientRefService.executer(clientRef, MobileClientRefService.TYPE_RETOUR_FOURNISSEUR,
++                    () -> retourFournisseurService.createRetour(params),
++                    d -> d.getLgRETOURFRSID() == null ? null
++                            : new MobileClientRefService.Cree(d.getLgRETOURFRSID(), d.getStrREFRETOURFRS(), null),
++                    e -> mobileClientRefService.retour(e.entityId), msg -> {
++                        refus[0] = msg;
++                        return null;
++                    });
++            if (data == null && refus[0] != null) {
++                return Response.ok().entity(ResultFactory.getFailResult(refus[0])).build();
++            }
++        }
+         if (data != null) {
+             return Response.ok().entity(ResultFactory.getSuccessResult(data, 1)).build();
+         }
+diff --git a/src/main/java/rest/SalesRessource.java b/src/main/java/rest/SalesRessource.java
+index a5c3fc9..ddc408b 100644
+--- a/src/main/java/rest/SalesRessource.java
++++ b/src/main/java/rest/SalesRessource.java
+@@ -20,6 +20,7 @@ import javax.servlet.http.HttpSession;
+ import javax.ws.rs.Consumes;
+ import javax.ws.rs.DELETE;
+ import javax.ws.rs.GET;
++import javax.ws.rs.HeaderParam;
+ import javax.ws.rs.POST;
+ import javax.ws.rs.PUT;
+ import javax.ws.rs.Path;
+@@ -34,6 +35,7 @@ import rest.service.GenerateTicketService;
+ import rest.service.SalesService;
+ import rest.service.SmsService;
+ import rest.service.dto.UpdateVenteParamDTO;
++import rest.service.mobile.MobileClientRefService;
+ import util.CommonUtils;
+ 
+ import util.Constant;
+@@ -60,6 +62,11 @@ public class SalesRessource {
+     SmsService smsService;
+     @EJB
+     private job.SupportClotureMonitor supportClotureMonitor;
++    @EJB
++    private MobileClientRefService mobileClientRefService;
++
++    /** H4 : cle client anti-doublon envoyee par Prestige Mobile (facultative). */
++    static final String X_CLIENT_REF = "X-Client-Ref";
+ 
+     @POST
+     @Path("ticket/vno")
+@@ -119,20 +126,44 @@ public class SalesRessource {
+ 
+     @POST
+     @Path("add/vno")
+-    public Response addVente(SalesParams params) {
++    public Response addVente(SalesParams params, @HeaderParam(X_CLIENT_REF) String clientRef) {
+ 
+         params.setStatut(params.isPrevente() ? Constant.STATUT_PENDING : Constant.STATUT_IS_PROGRESS);
+-        JSONObject json = salesService.createPreVente(params);
+-        return Response.ok().entity(json.toString()).build();
++        String json = creerVente(clientRef, () -> salesService.createPreVente(params));
++        return Response.ok().entity(json).build();
+     }
+ 
+     @POST
+     @Path("add/assurance")
+-    public Response addVenteAssurance(SalesParams params) {
++    public Response addVenteAssurance(SalesParams params, @HeaderParam(X_CLIENT_REF) String clientRef) {
+ 
+         params.setStatut(params.isPrevente() ? Constant.STATUT_PENDING : Constant.STATUT_IS_PROGRESS);
+-        JSONObject json = salesService.createPreVenteVo(params);
+-        return Response.ok().entity(json.toString()).build();
++        String json = creerVente(clientRef, () -> salesService.createPreVenteVo(params));
++        return Response.ok().entity(json).build();
++    }
++
++    /**
++     * H4 (Prestige Mobile) : creation de vente idempotente si le telephone envoie l'en-tete {@code X-Client-Ref} (meme
++     * cle = meme vente, la reponse initiale est renvoyee). Sans en-tete : creation d'origine, inchangee.
++     */
++    private String creerVente(String clientRef, java.util.function.Supplier<JSONObject> creation) {
++        if (MobileClientRefService.normaliser(clientRef) == null) {
++            return creation.get().toString();
++        }
++        return mobileClientRefService.executer(clientRef, MobileClientRefService.TYPE_VENTE,
++                () -> creation.get().toString(), SalesRessource::venteCreee, e -> e.reponse,
++                msg -> new JSONObject().put("success", false).put("msg", msg).toString());
++    }
++
++    private static MobileClientRefService.Cree venteCreee(String reponse) {
++        try {
++            JSONObject o = new JSONObject(reponse);
++            JSONObject data = o.optBoolean("success") ? o.optJSONObject("data") : null;
++            String id = data == null ? null : data.optString("lgPREENREGISTREMENTID", null);
++            return id == null ? null : new MobileClientRefService.Cree(id, data.optString("strREF", null), reponse);
++        } catch (JSONException e) {
++            return null;
++        }
+     }
+ 
+     @POST
+@@ -463,7 +494,8 @@ public class SalesRessource {
+ 
+     @POST
+     @Path("add/depot")
+-    public Response addVenteDepot(SalesParams params) throws JSONException {
++    public Response addVenteDepot(SalesParams params, @HeaderParam(X_CLIENT_REF) String clientRef)
++            throws JSONException {
+         HttpSession hs = servletRequest.getSession();
+         TUser tu = (TUser) hs.getAttribute(Constant.AIRTIME_USER);
+ 
+@@ -471,8 +503,8 @@ public class SalesRessource {
+         params.setDepot(true);
+         params.setTypeVenteId((params.getTypeDepoId().equals("1") ? "4" : "5"));
+         params.setStatut(Constant.STATUT_IS_PROGRESS);
+-        JSONObject json = salesService.createPreVenteVo(params);
+-        return Response.ok().entity(json.toString()).build();
++        String json = creerVente(clientRef, () -> salesService.createPreVenteVo(params));
++        return Response.ok().entity(json).build();
+     }
+ 
+     @POST
+diff --git a/src/main/java/rest/service/mobile/MobileClientRefService.java b/src/main/java/rest/service/mobile/MobileClientRefService.java
+new file mode 100644
+index 0000000..ac77e41
+--- /dev/null
++++ b/src/main/java/rest/service/mobile/MobileClientRefService.java
+@@ -0,0 +1,233 @@
++package rest.service.mobile;
++
++import commonTasks.dto.RetourFournisseurDTO;
++import dal.TRetourFournisseur;
++import java.util.List;
++import java.util.Optional;
++import java.util.function.Function;
++import java.util.function.Supplier;
++import java.util.logging.Level;
++import java.util.logging.Logger;
++import javax.annotation.Resource;
++import javax.ejb.EJBException;
++import javax.ejb.SessionContext;
++import javax.ejb.Stateless;
++import javax.ejb.TransactionAttribute;
++import javax.ejb.TransactionAttributeType;
++import javax.persistence.EntityManager;
++import javax.persistence.PersistenceContext;
++import org.apache.commons.lang3.StringUtils;
++
++/**
++ * H4 (Prestige Mobile) : creation idempotente d'une vente ou d'un retour fournisseur.
++ * <p>
++ * Le telephone envoie une cle unique (en-tete HTTP {@code X-Client-Ref}) sur la requete de creation. La cle est
++ * enregistree dans {@code mobile_client_ref} DANS LA MEME TRANSACTION que la creation :
++ * <ul>
++ * <li>cle deja connue : la creation n'est pas refaite, la reponse de la creation initiale est renvoyee (meme
++ * identifiant, meme reference) ;</li>
++ * <li>deux envois simultanes de la meme cle : la cle primaire bloque le second jusqu'a la fin du premier, puis le
++ * second echoue sur la cle (sa transaction est annulee, rien n'est cree) et relit la reponse du premier ;</li>
++ * <li>creation refusee ({@code success:false}) ou en erreur : tout est annule, la cle n'est pas gardee (un nouvel envoi
++ * peut reessayer) ;</li>
++ * <li>sans en-tete, ou si la table n'existe pas (migration non passee) : comportement d'origine, sans aucun
++ * changement.</li>
++ * </ul>
++ */
++@Stateless
++public class MobileClientRefService {
++
++    private static final Logger LOG = Logger.getLogger(MobileClientRefService.class.getName());
++
++    public static final String TYPE_VENTE = "VENTE";
++    public static final String TYPE_RETOUR_FOURNISSEUR = "RETOUR_FRS";
++    /** Longueur maximale d'une cle (colonne ref). */
++    public static final int LONGUEUR_MAX = 64;
++
++    private static volatile boolean tablePresente;
++    private static volatile long tableVerifieeA;
++
++    @PersistenceContext(unitName = "JTA_UNIT")
++    private EntityManager em;
++    @Resource
++    private SessionContext sessionContext;
++
++    /** Ligne de {@code mobile_client_ref}. */
++    public static final class Entree {
++        public final String ref;
++        public final String type;
++        public final String entityId;
++        public final String reference;
++        public final String reponse;
++
++        Entree(String ref, String type, String entityId, String reference, String reponse) {
++            this.ref = ref;
++            this.type = type;
++            this.entityId = entityId;
++            this.reference = reference;
++            this.reponse = reponse;
++        }
++    }
++
++    /** Identifiant, reference et texte de reponse d'une creation reussie (null si la creation a echoue). */
++    public static final class Cree {
++        final String entityId;
++        final String reference;
++        final String reponse;
++
++        public Cree(String entityId, String reference, String reponse) {
++            this.entityId = entityId;
++            this.reference = reference;
++            this.reponse = reponse;
++        }
++    }
++
++    /** Cle recue dans l'en-tete, nettoyee (null = pas de cle). */
++    public static String normaliser(String ref) {
++        return StringUtils.isBlank(ref) ? null : ref.trim();
++    }
++
++    /** La table existe (verifie au plus une fois par minute tant qu'elle est absente). */
++    @TransactionAttribute(TransactionAttributeType.SUPPORTS)
++    public boolean disponible() {
++        if (tablePresente) {
++            return true;
++        }
++        long now = System.currentTimeMillis();
++        if (now - tableVerifieeA < 60_000L && tableVerifieeA != 0) {
++            return false;
++        }
++        try {
++            Number n = (Number) em.createNativeQuery("SELECT COUNT(*) FROM information_schema.tables "
++                    + "WHERE table_schema = DATABASE() AND table_name = 'mobile_client_ref'").getSingleResult();
++            tablePresente = n != null && n.intValue() > 0;
++        } catch (RuntimeException e) {
++            LOG.log(Level.WARNING, "mobile_client_ref : verification de la table impossible", e);
++            tablePresente = false;
++        }
++        tableVerifieeA = now;
++        if (!tablePresente) {
++            LOG.warning("Table mobile_client_ref absente : X-Client-Ref ignore (migration V6.9.129.1 non passee).");
++        }
++        return tablePresente;
++    }
++
++    @TransactionAttribute(TransactionAttributeType.SUPPORTS)
++    public Optional<Entree> lire(String ref) {
++        String r = normaliser(ref);
++        if (r == null || r.length() > LONGUEUR_MAX || !disponible()) {
++            return Optional.empty();
++        }
++        @SuppressWarnings("unchecked")
++        List<Object[]> rows = em
++                .createNativeQuery(
++                        "SELECT ref, type, entity_id, reference, reponse FROM mobile_client_ref WHERE ref = ?1")
++                .setParameter(1, r).getResultList();
++        if (rows.isEmpty()) {
++            return Optional.empty();
++        }
++        Object[] o = rows.get(0);
++        return Optional.of(new Entree(s(o[0]), s(o[1]), s(o[2]), s(o[3]), s(o[4])));
++    }
++
++    /** Statut actuel de l'objet cree (null s'il n'existe plus). */
++    @TransactionAttribute(TransactionAttributeType.SUPPORTS)
++    public String statut(Entree e) {
++        String sql;
++        if (TYPE_VENTE.equals(e.type)) {
++            sql = "SELECT str_STATUT FROM t_preenregistrement WHERE lg_PREENREGISTREMENT_ID = ?1";
++        } else if (TYPE_RETOUR_FOURNISSEUR.equals(e.type)) {
++            sql = "SELECT str_STATUT FROM t_retour_fournisseur WHERE lg_RETOUR_FRS_ID = ?1";
++        } else {
++            return null;
++        }
++        List<?> rows = em.createNativeQuery(sql).setParameter(1, e.entityId).getResultList();
++        return rows.isEmpty() ? null : s(rows.get(0));
++    }
++
++    /** Retour fournisseur deja cree, sous la forme renvoyee par /retourfournisseur/new (null s'il n'existe plus). */
++    @TransactionAttribute(TransactionAttributeType.SUPPORTS)
++    public RetourFournisseurDTO retour(String retourId) {
++        TRetourFournisseur f = retourId == null ? null : em.find(TRetourFournisseur.class, retourId);
++        return f == null ? null : new RetourFournisseurDTO(f);
++    }
++
++    /**
++     * Creation idempotente.
++     *
++     * @param ref
++     *            cle recue (X-Client-Ref) ; vide = creation d'origine, sans rien de plus
++     * @param type
++     *            {@link #TYPE_VENTE} ou {@link #TYPE_RETOUR_FOURNISSEUR}
++     * @param creation
++     *            la creation d'origine (appel du service existant)
++     * @param cree
++     *            identifiant/reference/reponse a garder si la creation a reussi (null = echec)
++     * @param rejouer
++     *            reponse a renvoyer pour une cle deja enregistree
++     * @param echec
++     *            reponse d'erreur (message)
++     */
++    @TransactionAttribute(TransactionAttributeType.NOT_SUPPORTED)
++    public <T> T executer(String ref, String type, Supplier<T> creation, Function<T, Cree> cree,
++            Function<Entree, T> rejouer, Function<String, T> echec) {
++        String r = normaliser(ref);
++        if (r == null || !disponible()) {
++            return creation.get();
++        }
++        if (r.length() > LONGUEUR_MAX) {
++            return echec.apply("Clé client trop longue (" + LONGUEUR_MAX + " caractères au maximum).");
++        }
++        Optional<Entree> deja = lire(r);
++        if (deja.isPresent()) {
++            return rejouer(deja.get(), type, rejouer, echec);
++        }
++        try {
++            MobileClientRefService self = sessionContext.getBusinessObject(MobileClientRefService.class);
++            return self.creerDansUneTransaction(r, type, creation, cree);
++        } catch (EJBException | javax.persistence.PersistenceException e) {
++            // Le plus souvent : meme cle envoyee deux fois en meme temps ; la transaction perdante est annulee.
++            Optional<Entree> apres = lire(r);
++            if (apres.isPresent()) {
++                LOG.log(Level.INFO, "X-Client-Ref {0} : creation simultanee, reponse de la premiere renvoyee", r);
++                return rejouer(apres.get(), type, rejouer, echec);
++            }
++            LOG.log(Level.SEVERE, "X-Client-Ref " + r + " : creation impossible", e);
++            return echec.apply("Erreur :: l'opération a échouée");
++        }
++    }
++
++    private static <T> T rejouer(Entree e, String type, Function<Entree, T> rejouer, Function<String, T> echec) {
++        if (!type.equals(e.type)) {
++            return echec.apply("Clé client déjà utilisée pour une autre opération (" + e.type + ").");
++        }
++        if (e.entityId == null) {
++            return echec.apply("Création en cours pour cette clé : réessayez dans un instant.");
++        }
++        T t = rejouer.apply(e);
++        return t != null ? t : echec.apply("L'objet créé avec cette clé n'existe plus sur le serveur.");
++    }
++
++    /** Usage interne (appel via le conteneur pour la transaction) : cle + creation, valide ou annule ensemble. */
++    @TransactionAttribute(TransactionAttributeType.REQUIRED)
++    public <T> T creerDansUneTransaction(String ref, String type, Supplier<T> creation, Function<T, Cree> cree) {
++        // La cle est posee AVANT la creation : un envoi simultane de la meme cle attend ici la fin de celui-ci.
++        em.createNativeQuery("INSERT INTO mobile_client_ref (ref, type, created_at) VALUES (?1, ?2, NOW())")
++                .setParameter(1, ref).setParameter(2, type).executeUpdate();
++        T result = creation.get();
++        Cree c = result == null ? null : cree.apply(result);
++        if (c == null || StringUtils.isBlank(c.entityId)) {
++            // Creation refusee : rien n'est garde (ni la cle, ni une creation partielle).
++            sessionContext.setRollbackOnly();
++            return result;
++        }
++        em.createNativeQuery("UPDATE mobile_client_ref SET entity_id = ?1, reference = ?2, reponse = ?3 WHERE ref = ?4")
++                .setParameter(1, c.entityId).setParameter(2, c.reference).setParameter(3, c.reponse)
++                .setParameter(4, ref).executeUpdate();
++        return result;
++    }
++
++    private static String s(Object o) {
++        return o == null ? null : o.toString();
++    }
++}
+diff --git a/src/main/resources/db/migration/V6.9.129.1__mobile_client_ref.sql b/src/main/resources/db/migration/V6.9.129.1__mobile_client_ref.sql
+new file mode 100644
+index 0000000..0dae3b4
+--- /dev/null
++++ b/src/main/resources/db/migration/V6.9.129.1__mobile_client_ref.sql
+@@ -0,0 +1,14 @@
++-- H4 (Prestige Mobile) : cle client anti-doublon des creations faites depuis le telephone.
++-- Une ligne par creation (vente ou retour fournisseur) envoyee avec l'en-tete HTTP X-Client-Ref.
++-- La cle primaire sur ref garantit, meme en cas d'envois simultanes, qu'une meme cle ne cree qu'une fois.
++-- Script rejouable (CREATE TABLE IF NOT EXISTS) ; aucune table existante n'est modifiee.
++CREATE TABLE IF NOT EXISTS mobile_client_ref (
++    ref        VARCHAR(64)  NOT NULL,
++    type       VARCHAR(20)  NOT NULL,
++    entity_id  VARCHAR(40)  NULL,
++    reference  VARCHAR(40)  NULL,
++    reponse    MEDIUMTEXT   NULL,
++    created_at DATETIME     NOT NULL,
++    PRIMARY KEY (ref),
++    KEY idx_mobile_client_ref_entity (type, entity_id)
++) ENGINE = InnoDB DEFAULT CHARSET = utf8;
+-- 
+2.43.0
+

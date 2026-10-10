@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
+import 'package:prestige_vente_app/horsligne/client_ref.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
@@ -150,11 +151,46 @@ abstract class VenteGateway {
   });
 }
 
-class DioVenteGateway implements VenteGateway {
+class DioVenteGateway implements VenteGateway, ClientRefGateway {
   final ApiService _api;
-  DioVenteGateway(this._api);
+
+  /// H4 : clé client envoyée (en-tête `X-Client-Ref`) sur la création de la vente (1ᵉʳ article) ; null = aucune.
+  final String? _clientRef;
+  DioVenteGateway(this._api) : _clientRef = null;
+  DioVenteGateway._avecRef(this._api, String this._clientRef);
 
   Dio get _dio => _api.dio;
+
+  /// En-tête de la clé client sur une création (rien sans clé : requête identique à l'origine).
+  Options? _creation(bool first) {
+    final ref = _clientRef;
+    return first && ref != null ? Options(headers: {enteteClientRef: ref}) : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // H4 — clé client (serveur avec le patch docs/serveur/H4_client_ref.patch)
+  // ---------------------------------------------------------------------------
+
+  @override
+  VenteGateway avecClientRef(String ref) => DioVenteGateway._avecRef(_api, ref);
+
+  @override
+  Future<bool> clientRefSupporte() => CapaciteClientRef.verifier(_dio.options.baseUrl, () async {
+        final r = await _dio.get('/mobile/capacites', options: Options(validateStatus: (_) => true));
+        return CapaciteClientRef.depuisReponse(r.statusCode ?? 0, r.data);
+      });
+
+  @override
+  Future<VenteResult<ClientRefInfo?>> lireClientRef(String ref) async {
+    try {
+      final r = await _dio.get('/mobile/client-ref/${Uri.encodeComponent(ref)}', options: Options(validateStatus: (_) => true));
+      return clientRefDepuisReponse(r.statusCode ?? 0, r.data);
+    } on DioException catch (e) {
+      return VenteFailed(_networkMessage(e, 'relire la création'));
+    } catch (e) {
+      return VenteFailed('Impossible de relire la création : $e');
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Exécution commune
@@ -325,7 +361,7 @@ class DioVenteGateway implements VenteGateway {
         "prevente": prevente,
         "remiseId": null,
         "userVendeurId": null,
-      }),
+      }, options: _creation(first)),
       what: 'ajouter le produit',
       write: true,
     );
@@ -746,7 +782,7 @@ class DioVenteGateway implements VenteGateway {
         "typeVenteId": typeVenteId,
         "userVendeurId": userVendeurId,
         "venteId": venteId,
-      }),
+      }, options: _creation(first)),
       what: 'ajouter le produit',
       write: true,
     );
