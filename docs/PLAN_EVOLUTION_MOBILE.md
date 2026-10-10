@@ -1,6 +1,6 @@
 # Plan d'évolution — Prestige Mobile
 
-> Statut : **propositions à valider** — aucun code écrit.
+> Statut : **validé** (réponses du client en §7) — réalisation par étapes.
 > Maquettes : `docs/maquettes/evolution_maquettes.html` (+ aperçus PNG dans `docs/maquettes/apercus/`).
 > Même règles que pour la refonte : aucune régression, interrupteur de retour arrière pour chaque nouveauté,
 > point de retour noté avant chaque étape, tests automatiques, essai sur le serveur de test (Payara + MariaDB).
@@ -203,3 +203,27 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 8. **Images** : d'accord pour des photos prises par la pharmacie et stockées sur le serveur Prestige ?
 9. **Ordonnances** : d'accord pour commencer par le banc d'essai (mesure) avant toute modification ? Pouvez-vous fournir plus d'ordonnances (30 à 50, avec la liste des produits réellement délivrés) ?
 10. **Ordonnances** : la « lecture avancée en ligne » vous intéresse-t-elle (internet + coût + consentement) ?
+
+## 7. Réponses du client et vérifications complémentaires
+
+| # | Décision |
+|---|---|
+| 1 | Hors ligne : **préventes ET ventes**, et aussi **réception BL, pointage BL, mise à jour péremption** et toutes les actions existantes quand c'est possible. |
+| 2 | Une vente hors ligne attend **tant que le serveur n'est pas revenu** (pas de délai limite). |
+| 3 | Paiement multiple : **commencer et stabiliser à 2 modes**. |
+| 4 | Paiement multiple pour : **comptant** et **part client assurance**. |
+| 5 | Matériel : **tablette Sunmi, borne avec ticket, terminal Sunmi** ; imprimante réseau plus tard si besoin. |
+| 6 | Borne : **aucun produit exclu**, mais **mettre en avant les produits avec image** ; le ticket **imprime les produits**. |
+| 7 | Agrégateur de paiement : **reporté** (choix à venir). |
+| 8 | Images : **viendront du serveur** ; l'ajout de photos depuis le terminal sera demandé plus tard. |
+| 9 | Ordonnances : **commencer par le banc d'essai** ; le client fournira la liste des délivrances réelles. |
+| 10 | Lecture avancée en ligne : **oui, à prévoir, sans envoyer les informations du patient**. |
+
+### Paiement multiple — code du serveur (branche `claude/new-session-xm8ptu` du dépôt prestige)
+- `SalesServiceImpl.addReglement` : **2 règlements maximum** (« seuls deux règlements sont persistés (first/last) : au-delà, un règlement serait silencieusement perdu »). La répartition UG / hors CA est calculée entre le 1ᵉʳ et le dernier règlement : passer à 3 demande de réécrire cette répartition côté serveur.
+- `VenteReglementDTO.equals` compare le **mode** : deux lignes du même mode seraient fusionnées → l'appli interdit deux fois le même mode.
+
+### Recherche « commence par » / « contient » (vérifié sur le serveur de test)
+- Le serveur cherche « commence par » (`LIKE 'texte%'`) et **accepte le joker `%`** : `%1000MG` trouve 26 produits contenant « 1000MG », `DOLI% 1000` trouve « DOLIPRANE 1000MG… », en 0,03 s.
+- Vrai pour les **produits**, les **clients** (assurance et carnet) et les **tiers payants**.
+- ⇒ L'option « Contient » est possible **sans modifier le serveur** : l'appli ajoute `%` devant et entre les mots. En « Commence par », les caractères `%` et `_` tapés par l'utilisateur sont neutralisés.
