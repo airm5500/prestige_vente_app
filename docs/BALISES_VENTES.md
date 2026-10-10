@@ -8,6 +8,7 @@ Les identifiants ci-dessous sont des commits de la branche `pres-/tender-thompso
 |---|---|---|
 | `ventes-v0-avant-refonte` | `19760fe30a97241a9b7964c28ca7ff7625cc458a` | Ventes d'origine (avant toute modification des ventes). |
 | `ventes-v1-socle` | `ca2c7dd5c2c2092641a71de495a10960c97e6ef7` | Étape 1 : socle commun, Pré-vente / Assurance / Carnet fiabilisées (nouvelle version), recherche produit par pages et code exact. |
+| `ventes-v2-prevente` | `f28de2c54e926e2dfe51d96664c2b657c121afe1` | Étape 2 : Pré-vente / Vente en présentations A/B/C, encaissement sur une page, liste des préventes. |
 
 ## Revenir en arrière
 
