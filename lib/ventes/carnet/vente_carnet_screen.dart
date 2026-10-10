@@ -1,8 +1,9 @@
 // lib/ventes/carnet/vente_carnet_screen.dart
-// Vente Carnet — nouvelle version (copie fiabilisée de lib/screens/carnet_sale).
-// Parcours conservé : Client → Bon & ayant droit → Produits, pied Total / Part carnet / Part client,
-// « Enregistrer en prévente » ou « Valider la vente » (clôture carnet sans dialogue de paiement,
-// comme l'original). Vente en cours mémorisée : « Reprendre la vente ? » à la réouverture.
+// Vente Carnet — nouvelle version, présentations A / B / C (menu « Présentation » mémorisé).
+// Parcours : Client → Bon & ayant droit → Produits → Valider (barre d'étapes, retour possible),
+// pied Total / Part carnet / Part client, « PRÉVENTE » ou « VALIDER » (clôture carnet sans dialogue
+// de paiement, comme l'original). Vente en cours mémorisée : « Reprendre la vente ? » à la réouverture.
+// La logique (file d'opérations, réponses perdues, net à jour, reprise) reste dans CarnetController.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
@@ -16,6 +17,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_controller.dart';
+import 'package:prestige_vente_app/ventes/carnet/carnet_frame.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_history.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_products.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_steps.dart';
@@ -25,13 +27,17 @@ import 'package:prestige_vente_app/ventes/common/vente_product_search.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 
 class VenteCarnetScreen extends StatelessWidget {
   /// Accès serveur (simulé dans les tests).
   final VenteGateway? gateway;
 
-  const VenteCarnetScreen({super.key, this.gateway});
+  /// Présentation (A, B, C) ; celle de l'appareil si non précisée.
+  final ListPresentation? presentation;
+
+  const VenteCarnetScreen({super.key, this.gateway, this.presentation});
 
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider<CarnetController>(
@@ -39,27 +45,47 @@ class VenteCarnetScreen extends StatelessWidget {
           gateway: gateway ?? DioVenteGateway(Provider.of<ApiService>(ctx, listen: false)),
           userId: Provider.of<AuthProvider>(ctx, listen: false).user?.userId ?? '',
         ),
-        child: const _CarnetView(),
+        child: _CarnetView(presentation: presentation),
       );
 }
 
 class _CarnetView extends StatefulWidget {
-  const _CarnetView();
+  final ListPresentation? presentation;
+  const _CarnetView({this.presentation});
 
   @override
   State<_CarnetView> createState() => _CarnetViewState();
 }
 
-class _CarnetViewState extends State<_CarnetView> {
+class _CarnetViewState extends State<_CarnetView> with PresentationAware {
+  @override
+  ListPresentation? get forcedPresentation => widget.presentation;
+
   final _searchKey = GlobalKey<VenteProductSearchState>();
   bool _paying = false;
+
+  /// Ajouts restés sans réponse du serveur (affichés en ambre, bloquent la validation).
+  final List<CarnetUnsavedLine> _unsaved = [];
+  bool _retrying = false;
 
   CarnetController get _ctrl => context.read<CarnetController>();
 
   @override
   void initState() {
     super.initState();
+    loadPresentation();
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+  }
+
+  void _setStyle(ListPresentation p) {
+    setState(() => style = p);
+    if (widget.presentation == null) PresentationPrefs.save(p);
+  }
+
+  /// Nouvelle vente / autre client : les lignes non enregistrées de l'ancienne vente sont oubliées.
+  void _clearUnsaved() {
+    if (_unsaved.isEmpty) return;
+    setState(_unsaved.clear);
   }
 
   void _focusSearch() => _searchKey.currentState?.requestFocus();
@@ -95,6 +121,7 @@ class _CarnetViewState extends State<_CarnetView> {
     final resume =
         await showResumeSaleDialog(context, reference: pending.reference, itemCount: pending.itemCount, total: pending.total, savedAt: pending.savedAt);
     if (!mounted || !resume) return;
+    _clearUnsaved();
     await c.restore(restore);
     if (!mounted) return;
     if (c.cartError != null) showVenteFailure(context, VenteFailed<void>(c.cartError!), onRetry: c.reload);
@@ -143,6 +170,7 @@ class _CarnetViewState extends State<_CarnetView> {
       showVenteSnack(context, 'Vente ${item.strREF} illisible (client manquant) : reprise impossible.', error: true);
       return;
     }
+    _clearUnsaved();
     await c.restore(restore);
     if (!mounted) return;
     if (c.cartError != null) showVenteFailure(context, VenteFailed<void>(c.cartError!), onRetry: c.reload);
@@ -159,21 +187,95 @@ class _CarnetViewState extends State<_CarnetView> {
       final ok = await confirmVenteAction(context, title: 'Changer de client ?', message: 'Les N° de bon saisis seront perdus.', confirm: 'Changer de client');
       if (!ok) return;
     }
-    if (mounted) _ctrl.startNew();
+    if (!mounted) return;
+    _clearUnsaved();
+    _ctrl.startNew();
   }
 
   // ---------------------------------------------------------------------------
   // Panier
   // ---------------------------------------------------------------------------
 
+  static int _qtyIn(List<SaleItemDetail> items, String produitId) =>
+      items.where((i) => i.lgFAMILLEID == produitId).fold(0, (s, i) => s + i.intQUANTITY);
+
   Future<bool> _addProduct(ProductSearchResult product, int qty) async {
-    final r = await _ctrl.addProduct(product, qty);
+    final c = _ctrl;
+    final r = await c.addProduct(product, qty);
     if (!mounted) return false;
-    if (!r.isOk) {
-      if (await handleCaisseFermee(context, r)) return false;
-      if (mounted) showVenteFailure(context, r);
+    if (r.isOk) {
+      // Ajout confirmé du même produit : la base de comparaison des lignes en attente suit.
+      for (final u in _unsaved.where((u) => u.product.lgFAMILLEID == product.lgFAMILLEID)) {
+        u.baseQty += qty;
+      }
+      return true;
     }
-    return r.isOk;
+    if (await handleCaisseFermee(context, r)) return false;
+    if (!mounted) return false;
+    showVenteFailure(context, r);
+    // Panne sans réponse : la ligne reste visible en ambre (« Réessayer »). Jamais quand la vente a pu
+    // être créée sans réponse (uncertain) : un nouvel essai créerait une seconde vente.
+    if (r is VenteFailed && !r.uncertain && !c.finished && c.client != null) {
+      setState(() => _unsaved.add(CarnetUnsavedLine(product: product, qty: qty, baseQty: _qtyIn(c.items, product.lgFAMILLEID))));
+    }
+    return false;
+  }
+
+  /// « Réessayer » une ligne non enregistrée : relecture du panier d'abord, jamais de doublon.
+  Future<bool> _retryUnsaved(CarnetUnsavedLine u) async {
+    final c = _ctrl;
+    await c.idle();
+    if (!mounted || !_unsaved.contains(u)) return false;
+    if (c.venteId != null) {
+      await c.reload();
+      if (!mounted || !_unsaved.contains(u)) return false;
+      if (c.cartError != null) {
+        showVenteFailure(context, VenteFailed<void>(c.cartError!), onRetry: () => _retryUnsaved(u));
+        return false;
+      }
+      if (_qtyIn(c.items, u.product.lgFAMILLEID) >= u.baseQty + u.qty) {
+        setState(() => _unsaved.remove(u));
+        showVenteSnack(context, '${u.product.strNAME} était déjà enregistré : aucun doublon.');
+        return true;
+      }
+    }
+    setState(() => _unsaved.remove(u));
+    return _addProduct(u.product, u.qty);
+  }
+
+  Future<void> _retry(CarnetUnsavedLine u) async {
+    if (_retrying) return;
+    setState(() => _retrying = true);
+    try {
+      await _retryUnsaved(u);
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
+    _focusSearch();
+  }
+
+  Future<void> _retryAll() async {
+    if (_retrying) return;
+    setState(() => _retrying = true);
+    try {
+      for (final u in List.of(_unsaved)) {
+        if (!mounted || !await _retryUnsaved(u)) break;
+      }
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
+    _focusSearch();
+  }
+
+  Future<void> _dropUnsaved(CarnetUnsavedLine u) async {
+    final ok = await confirmVenteAction(
+      context,
+      title: 'Retirer la ligne ?',
+      message: '${u.product.strNAME} (${u.qty}) n\'a pas été enregistré sur le serveur. Le retirer de l\'écran ?',
+      confirm: 'Retirer',
+    );
+    if (ok && mounted) setState(() => _unsaved.remove(u));
+    _focusSearch();
   }
 
   // ---------------------------------------------------------------------------
@@ -184,7 +286,7 @@ class _CarnetViewState extends State<_CarnetView> {
     final c = _ctrl;
     await c.idle();
     if (!mounted) return null;
-    final reason = c.finishBlockedReason;
+    final reason = unsavedReason(_unsaved) ?? c.finishBlockedReason;
     if (reason != null) {
       showVenteSnack(context, reason, error: true);
       return null;
@@ -308,6 +410,7 @@ class _CarnetViewState extends State<_CarnetView> {
       }
     }
     if (!mounted) return;
+    _clearUnsaved();
     _ctrl.startNew();
   }
 
@@ -349,19 +452,55 @@ class _CarnetViewState extends State<_CarnetView> {
   // Affichage
   // ---------------------------------------------------------------------------
 
+  /// Barre d'étapes : Client → Bon & ayant droit → Produits → Valider (retour possible).
+  CarnetFrame _frame(CarnetController c) {
+    final step = switch (c.step) { CarnetStep.clientSearch => 0, CarnetStep.bonAndAyantDroit => 1, CarnetStep.productSearch => 2 };
+    final active = _paying ? 3 : step;
+    final cl = c.client;
+    final bons = [for (final tp in c.activeTps) c.bons[tp.compteTp] ?? ''].where((b) => b.isNotEmpty).join(' · ');
+    final n = c.items.length;
+    final free = !_paying && !c.busy && !c.finished;
+    return CarnetFrame(
+      style: style,
+      active: active,
+      steps: [
+        (
+          title: 'Client',
+          short: 'Client',
+          detail: cl == null ? 'rechercher' : carnetName(cl.fullName, cl.strFIRSTNAME, cl.strLASTNAME),
+          onTap: step > 0 && free ? _changeClient : null,
+        ),
+        (title: 'Bon & ayant droit', short: 'Bon', detail: bons.isEmpty ? 'ayant droit' : bons, onTap: step > 1 && free ? c.goToBonStep : null),
+        (title: 'Produits', short: 'Produits', detail: n == 0 ? 'scanner' : '$n article${n > 1 ? 's' : ''}', onTap: null),
+        (title: 'Valider', short: 'Valider', detail: 'part client', onTap: null),
+      ],
+      actions: (col) => [
+        if (c.step != CarnetStep.clientSearch)
+          IconButton(icon: Icon(Icons.history, color: col), tooltip: 'Historique', onPressed: _paying ? null : _openHistory),
+        PresentationMenuButton(value: style, onChanged: _setStyle, color: col),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.watch<CarnetController>();
-    final ref = c.items.isNotEmpty ? c.items.first.strREF : '';
+    final frame = _frame(c);
     final Widget body = switch (c.step) {
-      CarnetStep.clientSearch => CarnetClientStep(onHistory: _openHistory),
-      CarnetStep.bonAndAyantDroit => CarnetBonStep(onChangeClient: _changeClient),
+      CarnetStep.clientSearch => CarnetClientStep(frame: frame, onHistory: _openHistory),
+      CarnetStep.bonAndAyantDroit => CarnetBonStep(frame: frame, onChangeClient: _changeClient),
       CarnetStep.productSearch => CarnetProductsStep(
+          frame: frame,
           searchKey: _searchKey,
           addProduct: _addProduct,
           onPrevente: _prevente,
           onValider: _valider,
           paying: _paying,
+          unsaved: _unsaved,
+          retrying: _retrying,
+          onRetry: _retry,
+          onRetryAll: _retryAll,
+          onDrop: _dropUnsaved,
         ),
     };
     return PopScope(
@@ -369,29 +508,7 @@ class _CarnetViewState extends State<_CarnetView> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _confirmLeave();
       },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Vente Carnet'),
-            if (c.venteId != null)
-              Text(
-                '${ref.isEmpty ? 'Vente en cours' : 'Réf. $ref'} · ${_cartLabel(c)}',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
-                overflow: TextOverflow.ellipsis,
-              ),
-          ]),
-          actions: [
-            if (c.step != CarnetStep.clientSearch)
-              TextButton.icon(
-                style: TextButton.styleFrom(foregroundColor: Colors.white, minimumSize: const Size(0, 44)),
-                onPressed: _paying ? null : _openHistory,
-                icon: const Icon(Icons.history),
-                label: const Text('Historique'),
-              ),
-          ],
-        ),
-        body: KeyedSubtree(key: ValueKey(c.step), child: body),
-      ),
+      child: KeyedSubtree(key: ValueKey(c.step), child: body),
     );
   }
 }
