@@ -33,6 +33,7 @@ import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
 import 'package:prestige_vente_app/providers/proforma_provider.dart';
 import 'package:prestige_vente_app/providers/ajustement_provider.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
+import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -163,6 +164,8 @@ class MyApp extends StatelessWidget {
         title: 'Prestige Vente',
         theme: AppTheme.lightTheme,
         debugShowCheckedModeBanner: false,
+        // Bandeau hors ligne (rien tant que le serveur répond).
+        builder: (context, child) => HorsLigneScope(child: child ?? const SizedBox.shrink()),
         home: const SplashScreen(),
       ),
     );

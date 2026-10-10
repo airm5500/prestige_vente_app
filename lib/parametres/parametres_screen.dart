@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/accueil/organiser_accueil_screen.dart';
 import 'package:prestige_vente_app/parametres/connexion_page.dart';
+import 'package:prestige_vente_app/parametres/hors_ligne_page.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
 import 'package:prestige_vente_app/parametres/parametres_services.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
@@ -91,6 +92,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
         Rubrique.ventes => ParametresSummary.ventes(s, newSales: VentesVersion.useNew.value),
         Rubrique.impression => ParametresSummary.impression(s),
         Rubrique.stock => ParametresSummary.stock(s),
+        Rubrique.horsLigne => horsLigneSummary(),
         Rubrique.apparence => ParametresSummary.apparence(_presentation, search: SearchModePrefs.current),
         Rubrique.equipe => _pointage == null ? 'Méthode, employés, rapport' : pointageSummary(_pointage!),
         Rubrique.securite => 'Code PIN administrateur',
@@ -102,6 +104,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
         Rubrique.ventes => Icons.receipt_long,
         Rubrique.impression => Icons.print,
         Rubrique.stock => Icons.inventory_2,
+        Rubrique.horsLigne => Icons.cloud_off,
         Rubrique.apparence => Icons.palette,
         Rubrique.equipe => Icons.groups,
         Rubrique.securite => Icons.shield,
@@ -137,6 +140,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
       Rubrique.ventes => const VentesPage(),
       Rubrique.impression => ImpressionPage(printTest: _sv.printTestTicket ?? imprimerTicketEssai),
       Rubrique.stock => const StockPage(),
+      Rubrique.horsLigne => const HorsLignePage(),
       Rubrique.apparence => ApparencePage(initial: _presentation, openOrganiser: _openOrganiser),
       Rubrique.equipe => EquipePage(repository: _pointageRepo),
       Rubrique.securite => const SecuritePage(),

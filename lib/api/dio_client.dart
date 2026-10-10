@@ -28,6 +28,9 @@ class DioClient {
     return dio;
   }
 
+  /// Session partagée (synchro hors ligne : même connexion, sans le journal).
+  static CookieJar get cookieJar => _cookieJar;
+
   // Méthode pour obtenir le client Dio configuré
   static Dio getClient(String baseUrl) {
     _dio.options.baseUrl = baseUrl;

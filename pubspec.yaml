@@ -53,11 +53,14 @@ dependencies:
   # Recadrage de la photo sur le cadre avant la lecture du texte.
   image: ^4.5.4
   file_picker: 8.3.7 # Version figée (minSdk 21) : import PDF d'ordonnance
+  sqflite: ^2.4.2
+  path: ^1.9.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
+  sqflite_common_ffi: ^2.3.6
 
 flutter:
   uses-material-design: true

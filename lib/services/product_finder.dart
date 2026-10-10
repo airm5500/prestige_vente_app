@@ -10,12 +10,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
 /// Recherche par pages sur l'[ApiService], au format attendu par [ProductLookup] / [ProductPager].
-ProductPageSearch apiPageSearch(ApiService api) => (query, start, limit) async {
+/// Hors ligne : copie locale du catalogue (lib/horsligne/) ; en ligne : inchangé.
+ProductPageSearch apiPageSearch(ApiService api) => offlineAware((query, start, limit) async {
       try {
         return VenteOk(await api.searchProductsPageOrFail(query, start, limit));
       } on ApiLoadException catch (e) {
@@ -23,7 +25,7 @@ ProductPageSearch apiPageSearch(ApiService api) => (query, start, limit) async {
       } catch (e) {
         return VenteFailed('Recherche impossible : $e');
       }
-    };
+    });
 
 /// « Code X introuvable (essayé aussi Y) ».
 String codeIntrouvableMessage(String code, List<String> tried) {

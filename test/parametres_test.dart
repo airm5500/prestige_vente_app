@@ -119,6 +119,11 @@ void main() {
   }
 
   Future<void> seek(WidgetTester tester, Finder f) async {
+    // Rubrique au-dessus de la partie visible : on repart du haut de la liste.
+    if (f.evaluate().isEmpty) {
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 3000));
+      await tester.pumpAndSettle();
+    }
     await tester.scrollUntilVisible(f, 120, scrollable: find.byType(Scrollable).first);
     await tester.pumpAndSettle();
   }

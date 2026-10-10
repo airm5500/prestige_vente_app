@@ -1,0 +1,125 @@
+// lib/horsligne/horsligne.dart
+// Point d'entrée du hors ligne (étape H1) : surveillance du serveur, copie locale, synchro,
+// et recherche produit des nouveaux écrans qui bascule sur la copie locale UNIQUEMENT
+// quand l'état est « hors ligne » (en ligne : appel serveur inchangé).
+import 'package:dio/dio.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
+import 'package:prestige_vente_app/horsligne/local_store.dart';
+import 'package:prestige_vente_app/horsligne/server_monitor.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
+import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+
+class HorsLigne {
+  final ServerMonitor monitor;
+  final LocalStore store;
+  final CatalogueSync sync;
+
+  /// Ventes en attente d'envoi (étape H2 ; null : non affiché).
+  final ValueNotifier<int?> ventesEnAttente = ValueNotifier<int?>(null);
+
+  HorsLigne._(this.monitor, this.store, this.sync);
+
+  factory HorsLigne({ServerMonitor? monitor, LocalStore? store, CatalogueSync? sync}) {
+    final s = store ?? sync?.store ?? SqfliteLocalStore();
+    return HorsLigne._(monitor ?? ServerMonitor(), s, sync ?? CatalogueSync(store: s));
+  }
+
+  /// Instance de l'appli (remplaçable dans les tests).
+  static HorsLigne instance = HorsLigne();
+
+  bool get offline => monitor.isOffline;
+
+  /// « 10/10 08:30 » : date du catalogue local.
+  static String formatDate(DateTime d) => DateFormat('dd/MM HH:mm').format(d);
+
+  /// « catalogue du 10/10 08:30 » (ou « aucun catalogue local »).
+  String get catalogueLabel {
+    final at = sync.catalogueAt;
+    return at == null ? 'aucun catalogue local' : 'catalogue du ${formatDate(at)}';
+  }
+
+  /// Recherche produit par pages dans la copie locale (même format que le serveur).
+  Future<VenteResult<ProductPage>> localPage(String query, int start, int limit) async {
+    try {
+      if (!sync.statsLoaded) await sync.refreshStats();
+      if (sync.stats.count(CatalogueCategorie.produits) == 0) {
+        return const VenteFailed('Hors ligne : aucun catalogue sur cet appareil. '
+            'Mettez-le à jour quand le serveur répond (Réglages › Hors ligne).');
+      }
+      return VenteOk(await store.searchProducts(query, start, limit));
+    } catch (e) {
+      return VenteFailed('Hors ligne : recherche locale impossible ($e).');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Branchement sur l'appli (serveur réel)
+  // ---------------------------------------------------------------------------
+
+  ApiService? _api;
+  Dio? _pingDio;
+  Dio? _syncDio;
+
+  /// Relie la surveillance et la synchro à l'[ApiService] courant (adresse du serveur, session).
+  void bind(ApiService api) {
+    _api = api;
+    final dio = api.dio;
+    if (!dio.interceptors.any((i) => i is ServerMonitorInterceptor)) {
+      dio.interceptors.add(ServerMonitorInterceptor(() => monitor));
+    }
+    monitor.ping ??= _ping;
+    sync.fetch ??= _fetch;
+  }
+
+  String get _baseUrl => _api?.dio.options.baseUrl ?? '';
+
+  /// GET /officine, délai court, sans journal ni session.
+  Future<bool> _ping() async {
+    final d = _pingDio ??= Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 5),
+      sendTimeout: const Duration(seconds: 5),
+      receiveTimeout: const Duration(seconds: 5),
+      validateStatus: (_) => true,
+    ));
+    d.options.baseUrl = _baseUrl;
+    try {
+      final r = await d.get('/officine');
+      final code = r.statusCode ?? 0;
+      return code > 0 && code < 500;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// GET pour la synchro : même session (cookies) que l'appli, sans le journal des réponses.
+  Future<Map<String, dynamic>> _fetch(String path, Map<String, dynamic> query) async {
+    final d = _syncDio ??= Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 60)))
+      ..interceptors.add(CookieManager(DioClient.cookieJar));
+    d.options.baseUrl = _baseUrl;
+    try {
+      final r = await d.get(path, queryParameters: query);
+      monitor.signalReachable();
+      final body = r.data;
+      if (body is Map) return Map<String, dynamic>.from(body);
+      throw CatalogueSyncException('Réponse inattendue du serveur ($path). La session a peut-être expiré : reconnectez-vous.');
+    } on DioException catch (e) {
+      if (ServerMonitor.isNetworkError(e)) {
+        monitor.signalNetworkFailure();
+        throw const CatalogueSyncException('Serveur injoignable.', network: true);
+      }
+      final code = e.response?.statusCode ?? 0;
+      if (code == 401 || code == 403) throw const CatalogueSyncException('Session expirée : reconnectez-vous.');
+      if (e.type == DioExceptionType.receiveTimeout) throw const CatalogueSyncException('Le serveur met trop de temps à répondre.', network: true);
+      throw CatalogueSyncException('Erreur du serveur${code > 0 ? ' (code $code)' : ''}.');
+    }
+  }
+}
+
+/// Recherche par pages des nouveaux écrans : copie locale si hors ligne, sinon [online] (inchangé).
+ProductPageSearch offlineAware(ProductPageSearch online) =>
+    (query, start, limit) => HorsLigne.instance.offline ? HorsLigne.instance.localPage(query, start, limit) : online(query, start, limit);

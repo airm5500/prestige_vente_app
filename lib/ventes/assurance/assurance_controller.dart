@@ -7,6 +7,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
@@ -525,7 +526,8 @@ class AssuranceController extends ChangeNotifier {
       } catch (_) {}
       _rvLoaded = true;
     }
-    return gateway.searchProductsPage(query, start, limit);
+    // Hors ligne : copie locale ; en ligne : serveur (inchangé).
+    return offlineAware(gateway.searchProductsPage)(query, start, limit);
   }
 
   /// Produit affiché dans les résultats (produits « RV » masqués selon le réglage).

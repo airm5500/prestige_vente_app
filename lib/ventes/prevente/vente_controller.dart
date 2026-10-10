@@ -6,6 +6,7 @@
 // « Enregistrer en prévente » (terminerprevente) ou « Encaisser » (cloturer/vno).
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -189,7 +190,8 @@ class VenteController extends ChangeNotifier {
       } catch (_) {}
       _rvLoaded = true;
     }
-    return gateway.searchProductsPage(query, start, limit);
+    // Hors ligne : copie locale ; en ligne : serveur (inchangé).
+    return offlineAware(gateway.searchProductsPage)(query, start, limit);
   }
 
   /// Produit affiché dans les résultats (produits « RV » masqués selon le réglage).
