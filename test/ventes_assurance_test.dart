@@ -1,4 +1,4 @@
-// Pré-vente Assurance (nouvelle version) : parcours complet à 360 px (Client → Bons & patient → Produits),
+// Pré-vente Assurance (nouvelle version) : parcours complet à 360 px (Client → Couverture → Produits → Encaisser),
 // net recalculé automatiquement, double scan (1 seule vente), double tap (1 seule clôture), panne / réponse
 // perdue / refus, caisse fermée, net non à jour, panier non relu, quitter / reprendre, historique
 // (Reprendre / Réimprimer avec la vraie référence), nom/prénom, ayant droit obligatoire, bons, 100 %.
@@ -24,6 +24,7 @@ import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/ventes/prevente/encaissement_page.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -432,10 +433,15 @@ Finder get _valider => find.byKey(const ValueKey('assurance-valider'));
 Finder get _prevente => find.byKey(const ValueKey('assurance-prevente'));
 Finder get _continuer => find.byKey(const ValueKey('assurance-continuer'));
 Finder _bon(String compte) => find.byKey(ValueKey('assurance-bon-$compte'));
+Finder get _adCard => find.byKey(const ValueKey('assurance-ayant-droit'));
+Finder _inAdCard(String text) => find.descendant(of: _adCard, matching: find.text(text));
+Finder get _encaissementValider => find.byKey(const ValueKey('encaissement-valider'));
+Finder get _encaissementImprimer => find.byKey(const ValueKey('encaissement-imprimer'));
 
 bool _enabled(WidgetTester tester, Finder f) => (tester.widget(f) as ButtonStyleButton).onPressed != null;
 
-String _netText(WidgetTester tester) => (tester.widget(find.byKey(const ValueKey('assurance-net'))) as Text).data ?? '';
+/// Part client affichée (sans « F »).
+String _netText(WidgetTester tester) => ((tester.widget(find.byKey(const ValueKey('assurance-net'))) as Text).data ?? '').replaceAll(RegExp(r' F$'), '');
 
 Future<void> _searchClient(WidgetTester tester, String q) async {
   await tester.enterText(_clientField, q);
@@ -450,6 +456,7 @@ Future<void> _toProducts(WidgetTester tester, {String bon1 = 'B-1', String bon2 
   await tester.pumpAndSettle();
   await tester.enterText(_bon('CT1'), bon1);
   await tester.enterText(_bon('CT2'), bon2);
+  await tester.pump(); // bouton activé dès que la saisie est complète
   await tester.tap(_continuer);
   await tester.pumpAndSettle();
 }
@@ -495,16 +502,22 @@ void main() {
     await _searchClient(tester, 'kou');
     await tester.tap(find.text('KOUASSI Awa'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('KOUASSI Awa (M-C1)'), findsOneWidget); // ayant droit = le client
+    // Ayant droit = le client.
+    expect(_inAdCard('KOUASSI Awa'), findsOneWidget);
+    expect(_inAdCard('Mat. M-C1'), findsOneWidget);
     await tester.enterText(_bon('CT1'), '  B-1  ');
+    await tester.pump(); // bouton activé dès que la saisie est complète
     await tester.tap(_continuer);
     await tester.pumpAndSettle();
-    expect(find.text('Le N° de bon pour ASCOMA est requis.'), findsOneWidget);
+    expect(find.text('Saisissez le n° de bon ASCOMA'), findsOneWidget);
+    expect(_enabled(tester, _continuer), isFalse);
     await tester.enterText(_bon('CT2'), 'b-1');
+    await tester.pump(); // bouton activé dès que la saisie est complète
     await tester.tap(_continuer);
     await tester.pumpAndSettle();
     expect(find.text('Le même N° de bon est saisi pour deux tiers payants.'), findsOneWidget);
     await tester.enterText(_bon('CT2'), 'B-2');
+    await tester.pump(); // bouton activé dès que la saisie est complète
     await tester.tap(_continuer);
     await tester.pumpAndSettle();
 
@@ -528,18 +541,17 @@ void main() {
     await tester.tap(find.text('Valider'));
     await tester.pumpAndSettle();
     expect(_netText(tester), _f(900));
-    expect(find.text('Encaisser ${_f(900)} F'), findsOneWidget);
+    expect(find.text('ENCAISSER ${_f(900)} F'), findsOneWidget);
 
     await tester.tap(_valider);
     await tester.pumpAndSettle();
     await tester.tap(find.text('WAVE'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('VALIDER'));
+    await tester.tap(_encaissementImprimer); // un seul choix d'impression, sur la page
+    await tester.pump();
+    await tester.tap(_encaissementValider);
     await tester.pumpAndSettle();
-    expect(find.text('Vente validée'), findsOneWidget);
-    expect(find.text('Réf. AS-V1'), findsOneWidget);
-    await tester.tap(find.text('Ne pas imprimer'));
-    await tester.pumpAndSettle();
+    expect(find.text('Vente validée ✓ (AS-V1)'), findsOneWidget);
 
     expect(gw.clotures.length, 1);
     expect(gw.clotures.single.typeReglementId, '10');
@@ -571,14 +583,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Espèces'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)), '500');
+    await tester.enterText(find.byKey(const ValueKey('encaissement-recu')), '500');
     await tester.pump();
-    await tester.tap(find.text('Valider'));
+    expect(tester.widget<Text>(find.byKey(const ValueKey('encaissement-monnaie'))).data, '${_f(200)} F');
+    await tester.tap(_encaissementImprimer);
+    await tester.pump();
+    await tester.tap(_encaissementValider);
     await tester.pumpAndSettle();
     expect(find.text('Confirmation de paiement'), findsNothing);
-    expect(find.text('Vente validée'), findsOneWidget);
-    await tester.tap(find.text('Ne pas imprimer'));
-    await tester.pumpAndSettle();
+    expect(find.textContaining('Vente validée'), findsOneWidget);
     expect(gw.clotures.single.typeReglementId, '1');
     expect(tester.takeException(), isNull);
   });
@@ -590,7 +603,7 @@ void main() {
     await _searchClient(tester, 'kou');
     expect(find.textContaining('Recherche impossible'), findsOneWidget);
     expect(find.textContaining('introuvable'), findsNothing);
-    expect(find.text('Créer un nouveau client'), findsNothing);
+    expect(find.text('NOUVEAU CLIENT'), findsNothing);
     gw.clientSearchFails = false;
     await tester.tap(find.text('Réessayer'));
     await tester.pumpAndSettle();
@@ -598,7 +611,7 @@ void main() {
 
     await _searchClient(tester, 'zzz');
     expect(find.textContaining('Ce client est introuvable'), findsOneWidget);
-    expect(find.text('Créer un nouveau client'), findsOneWidget);
+    expect(find.text('NOUVEAU CLIENT'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -607,7 +620,7 @@ void main() {
     final gw = _FakeGateway();
     await _open(tester, gw);
     await _searchClient(tester, 'zzz');
-    await tester.tap(find.text('Créer un nouveau client'));
+    await tester.tap(find.text('NOUVEAU CLIENT'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('client-nom')), 'TRAORE');
     await tester.enterText(find.byKey(const ValueKey('client-prenom')), 'Moussa');
@@ -635,7 +648,8 @@ void main() {
     await tester.tap(find.text('Créer'));
     await tester.pumpAndSettle();
     expect(gw.createdAds.single, (first: 'TRAORE', last: 'Fatou'));
-    expect(find.textContaining('TRAORE Fatou (M78)'), findsOneWidget);
+    expect(_inAdCard('TRAORE Fatou'), findsOneWidget);
+    expect(_inAdCard('Mat. M78'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -649,6 +663,7 @@ void main() {
     expect(find.text('Aucun ayant droit : créez-en un'), findsOneWidget);
     await tester.enterText(_bon('CT1'), 'B-1');
     await tester.enterText(_bon('CT2'), 'B-2');
+    await tester.pump(); // bouton activé dès que la saisie est complète
     await tester.tap(_continuer);
     await tester.pumpAndSettle();
     expect(find.textContaining('Choisissez ou créez un ayant droit'), findsOneWidget);
@@ -666,7 +681,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('assurance-couverture')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Modifier').first);
+    await tester.tap(find.byKey(const ValueKey('assurance-taux-CT1')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('tp-edit-taux')), '101');
     await tester.tap(find.text('Valider'));
@@ -676,15 +691,16 @@ void main() {
     await tester.tap(find.text('Valider'));
     await tester.pumpAndSettle();
     expect(gw.netTps.last.firstWhere((t) => t.compteTp == 'CT1').taux, 90);
+    await tester.pump(); // bouton activé dès que la saisie est complète
     await tester.tap(_continuer);
     await tester.pumpAndSettle();
     // 1 500 : 90 % + 10 % = 100 % → part client 0.
     expect(_netText(tester), _f(0));
-    expect(find.text('Valider (part client 0 F)'), findsOneWidget);
+    expect(find.text('VALIDER (0 F)'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('assurance-couverture')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Modifier').first);
+    await tester.tap(find.byKey(const ValueKey('assurance-taux-CT1')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Changer l\'assurance'));
     await tester.pumpAndSettle();
@@ -710,18 +726,23 @@ void main() {
     await tester.tap(find.text('KOUASSI Awa'));
     await tester.pumpAndSettle();
     await tester.enterText(_bon('CT1'), 'B-9');
+    await tester.pump(); // bouton activé dès que la saisie est complète
     await tester.tap(_continuer);
     await tester.pumpAndSettle();
     await _addManual(tester, 'doli');
-    expect(find.text('Valider (part client 0 F)'), findsOneWidget);
+    expect(find.text('VALIDER (0 F)'), findsOneWidget);
     await tester.tap(_valider);
     await tester.pumpAndSettle();
     expect(find.text('Mode de règlement'), findsNothing);
-    expect(gw.clotures.single.typeReglementId, '1');
-    expect(find.text('Vente validée'), findsOneWidget);
+    expect(find.byType(EncaissementPage), findsNothing); // rien à encaisser : pas de page
+    // Confirmation simple, impression cochée (un seul choix).
+    expect(find.text('Valider la vente ?'), findsOneWidget);
+    expect(gw.clotures, isEmpty);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.text('Imprimer'));
+    await tester.tap(find.byKey(const ValueKey('assurance-zero-valider')));
     await tester.pumpAndSettle();
+    expect(gw.clotures.single.typeReglementId, '1');
+    expect(find.textContaining('Vente validée'), findsOneWidget);
     expect(find.text('Aperçu du Ticket'), findsOneWidget);
     _previewOverflow(tester);
     expect(find.text('VENTE ASSURANCE'), findsOneWidget);
@@ -805,10 +826,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('WAVE'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('VALIDER'));
+    await tester.tap(_encaissementValider);
     await tester.pumpAndSettle();
     expect(find.text('Caisse Fermée'), findsOneWidget);
     await tester.tap(find.text('Non'));
+    await tester.pumpAndSettle();
+    expect(find.text('Caisse fermée : ouvrez-la avant de valider.'), findsOneWidget); // on reste sur la page
+    await tester.tap(find.byTooltip('Retour')); // bouton retour de l'en-tête
     await tester.pumpAndSettle();
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
     expect(_enabled(tester, _valider), isTrue);
@@ -825,12 +849,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('WAVE'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('VALIDER'));
+    await tester.tap(_encaissementValider);
     await tester.pumpAndSettle();
+    expect(find.byType(EncaissementPage), findsNothing); // page fermée : retour à la couverture
     expect(find.text('Le numéro de bon B-1 est déjà utilisé'), findsOneWidget);
     expect(_continuer, findsOneWidget);
     gw.clotureMode = _Mode.ok;
     await tester.enterText(_bon('CT1'), 'B-7');
+    await tester.pump(); // bouton activé dès que la saisie est complète
     await tester.tap(_continuer);
     await tester.pumpAndSettle();
     expect(gw.netTps.last.first.numBon, 'B-7');
@@ -883,13 +909,13 @@ void main() {
     await tester.tap(_valider);
     await tester.tap(_valider, warnIfMissed: false);
     await tester.pumpAndSettle();
-    expect(find.text('Mode de règlement'), findsOneWidget);
+    expect(find.byType(EncaissementPage, skipOffstage: false), findsOneWidget); // une seule page
     await tester.tap(find.text('WAVE'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('VALIDER'));
-    await tester.tap(find.text('VALIDER'), warnIfMissed: false);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Ne pas imprimer'));
+    await tester.tap(_encaissementImprimer);
+    await tester.pump();
+    await tester.tap(_encaissementValider);
+    await tester.tap(_encaissementValider, warnIfMissed: false);
     await tester.pumpAndSettle();
     expect(gw.clotures.length, 1);
     expect(tester.takeException(), isNull);
@@ -948,17 +974,18 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(_bon('CT1'), 'B-1');
     await tester.enterText(_bon('CT2'), 'B-2');
+    await tester.pump(); // bouton activé dès que la saisie est complète
     await tester.tap(_continuer);
     await tester.pumpAndSettle();
     await _addManual(tester, 'doli');
 
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('Retour')); // bouton retour de l'en-tête
     await tester.pumpAndSettle();
     expect(find.text('Quitter la vente en cours ?'), findsOneWidget);
     await tester.tap(find.text('Rester'));
     await tester.pumpAndSettle();
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('Retour')); // bouton retour de l'en-tête
     await tester.pumpAndSettle();
     await tester.tap(find.text('Quitter'));
     await tester.pumpAndSettle();
@@ -967,10 +994,10 @@ void main() {
     await _open(tester, gw, pumpApp: false);
     expect(find.text('Reprendre la vente ?'), findsOneWidget);
     expect(find.textContaining('AS-V1'), findsOneWidget);
-    await tester.tap(find.text('Reprendre'));
+    await tester.tap(find.byKey(const ValueKey('vente-reprendre')));
     await tester.pumpAndSettle();
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
-    expect(find.textContaining('Patient : KOUASSI Junior'), findsOneWidget);
+    expect(find.text('KOUASSI Awa → KOUASSI Junior'), findsOneWidget); // carte client : client → ayant droit
     expect(_netText(tester), _f(300));
     await _addManual(tester, 'effer');
     expect(gw.creations, 1);
@@ -1029,7 +1056,8 @@ void main() {
     await tester.tap(find.text('Reprendre').first);
     await tester.pumpAndSettle();
     expect(find.text('EFFERALGAN 500MG'), findsOneWidget);
-    expect(find.text('MCI 70 %'), findsOneWidget); // en-tête : seul le TP de la vente est actif
+    expect(find.text('MCI 70 % · bon B-55'), findsOneWidget); // carte client : seul le TP de la vente est actif
+    expect(find.textContaining('ASCOMA'), findsNothing);
     expect(_netText(tester), _f(600));
     expect(tester.takeException(), isNull);
   });
@@ -1053,6 +1081,7 @@ void main() {
     await tester.tap(find.text('Compléter'));
     await tester.pumpAndSettle();
     expect(_continuer, findsOneWidget);
+    await tester.pump(); // bouton activé dès que la saisie est complète
     await tester.tap(_continuer);
     await tester.pumpAndSettle();
     expect(find.textContaining('Choisissez ou créez un ayant droit'), findsOneWidget);

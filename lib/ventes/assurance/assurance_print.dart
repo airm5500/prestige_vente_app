@@ -81,6 +81,73 @@ class _CopiesDialogState extends State<_CopiesDialog> {
       );
 }
 
+/// Part client 0 F : confirmation simple avant la validation, avec le choix d'impression (case + copies).
+/// Renvoie null si annulé, sinon le nombre de copies (0 = ne pas imprimer).
+Future<int?> showValidationZeroDialog(BuildContext context, {required String reference, required int initialCopies}) => showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ZeroDialog(reference: reference, initial: initialCopies.clamp(1, _maxCopies)),
+    );
+
+class _ZeroDialog extends StatefulWidget {
+  final String reference;
+  final int initial;
+  const _ZeroDialog({required this.reference, required this.initial});
+
+  @override
+  State<_ZeroDialog> createState() => _ZeroDialogState();
+}
+
+class _ZeroDialogState extends State<_ZeroDialog> {
+  late int _n = widget.initial;
+  bool _print = true;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Valider la vente ?'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Part client : 0 F, rien à encaisser.\n'
+              '${widget.reference.isEmpty ? 'La vente' : 'La vente ${widget.reference}'} sera validée (prise en charge totale par les tiers payants).'),
+          const SizedBox(height: 10),
+          Row(children: [
+            Checkbox(
+              key: const ValueKey('assurance-zero-imprimer'),
+              value: _print,
+              onChanged: (v) => setState(() => _print = v ?? false),
+            ),
+            const Expanded(child: Text('Imprimer le ticket')),
+            if (_print) ...[
+              IconButton(
+                tooltip: 'Moins de copies',
+                onPressed: _n > 1 ? () => setState(() => _n--) : null,
+                icon: const Icon(Icons.remove_circle_outline),
+              ),
+              Text('$_n', key: const ValueKey('assurance-zero-copies'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              IconButton(
+                tooltip: 'Plus de copies',
+                onPressed: _n < _maxCopies ? () => setState(() => _n++) : null,
+                icon: const Icon(Icons.add_circle_outline),
+              ),
+            ],
+          ]),
+        ]),
+        actions: [
+          TextButton(
+            style: TextButton.styleFrom(minimumSize: const Size(64, 44)),
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton.icon(
+            key: const ValueKey('assurance-zero-valider'),
+            style: ElevatedButton.styleFrom(minimumSize: const Size(88, 44)),
+            onPressed: () => Navigator.of(context).pop(_print ? _n : 0),
+            icon: const Icon(Icons.check_circle, size: 18),
+            label: const Text('VALIDER'),
+          ),
+        ],
+      );
+}
+
 /// Imprime [copies] tickets (prévente minimaliste ou vente détaillée) sans redemander à chaque copie.
 Future<void> printAssuranceTicket(
   BuildContext context, {

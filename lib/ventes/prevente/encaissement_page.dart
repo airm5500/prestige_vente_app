@@ -3,8 +3,10 @@
 // activés dans les Réglages, espèces (montant reçu, touches rapides, monnaie), QR du mode mobile money,
 // « Imprimer le ticket » coché. Mêmes appels serveur et même ordre que l'enchaînement précédent
 // (modes de règlement, puis VenteController.encaisser). Erreurs affichées sur la page.
+// Réutilisée par la Pré-vente Assurance via [EncaissementActions] (part client, ses propres appels).
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
@@ -23,8 +25,30 @@ typedef EncaissementDone = ({PaymentMethod method, int? recu, int? remis, bool d
 const int maxMonnaie = 500000;
 const int _maxCopies = 9;
 
+/// Appels de l'encaissement fournis par un autre menu (ex. Assurance) ; mêmes règles d'affichage.
+class EncaissementActions {
+  final Future<VenteResult<List<PaymentMethod>>> Function() paymentMethods;
+  final Future<void> Function() loadQrMethods;
+  final PaymentMethodQr? Function(String methodId) qrFor;
+
+  /// Clôture avec le mode choisi (montants reçu / rendu pour les espèces).
+  final Future<VenteResult<ClotureOk>> Function(PaymentMethod method, int? recu, int? remis) encaisser;
+
+  /// Échec après lequel la page se ferme (le menu affiche lui-même le message).
+  final bool Function(VenteResult<ClotureOk> result)? leaveOn;
+
+  const EncaissementActions({
+    required this.paymentMethods,
+    required this.loadQrMethods,
+    required this.qrFor,
+    required this.encaisser,
+    this.leaveOn,
+  });
+}
+
 class EncaissementPage extends StatefulWidget {
-  final VenteController controller;
+  /// Vente de la Pré-vente (ou [actions] pour un autre menu).
+  final VenteController? controller;
   final String userId;
 
   /// Numéro de modification du panier vérifié (le panier ne doit pas changer entre-temps).
@@ -36,16 +60,32 @@ class EncaissementPage extends StatefulWidget {
   /// Ouverture des Réglages (remplaçable dans les tests).
   final Future<void> Function(BuildContext context)? openSettings;
 
+  /// Appels d'un autre menu (remplacent ceux de [controller]).
+  final EncaissementActions? actions;
+
+  /// Copies proposées (sinon le réglage « Nombre de tickets »).
+  final int? initialCopies;
+
+  /// Libellé du montant (« Total à payer » par défaut).
+  final String totalLabel;
+
+  /// Étapes du menu affichées en haut dans les trois présentations (remplacent la barre d'étapes C).
+  final Widget Function(bool onDark)? stepsHeader;
+
   const EncaissementPage({
     super.key,
-    required this.controller,
-    required this.userId,
+    this.controller,
+    this.userId = '',
     required this.expectedChanges,
     required this.summary,
     required this.itemCount,
     this.presentation,
     this.openSettings,
-  });
+    this.actions,
+    this.initialCopies,
+    this.totalLabel = 'Total à payer',
+    this.stepsHeader,
+  }) : assert(controller != null || actions != null);
 
   @override
   State<EncaissementPage> createState() => _EncaissementPageState();
@@ -71,13 +111,34 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
 
   int get _net => widget.summary.montantNet;
 
+  /// Appels : ceux du menu appelant, sinon ceux de la Pré-vente.
+  late final EncaissementActions _actions = widget.actions ?? _preventeActions(widget.controller!);
+
+  EncaissementActions _preventeActions(VenteController c) => EncaissementActions(
+        paymentMethods: c.paymentMethods,
+        loadQrMethods: c.loadQrMethods,
+        qrFor: c.qrFor,
+        encaisser: (method, recu, remis) => c.encaisser(
+          method: method,
+          userId: widget.userId,
+          expectedChanges: widget.expectedChanges,
+          montantRecu: recu,
+          montantRemis: remis,
+        ),
+      );
+
   @override
   void initState() {
     super.initState();
     loadPresentation();
-    try {
-      _copies = Provider.of<SettingsProvider>(context, listen: false).numberOfTickets.clamp(1, _maxCopies);
-    } catch (_) {}
+    final initial = widget.initialCopies;
+    if (initial != null) {
+      _copies = initial.clamp(1, _maxCopies);
+    } else {
+      try {
+        _copies = Provider.of<SettingsProvider>(context, listen: false).numberOfTickets.clamp(1, _maxCopies);
+      } catch (_) {}
+    }
     _loadMethods();
   }
 
@@ -101,9 +162,9 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
       _loading = true;
       _loadError = null;
     });
-    final c = widget.controller;
-    final r = await c.paymentMethods();
-    await c.loadQrMethods();
+    final a = _actions;
+    final r = await a.paymentMethods();
+    await a.loadQrMethods();
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -159,17 +220,15 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
       _retrying = retry;
       _failure = null;
     });
-    final r = await widget.controller.encaisser(
-      method: method,
-      userId: widget.userId,
-      expectedChanges: widget.expectedChanges,
-      montantRecu: recu,
-      montantRemis: remis,
-    );
+    final r = await _actions.encaisser(method, recu, remis);
     if (!mounted) return;
     if (r case VenteOk(:final value)) {
       final EncaissementDone done = (method: method, recu: recu, remis: remis, dejaCloturee: value.dejaCloturee, copies: _print ? _copies : 0);
       Navigator.of(context).pop(done);
+      return;
+    }
+    if (_actions.leaveOn?.call(r) ?? false) {
+      Navigator.of(context).pop();
       return;
     }
     final caisse = r is VenteRefused<ClotureOk> && r.caisseFermee;
@@ -201,6 +260,7 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
     final n = widget.itemCount;
     final subtitle = '${ref.isEmpty ? 'Vente en cours' : ref} · $n article${n > 1 ? 's' : ''}';
     final totalText = '${Constants.formatNumber(_net)} F';
+    final top = widget.stepsHeader;
 
     Widget body;
     if (_methods == null && _loadError != null) {
@@ -220,14 +280,17 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         title: 'Encaissement',
         subtitle: subtitle,
         actions: (col) => const [],
-        steps: const StepsBar(active: 2, steps: [
-          (title: 'Panier', detail: 'produits', onTap: null),
-          (title: 'Vérifier', detail: 'total', onTap: null),
-          (title: 'Encaisser', detail: 'paiement', onTap: null),
-        ]),
+        steps: top != null
+            ? null
+            : const StepsBar(active: 2, steps: [
+                (title: 'Panier', detail: 'produits', onTap: null),
+                (title: 'Vérifier', detail: 'total', onTap: null),
+                (title: 'Encaisser', detail: 'paiement', onTap: null),
+              ]),
         header: [
+          if (top != null) top(true),
           Column(children: [
-            const Text('Total à payer', style: TextStyle(fontSize: 13, color: Pal.headerMuted)),
+            Text(widget.totalLabel, style: const TextStyle(fontSize: 13, color: Pal.headerMuted)),
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(totalText,
@@ -236,11 +299,12 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
           ]),
         ],
         compactHeader: [
+          if (top != null) top(false),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: Pal.line)),
             child: Row(children: [
-              const Expanded(child: Text('Total à payer', style: TextStyle(fontSize: 14, color: Pal.muted))),
+              Expanded(child: Text(widget.totalLabel, style: const TextStyle(fontSize: 14, color: Pal.muted))),
               Flexible(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
@@ -445,7 +509,7 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
   }
 
   Widget _otherView(PaymentMethod m) {
-    final qr = widget.controller.qrFor(m.id)?.qrCode;
+    final qr = _actions.qrFor(m.id)?.qrCode;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: Pal.line)),

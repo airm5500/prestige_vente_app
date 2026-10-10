@@ -1,22 +1,28 @@
 // lib/ventes/assurance/assurance_step_couverture.dart
-// Étape 2 : ayant droit (obligatoire, défaut n°11), tiers payants (taux 0-100) et N° de bon
-// (obligatoires, nettoyés, sans doublon). Boutons libellés.
+// Étape 2 : ayant droit (obligatoire, défaut n°11 ; carte + Changer / Nouvel ayant droit), tiers payants
+// en cartes (case, taux ✎ 0-100, « Changer l'assurance » dans la même fenêtre), N° de bon obligatoire
+// (rouge s'il manque, nettoyé, sans doublon). « CONTINUER VERS LES PRODUITS » fixé en bas, désactivé
+// avec la raison exacte affichée.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
-import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_controller.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_dialogs.dart';
+import 'package:prestige_vente_app/ventes/assurance/assurance_frame.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
 class AssuranceStepCouverture extends StatefulWidget {
+  /// Présentation et en-tête communs.
+  final AssuranceFrame frame;
+
   /// « Changer de client » (confirmation faite par l'écran).
   final VoidCallback onChangeClient;
-  const AssuranceStepCouverture({super.key, required this.onChangeClient});
+  const AssuranceStepCouverture({super.key, required this.frame, required this.onChangeClient});
 
   @override
   State<AssuranceStepCouverture> createState() => _AssuranceStepCouvertureState();
@@ -26,7 +32,7 @@ class _AssuranceStepCouvertureState extends State<AssuranceStepCouverture> {
   final Map<String, TextEditingController> _bons = {};
   final Map<String, FocusNode> _focus = {};
 
-  /// Erreur de saisie affichée au-dessus du bouton (un bandeau bas le masquerait).
+  /// Erreur renvoyée par la validation de l'étape (affichée au-dessus du bouton).
   String? _error;
 
   @override
@@ -60,19 +66,40 @@ class _AssuranceStepCouvertureState extends State<AssuranceStepCouverture> {
 
   Map<String, String> get _bonValues => {for (final e in _bons.entries) e.key: e.value.text};
 
+  bool _bonEmpty(String compteTp) => VenteInput.cleanBon(_bons[compteTp]?.text).isEmpty;
+
   void _focusFirstEmpty() {
     if (!mounted) return;
     final c = context.read<AssuranceController>();
     for (final tp in c.activeTiersPayants) {
-      if (VenteInput.cleanBon(_bons[tp.compteTp]?.text).isEmpty) {
+      if (_bonEmpty(tp.compteTp)) {
         _focus[tp.compteTp]?.requestFocus();
         return;
       }
     }
   }
 
+  /// Ce qui empêche de continuer (null = possible) : mêmes règles que la validation du contrôleur.
+  String? _blockReason(AssuranceController c) {
+    if (c.client == null) return 'Aucun client sélectionné.';
+    if (c.ayantDroit == null) {
+      return c.ayantDroitsError != null
+          ? 'Ayants droit non chargés : touchez « Réessayer ».'
+          : 'Choisissez ou créez un ayant droit (patient) avant de continuer.';
+    }
+    if (c.activeTiersPayants.isEmpty) return 'Veuillez activer au moins un tiers payant pour cette vente.';
+    for (final tp in c.activeTiersPayants) {
+      if (_bonEmpty(tp.compteTp)) return 'Saisissez le n° de bon ${tp.tpFullName}';
+    }
+    return c.checkBons(_bonValues);
+  }
+
   void _continue() {
     final c = context.read<AssuranceController>();
+    if (c.busy || _blockReason(c) != null) {
+      _focusFirstEmpty();
+      return;
+    }
     final err = c.validateCouverture(_bonValues);
     setState(() => _error = err);
     if (err != null) _focusFirstEmpty();
@@ -84,17 +111,48 @@ class _AssuranceStepCouvertureState extends State<AssuranceStepCouverture> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _focusFirstEmpty());
   }
 
+  Future<void> _chooseAyantDroit(AssuranceController c) async {
+    if (c.busy) return;
+    final ads = c.ayantDroits;
+    if (ads.isEmpty) {
+      await showCreateAyantDroitDialog(context, c);
+      return;
+    }
+    final picked = await showDialog<AyantDroit>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Choisir l\'ayant droit'),
+        children: [
+          for (final ad in ads)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, ad),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 40),
+                child: Row(children: [
+                  Icon(ad == c.ayantDroit ? Icons.radio_button_checked : Icons.radio_button_off, color: Pal.navy, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text('${ad.fullName} (${ad.strNUMEROSECURITESOCIAL})', maxLines: 2, overflow: TextOverflow.ellipsis)),
+                ]),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked != null && mounted) c.selectAyantDroit(picked);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final f = widget.frame;
     final c = context.watch<AssuranceController>();
     final client = c.client;
-    if (client == null) return const Center(child: Text('Aucun client sélectionné. Veuillez recommencer.'));
+    if (client == null) {
+      return f.scaffold(step: 1, title: 'Couverture', body: const Center(child: Text('Aucun client sélectionné. Veuillez recommencer.')));
+    }
     _sync(c);
     final settings = Provider.of<SettingsProvider>(context, listen: false);
     final canAddTp = client.tiersPayants.length < settings.maxTiersPayants;
     final canToggle = client.tiersPayants.length > 1;
-    final ads = c.ayantDroits;
-    final selected = c.ayantDroit != null && ads.contains(c.ayantDroit) ? c.ayantDroit : null;
 
     final tps = List<ClientTiersPayant>.from(client.tiersPayants)
       ..sort((a, b) {
@@ -103,149 +161,188 @@ class _AssuranceStepCouvertureState extends State<AssuranceStepCouverture> {
         return a.order.compareTo(b.order);
       });
 
-    final form = SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                const Icon(Icons.person, color: AppColors.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(client.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text('Matricule : ${client.strNUMEROSECURITESOCIAL}', style: const TextStyle(fontSize: 12)),
-                  ]),
-                ),
-              ]),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
-                  onPressed: c.busy ? null : widget.onChangeClient,
-                  icon: const Icon(Icons.swap_horiz, size: 18),
-                  label: const Text('Changer de client'),
-                ),
-              ),
-            ]),
+    final mat = client.strNUMEROSECURITESOCIAL.isEmpty ? '' : ' · Mat. ${client.strNUMEROSECURITESOCIAL}';
+    final body = ListView(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 16),
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            style: TextButton.styleFrom(minimumSize: const Size(0, 44), foregroundColor: Pal.navy),
+            onPressed: c.busy ? null : widget.onChangeClient,
+            icon: const Icon(Icons.swap_horiz, size: 18),
+            label: const Text('Changer de client'),
           ),
         ),
-        const SizedBox(height: 12),
-        Text('1. Ayant droit (patient)', style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 6),
         if (c.ayantDroitsError != null)
           LoadErrorBanner(message: 'Ayants droit non chargés : ${venteMessage(c.ayantDroitsError)}', onRetry: c.busy ? null : c.loadAyantDroits),
-        DropdownButtonFormField<AyantDroit>(
-          key: const ValueKey('assurance-ayant-droit'),
-          value: selected,
-          isExpanded: true,
-          decoration: InputDecoration(
-            labelText: 'Ayant droit *',
-            border: const OutlineInputBorder(),
-            errorText: selected == null && ads.isEmpty && c.ayantDroitsError == null && !c.busy ? 'Aucun ayant droit : créez-en un' : null,
-          ),
-          hint: const Text('Choisir l\'ayant droit'),
-          items: [
-            for (final ad in ads)
-              DropdownMenuItem<AyantDroit>(value: ad, child: Text('${ad.fullName} (${ad.strNUMEROSECURITESOCIAL})', overflow: TextOverflow.ellipsis)),
-          ],
-          onChanged: c.busy ? null : c.selectAyantDroit,
-        ),
+        AssuranceSectionLabel('Ayant droit (patient)',
+            trailing: TextButton.icon(
+              style: TextButton.styleFrom(minimumSize: const Size(0, 40), foregroundColor: Pal.navy),
+              onPressed: c.busy ? null : () => showCreateAyantDroitDialog(context, c),
+              icon: const Icon(Icons.person_add_alt, size: 18),
+              label: const Text('Nouvel ayant droit'),
+            )),
+        _ayantDroitCard(c),
+        const SizedBox(height: 10),
+        const AssuranceSectionLabel('Tiers payants et N° de bon'),
+        for (final tp in tps) Padding(padding: const EdgeInsets.only(bottom: 9), child: _tpCard(c, tp, canToggle)),
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
-            style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
-            onPressed: c.busy ? null : () => showCreateAyantDroitDialog(context, c),
-            icon: const Icon(Icons.person_add_alt),
-            label: const Text('Nouvel ayant droit'),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 44), foregroundColor: Pal.navy),
+            icon: const Icon(Icons.add_card),
+            label: const Text('Ajouter un tiers payant au client'),
+            onPressed: canAddTp && !c.busy ? () => showAddTiersPayantDialog(context, c) : null,
           ),
-        ),
-        const SizedBox(height: 8),
-        Text('2. Tiers payants et N° de bon', style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 6),
-        for (final tp in tps) _tpCard(c, tp, canToggle),
-        TextButton.icon(
-          style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
-          icon: const Icon(Icons.add_card),
-          label: const Text('Ajouter un tiers payant au client'),
-          onPressed: canAddTp && !c.busy ? () => showAddTiersPayantDialog(context, c) : null,
         ),
         if (!canAddTp)
           Text('Nombre maximum de tiers payants (${settings.maxTiersPayants}) atteint.',
-              textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-      ]),
+              textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted, fontSize: 12)),
+      ],
     );
-    // Bouton toujours visible (pied fixe), même sur un petit écran.
-    return Column(children: [
-      Expanded(child: form),
-      Material(
-        elevation: 6,
-        color: Colors.white,
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              if ((_error ?? c.couvertureMessage) != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text(_error ?? venteMessage(c.couvertureMessage), key: const ValueKey('assurance-couverture-erreur'), style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600)),
-                ),
-              ElevatedButton.icon(
-                key: const ValueKey('assurance-continuer'),
-                style: ElevatedButton.styleFrom(minimumSize: const Size(0, 52)),
-                onPressed: c.busy ? null : _continue,
-                icon: const Icon(Icons.arrow_forward),
-                label: const Text('Continuer vers les produits'),
-              ),
-            ]),
+
+    final reason = _blockReason(c);
+    final message = _error ?? (c.couvertureMessage == null ? null : venteMessage(c.couvertureMessage));
+    return f.scaffold(
+      step: 1,
+      title: 'Couverture',
+      subtitle: '${client.fullName}$mat',
+      body: body,
+      bottom: AssuranceBottomBar(children: [
+        if (message != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(message, key: const ValueKey('assurance-couverture-erreur'), style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w600)),
+          ),
+        SizedBox(
+          height: 52,
+          child: ElevatedButton.icon(
+            key: const ValueKey('assurance-continuer'),
+            style: f.mainButton.copyWith(padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 10))),
+            onPressed: c.busy || reason != null ? null : _continue,
+            icon: const Icon(Icons.arrow_forward),
+            label: const FittedBox(fit: BoxFit.scaleDown, child: Text('CONTINUER VERS LES PRODUITS')),
           ),
         ),
-      ),
-    ]);
+        if (reason != null && message != reason)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(reason,
+                key: const ValueKey('assurance-continuer-raison'),
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: Colors.red.shade700, fontWeight: FontWeight.w500)),
+          ),
+      ]),
+    );
+  }
+
+  Widget _ayantDroitCard(AssuranceController c) {
+    final ads = c.ayantDroits;
+    final selected = c.ayantDroit;
+    final band = widget.frame.guided ? (selected == null ? Colors.red.shade400 : Pal.navy) : null;
+    final empty = selected == null && ads.isEmpty && c.ayantDroitsError == null && !c.busy;
+    return AssuranceCard(
+      key: const ValueKey('assurance-ayant-droit'),
+      band: band,
+      onTap: c.busy ? null : () => _chooseAyantDroit(c),
+      child: Row(children: [
+        Icon(Icons.person_outline, color: selected == null ? Colors.red.shade700 : Pal.navy),
+        const SizedBox(width: 10),
+        Expanded(
+          child: selected == null
+              ? Text(empty ? 'Aucun ayant droit : créez-en un' : 'Choisir l\'ayant droit',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red.shade700))
+              : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(selected.fullName, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: Pal.ink)),
+                  Text('Mat. ${selected.strNUMEROSECURITESOCIAL.isEmpty ? '—' : selected.strNUMEROSECURITESOCIAL}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
+                ]),
+        ),
+        const SizedBox(width: 8),
+        if (ads.isNotEmpty) StatusBadge(selected == null ? 'Choisir' : 'Changer', fg: Pal.navy, bg: const Color(0xFFE3ECF7)),
+      ]),
+    );
   }
 
   Widget _tpCard(AssuranceController c, ClientTiersPayant tp, bool canToggle) {
     final active = c.activeTiersPayants.where((a) => a.compteTp == tp.compteTp).firstOrNull;
     final ctrl = _bons[tp.compteTp];
     final focus = _focus[tp.compteTp];
-    return Card(
-      color: active != null ? Colors.white : Colors.grey.shade200,
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Column(children: [
-        CheckboxListTile(
-          title: Text('${tp.tpFullName} (${active?.taux ?? tp.taux} %)', style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Text('Matricule : ${tp.numSecurity}'),
-          value: active != null,
-          onChanged: canToggle && !c.busy && !(active != null && c.activeTiersPayants.length <= 1)
-              ? (v) => c.toggleTiersPayant(tp, v ?? false)
-              : null,
-        ),
+    final missing = active != null && _bonEmpty(tp.compteTp);
+    final guided = widget.frame.guided;
+    final red = Colors.red.shade700;
+    return AssuranceCard(
+      color: active != null ? Colors.white : const Color(0xFFF1F4F8),
+      band: guided ? (active == null ? Pal.line : (missing ? Pal.amber : Pal.green)) : null,
+      padding: const EdgeInsets.fromLTRB(4, 6, 8, 10),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Checkbox(
+            key: ValueKey('assurance-tp-${tp.compteTp}'),
+            value: active != null,
+            activeColor: Pal.navy,
+            onChanged: canToggle && !c.busy && !(active != null && c.activeTiersPayants.length <= 1)
+                ? (v) => c.toggleTiersPayant(tp, v ?? false)
+                : null,
+          ),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(tp.tpFullName, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5, color: Pal.ink)),
+              Text(active == null ? 'Non utilisé · ${tp.taux} %' : 'Mat. ${tp.numSecurity.isEmpty ? '—' : tp.numSecurity}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Pal.muted)),
+            ]),
+          ),
+          if (active != null)
+            Tooltip(
+              message: 'Taux / changer l\'assurance',
+              child: OutlinedButton(
+                key: ValueKey('assurance-taux-${tp.compteTp}'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  foregroundColor: Pal.navy,
+                  side: const BorderSide(color: Color(0xFFC5D0DE)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: c.busy ? null : () => _editTp(c, active),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('${active.taux} %', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.edit_outlined, size: 16),
+                ]),
+              ),
+            ),
+        ]),
         if (active != null && ctrl != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 8, 12),
-            child: Row(children: [
-              Expanded(
-                child: TextFormField(
-                  key: ValueKey('assurance-bon-${tp.compteTp}'),
-                  controller: ctrl,
-                  focusNode: focus,
-                  inputFormatters: VenteInput.bonFormatters,
-                  decoration: InputDecoration(labelText: 'N° de bon * (${tp.tpFullName})', border: const OutlineInputBorder(), isDense: true),
-                  textInputAction: TextInputAction.next,
-                  onFieldSubmitted: (_) => _continue(),
+            padding: const EdgeInsets.fromLTRB(8, 6, 0, 0),
+            child: TextFormField(
+              key: ValueKey('assurance-bon-${tp.compteTp}'),
+              controller: ctrl,
+              focusNode: focus,
+              inputFormatters: VenteInput.bonFormatters,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              decoration: InputDecoration(
+                labelText: missing ? 'N° de bon — obligatoire' : 'N° de bon *',
+                labelStyle: TextStyle(color: missing ? red : Pal.muted),
+                floatingLabelStyle: TextStyle(color: missing ? red : Pal.navy),
+                isDense: true,
+                filled: true,
+                fillColor: Colors.white,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: missing ? red : const Color(0xFFC5D0DE), width: missing ? 1.5 : 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: missing ? red : Pal.navy, width: 2),
                 ),
               ),
-              const SizedBox(width: 4),
-              TextButton.icon(
-                style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
-                onPressed: c.busy ? null : () => _editTp(c, active),
-                icon: const Icon(Icons.edit, size: 18),
-                label: const Text('Modifier'),
-              ),
-            ]),
+              textInputAction: TextInputAction.next,
+              onChanged: (_) => setState(() => _error = null),
+              onFieldSubmitted: (_) => _continue(),
+            ),
           ),
       ]),
     );
