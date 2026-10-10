@@ -36,6 +36,7 @@ import 'package:prestige_vente_app/api/models/reception_model.dart';
 import 'package:prestige_vente_app/api/models/licence_model.dart';
 import 'package:prestige_vente_app/api/models/licence_lookup.dart';
 import 'package:prestige_vente_app/api/models/depot_model.dart'; // Pour DepotSaleListItem
+import 'package:prestige_vente_app/api/models/ajustement.dart';
 
 /// Échec de chargement d'une liste (à distinguer d'une liste vide).
 class ApiLoadException implements Exception {
@@ -324,6 +325,33 @@ class ApiService {
         return 'Impossible de charger les $what : ${e.message ?? e.type.name}.';
     }
   }
+
+  // --- Ajustement de stock : un échec de chargement lève [ApiLoadException] (≠ liste vide) ---
+  Future<List<TypeAjustement>> getTypesAjustement() => _loadList(
+        'motifs d\'ajustement',
+        () => _dio.get('/common/type-ajustements', queryParameters: {'limit': 9999}),
+        TypeAjustement.fromJson,
+      );
+
+  /// Même recherche que [searchProducts], mais un échec lève [ApiLoadException] (≠ produit introuvable).
+  Future<List<ProductSearchResult>> searchProductsOrFail(String query) => _loadList(
+        'produits',
+        () => _dio.get('/vente/search', queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 30}),
+        ProductSearchResult.fromJson,
+      );
+
+  Future<List<AjustementItem>> getAjustementItems(String ajustementId) => _loadList(
+        'lignes d\'ajustement',
+        () => _dio.get('/ajustement/items', queryParameters: {
+          'ajustementId': ajustementId,
+          'limit': 100,
+          'start': 0,
+          'page': 1,
+          // Anti-cache : timestamp pour forcer une réponse fraîche
+          '_dc': DateTime.now().millisecondsSinceEpoch.toString(),
+        }),
+        AjustementItem.fromJson,
+      );
 
   // --- GESTION LICENCE (AJOUT) ---
 

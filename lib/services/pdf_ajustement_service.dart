@@ -18,14 +18,25 @@ class PdfAjustementService {
     final totalAjout = items.where((i) => i.intNUMBER > 0).length;
     final totalRetrait = items.where((i) => i.intNUMBER < 0).length;
 
+    // MultiPage : un bon de plus d'une page (beaucoup de lignes) s'imprime sans erreur.
     doc.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        // PIED DE PAGE
+        footer: (pw.Context context) => pw.Column(children: [
+          pw.Divider(),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
+              pw.Text("Prestige Vente App"),
+              pw.Text("Page ${context.pageNumber}/${context.pagesCount}"),
+            ],
+          ),
+        ]),
+        build: (pw.Context context) {
+          return [
               // EN-TÊTE
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -79,20 +90,7 @@ class PdfAjustementService {
                   ];
                 }).toList(),
               ),
-
-              pw.Spacer(),
-
-              // PIED DE PAGE
-              pw.Divider(),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text("Prestige Vente App"),
-                  pw.Text("Page ${context.pageNumber}/${context.pagesCount}"),
-                ],
-              ),
-            ],
-          );
+          ];
         },
       ),
     );
