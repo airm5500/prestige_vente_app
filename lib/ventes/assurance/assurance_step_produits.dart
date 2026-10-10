@@ -24,6 +24,9 @@ class AssuranceStepProduits extends StatefulWidget {
 
   /// Fin de vente en cours (boutons et saisie bloqués).
   final bool paying;
+
+  /// Hors ligne : terminer sur l'appareil une vente commencée en ligne.
+  final VoidCallback? onTerminerHorsLigne;
   const AssuranceStepProduits({
     super.key,
     required this.frame,
@@ -31,6 +34,7 @@ class AssuranceStepProduits extends StatefulWidget {
     required this.onPrevente,
     required this.onValider,
     required this.paying,
+    this.onTerminerHorsLigne,
   });
 
   @override
@@ -69,7 +73,12 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
     final card = AssuranceClientCard(controller: c, onDark: !f.compact && !split, onCouverture: locked ? null : c.returnToCouverture);
     final ref = c.reference;
     final n = c.items.length;
-    final subtitle = c.venteId == null ? 'Nouvelle vente' : '${ref.isEmpty ? 'Vente en cours' : 'Réf. $ref'} · $n article${n > 1 ? 's' : ''}';
+    final hl = c.panierHorsLigne;
+    final subtitle = hl != null
+        ? '${hl.label} · prévente hors ligne · $n article${n > 1 ? 's' : ''}'
+        : c.venteId == null
+            ? 'Nouvelle vente'
+            : '${ref.isEmpty ? 'Vente en cours' : 'Réf. $ref'} · $n article${n > 1 ? 's' : ''}';
     return f.scaffold(
       step: 2,
       title: 'Produits',
@@ -90,14 +99,14 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
           // Bandeau d'état : au plus la moitié de la hauteur (petits écrans), le panier reste visible.
           ConstrainedBox(
             constraints: BoxConstraints(maxHeight: box.maxHeight / 2),
-            child: SingleChildScrollView(child: AssuranceStatusBanner(controller: c)),
+            child: SingleChildScrollView(child: AssuranceStatusBanner(controller: c, onTerminerHorsLigne: locked ? null : widget.onTerminerHorsLigne)),
           ),
           Expanded(
             child: VenteCartList(
               source: CartSource(
                 items: c.items,
                 cartError: c.cartError,
-                hasVente: c.venteId != null,
+                hasVente: c.venteId != null || c.horsLigne,
                 busy: c.busy,
                 locked: locked,
                 reload: c.reload,
@@ -133,6 +142,8 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
     final net = upToDate && s != null ? s.montantNet : null;
     int partOf(String compteTp) => s?.tierspayants.where((t) => t.compteTp == compteTp).firstOrNull?.tpnet ?? 0;
     final valider = net == 0 ? 'VALIDER (0 F)' : (net == null ? 'ENCAISSER' : 'ENCAISSER ${Constants.formatNumber(net)} F');
+    final hl = c.horsLigne;
+    final est = hl ? ' (estimé)' : '';
     return AssuranceBottomBar(children: [
       // Répartition toujours visible (net recalculé automatiquement) : Total et part de chaque TP à gauche,
       // part client en grand à droite.
@@ -140,8 +151,8 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
         Expanded(
           flex: 3,
           child: Column(key: const ValueKey('assurance-repartition'), mainAxisSize: MainAxisSize.min, children: [
-            _split('Total', amount(s?.montant ?? 0)),
-            for (final tp in c.activeTiersPayants) _split('${tp.tpFullName} (${tp.taux} %)', amount(partOf(tp.compteTp))),
+            _split('Total$est', amount(s?.montant ?? 0)),
+            for (final tp in c.activeTiersPayants) _split('${tp.tpFullName} (${tp.taux} %)$est', amount(partOf(tp.compteTp))),
           ]),
         ),
         const SizedBox(width: 14),
@@ -151,7 +162,7 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
             Row(mainAxisAlignment: MainAxisAlignment.end, children: [
               if (c.busy)
                 const Padding(padding: EdgeInsets.only(right: 6), child: SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))),
-              const Flexible(child: Text('Part client', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: Pal.muted))),
+              Flexible(child: Text(hl ? 'Part client (estimée)' : 'Part client', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.muted))),
             ]),
             FittedBox(
               fit: BoxFit.scaleDown,
@@ -169,6 +180,18 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
             TextButton(style: TextButton.styleFrom(minimumSize: const Size(0, 40)), onPressed: c.reload, child: const Text('Réessayer')),
         ]),
       const SizedBox(height: 8),
+      if (hl)
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            key: const ValueKey('assurance-hl-prevente'),
+            style: f.mainButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 50))),
+            onPressed: enabled ? widget.onPrevente : null,
+            icon: const Icon(Icons.bookmark_add_outlined, size: 20),
+            label: const FittedBox(fit: BoxFit.scaleDown, child: Text('ENREGISTRER (PRÉVENTE PROVISOIRE)')),
+          ),
+        )
+      else
       Row(children: [
         Expanded(
           flex: 2,

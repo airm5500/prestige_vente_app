@@ -195,11 +195,46 @@ class AssuranceClientCard extends StatelessWidget {
 /// Bandeau d'état du panier : enregistré ✓ / envoi… / non relu / net non calculé.
 class AssuranceStatusBanner extends StatelessWidget {
   final AssuranceController controller;
-  const AssuranceStatusBanner({super.key, required this.controller});
+
+  /// Vente commencée en ligne, serveur hors ligne : « Terminer hors ligne ».
+  final VoidCallback? onTerminerHorsLigne;
+  const AssuranceStatusBanner({super.key, required this.controller, this.onTerminerHorsLigne});
 
   @override
   Widget build(BuildContext context) {
     final c = controller;
+    final hl = c.panierHorsLigne;
+    if (hl != null && !c.finished) {
+      return AssuranceStrip(
+        key: const ValueKey('assurance-etat-hors-ligne'),
+        bg: const Color(0xFFFFF4E0),
+        fg: const Color(0xFF7C2D12),
+        leading: const Icon(Icons.cloud_off, size: 16, color: Color(0xFF9A3412)),
+        text: '${hl.label} enregistrée sur l\'appareil · parts estimées : le net définitif (plafonds, bons) sera celui du serveur',
+      );
+    }
+    if (c.peutTerminerHorsLigne) {
+      return Container(
+        key: const ValueKey('assurance-proposer-hors-ligne'),
+        margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+        padding: const EdgeInsets.fromLTRB(11, 2, 2, 2),
+        decoration: BoxDecoration(color: const Color(0xFFFFF4E0), borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          const Icon(Icons.cloud_off, size: 16, color: Color(0xFF9A3412)),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text('Serveur hors ligne : cette vente peut être terminée sur l\'appareil.',
+                maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Color(0xFF7C2D12), fontSize: 12.5, fontWeight: FontWeight.w500)),
+          ),
+          TextButton(
+            key: const ValueKey('assurance-terminer-hors-ligne'),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 44), foregroundColor: Pal.navy, padding: const EdgeInsets.symmetric(horizontal: 8)),
+            onPressed: c.busy ? null : onTerminerHorsLigne,
+            child: const Text('Terminer hors ligne', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ]),
+      );
+    }
     if (c.cartError != null && c.items.isNotEmpty) {
       return LoadErrorBanner(message: 'Panier non relu : ${venteMessage(c.cartError)} (dernier état affiché).', onRetry: c.busy ? null : c.reload);
     }

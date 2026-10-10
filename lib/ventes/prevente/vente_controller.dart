@@ -4,9 +4,14 @@
 // avant la réponse du serveur ; une réponse perdue est vérifiée en relisant le panier.
 // La vente est créée en prévente (statut pending) ; le choix se fait à la fin :
 // « Enregistrer en prévente » (terminerprevente) ou « Encaisser » (cloturer/vno).
+// Hors ligne (étape H2) : panier local (aucun appel serveur), total calculé sur l'appareil, puis
+// « prévente provisoire » ou « encaissement espèces provisoire » mis dans la file des ventes hors ligne.
+// En ligne : rien ne change (le mode local n'existe que si la vente a commencé hors ligne).
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/panier_hors_ligne.dart';
+import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -24,6 +29,10 @@ typedef ClotureOk = ({bool dejaCloturee});
 class VenteController extends ChangeNotifier {
   final VenteGateway gateway;
   VenteController({required this.gateway});
+
+  static const _venteLocale = 'Vente saisie hors ligne : utilisez « Enregistrer (prévente provisoire) » ou « Encaisser en espèces ».';
+  static const _commenceeEnLigne = 'Serveur hors ligne : cette vente a été commencée en ligne. '
+      'Touchez « Terminer hors ligne » pour continuer, ou attendez le retour du serveur.';
 
   SaleOpQueue _queue = SaleOpQueue();
   int _working = 0;
@@ -52,17 +61,122 @@ class VenteController extends ChangeNotifier {
 
   /// Une opération est en cours ou en attente.
   bool get busy => _working > 0;
-  bool get hasCart => _venteId != null && _items.isNotEmpty;
+  bool get hasCart => (_venteId != null || _hl != null) && _items.isNotEmpty;
 
   /// Net calculé APRÈS la dernière modification.
-  bool get netUpToDate => _venteId != null && _netAt == _changes && _netError == null;
+  bool get netUpToDate => (_venteId != null || _hl != null) && _netAt == _changes && _netError == null;
+
+  // ---------------------------------------------------------------------------
+  // Hors ligne (étape H2)
+  // ---------------------------------------------------------------------------
+
+  PanierHorsLigne? _hl;
+
+  /// Vente saisie hors ligne (panier local).
+  bool get horsLigne => _hl != null;
+  PanierHorsLigne? get panierHorsLigne => _hl;
+
+  /// Serveur hors ligne (copie locale) : une nouvelle vente se fait sur l'appareil.
+  static bool get serveurHorsLigne => HorsLigne.instance.offline;
+
+  /// Vente commencée en ligne, serveur maintenant hors ligne : on peut la terminer hors ligne.
+  bool get peutTerminerHorsLigne => serveurHorsLigne && _hl == null && !_finished && _venteId != null && _items.isNotEmpty;
+
+  /// Le panier local devient celui de la vente (affichage identique), total calculé ici.
+  void _syncLocal() {
+    final hl = _hl;
+    if (hl == null) return;
+    _items = hl.items;
+    final ref = hl.venteId == null || hl.reference.isEmpty ? hl.label : hl.reference;
+    _summary = SaleSummary(montant: hl.total, montantNet: hl.total, reference: ref, venteId: _venteId ?? '');
+    _cartError = null;
+    _netError = null;
+    _changes++;
+    _netAt = _changes;
+    _notify();
+  }
+
+  /// « Terminer hors ligne » : la vente commencée en ligne garde son identifiant serveur ;
+  /// à l'envoi, seuls les articles manquants seront ajoutés.
+  Future<VenteResult<void>> passerHorsLigne() => _run(() async {
+        final id = _venteId;
+        if (_hl != null) return const VenteOk(null);
+        if (id == null || _finished) return const VenteRefused('Aucune vente en cours.');
+        try {
+          final n = await HorsLigne.instance.ventes.reserverNumero();
+          _hl = PanierHorsLigne.depuisServeur(numero: n, venteId: id, reference: _summary.reference, items: _items);
+        } catch (e) {
+          return VenteFailed('Hors ligne : enregistrement local impossible ($e).');
+        }
+        _syncLocal();
+        return const VenteOk(null);
+      });
+
+  Future<VenteResult<void>> _addLocal(ProductSearchResult p, int qty) async {
+    if (_hl == null) {
+      try {
+        _hl = PanierHorsLigne(numero: await HorsLigne.instance.ventes.reserverNumero());
+      } catch (e) {
+        return VenteFailed('Hors ligne : enregistrement local impossible ($e).');
+      }
+    }
+    final r = _hl!.ajouter(p, qty);
+    if (r.isOk) _syncLocal();
+    return r;
+  }
+
+  /// Fin hors ligne : la vente part dans la file (prévente provisoire ou espèces provisoire).
+  Future<VenteResult<VenteHorsLigne>> enregistrerHorsLigne({
+    required FinVenteHL fin,
+    required String userId,
+    String userName = '',
+    int? montantRecu,
+    int? montantRendu,
+    String modeNom = 'ESPECES',
+  }) =>
+      _run(() async {
+        final hl = _hl;
+        if (hl == null) return const VenteRefused('Vente en ligne : utilisez Prévente ou Encaisser.');
+        if (_finished) return const VenteRefused('Vente déjà terminée.');
+        if (hl.isEmpty) return const VenteRefused('Le panier est vide.');
+        final file = HorsLigne.instance.ventes;
+        final now = file.now;
+        final v = VenteHorsLigne(
+          id: file.nouvelId(),
+          numero: hl.numero,
+          type: TypeVenteHL.comptant,
+          lignes: hl.lignes,
+          fin: fin,
+          totalEstime: hl.total,
+          netEstime: hl.total,
+          montantRecu: montantRecu,
+          montantRendu: montantRendu,
+          modeNom: modeNom,
+          venteId: hl.venteId,
+          commenceeEnLigne: hl.venteId != null,
+          reference: hl.venteId == null ? null : (hl.reference.isEmpty ? null : hl.reference),
+          createdAt: now,
+          updatedAt: now,
+          userId: userId,
+          userName: userName,
+        );
+        try {
+          await file.ajouter(v);
+        } catch (e) {
+          return VenteFailed('Vente non enregistrée sur l\'appareil : $e');
+        }
+        _finished = true;
+        await PendingSaleStore.clear(VenteMenu.prevente);
+        _notify();
+        return VenteOk(v);
+      });
 
   /// Numéro de la dernière modification (pour vérifier que le panier n'a pas changé entre-temps).
   int get changes => _changes;
 
   /// Pourquoi la vente ne peut pas être terminée (null = possible).
   String? get finishBlockedReason {
-    if (_venteId == null || _items.isEmpty) return 'Le panier est vide.';
+    if ((_venteId == null && _hl == null) || _items.isEmpty) return 'Le panier est vide.';
     if (busy) return 'Envoi en cours, patientez…';
     if (_cartError != null) return 'Panier non relu : touchez « Réessayer » avant de terminer.';
     if (!netUpToDate) return 'Net à payer non calculé : touchez « Réessayer » avant de terminer.';
@@ -103,6 +217,7 @@ class VenteController extends ChangeNotifier {
   void reset() {
     _epoch++;
     _queue = SaleOpQueue();
+    _hl = null;
     _venteId = null;
     _items = const [];
     _summary = SaleSummary();
@@ -129,6 +244,7 @@ class VenteController extends ChangeNotifier {
   Future<void> reload() => _run(_reload);
 
   Future<void> _reload() async {
+    if (_hl != null) return; // hors ligne : panier local
     final id = _venteId;
     if (id == null) return;
     final at = _changes;
@@ -162,7 +278,7 @@ class VenteController extends ChangeNotifier {
   /// Vente en cours mémorisée (reprise après fermeture) ; effacée si le panier est vide.
   Future<void> _remember() async {
     final id = _venteId;
-    if (id == null || _finished) return;
+    if (id == null || _finished || _hl != null) return;
     if (_items.isEmpty && _cartError == null) {
       await PendingSaleStore.clear(VenteMenu.prevente);
       return;
@@ -216,6 +332,9 @@ class VenteController extends ChangeNotifier {
   Future<VenteResult<void>> addProduct(ProductSearchResult p, int qty) => _run(() async {
         if (_finished) return const VenteRefused('Vente déjà terminée : commencez une nouvelle vente.');
         if (qty < 1 || qty > 9999) return const VenteRefused('Quantité invalide (1 à 9 999).');
+        // Hors ligne : panier local (une vente commencée en ligne passe par « Terminer hors ligne »).
+        if (_hl != null || (_venteId == null && serveurHorsLigne)) return _addLocal(p, qty);
+        if (peutTerminerHorsLigne) return const VenteRefused(_commenceeEnLigne);
         final id = _venteId;
         final epoch = _epoch;
         final before = _qtyOf(p.lgFAMILLEID);
@@ -249,6 +368,12 @@ class VenteController extends ChangeNotifier {
   /// Modifie quantité et prix d'une ligne.
   Future<VenteResult<void>> updateLine(SaleItemDetail item, int qty, int price) => _run(() async {
         if (_finished) return const VenteRefused('Vente déjà terminée.');
+        final hl = _hl;
+        if (hl != null) {
+          final l = hl.modifier(item.lgPREENREGISTREMENTDETAILID, qty, price);
+          if (l.isOk) _syncLocal();
+          return l;
+        }
         final r = await gateway.updateItem(itemId: item.lgPREENREGISTREMENTDETAILID, produitId: item.lgFAMILLEID, qte: qty, itemPu: price);
         if (r.isOk || r.uncertain) {
           _changed();
@@ -267,6 +392,12 @@ class VenteController extends ChangeNotifier {
   /// Retire une ligne.
   Future<VenteResult<void>> removeLine(SaleItemDetail item) => _run(() async {
         if (_finished) return const VenteRefused('Vente déjà terminée.');
+        final hl = _hl;
+        if (hl != null) {
+          final l = hl.retirer(item.lgPREENREGISTREMENTDETAILID);
+          if (l.isOk) _syncLocal();
+          return l;
+        }
         final r = await gateway.removeItem(item.lgPREENREGISTREMENTDETAILID);
         if (r.isOk || r.uncertain) {
           _changed();
@@ -308,6 +439,7 @@ class VenteController extends ChangeNotifier {
 
   /// « Enregistrer en prévente » : la vente passe dans la liste des préventes à encaisser.
   Future<VenteResult<void>> terminerPrevente() => _run(() async {
+        if (_hl != null) return const VenteRefused(_venteLocale);
         final id = _venteId;
         if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
         if (_finished) return const VenteOk(null);
@@ -379,6 +511,7 @@ class VenteController extends ChangeNotifier {
     required Future<VenteResult<Map<String, dynamic>>> Function(String venteId, String clientId) close,
   }) =>
       _run(() async {
+        if (_hl != null) return const VenteRefused(_venteLocale);
         final id = _venteId;
         if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
         if (_finished) return const VenteOk((dejaCloturee: true));

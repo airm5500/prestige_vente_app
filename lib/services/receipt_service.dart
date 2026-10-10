@@ -27,6 +27,10 @@ List<String> ticketReglementLines(List<TicketReglement> reglements) => [
       ],
     ];
 
+/// Ticket d'une vente saisie hors ligne : « PROVISOIRE — HL-0007 ».
+String provisoireTitre(String numero) => 'PROVISOIRE — $numero';
+const String provisoireNote = 'Vente hors ligne : envoi au retour du serveur';
+
 class ReceiptService {
 
   // ==========================================
@@ -41,24 +45,28 @@ class ReceiptService {
     int? montantVerse, int? monnaie,
     // Optionnel (nouvelle version) : détail par mode ; null = comportement d'origine.
     List<TicketReglement>? reglements,
+    // Optionnel (hors ligne) : numéro provisoire « HL-0007 » ; null = comportement d'origine.
+    String? provisoire,
   }) async {
     if (isTestMode) {
-      final ticketWidget = _buildSaleTicketWidget(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode, ticketCodeType, montantVerse: montantVerse, monnaie: monnaie, reglements: reglements);
+      final ticketWidget = _buildSaleTicketWidget(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode, ticketCodeType, montantVerse: montantVerse, monnaie: monnaie, reglements: reglements, provisoire: provisoire);
       await _showTestTicketDialog(context, ticketWidget, paperWidth);
     } else {
-      await _printSaleTicketSunmi(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode, ticketCodeType, montantVerse: montantVerse, monnaie: monnaie, reglements: reglements);
+      await _printSaleTicketSunmi(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode, ticketCodeType, montantVerse: montantVerse, monnaie: monnaie, reglements: reglements, provisoire: provisoire);
     }
   }
 
   // --- PRÉVENTE COMPTANT ---
   Future<void> printPreventeTicket({
     required BuildContext context, required Officine officine, required SaleSummary saleSummary, required User currentUser, required bool isTestMode, required int paperWidth, required String ticketCodeType,
+    // Optionnel (hors ligne) : numéro provisoire « HL-0007 » ; null = comportement d'origine.
+    String? provisoire,
   }) async {
     if (isTestMode) {
-      final ticketWidget = _buildPreventeTicketWidget(context, officine, saleSummary, currentUser, paperWidth, ticketCodeType);
+      final ticketWidget = _buildPreventeTicketWidget(context, officine, saleSummary, currentUser, paperWidth, ticketCodeType, provisoire: provisoire);
       await _showTestTicketDialog(context, ticketWidget, paperWidth);
     } else {
-      await _printPreventeTicketSunmi(context, officine, saleSummary, currentUser, paperWidth, ticketCodeType);
+      await _printPreventeTicketSunmi(context, officine, saleSummary, currentUser, paperWidth, ticketCodeType, provisoire: provisoire);
     }
   }
 
@@ -103,6 +111,8 @@ class ReceiptService {
     required int paperWidth, required String ticketCodeType, int numberOfCopies = 1,
     // Optionnels (nouvelle version des ventes) ; par défaut : comportement d'origine.
     String? reference, bool? carnet, bool confirmEachCopy = true,
+    // Optionnel (hors ligne) : numéro provisoire « HL-0007 » ; null = comportement d'origine.
+    String? provisoire,
   }) async {
     final ref = reference ?? (items.isNotEmpty ? items.first.strREF : '');
     final title = _assuranceTitle(saleSummary, carnet, prevente: true);
@@ -119,13 +129,50 @@ class ReceiptService {
       }
       if (isTestMode) {
         // APPEL DU WIDGET MINIMALISTE
-        final ticketWidget = _buildAssurancePreventeTicketWidget(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title);
+        final ticketWidget = _buildAssurancePreventeTicketWidget(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title, provisoire: provisoire);
         await _showTestTicketDialog(context, ticketWidget, paperWidth);
       } else {
         // APPEL DE L'IMPRESSION MINIMALISTE
-        await _printAssurancePreventeTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title);
+        await _printAssurancePreventeTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title, provisoire: provisoire);
       }
     }
+  }
+
+  // --- RAPPORT TEXTE (ventes hors ligne : fin de journée, anomalies) ---
+  Future<void> printTextReport({
+    required BuildContext context, Officine? officine, required String title, required List<String> lines,
+    required bool isTestMode, required int paperWidth,
+  }) async {
+    final cols = paperWidth == 58 ? 32 : 48;
+    final sep = List.filled(cols, '-').join();
+    if (isTestMode) {
+      const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
+      final ticket = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (officine != null) Text(officine.nomComplet.toUpperCase(), style: textStyle.copyWith(fontWeight: FontWeight.bold, fontSize: 14)),
+        Text(title, key: const ValueKey('rapport-ticket-titre'), style: textStyle.copyWith(fontWeight: FontWeight.bold)),
+        Text(sep, style: textStyle),
+        for (final l in lines) Text(l, style: textStyle),
+        Text(sep, style: textStyle),
+        Text(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()), style: textStyle),
+      ]);
+      await _showTestTicketDialog(context, ticket, paperWidth);
+      return;
+    }
+    if (!await _initializePrinter(context)) return;
+    try {
+      await SunmiPrinter.startTransactionPrint(true);
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
+      if (officine != null) await SunmiPrinter.printText(officine.nomComplet.toUpperCase(), style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      await SunmiPrinter.printText(title, style: SunmiStyle(bold: true));
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
+      await SunmiPrinter.printText(sep);
+      for (final l in lines) { await SunmiPrinter.printText(l); }
+      await SunmiPrinter.printText(sep);
+      await SunmiPrinter.printText(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()));
+      await SunmiPrinter.lineWrap(4);
+      await SunmiPrinter.cut();
+      await SunmiPrinter.exitTransactionPrint(true);
+    } catch (e) { if (context.mounted) Constants.showSnackBar(context, 'Erreur d\'impression: $e', isError: true); }
   }
 
   /// Titre du ticket assurance / carnet. [carnet] null : règle d'origine (tous les TP à 100 % → CARNET).
@@ -147,7 +194,7 @@ class ReceiptService {
   }
 
   // --- SUNMI VENTE COMPTANT ---
-  Future<void> _printSaleTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie, List<TicketReglement>? reglements}) async {
+  Future<void> _printSaleTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie, List<TicketReglement>? reglements, String? provisoire}) async {
     if (!await _initializePrinter(context)) return;
     try {
       await SunmiPrinter.startTransactionPrint(true);
@@ -162,6 +209,11 @@ class ReceiptService {
       await SunmiPrinter.setAlignment(headerAlign);
       await SunmiPrinter.printText(officine.nomComplet.toUpperCase(), style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
       await SunmiPrinter.printText(officine.fullName);
+      if (provisoire != null) {
+        await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
+        await SunmiPrinter.printText(provisoireTitre(provisoire), style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+        await SunmiPrinter.printText(provisoireNote);
+      }
       await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
       await SunmiPrinter.printText(line());
       await SunmiPrinter.printText(fit('Article', articleWidth) + fit('Qte*P.U', financialWidth) + fit('Total', financialWidth), style: SunmiStyle(bold: true));
@@ -188,7 +240,7 @@ class ReceiptService {
       await SunmiPrinter.printText("Vendeur: ${currentUser.fullName}");
       await SunmiPrinter.lineWrap(1);
 
-      if (showQrCode) {
+      if (showQrCode && provisoire == null) {
         if (ticketCodeType == 'QR_CODE') { await SunmiPrinter.printQRCode(saleSummary.reference); }
         else { await SunmiPrinter.printBarCode(saleSummary.reference, barcodeType: SunmiBarcodeType.CODE128, height: 60, width: 2); }
       }
@@ -201,7 +253,7 @@ class ReceiptService {
   }
 
   // --- SUNMI PRÉVENTE COMPTANT ---
-  Future<void> _printPreventeTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, User currentUser, int paperWidth, String ticketCodeType) async {
+  Future<void> _printPreventeTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, User currentUser, int paperWidth, String ticketCodeType, {String? provisoire}) async {
     if (!await _initializePrinter(context)) return;
     try {
       await SunmiPrinter.startTransactionPrint(true);
@@ -214,12 +266,18 @@ class ReceiptService {
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.printText(line());
       await SunmiPrinter.printText('PRE-VENTE -- ${DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now())}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      if (provisoire != null) {
+        await SunmiPrinter.printText(provisoireTitre(provisoire), style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+        await SunmiPrinter.printText(provisoireNote);
+      }
       await SunmiPrinter.printText(line());
       await SunmiPrinter.lineWrap(1);
       await SunmiPrinter.printText('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
       await SunmiPrinter.lineWrap(1);
-      if (ticketCodeType == 'QR_CODE') { await SunmiPrinter.printQRCode(saleSummary.reference); }
-      else { await SunmiPrinter.printBarCode(saleSummary.reference, barcodeType: SunmiBarcodeType.CODE128, height: 60, width: 2); }
+      if (provisoire == null) {
+        if (ticketCodeType == 'QR_CODE') { await SunmiPrinter.printQRCode(saleSummary.reference); }
+        else { await SunmiPrinter.printBarCode(saleSummary.reference, barcodeType: SunmiBarcodeType.CODE128, height: 60, width: 2); }
+      }
       await SunmiPrinter.printText(saleSummary.reference, style: SunmiStyle(fontSize: SunmiFontSize.MD));
       await SunmiPrinter.lineWrap(1);
       await SunmiPrinter.printText("Vendeur: ${currentUser.fullName}", style: SunmiStyle(fontSize: SunmiFontSize.MD));
@@ -312,7 +370,7 @@ class ReceiptService {
   }
 
   // --- SUNMI PRÉVENTE ASSURANCE (RESTE MINIMALISTE) ---
-  Future<void> _printAssurancePreventeTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title}) async {
+  Future<void> _printAssurancePreventeTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title, String? provisoire}) async {
     if (!await _initializePrinter(context)) return;
     try {
       await SunmiPrinter.startTransactionPrint(true);
@@ -327,6 +385,10 @@ class ReceiptService {
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.printText(line());
       await SunmiPrinter.printText(title, style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      if (provisoire != null) {
+        await SunmiPrinter.printText(provisoireTitre(provisoire), style: SunmiStyle(bold: true));
+        await SunmiPrinter.printText(provisoireNote);
+      }
       await SunmiPrinter.printText(DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now()));
       await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
       await SunmiPrinter.printText(line());
@@ -344,10 +406,12 @@ class ReceiptService {
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.lineWrap(1);
 
-      if (ticketCodeType == 'QR_CODE') {
-        await SunmiPrinter.printQRCode(reference);
-      } else {
-        await SunmiPrinter.printBarCode(reference, barcodeType: SunmiBarcodeType.CODE128, height: 60, width: 2);
+      if (provisoire == null) {
+        if (ticketCodeType == 'QR_CODE') {
+          await SunmiPrinter.printQRCode(reference);
+        } else {
+          await SunmiPrinter.printBarCode(reference, barcodeType: SunmiBarcodeType.CODE128, height: 60, width: 2);
+        }
       }
       await SunmiPrinter.printText(reference, style: defaultStyle);
       await SunmiPrinter.lineWrap(1);
@@ -364,7 +428,7 @@ class ReceiptService {
 
   Future<void> _showTestTicketDialog(BuildContext context, Widget ticketContent, int paperWidth) async { await showDialog( context: context, builder: (ctx) => AlertDialog( title: const Text("Aperçu du Ticket"), content: Container( width: paperWidth == 58 ? 300 : 420, child: SingleChildScrollView(child: ticketContent), ), actions: [ TextButton( child: const Text("Fermer"), onPressed: () => Navigator.of(ctx).pop(), ) ], ), ); }
 
-  Widget _buildSaleTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie, List<TicketReglement>? reglements}) {
+  Widget _buildSaleTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie, List<TicketReglement>? reglements, String? provisoire}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -385,6 +449,10 @@ class ReceiptService {
             ],
           ),
         ),
+        if (provisoire != null) ...[
+          Center(child: Text(provisoireTitre(provisoire), style: boldStyle)),
+          const Center(child: Text(provisoireNote, style: textStyle)),
+        ],
         Text(line(), style: textStyle),
         Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ Text("Article", style: boldStyle), Text("Qte*P.U   Total", style: boldStyle), ], ),
         Text(line('.'), style: textStyle),
@@ -417,7 +485,7 @@ class ReceiptService {
         Center(child: Text(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()), style: textStyle)),
         Center(child: Text("Vendeur: ${currentUser.fullName}", style: textStyle)),
         const SizedBox(height: 8),
-        if (showQrCode)
+        if (showQrCode && provisoire == null)
           Center(
             child: ticketCodeType == 'QR_CODE'
                 ? QrImageView( data: saleSummary.reference, version: QrVersions.auto, size: 120.0, )
@@ -438,7 +506,7 @@ class ReceiptService {
     );
   }
 
-  Widget _buildPreventeTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, User currentUser, int paperWidth, String ticketCodeType) {
+  Widget _buildPreventeTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, User currentUser, int paperWidth, String ticketCodeType, {String? provisoire}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -459,6 +527,10 @@ class ReceiptService {
         ),
         Text(line(), style: textStyle),
         Text('PRE-VENTE -- ${DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now())}', style: boldStyle),
+        if (provisoire != null) ...[
+          Text(provisoireTitre(provisoire), style: boldStyle),
+          const Text(provisoireNote, style: textStyle),
+        ],
         Text(line(), style: textStyle),
         const SizedBox(height: 16),
         Text(
@@ -466,6 +538,7 @@ class ReceiptService {
             style: boldStyle.copyWith(fontSize: 14)
         ),
         const SizedBox(height: 16),
+        if (provisoire == null)
         Center(
           child: ticketCodeType == 'QR_CODE'
               ? QrImageView(data: saleSummary.reference, version: QrVersions.auto, size: 120.0)
@@ -489,7 +562,7 @@ class ReceiptService {
   }
 
   // --- WIDGET PRÉVENTE ASSURANCE (MINIMALISTE) ---
-  Widget _buildAssurancePreventeTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title}) {
+  Widget _buildAssurancePreventeTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title, String? provisoire}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -512,6 +585,10 @@ class ReceiptService {
           ),
         ),
         Center(child: Text(title, style: boldStyle)),
+        if (provisoire != null) ...[
+          Center(child: Text(provisoireTitre(provisoire), style: boldStyle)),
+          const Center(child: Text(provisoireNote, style: textStyle)),
+        ],
         Center(child: Text(DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now()), style: textStyle)),
         Text(line(), style: textStyle),
         Text('Client: ${client.fullName}', style: textStyle),
@@ -527,6 +604,7 @@ class ReceiptService {
         Text(line(), style: textStyle),
 
         const SizedBox(height: 16),
+        if (provisoire == null)
         Center(
           child: ticketCodeType == 'QR_CODE'
               ? QrImageView(data: reference, version: QrVersions.auto, size: 120.0)

@@ -6,6 +6,8 @@
 // Réutilisée par la Pré-vente Assurance via [EncaissementActions] (part client, ses propres appels).
 // « + Ajouter un mode » : paiement en 2 modes (somme = net exactement, une seule clôture) ; sans ce
 // bouton, la page reste exactement le paiement en un seul mode.
+// Hors ligne ([horsLigneNote]) : espèces seulement (fournies par l'appelant), avertissement en tête,
+// encaissement PROVISOIRE enregistré sur l'appareil ; sans ce paramètre, rien ne change.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
@@ -98,6 +100,9 @@ class EncaissementPage extends StatefulWidget {
   /// Étapes du menu affichées en haut dans les trois présentations (remplacent la barre d'étapes C).
   final Widget Function(bool onDark)? stepsHeader;
 
+  /// Hors ligne : avertissement affiché en tête ; les modes fournis ne sont pas filtrés par les Réglages.
+  final String? horsLigneNote;
+
   const EncaissementPage({
     super.key,
     this.controller,
@@ -111,6 +116,7 @@ class EncaissementPage extends StatefulWidget {
     this.initialCopies,
     this.totalLabel = 'Total à payer',
     this.stepsHeader,
+    this.horsLigneNote,
   }) : assert(controller != null || actions != null);
 
   @override
@@ -434,7 +440,7 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
   // --- Affichage --------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    final methods = _enabled(_allowed(context));
+    final methods = widget.horsLigneNote != null ? (_methods ?? const <PaymentMethod>[]) : _enabled(_allowed(context));
     final method = _methods == null ? null : _current(methods);
     final ref = widget.summary.reference;
     final n = widget.itemCount;
@@ -553,9 +559,11 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         ],
       );
     }
+    final note = widget.horsLigneNote;
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
       children: [
+        if (note != null) ...[_Notice(key: const ValueKey('encaissement-hors-ligne'), icon: Icons.cloud_off, text: note), const SizedBox(height: 10)],
         if (f != null) ..._failureViews(f),
         if (_multiPossible && methods.length > 1)
           // Même hauteur que le titre seul : la page d'origine ne bouge pas.
@@ -1103,7 +1111,9 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
               ? 'RÉESSAYER'
               : p != null
                   ? (p.nbRecus < p.lignes.length ? 'EN ATTENTE DES PAIEMENTS (${p.nbRecus}/${p.lignes.length})' : 'VALIDER L\'ENCAISSEMENT')
-                  : (method == null || cash ? 'VALIDER L\'ENCAISSEMENT' : 'PAIEMENT REÇU — VALIDER');
+                  : widget.horsLigneNote != null
+                      ? 'ENCAISSER EN ESPÈCES (PROVISOIRE)'
+                      : (method == null || cash ? 'VALIDER L\'ENCAISSEMENT' : 'PAIEMENT REÇU — VALIDER');
       final main = ElevatedButton(
         key: const ValueKey('encaissement-valider'),
         style: guided ? amberButton : navyButton,

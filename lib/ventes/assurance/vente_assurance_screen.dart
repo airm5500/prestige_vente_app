@@ -5,6 +5,7 @@
 // automatiquement ; part client > 0 : page d'encaissement unique (comme la Pré-vente) ; part client 0 :
 // validation directe après une confirmation simple ; un seul choix d'impression (case + copies) ;
 // « Reprendre » / « Réimprimer » depuis l'historique.
+// Hors ligne (H2) : prévente PROVISOIRE (HL-0007) mise dans la file d'envoi, ticket « PROVISOIRE ».
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -14,6 +15,8 @@ import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -70,11 +73,35 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
 
   AssuranceController get _ctrl => context.read<AssuranceController>();
 
+  /// Surveillance du serveur (proposition « Terminer hors ligne »).
+  late final ServerMonitor _monitor = HorsLigne.instance.monitor;
+
   @override
   void initState() {
     super.initState();
     loadPresentation();
+    _monitor.addListener(_onMonitor);
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+  }
+
+  @override
+  void dispose() {
+    _monitor.removeListener(_onMonitor);
+    super.dispose();
+  }
+
+  void _onMonitor() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _terminerHorsLigne() async {
+    final r = await _ctrl.passerHorsLigne();
+    if (!mounted) return;
+    if (!r.isOk) {
+      showVenteFailure(context, r);
+      return;
+    }
+    showVenteSnack(context, 'Vente continuée hors ligne (${_ctrl.panierHorsLigne?.label ?? ''}) : seuls les nouveaux articles seront envoyés.');
   }
 
   void _setStyle(ListPresentation p) {
@@ -87,6 +114,8 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
     if (!mounted) return;
     final c = _ctrl;
     unawaited(c.loadQrMethods());
+    // Hors ligne : la vente mémorisée sera proposée au retour du serveur.
+    if (AssuranceController.serveurHorsLigne) return;
     final pending = await PendingSaleStore.load(VenteMenu.assurance);
     if (pending == null || !mounted) return;
     final closed = await c.isClosedOnServer(pending.venteId);
@@ -285,6 +314,19 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
       final c = _ctrl;
       final snap = _Snapshot.of(c);
       if (snap == null) return;
+      final hl = c.panierHorsLigne;
+      if (hl != null) {
+        // Hors ligne : prévente provisoire dans la file des ventes hors ligne.
+        final user = Provider.of<AuthProvider>(context, listen: false).user;
+        final r = await c.enregistrerHorsLigne(userName: user?.fullName ?? '', expectedChanges: c.changes);
+        if (!mounted) return;
+        if (!r.isOk) {
+          showVenteFailure(context, r);
+          return;
+        }
+        await _afterPrevente(snap, provisoire: hl.label);
+        return;
+      }
       final r = await c.terminerPrevente(expectedChanges: c.changes);
       if (!mounted) return;
       if (!r.isOk) {
@@ -397,11 +439,13 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
   }
 
   /// Prévente enregistrée : un seul dialogue (résultat + impression avec le nombre de copies, défaut n°21).
-  Future<void> _afterPrevente(_Snapshot s) async {
+  Future<void> _afterPrevente(_Snapshot s, {String? provisoire}) async {
     final copies = await showPrintCopiesDialog(
       context,
-      title: 'Prévente enregistrée',
-      message: s.reference.isEmpty ? null : 'Réf. ${s.reference}',
+      title: provisoire == null ? 'Prévente enregistrée' : 'Prévente provisoire enregistrée',
+      message: provisoire != null
+          ? 'La prévente $provisoire est enregistrée sur l\'appareil. Elle sera envoyée au serveur à son retour (Ventes hors ligne).'
+          : (s.reference.isEmpty ? null : 'Réf. ${s.reference}'),
       initialCopies: 1,
       singleCopy: true,
     );
@@ -416,12 +460,15 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
         client: s.client,
         ayantDroit: s.ayantDroit,
         reference: s.reference,
+        provisoire: provisoire,
       );
     }
     if (!mounted) return;
-    try {
-      unawaited(Provider.of<SaleProvider>(context, listen: false).fetchPreventes());
-    } catch (_) {}
+    if (provisoire == null) {
+      try {
+        unawaited(Provider.of<SaleProvider>(context, listen: false).fetchPreventes());
+      } catch (_) {}
+    }
     _ctrl.reset();
   }
 
@@ -469,6 +516,7 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
             onPrevente: _savePrevente,
             onValider: _valider,
             paying: _paying,
+            onTerminerHorsLigne: _terminerHorsLigne,
           ),
       },
     );

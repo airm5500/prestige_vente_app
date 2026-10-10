@@ -2,15 +2,19 @@
 // Point d'entrée du hors ligne (étape H1) : surveillance du serveur, copie locale, synchro,
 // et recherche produit des nouveaux écrans qui bascule sur la copie locale UNIQUEMENT
 // quand l'état est « hors ligne » (en ligne : appel serveur inchangé).
+// Étape H2 : file des ventes saisies hors ligne, envoyée automatiquement au retour du serveur.
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
+import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
+import 'package:prestige_vente_app/horsligne/ventes_sync.dart';
+import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
@@ -19,14 +23,43 @@ class HorsLigne {
   final LocalStore store;
   final CatalogueSync sync;
 
-  /// Ventes en attente d'envoi (étape H2 ; null : non affiché).
+  /// File des ventes saisies hors ligne (étape H2).
+  final FileVentesHL ventes;
+
+  /// Ventes en attente d'envoi (null : aucune, rien affiché).
   final ValueNotifier<int?> ventesEnAttente = ValueNotifier<int?>(null);
 
-  HorsLigne._(this.monitor, this.store, this.sync);
+  /// Navigateur de l'appli (ouverture de l'écran « Ventes hors ligne » depuis le bandeau).
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-  factory HorsLigne({ServerMonitor? monitor, LocalStore? store, CatalogueSync? sync}) {
+  EtatServeur _etat;
+
+  HorsLigne._(this.monitor, this.store, this.sync, this.ventes) : _etat = monitor.etat {
+    ventes.addListener(_onVentes);
+    monitor.addListener(_onMonitor);
+  }
+
+  factory HorsLigne({ServerMonitor? monitor, LocalStore? store, CatalogueSync? sync, FileVentesHL? ventes}) {
     final s = store ?? sync?.store ?? SqfliteLocalStore();
-    return HorsLigne._(monitor ?? ServerMonitor(), s, sync ?? CatalogueSync(store: s));
+    return HorsLigne._(monitor ?? ServerMonitor(), s, sync ?? CatalogueSync(store: s), ventes ?? FileVentesHL(store: SqfliteVentesHLStore()));
+  }
+
+  void _onVentes() {
+    final n = ventes.enAttente;
+    ventesEnAttente.value = n > 0 ? n : null;
+  }
+
+  /// Retour en ligne : confirmation demandée avant d'envoyer les ventes en attente.
+  void _onMonitor() {
+    final avant = _etat;
+    _etat = monitor.etat;
+    if (_etat == EtatServeur.enLigne && avant != EtatServeur.enLigne) ventes.demanderConfirmation();
+  }
+
+  /// Ventes hors ligne : file chargée, puis confirmation si le serveur répond (après la connexion).
+  Future<void> demarrerVentes() async {
+    await ventes.ensureLoaded();
+    if (monitor.etat == EtatServeur.enLigne) await ventes.demanderConfirmation();
   }
 
   /// Instance de l'appli (remplaçable dans les tests).
@@ -74,6 +107,8 @@ class HorsLigne {
     }
     monitor.ping ??= _ping;
     sync.fetch ??= _fetch;
+    // Mêmes appels que la vente en ligne (session de l'appli).
+    if (ventes.gateway == null || ventes.gateway is DioVenteGateway) ventes.gateway = DioVenteGateway(api);
   }
 
   String get _baseUrl => _api?.dio.options.baseUrl ?? '';

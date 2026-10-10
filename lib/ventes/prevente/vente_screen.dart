@@ -3,6 +3,8 @@
 // Un seul panier ; le choix se fait à la fin : « Prévente » (terminerprevente) ou « Encaisser »
 // (page d'encaissement unique). « Préventes à encaisser » : page de liste (bouton de l'en-tête).
 // La logique (file d'opérations, réponses perdues, net à jour, reprise) reste dans VenteController.
+// Hors ligne (H2) : panier local, « ENREGISTRER (PRÉVENTE PROVISOIRE) » / « ENCAISSER EN ESPÈCES
+// (PROVISOIRE) », ticket « PROVISOIRE — HL-0007 » ; vente commencée en ligne : « Terminer hors ligne ».
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -10,6 +12,9 @@ import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/server_monitor.dart';
+import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -75,11 +80,37 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
 
   VenteController get _ctrl => context.read<VenteController>();
 
+  /// Surveillance du serveur (proposition « Terminer hors ligne »).
+  late final ServerMonitor _monitor = HorsLigne.instance.monitor;
+
   @override
   void initState() {
     super.initState();
     loadPresentation();
+    _monitor.addListener(_onMonitor);
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+  }
+
+  @override
+  void dispose() {
+    _monitor.removeListener(_onMonitor);
+    super.dispose();
+  }
+
+  void _onMonitor() {
+    if (mounted) setState(() {});
+  }
+
+  /// « Terminer hors ligne » : la vente commencée en ligne continue sur l'appareil.
+  Future<void> _terminerHorsLigne() async {
+    final r = await _ctrl.passerHorsLigne();
+    if (!mounted) return;
+    if (!r.isOk) {
+      showVenteFailure(context, r);
+      return;
+    }
+    showVenteSnack(context, 'Vente continuée hors ligne (${_ctrl.panierHorsLigne?.label ?? ''}) : seuls les nouveaux articles seront envoyés.');
+    _focusSearch();
   }
 
   void _setStyle(ListPresentation p) {
@@ -105,6 +136,8 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
       if (mounted && c.cartError != null) showVenteFailure(context, VenteFailed<void>(c.cartError!), onRetry: c.reload);
       return;
     }
+    // Hors ligne : la vente mémorisée sera proposée au retour du serveur.
+    if (VenteController.serveurHorsLigne) return;
     final pending = await PendingSaleStore.load(VenteMenu.prevente);
     if (pending == null || !mounted) return;
     final closed = await c.isClosedOnServer(pending.venteId);
@@ -245,6 +278,18 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
       if (user == null || !mounted) return false;
       final c = _ctrl;
       final summary = c.summary, id = c.venteId;
+      final hl = c.panierHorsLigne;
+      if (hl != null) {
+        // Hors ligne : prévente provisoire dans la file des ventes hors ligne.
+        final r = await c.enregistrerHorsLigne(fin: FinVenteHL.prevente, userId: user.userId, userName: user.fullName);
+        if (!mounted) return false;
+        if (!r.isOk) {
+          showVenteFailure(context, r);
+          return false;
+        }
+        await _afterPrevente(venteId: null, summary: summary, user: user, provisoire: hl.label);
+        return true;
+      }
       final r = await c.terminerPrevente();
       if (!mounted) return false;
       if (!r.isOk) {
@@ -268,6 +313,11 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
       if (user == null || !mounted) return;
       final c = _ctrl;
       final changes = c.changes, summary = c.summary, items = c.items, id = c.venteId;
+      final hl = c.panierHorsLigne;
+      if (hl != null) {
+        await _encaisserHorsLigne(c, user, hl.label, summary, items);
+        return;
+      }
       final done = await Navigator.of(context).push<EncaissementDone>(MaterialPageRoute(
         builder: (_) => EncaissementPage(
           controller: c,
@@ -285,14 +335,42 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
     }
   }
 
+  /// Espèces hors ligne (sans mobile money ni plusieurs modes) : encaissement PROVISOIRE mis en file.
+  Future<void> _encaisserHorsLigne(VenteController c, User user, String label, SaleSummary summary, List<SaleItemDetail> items) async {
+    final done = await Navigator.of(context).push<EncaissementDone>(MaterialPageRoute(
+      builder: (_) => EncaissementPage(
+        actions: EncaissementActions(
+          paymentMethods: () async => VenteOk([await especesHorsLigne()]),
+          loadQrMethods: () async {},
+          qrFor: (_) => null,
+          encaisser: (method, recu, remis) async {
+            final r = await c.enregistrerHorsLigne(
+                fin: FinVenteHL.especes, userId: user.userId, userName: user.fullName, montantRecu: recu, montantRendu: remis, modeNom: method.name);
+            return r.map((_) => (dejaCloturee: false));
+          },
+        ),
+        expectedChanges: c.changes,
+        summary: summary,
+        itemCount: items.length,
+        presentation: style,
+        horsLigneNote: 'Hors ligne : espèces seulement (mobile money indisponible). Encaissement PROVISOIRE $label, '
+            'envoyé au serveur à son retour ; prix et stock vérifiés à l\'envoi.',
+      ),
+    ));
+    if (done == null || !mounted) return;
+    await _afterEncaissement(done, venteId: null, summary: summary, items: items, user: user, provisoire: label);
+  }
+
   Future<void> _afterEncaissement(EncaissementDone done,
-      {required String? venteId, required SaleSummary summary, required List<SaleItemDetail> items, required User user}) async {
+      {required String? venteId, required SaleSummary summary, required List<SaleItemDetail> items, required User user, String? provisoire}) async {
     final ref = summary.reference.isEmpty ? '' : ' (${summary.reference})';
     showVenteSnack(
       context,
-      done.dejaCloturee
-          ? 'Vente déjà clôturée sur le serveur$ref : aucune seconde clôture.'
-          : 'Vente encaissée ✓$ref',
+      provisoire != null
+          ? 'Encaissement provisoire $provisoire enregistré sur l\'appareil : envoi au retour du serveur.'
+          : done.dejaCloturee
+              ? 'Vente déjà clôturée sur le serveur$ref : aucune seconde clôture.'
+              : 'Vente encaissée ✓$ref',
       color: Colors.green.shade700,
     );
     if (done.copies > 0) {
@@ -316,25 +394,29 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
             montantVerse: done.recu,
             monnaie: done.remis,
             reglements: ticketReglementsOf(done),
+            provisoire: provisoire,
           );
         }
       }
     }
     if (!mounted) return;
-    _refreshHome(venteId);
+    if (provisoire == null) _refreshHome(venteId);
     _ctrl.reset();
     _stockOf.clear();
     _focusSearch();
   }
 
-  Future<void> _afterPrevente({required String? venteId, required SaleSummary summary, required User user}) async {
+  Future<void> _afterPrevente({required String? venteId, required SaleSummary summary, required User user, String? provisoire}) async {
     final print = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('Prévente enregistrée'),
-        content: Text('${summary.reference.isEmpty ? 'La prévente' : 'La prévente ${summary.reference}'} est dans la liste des préventes à encaisser.\n'
-            'Voulez-vous imprimer le ticket ?'),
+        title: Text(provisoire == null ? 'Prévente enregistrée' : 'Prévente provisoire enregistrée'),
+        content: Text(provisoire != null
+            ? 'La prévente $provisoire est enregistrée sur l\'appareil. Elle sera envoyée au serveur à son retour '
+                '(Ventes hors ligne).\nVoulez-vous imprimer le ticket provisoire ?'
+            : '${summary.reference.isEmpty ? 'La prévente' : 'La prévente ${summary.reference}'} est dans la liste des préventes à encaisser.\n'
+                'Voulez-vous imprimer le ticket ?'),
         actions: [
           TextButton(style: TextButton.styleFrom(minimumSize: const Size(64, 44)), onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Non')),
           ElevatedButton(style: ElevatedButton.styleFrom(minimumSize: const Size(88, 44)), onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Imprimer')),
@@ -356,11 +438,12 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
           isTestMode: settings.isTestPrintMode,
           paperWidth: settings.paperWidth,
           ticketCodeType: settings.ticketCodeType,
+          provisoire: provisoire,
         );
       }
     }
     if (!mounted) return;
-    _refreshHome(venteId);
+    if (provisoire == null) _refreshHome(venteId);
     _ctrl.reset();
     _stockOf.clear();
     _focusSearch();
@@ -410,7 +493,10 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
     final compact = style == ListPresentation.compact;
     final split = venteSplit(context); // tablette paysage : recherche à gauche, panier à droite
     final String subtitle;
-    if (c.venteId == null) {
+    final hl = c.panierHorsLigne;
+    if (hl != null) {
+      subtitle = '${hl.label} · ${hl.venteId == null ? 'prévente hors ligne' : 'terminée hors ligne'}';
+    } else if (c.venteId == null) {
       subtitle = 'Nouvelle vente';
     } else if (compact) {
       subtitle = '${ref.isEmpty ? 'Vente en cours' : ref} · $n article${n > 1 ? 's' : ''}';
@@ -429,7 +515,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
     );
     final total = c.hasCart ? c.summary.montantNet : 0;
     final cart = Column(children: [
-      _StatusBanner(controller: c),
+      _StatusBanner(controller: c, onTerminerHorsLigne: _paying ? null : _terminerHorsLigne),
       Expanded(
         child: VenteCart(
           onDone: _focusSearch,
@@ -497,7 +583,70 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
     );
   }
 
+  /// Pied hors ligne : total provisoire et les deux fins possibles (boutons l'un sous l'autre).
+  Widget _footerHorsLigne(VenteController c) {
+    final reason = c.hasCart && !c.finished ? c.finishBlockedReason : null;
+    final enabled = c.canFinish && !_paying && !c.finished;
+    final total = c.hasCart ? c.summary.montantNet : 0;
+    return Material(
+      elevation: 8,
+      color: Colors.white,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              const Expanded(child: Text('Total (provisoire)', style: TextStyle(fontSize: 13, color: Pal.muted))),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text('${Constants.formatNumber(total)} F',
+                      key: const ValueKey('vente-net'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Pal.ink)),
+                ),
+              ),
+            ]),
+            if (reason != null && !c.busy)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Align(alignment: Alignment.centerLeft, child: Text(reason, style: TextStyle(fontSize: 12, color: Colors.red.shade700))),
+              ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                key: const ValueKey('vente-hl-prevente'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 48),
+                  foregroundColor: Pal.navy,
+                  side: BorderSide(color: enabled ? Pal.navy : Pal.line, width: 1.5),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                onPressed: enabled ? _savePrevente : null,
+                icon: const Icon(Icons.bookmark_add_outlined, size: 20),
+                label: const FittedBox(fit: BoxFit.scaleDown, child: Text('ENREGISTRER (PRÉVENTE PROVISOIRE)')),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                key: const ValueKey('vente-hl-especes'),
+                style: navyButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 48))),
+                onPressed: enabled ? _encaisser : null,
+                icon: const Icon(Icons.payments_outlined, size: 20),
+                label: const FittedBox(fit: BoxFit.scaleDown, child: Text('ENCAISSER EN ESPÈCES (PROVISOIRE)')),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
   Widget _footer(VenteController c) {
+    if (c.horsLigne) return _footerHorsLigne(c);
     final s = c.summary;
     final reason = c.hasCart && !c.finished ? c.finishBlockedReason : null;
     final enabled = c.canFinish && !_paying && !c.finished;
@@ -607,11 +756,45 @@ class _TotalKpi extends StatelessWidget {
 /// Bandeau d'état du panier : enregistré ✓ / envoi… / non relu / net non calculé.
 class _StatusBanner extends StatelessWidget {
   final VenteController controller;
-  const _StatusBanner({required this.controller});
+  final VoidCallback? onTerminerHorsLigne;
+  const _StatusBanner({required this.controller, this.onTerminerHorsLigne});
 
   @override
   Widget build(BuildContext context) {
     final c = controller;
+    final hl = c.panierHorsLigne;
+    if (hl != null && !c.finished) {
+      return _Strip(
+        key: const ValueKey('vente-etat-hors-ligne'),
+        bg: const Color(0xFFFFF4E0),
+        fg: const Color(0xFF7C2D12),
+        leading: const Icon(Icons.cloud_off, size: 16, color: Color(0xFF9A3412)),
+        text: '${hl.label} enregistrée sur l\'appareil · prix et stock vérifiés à l\'envoi · mobile money indisponible',
+        maxLines: 2,
+      );
+    }
+    if (c.peutTerminerHorsLigne) {
+      return Container(
+        key: const ValueKey('vente-proposer-hors-ligne'),
+        margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+        padding: const EdgeInsets.fromLTRB(11, 2, 2, 2),
+        decoration: BoxDecoration(color: const Color(0xFFFFF4E0), borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          const Icon(Icons.cloud_off, size: 16, color: Color(0xFF9A3412)),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text('Serveur hors ligne : cette vente peut être terminée sur l\'appareil.',
+                maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Color(0xFF7C2D12), fontSize: 12.5, fontWeight: FontWeight.w500)),
+          ),
+          TextButton(
+            key: const ValueKey('vente-terminer-hors-ligne'),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 44), foregroundColor: Pal.navy, padding: const EdgeInsets.symmetric(horizontal: 8)),
+            onPressed: c.busy ? null : onTerminerHorsLigne,
+            child: const Text('Terminer hors ligne', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ]),
+      );
+    }
     if (c.cartError != null && c.items.isNotEmpty) {
       return LoadErrorBanner(message: 'Panier non relu : ${venteMessage(c.cartError)} (dernier état affiché).', onRetry: c.busy ? null : c.reload);
     }
@@ -641,12 +824,23 @@ class _StatusBanner extends StatelessWidget {
   }
 }
 
+/// Mode espèces hors ligne : celui de la copie locale (id 1), sinon « ESPECES ».
+Future<PaymentMethod> especesHorsLigne() async {
+  try {
+    final modes = await HorsLigne.instance.store.modes(qr: false);
+    final m = modes.where((m) => '${m['lgTYPEREGLEMENTID']}' == '1').firstOrNull;
+    if (m != null) return PaymentMethod.fromJson(m);
+  } catch (_) {}
+  return PaymentMethod(id: '1', name: 'ESPECES');
+}
+
 class _Strip extends StatelessWidget {
   final Color bg;
   final Color fg;
   final Widget leading;
   final String text;
-  const _Strip({super.key, required this.bg, required this.fg, required this.leading, required this.text});
+  final int maxLines;
+  const _Strip({super.key, required this.bg, required this.fg, required this.leading, required this.text, this.maxLines = 1});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -656,7 +850,7 @@ class _Strip extends StatelessWidget {
         child: Row(children: [
           leading,
           const SizedBox(width: 8),
-          Expanded(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: fg, fontSize: 12.5, fontWeight: FontWeight.w500))),
+          Expanded(child: Text(text, maxLines: maxLines, overflow: TextOverflow.ellipsis, style: TextStyle(color: fg, fontSize: 12.5, fontWeight: FontWeight.w500))),
         ]),
       );
 }

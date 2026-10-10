@@ -3,7 +3,9 @@
 // - serveur injoignable → « Serveur injoignable depuis HH:MM » + [Continuer hors ligne] ;
 // - hors ligne → « Hors ligne — catalogue du … » ;
 // - retour en ligne → « Serveur de nouveau joignable » quelques secondes.
-// En ligne : rien n'est affiché et l'écran est inchangé.
+// - ventes hors ligne (H2) : « · N vente(s) en attente », « Envoi 2/5… » pendant l'envoi,
+//   « N vente(s) hors ligne à vérifier » ; « Voir » ouvre l'écran « Ventes hors ligne ».
+// En ligne sans vente hors ligne : rien n'est affiché et l'écran est inchangé.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -11,10 +13,11 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
+import 'package:prestige_vente_app/horsligne/ventes_hors_ligne_screen.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:provider/provider.dart';
 
-enum BandeauHorsLigne { injoignable, horsLigne, retour }
+enum BandeauHorsLigne { injoignable, horsLigne, retour, envoi, enAttente, aVerifier }
 
 class HorsLigneScope extends StatefulWidget {
   final Widget child;
@@ -47,6 +50,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     _bound.monitor.addListener(_onMonitor);
     _bound.sync.addListener(_onChange);
     _bound.ventesEnAttente.addListener(_onChange);
+    _bound.ventes.addListener(_onChange);
     if (widget.bindApp) _bound.monitor.start();
   }
 
@@ -63,6 +67,8 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
       // Après la connexion : copie mise à jour si elle a plus de 12 h, puis toutes les 30 min.
       _bound.sync.syncIfStale();
       _bound.sync.startAuto(() => _bound.monitor.etat == EtatServeur.enLigne);
+      // Ventes hors ligne restées en attente (appli fermée pendant l'envoi) : reprise.
+      _bound.demarrerVentes();
     } else {
       _bound.sync.stopAuto();
     }
@@ -74,6 +80,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     _bound.monitor.removeListener(_onMonitor);
     _bound.sync.removeListener(_onChange);
     _bound.ventesEnAttente.removeListener(_onChange);
+    _bound.ventes.removeListener(_onChange);
     if (widget.bindApp) {
       _bound.monitor.stop();
       _bound.sync.stopAuto();
@@ -81,8 +88,21 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     super.dispose();
   }
 
+  bool _confirmationOuverte = false;
+
   void _onChange() {
     if (mounted) setState(() {});
+    // Retour du serveur avec des ventes en attente : confirmation (aucun envoi sans accord).
+    if (_bound.ventes.confirmationDemandee && !_confirmationOuverte && HorsLigne.navigatorKey.currentState != null) {
+      _confirmationOuverte = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          await confirmerEnvoiGlobal(_bound);
+        } finally {
+          _confirmationOuverte = false;
+        }
+      });
+    }
   }
 
   void _onMonitor() {
@@ -104,7 +124,13 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
   BandeauHorsLigne? get _bandeau => switch (_bound.monitor.etat) {
         EtatServeur.injoignable => BandeauHorsLigne.injoignable,
         EtatServeur.horsLigne => BandeauHorsLigne.horsLigne,
-        EtatServeur.enLigne => _retour ? BandeauHorsLigne.retour : null,
+        EtatServeur.enLigne => _bound.ventes.running
+            ? BandeauHorsLigne.envoi
+            : _bound.ventes.enAttente > 0
+                ? BandeauHorsLigne.enAttente
+                : _bound.ventes.aVerifier > 0
+                    ? BandeauHorsLigne.aVerifier
+                    : (_retour ? BandeauHorsLigne.retour : null),
       };
 
   @override
@@ -128,6 +154,8 @@ class HorsLigneBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final m = horsLigne.monitor;
+    final f = horsLigne.ventes;
+    final envoi = f.running ? 'Envoi ${f.index}/${f.total}…' : null;
     final (Color bg, Color fg, IconData icon, String text) = switch (kind) {
       BandeauHorsLigne.injoignable => (
           const Color(0xFFFFF3D6),
@@ -142,11 +170,32 @@ class HorsLigneBanner extends StatelessWidget {
           [
             'Hors ligne — ${horsLigne.catalogueLabel}',
             if (horsLigne.ventesEnAttente.value != null) '${horsLigne.ventesEnAttente.value} vente(s) en attente',
+            if (f.aVerifier > 0) '${f.aVerifier} à vérifier',
+            if (envoi != null) envoi,
             if (m.joignablePendantManuel) 'serveur joignable',
           ].join(' · '),
         ),
       BandeauHorsLigne.retour => (const Color(0xFFDCFCE7), const Color(0xFF166534), Icons.cloud_done, 'Serveur de nouveau joignable'),
+      BandeauHorsLigne.envoi => (
+          const Color(0xFFE3ECF7),
+          const Color(0xFF1F4F8F),
+          Icons.cloud_upload,
+          'Ventes hors ligne : ${envoi ?? 'envoi…'}',
+        ),
+      BandeauHorsLigne.enAttente => (
+          const Color(0xFFFFF3D6),
+          const Color(0xFF92400E),
+          Icons.cloud_upload_outlined,
+          '${f.enAttente} vente(s) en attente${f.aVerifier > 0 ? ' · ${f.aVerifier} anomalie(s)' : ''}',
+        ),
+      BandeauHorsLigne.aVerifier => (
+          const Color(0xFFFDECEC),
+          const Color(0xFF7F1D1D),
+          Icons.report_problem_outlined,
+          '${f.aVerifier} vente(s) hors ligne en anomalie',
+        ),
     };
+    final voir = kind == BandeauHorsLigne.aVerifier || kind == BandeauHorsLigne.envoi || (kind == BandeauHorsLigne.horsLigne && f.enAttente + f.aVerifier > 0);
     return Material(
       key: Key('bandeau_${kind.name}'),
       color: bg,
@@ -186,6 +235,30 @@ class HorsLigneBanner extends StatelessWidget {
                   ),
                   onPressed: m.goOnline,
                   child: const Text('Repasser en ligne'),
+                ),
+              if (kind == BandeauHorsLigne.enAttente)
+                TextButton(
+                  key: const Key('bandeau_envoyer'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: fg,
+                    minimumSize: const Size(44, 34),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () => confirmerEnvoiGlobal(horsLigne),
+                  child: const Text('Envoyer'),
+                ),
+              if (voir)
+                TextButton(
+                  key: const Key('voir_ventes_hl'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: fg,
+                    minimumSize: const Size(44, 34),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () => ouvrirVentesHorsLigne(),
+                  child: const Text('Voir'),
                 ),
             ]),
           ),
