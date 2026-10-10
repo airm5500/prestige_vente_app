@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/ventes/common/product_list_modal.dart';
 import 'package:prestige_vente_app/ventes/common/quantity_dialog.dart';
 import 'package:prestige_vente_app/ventes/common/vente_dialogs.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -41,6 +42,13 @@ class VenteProductSearch extends StatefulWidget {
   final Future<VenteResult<List<ProductSearchResult>>> Function(String query) search;
   final Future<bool> Function(ProductSearchResult product, int qty) addProduct;
 
+  /// Recherche par pages (total connu) : si fournie, un code scanné cherche le produit EXACT
+  /// (variantes EAN/CIP/GTIN) et une recherche texte se charge par pages au lieu d'être coupée.
+  final ProductPageSearch? pageSearch;
+
+  /// Produits affichés (ex. masquer les « RV » selon les réglages) ; tous si null.
+  final bool Function(ProductSearchResult product)? visible;
+
   /// false : saisie bloquée (ex. encaissement en cours).
   final bool enabled;
 
@@ -51,6 +59,8 @@ class VenteProductSearch extends StatefulWidget {
     super.key,
     required this.search,
     required this.addProduct,
+    this.pageSearch,
+    this.visible,
     this.enabled = true,
     this.debounce = const Duration(milliseconds: 500),
   });
@@ -195,6 +205,10 @@ class VenteProductSearchState extends State<VenteProductSearch> {
       _hint = null;
     });
     try {
+      if (widget.pageSearch != null) {
+        await _searchPaged(q, scan: scan || ProductLookup.looksLikeCode(q));
+        return;
+      }
       final r = await widget.search(q);
       if (!mounted) return;
       setState(() => _loading = false);
@@ -217,6 +231,63 @@ class VenteProductSearchState extends State<VenteProductSearch> {
         if (!_draining && _pendingScans.isNotEmpty) scheduleMicrotask(_drainScans);
       }
     }
+  }
+
+  bool _visible(ProductSearchResult p) => widget.visible?.call(p) ?? true;
+
+  /// Recherche avec le total du serveur : code → produit exact ; texte → liste par pages.
+  Future<void> _searchPaged(String q, {required bool scan}) async {
+    final search = widget.pageSearch!;
+    if (scan) {
+      final r = await ProductLookup.byCode(q, search);
+      if (!mounted) return;
+      setState(() => _loading = false);
+      if (r is! VenteOk<CodeLookup>) {
+        _ctrl.clear();
+        showVenteSnack(context, 'Recherche impossible : ${venteMessage(r.message)}', error: true, onRetry: () => _submit(q, scan: true));
+        return;
+      }
+      final found = r.value;
+      if (found.exact != null) {
+        await _handleResults(q, [found.exact!], scan: true);
+        return;
+      }
+      final candidates = found.candidates.where(_visible).toList();
+      if (candidates.isEmpty) {
+        _ctrl.clear();
+        final others = found.tried.where((c) => c != q).toList();
+        showVenteSnack(
+          context,
+          'Code $q introuvable${others.isEmpty ? '' : ' (essayé aussi ${others.join(', ')})'}',
+          color: Colors.orange.shade800,
+        );
+        return;
+      }
+      await _handleResults(q, candidates, scan: false);
+      return;
+    }
+    final pager = ProductPager(search, q);
+    final ok = await pager.loadMore();
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (!ok) {
+      showVenteSnack(context, 'Recherche impossible : ${venteMessage(pager.error)}', error: true, onRetry: () => _submit(q, scan: false));
+      return;
+    }
+    final shown = pager.items.where(_visible).toList();
+    if (shown.isEmpty && !pager.hasMore) {
+      setState(() => _hint = 'Aucun produit dont le nom ou le code commence par « $q ».');
+      return;
+    }
+    if (shown.length == 1 && !pager.hasMore) {
+      await _handleResults(q, shown, scan: false);
+      return;
+    }
+    final chosen = await _popup(() => showProductListModal(context, shown, initialQuery: '', pager: pager, visible: widget.visible));
+    if (!mounted || chosen == null) return;
+    _ctrl.clear();
+    _resetRepeat();
+    await _askQuantity(chosen);
   }
 
   Future<void> _handleResults(String q, List<ProductSearchResult> results, {required bool scan}) async {

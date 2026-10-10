@@ -3,9 +3,17 @@
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 
 /// Ouvre la liste et renvoie le produit choisi (null si fermé).
-Future<ProductSearchResult?> showProductListModal(BuildContext context, List<ProductSearchResult> results, {String initialQuery = ''}) =>
+/// [pager] : liste chargée par pages (« 50 sur 252 », la suite se charge en faisant défiler).
+Future<ProductSearchResult?> showProductListModal(
+  BuildContext context,
+  List<ProductSearchResult> results, {
+  String initialQuery = '',
+  ProductPager? pager,
+  bool Function(ProductSearchResult)? visible,
+}) =>
     showModalBottomSheet<ProductSearchResult>(
       context: context,
       isScrollControlled: true,
@@ -13,6 +21,8 @@ Future<ProductSearchResult?> showProductListModal(BuildContext context, List<Pro
       builder: (ctx) => ProductListModal(
         results: results,
         initialQuery: initialQuery,
+        pager: pager,
+        visible: visible,
         onProductSelected: (p) => Navigator.pop(ctx, p),
       ),
     );
@@ -22,24 +32,60 @@ class ProductListModal extends StatefulWidget {
   final List<ProductSearchResult> results;
   final String initialQuery;
   final ValueChanged<ProductSearchResult> onProductSelected;
-  const ProductListModal({super.key, required this.results, required this.initialQuery, required this.onProductSelected});
+  final ProductPager? pager;
+  final bool Function(ProductSearchResult)? visible;
+  const ProductListModal({
+    super.key,
+    required this.results,
+    required this.initialQuery,
+    required this.onProductSelected,
+    this.pager,
+    this.visible,
+  });
 
   @override
   State<ProductListModal> createState() => _ProductListModalState();
 }
 
 class _ProductListModalState extends State<ProductListModal> {
+  late List<ProductSearchResult> _all = widget.results;
   late List<ProductSearchResult> _filtered = widget.results;
   final _ctrl = TextEditingController();
+  final _scroll = ScrollController();
+  bool _loadingMore = false;
+  String? _loadError;
 
   @override
   void initState() {
     super.initState();
     _ctrl.text = widget.initialQuery;
+    if (widget.initialQuery.isNotEmpty) _filter(widget.initialQuery);
+    _scroll.addListener(() {
+      if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 300) _loadMore();
+    });
+  }
+
+  /// Charge la page suivante (liste par pages).
+  Future<void> _loadMore() async {
+    final pager = widget.pager;
+    if (pager == null || !pager.hasMore || _loadingMore) return;
+    setState(() {
+      _loadingMore = true;
+      _loadError = null;
+    });
+    final ok = await pager.loadMore();
+    if (!mounted) return;
+    setState(() {
+      _loadingMore = false;
+      _loadError = ok ? null : (pager.error ?? 'Chargement impossible');
+      _all = pager.items.where((p) => widget.visible?.call(p) ?? true).toList();
+    });
+    _filter(_ctrl.text);
   }
 
   @override
   void dispose() {
+    _scroll.dispose();
     _ctrl.dispose();
     super.dispose();
   }
@@ -48,8 +94,8 @@ class _ProductListModalState extends State<ProductListModal> {
     final q = query.toLowerCase().trim();
     setState(() {
       _filtered = q.isEmpty
-          ? widget.results
-          : widget.results.where((p) => p.strNAME.toLowerCase().contains(q) || p.intCIP.toString().contains(q)).toList();
+          ? _all
+          : _all.where((p) => p.strNAME.toLowerCase().contains(q) || p.intCIP.toString().contains(q)).toList();
     });
   }
 
@@ -64,7 +110,9 @@ class _ProductListModalState extends State<ProductListModal> {
         Row(children: [
           Expanded(
             child: Text(
-              'Résultats (${_filtered.length})',
+              widget.pager != null && widget.pager!.total > 0
+                  ? 'Résultats (${widget.pager!.items.length} sur ${widget.pager!.total})'
+                  : 'Résultats (${_filtered.length})',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
@@ -73,6 +121,14 @@ class _ProductListModalState extends State<ProductListModal> {
           IconButton(icon: const Icon(Icons.close), tooltip: 'Fermer', onPressed: () => Navigator.pop(context)),
         ]),
         const SizedBox(height: 6),
+        if (widget.pager?.hasMore ?? false)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              'Faites défiler pour charger la suite, ou précisez le début du nom (ex. « DOLIPRANE 1000 »).',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+          ),
         TextField(
           controller: _ctrl,
           decoration: const InputDecoration(hintText: 'Filtrer dans la liste...', prefixIcon: Icon(Icons.search), border: OutlineInputBorder(), isDense: true),
@@ -81,13 +137,15 @@ class _ProductListModalState extends State<ProductListModal> {
         const SizedBox(height: 8),
         const Divider(height: 1),
         Expanded(
-          child: _filtered.isEmpty
+          child: _filtered.isEmpty && !(widget.pager?.hasMore ?? false)
               ? const Center(child: Text('Aucun produit dans cette liste'))
               : ListView.separated(
+                  controller: _scroll,
                   padding: EdgeInsets.only(bottom: keyboard + 20),
-                  itemCount: _filtered.length,
+                  itemCount: _filtered.length + ((widget.pager?.hasMore ?? false) || _loadError != null ? 1 : 0),
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (ctx, i) {
+                    if (i >= _filtered.length) return _moreRow();
                     final p = _filtered[i];
                     return ListTile(
                       minVerticalPadding: 8,
@@ -107,6 +165,25 @@ class _ProductListModalState extends State<ProductListModal> {
                 ),
         ),
       ]),
+    );
+  }
+
+  /// Dernière ligne : chargement de la suite, ou erreur avec « Réessayer ».
+  Widget _moreRow() {
+    if (_loadError != null) {
+      return ListTile(
+        leading: Icon(Icons.cloud_off, color: Colors.red.shade700),
+        title: Text(_loadError!, style: TextStyle(color: Colors.red.shade900, fontSize: 13)),
+        trailing: TextButton(onPressed: _loadMore, child: const Text('Réessayer')),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: _loadingMore
+            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+            : TextButton(onPressed: _loadMore, child: const Text('Charger la suite')),
+      ),
     );
   }
 }

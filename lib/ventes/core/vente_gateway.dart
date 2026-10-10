@@ -23,6 +23,9 @@ typedef VenteTp = ({String compteTp, String numBon, int taux});
 abstract class VenteGateway {
   // --- Produits / panier (commun) ---
   Future<VenteResult<List<ProductSearchResult>>> searchProducts(String query);
+
+  /// Recherche par pages avec le total du serveur (voir ProductLookup / ProductPager).
+  Future<VenteResult<ProductPage>> searchProductsPage(String query, int start, int limit);
   Future<VenteResult<List<SaleItemDetail>>> saleDetails(String venteId);
   Future<VenteResult<void>> removeItem(String itemId);
   Future<VenteResult<void>> updateItem({required String itemId, required String produitId, required int qte, required int itemPu});
@@ -216,6 +219,7 @@ class DioVenteGateway implements VenteGateway {
       );
 
   /// Recherche par pages avec le total du serveur (« 50 sur 252 »), pour ne plus couper la liste.
+  @override
   Future<VenteResult<ProductPage>> searchProductsPage(String query, int start, int limit) async {
     final r = await _call(
       () => _dio.get('/vente/search', queryParameters: {'query': query, 'page': start ~/ limit + 1, 'start': start, 'limit': limit}),

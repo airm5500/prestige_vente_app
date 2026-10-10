@@ -21,6 +21,7 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_controller.dart';
 import 'package:prestige_vente_app/ventes/assurance/vente_assurance_screen.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:provider/provider.dart';
@@ -58,6 +59,13 @@ ClientAssurance _client({List<AyantDroit>? ads, List<ClientTiersPayant>? tps}) =
 enum _Mode { ok, failed, lost, lostNotApplied, refused, caisse, bonUtilise }
 
 class _FakeGateway implements VenteGateway {
+  // Recherche par pages : même catalogue que searchProducts (une seule page).
+  @override
+  Future<VenteResult<ProductPage>> searchProductsPage(String query, int start, int limit) async {
+    final r = await searchProducts(query);
+    return r.map((items) => ProductPage(start == 0 ? items : const [], items.length));
+  }
+
   Duration delay = const Duration(milliseconds: 40);
   final List<ProductSearchResult> catalog = [_doli, _effer];
   List<ClientAssurance> clients = [_client()];

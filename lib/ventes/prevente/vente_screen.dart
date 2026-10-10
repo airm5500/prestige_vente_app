@@ -424,6 +424,8 @@ class _VenteViewState extends State<_VenteView> with SingleTickerProviderStateMi
     final search = VenteProductSearch(
       key: _searchKey,
       search: c.search,
+      pageSearch: c.searchPage,
+      visible: c.visibleProduct,
       addProduct: _addProduct,
       enabled: !_paying && !c.finished,
     );

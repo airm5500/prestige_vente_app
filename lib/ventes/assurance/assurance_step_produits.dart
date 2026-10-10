@@ -63,6 +63,8 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
     final search = VenteProductSearch(
       key: _searchKey,
       search: c.searchProducts,
+      pageSearch: c.searchPage,
+      visible: c.visibleProduct,
       addProduct: widget.addProduct,
       enabled: !widget.paying && !c.finished,
     );

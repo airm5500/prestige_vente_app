@@ -17,6 +17,7 @@ import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart';
@@ -40,6 +41,13 @@ final _effer = _p('P2', 'EFFERALGAN 500MG', '3400930000002', price: 1200);
 enum _Mode { ok, failed, lost, lostNotApplied, refused, caisse }
 
 class _FakeGateway implements VenteGateway {
+  // Recherche par pages : même catalogue que searchProducts (une seule page).
+  @override
+  Future<VenteResult<ProductPage>> searchProductsPage(String query, int start, int limit) async {
+    final r = await searchProducts(query);
+    return r.map((items) => ProductPage(start == 0 ? items : const [], items.length));
+  }
+
   Duration delay = const Duration(milliseconds: 50);
   final List<ProductSearchResult> catalog = [_doli, _effer];
   final Map<String, List<SaleItemDetail>> sales = {};
@@ -487,7 +495,7 @@ void main() {
 
     await _scan(tester, '0000000000000');
     await tester.pumpAndSettle();
-    expect(find.textContaining('Produit introuvable'), findsOneWidget);
+    expect(find.textContaining('Code 0000000000000 introuvable'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

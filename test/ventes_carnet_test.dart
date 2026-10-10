@@ -20,6 +20,7 @@ import 'package:prestige_vente_app/ventes/carnet/carnet_controller.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_history.dart';
 import 'package:prestige_vente_app/ventes/carnet/vente_carnet_screen.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:provider/provider.dart';
@@ -63,6 +64,13 @@ class _Add {
 }
 
 class _FakeGateway implements VenteGateway {
+  // Recherche par pages : même catalogue que searchProducts (une seule page).
+  @override
+  Future<VenteResult<ProductPage>> searchProductsPage(String query, int start, int limit) async {
+    final r = await searchProducts(query);
+    return r.map((items) => ProductPage(start == 0 ? items : const [], items.length));
+  }
+
   Duration delay = const Duration(milliseconds: 50);
   final List<ProductSearchResult> catalog = [_doli, _effer];
   final Map<String, List<SaleItemDetail>> sales = {};

@@ -36,7 +36,8 @@ class CarnetProductsStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.watch<CarnetController>();
-    final search = VenteProductSearch(key: searchKey, search: c.search, addProduct: addProduct, enabled: !paying && !c.finished);
+    final search = VenteProductSearch(
+        key: searchKey, search: c.search, pageSearch: c.searchPage, visible: c.visibleProduct, addProduct: addProduct, enabled: !paying && !c.finished);
     final banners = [
       if (c.cartError != null && c.items.isNotEmpty)
         LoadErrorBanner(message: 'Panier non relu : ${venteMessage(c.cartError)} (dernier état affiché).', onRetry: c.busy ? null : c.reload),

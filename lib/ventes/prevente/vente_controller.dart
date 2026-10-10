@@ -11,6 +11,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/core/sale_op_queue.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -175,6 +176,24 @@ class VenteController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   /// Recherche produit (≥ 3 caractères) ; produits « RV » masqués selon le réglage, comme avant.
+  bool _hideRv = true;
+  bool _rvLoaded = false;
+
+  /// Recherche par pages (total du serveur) : utilisée par la barre de recherche pour les codes exacts
+  /// et les longues listes. Le réglage « masquer RV » est lu une fois.
+  Future<VenteResult<ProductPage>> searchPage(String query, int start, int limit) async {
+    if (!_rvLoaded) {
+      try {
+        _hideRv = (await SharedPreferences.getInstance()).getBool('hide_rv_products') ?? true;
+      } catch (_) {}
+      _rvLoaded = true;
+    }
+    return gateway.searchProductsPage(query, start, limit);
+  }
+
+  /// Produit affiché dans les résultats (produits « RV » masqués selon le réglage).
+  bool visibleProduct(ProductSearchResult p) => !_hideRv || !p.strNAME.toUpperCase().startsWith('RV ');
+
   Future<VenteResult<List<ProductSearchResult>>> search(String query) async {
     final r = await gateway.searchProducts(query);
     if (r is! VenteOk<List<ProductSearchResult>>) return r;
