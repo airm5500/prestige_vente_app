@@ -93,7 +93,7 @@ class FakePrestige implements StockServer {
   }
 
   @override
-  Future<StockHttp> call(String method, String path, {Map<String, dynamic>? query, Object? data}) async {
+  Future<StockHttp> call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers}) async {
     if (down) throw const StockStopException('Serveur injoignable : envoi interrompu.');
     calls.add('$method $path');
     final d = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};

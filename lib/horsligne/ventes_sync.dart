@@ -10,6 +10,10 @@
 //   ajout, le panier du serveur est relu et seuls les articles manquants sont envoyés ; une réponse
 //   perdue est suivie d'une relecture (panier ou statut de la vente) : jamais de 2ᵉ vente, de 2ᵉ ligne
 //   ni de 2ᵉ clôture.
+// - H4 (serveur avec le patch docs/serveur/H4_client_ref.patch) : la création porte la clé client
+//   `X-Client-Ref` (HL2-<id local>) ; le serveur ne crée jamais deux fois pour la même clé et une réponse
+//   perdue (ou l'appli fermée pendant l'appel) est suivie d'une relecture par la clé : reprise sans anomalie.
+//   Serveur sans H4 : fonctionnement ci-dessus inchangé (anomalie « vérifiez dans les préventes »).
 // - Écarts (prix, stock, produit introuvable, net ≠ montant encaissé) et refus du serveur (bon,
 //   plafond, caisse fermée) : la vente passe « à vérifier » avec un motif clair. Rien n'est supprimé.
 import 'dart:math';
@@ -17,6 +21,8 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/horsligne/client_ref.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -113,6 +119,7 @@ class FileVentesHL extends ChangeNotifier {
     await store.put(v);
     _replace(v);
     _notify();
+    journalVenteHL(v, v.fin == FinVenteHL.especes ? 'Vente hors ligne enregistrée (encaissée en espèces)' : 'Vente hors ligne enregistrée (prévente)', encaissement: true);
     return v;
   }
 
@@ -146,6 +153,7 @@ class FileVentesHL extends ChangeNotifier {
       final v = byId(id);
       if (v == null || !v.aFaire) continue;
       await _save(v.copyWith(statut: StatutVenteHL.ressaisie));
+      journalVenteHL(v, 'Non envoyée : ressaisie sur le serveur (décochée à la confirmation)');
     }
   }
 
@@ -185,6 +193,7 @@ class FileVentesHL extends ChangeNotifier {
       statut: v.venteId == null ? StatutVenteHL.enAttente : StatutVenteHL.envoiEnCours,
       acceptes: [...v.acceptes, if (m != null && !v.acceptes.contains(m)) m],
     ));
+    journalVenteHL(v, 'Renvoi demandé (écart accepté)', motif: m ?? '');
     await envoyer(ids: [id]);
   }
 
@@ -193,6 +202,7 @@ class FileVentesHL extends ChangeNotifier {
     final v = byId(id);
     if (v == null || v.statut == StatutVenteHL.envoyee) return;
     await _save(v.copyWith(statut: StatutVenteHL.traitee));
+    journalVenteHL(v, 'Marquée comme traitée (régularisée sur le serveur)');
     for (final a in _anomalies.where((a) => a.venteLocaleId == id && !a.traitee).toList()) {
       await marquerAnomalie(a.id, true);
     }
@@ -205,7 +215,26 @@ class FileVentesHL extends ChangeNotifier {
     await store.remove(id);
     _ventes = _ventes.where((x) => x.id != id).toList();
     _notify();
+    journalVenteHL(v, 'Vente hors ligne supprimée (jamais envoyée)');
     return true;
+  }
+
+  /// Purge de l'historique : ventes TERMINÉES (envoyées, traitées, ressaisies) antérieures à [avant].
+  /// Les ventes en attente ou en anomalie ne sont jamais effacées.
+  Future<int> purger(DateTime avant) async {
+    await ensureLoaded();
+    var n = 0;
+    for (final v in List.of(_ventes)) {
+      final fini = v.statut == StatutVenteHL.envoyee || v.statut == StatutVenteHL.traitee || v.statut == StatutVenteHL.ressaisie;
+      if (!fini || !(v.envoyeeAt ?? v.updatedAt).isBefore(avant)) continue;
+      try {
+        await store.remove(v.id);
+        _ventes = _ventes.where((x) => x.id != v.id).toList();
+        n++;
+      } catch (_) {}
+    }
+    if (n > 0) _notify();
+    return n;
   }
 
   // ---------------------------------------------------------------------------
@@ -265,6 +294,7 @@ class FileVentesHL extends ChangeNotifier {
           try {
             await _envoyerUne(gw, v);
           } on _Panne catch (e) {
+            journalVenteHL(byId(id) ?? v, 'Envoi interrompu', resultat: ResultatJournal.echecReseau, motif: e.message, source: SourceJournal.fileHL);
             _panne = e.message;
             _again = false;
             break;
@@ -304,11 +334,35 @@ class FileVentesHL extends ChangeNotifier {
     Future<_Issue> verifier(String motif) async {
       v = await _save(v.copyWith(statut: StatutVenteHL.aVerifier, motif: motif));
       await _ajouterAnomalie(v, motif);
+      journalVenteHL(v, 'Anomalie à l\'envoi', resultat: ResultatJournal.refus, motif: motif, source: SourceJournal.fileHL);
       _notify();
       return _Issue.verifier;
     }
 
     // 1. Création de la vente (1ʳᵉ ligne) — l'identifiant est enregistré dès la réponse.
+    // H4 : si le serveur gère la clé client, la création porte `X-Client-Ref` (jamais créée deux fois) et une
+    // réponse perdue est suivie d'une relecture par la clé ; sinon, fonctionnement d'origine (anomalie).
+    final h4 = gw is ClientRefGateway ? gw as ClientRefGateway : null;
+    final cle = cleClientVente(v.id);
+    // Vente relue par sa clé : true = trouvée (identifiant enregistré), false = jamais créée ; panne = arrêt.
+    Future<bool> relire() async {
+      final lu = await h4!.lireClientRef(cle);
+      if (lu is! VenteOk<ClientRefInfo?>) _stop(lu);
+      final info = lu.value;
+      if (info == null) return false;
+      v = await _save(v.copyWith(venteId: info.id, reference: info.reference ?? v.reference, etape: EtapeHL.articles));
+      return true;
+    }
+
+    if (v.venteId == null && v.etape == EtapeHL.creationEnvoyeeRef) {
+      if (h4 != null && await h4.clientRefSupporte()) {
+        // Réponse de la création jamais reçue (appli fermée, panne) : relire au lieu de deviner.
+        if (!await relire()) v = await _save(v.copyWith(etape: EtapeHL.creation));
+      } else {
+        // Le serveur ne gère plus la clé : prudence d'origine.
+        v = await _save(v.copyWith(etape: EtapeHL.creationEnvoyee));
+      }
+    }
     if (v.venteId == null) {
       final interrompu = 'Envoi interrompu pendant la création de la vente ${v.numeroLabel} (${_f(v.totalEstime)} F) : '
           'vérifiez dans les préventes du serveur qu\'elle n\'existe pas, puis « Renvoyer ».';
@@ -317,8 +371,9 @@ class FileVentesHL extends ChangeNotifier {
       if (first == null) return verifier('Vente sans article : rien à envoyer.');
       final conflit = await _controle(gw, v, first, first.qte);
       if (conflit != null) return verifier(conflit);
-      v = await _save(v.copyWith(etape: EtapeHL.creationEnvoyee));
-      final r = await _addItem(gw, v, first.produitId, first.qte, first.prix, null);
+      final ref = h4 != null && await h4.clientRefSupporte() ? cle : null;
+      v = await _save(v.copyWith(etape: ref != null ? EtapeHL.creationEnvoyeeRef : EtapeHL.creationEnvoyee));
+      final r = await _addItem(ref != null ? h4!.avecClientRef(ref) : gw, v, first.produitId, first.qte, first.prix, null);
       switch (r) {
         case VenteOk(:final value):
           v = await _save(v.copyWith(venteId: value, etape: EtapeHL.articles));
@@ -326,16 +381,28 @@ class FileVentesHL extends ChangeNotifier {
           v = await _save(v.copyWith(etape: EtapeHL.creation));
           return verifier(_motifRefus(r, produit: first.nom));
         case VenteFailed(:final maybeApplied):
-          if (maybeApplied) {
-            return verifier('Réponse perdue pendant la création de la vente ${v.numeroLabel} (${_f(v.totalEstime)} F) : '
-                'vérifiez dans les préventes du serveur qu\'elle n\'existe pas, puis « Renvoyer ».');
+          if (maybeApplied && ref != null) {
+            // H4 : réponse perdue → la vente est relue par sa clé (reprise sans doublon). Relecture impossible :
+            // l'envoi s'arrête, l'étape reste « envoyée avec clé » et la relecture est refaite au prochain envoi.
+            if (!await relire()) {
+              // Clé inconnue du serveur : la vente n'a pas été créée, elle sera renvoyée (même clé).
+              v = await _save(v.copyWith(etape: EtapeHL.creation, statut: StatutVenteHL.enAttente));
+              _stop(r);
+            }
+          } else {
+            if (maybeApplied) {
+              return verifier('Réponse perdue pendant la création de la vente ${v.numeroLabel} (${_f(v.totalEstime)} F) : '
+                  'vérifiez dans les préventes du serveur qu\'elle n\'existe pas, puis « Renvoyer ».');
+            }
+            v = await _save(v.copyWith(etape: EtapeHL.creation, statut: StatutVenteHL.enAttente));
+            _stop(r);
           }
-          v = await _save(v.copyWith(etape: EtapeHL.creation, statut: StatutVenteHL.enAttente));
-          _stop(r);
       }
     }
     final venteId = v.venteId!;
-    if (v.etape == EtapeHL.creation || v.etape == EtapeHL.creationEnvoyee) v = await _save(v.copyWith(etape: EtapeHL.articles));
+    if (v.etape == EtapeHL.creation || v.etape == EtapeHL.creationEnvoyee || v.etape == EtapeHL.creationEnvoyeeRef) {
+      v = await _save(v.copyWith(etape: EtapeHL.articles));
+    }
 
     // 2. Articles : relire le panier du serveur, n'envoyer que ce qui manque.
     if (v.etape == EtapeHL.articles) {
@@ -452,6 +519,7 @@ class FileVentesHL extends ChangeNotifier {
 
   Future<_Issue> _envoyee(VenteHorsLigne v, void Function(VenteHorsLigne) set) async {
     final u = await _save(v.copyWith(statut: StatutVenteHL.envoyee, etape: null, motif: null, envoyeeAt: _clock()));
+    journalVenteHL(u, 'Vente hors ligne envoyée au serveur', source: SourceJournal.fileHL);
     set(u);
     return _Issue.envoyee;
   }

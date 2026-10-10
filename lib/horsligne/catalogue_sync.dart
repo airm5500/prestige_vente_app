@@ -106,6 +106,35 @@ class CatalogueSync extends ChangeNotifier {
 
   /// Avancement de l'étape en cours (null si inconnu).
   double? get progress => _total == null || _total == 0 ? null : (_done / _total!).clamp(0, 1).toDouble();
+
+  int? _page;
+  int? _nbPages;
+  int _etapeNum = 0;
+  int _etapesTotal = 0;
+
+  /// Page en cours de l'étape (listes paginées) et nombre de pages annoncé (null si inconnu).
+  int? get page => _page;
+  int? get pages => _nbPages;
+
+  /// Étape en cours (1…) sur le nombre d'étapes de la mise à jour (catégories + copies complémentaires).
+  int get etapeNum => _etapeNum;
+  int get etapesTotal => _etapesTotal;
+
+  /// Avancement global de la mise à jour (0 à 1, toujours connu : barre déterminée).
+  double get avancementGlobal {
+    if (!_running || _etapesTotal == 0) return 0;
+    final faites = (_etapeNum - 1).clamp(0, _etapesTotal);
+    return ((faites + (progress ?? 0)) / _etapesTotal).clamp(0, 1).toDouble();
+  }
+
+  /// « Produits : page 3/20 (1 500 / 10 000) » ; null hors mise à jour.
+  String? get progressionLabel {
+    if (!_running) return null;
+    final e = _etape ?? '…';
+    final pg = _page == null ? '' : (_nbPages == null ? ' : page $_page' : ' : page $_page/$_nbPages');
+    final n = _total == null ? (_done > 0 ? ' ($_done)' : '') : ' ($_done / $_total)';
+    return '$e$pg$n';
+  }
   String? get error => _error;
   List<String> get warnings => List.unmodifiable(_warnings);
   LocalStats get stats => _stats;
@@ -194,6 +223,8 @@ class CatalogueSync extends ChangeNotifier {
 
   Future<bool> _syncAll(CatalogueFetch f) async {
     _running = true;
+    _etapeNum = 0;
+    _etapesTotal = CatalogueCategorie.values.length + extensions.length;
     _error = null;
     _warnings.clear();
     final t0 = _clock();
@@ -215,6 +246,9 @@ class CatalogueSync extends ChangeNotifier {
       }
       for (final x in network ? const <CatalogueExtension>[] : List.of(extensions)) {
         try {
+          _etapeNum++;
+          _page = null;
+          _nbPages = null;
           await x.sync(f, _progress);
         } on CatalogueSyncException catch (e) {
           errors.add('${x.label} : ${e.message}');
@@ -228,6 +262,9 @@ class CatalogueSync extends ChangeNotifier {
       _etape = null;
       _done = 0;
       _total = null;
+      _page = null;
+      _nbPages = null;
+      _etapeNum = 0;
       _lastRun = t0;
       _lastDuration = sw.elapsed;
       _error = errors.isEmpty ? null : errors.join('\n');
@@ -245,8 +282,11 @@ class CatalogueSync extends ChangeNotifier {
 
   Future<List<Map<String, dynamic>>> _download(CatalogueFetch f, CatalogueCategorie c) async {
     _etape = c.label;
+    _etapeNum++;
     _done = 0;
     _total = null;
+    _page = null;
+    _nbPages = null;
     notifyListeners();
     switch (c) {
       case CatalogueCategorie.produits:
@@ -284,6 +324,9 @@ class CatalogueSync extends ChangeNotifier {
     var start = 0;
     int? total;
     while (true) {
+      // Page en cours de téléchargement (« page 3/20 »).
+      _page = start ~/ pageSize + 1;
+      notifyListeners();
       final body = await f(path, {...query, 'page': start ~/ pageSize + 1, 'start': start, 'limit': pageSize});
       final items = _data(body, path);
       total = int.tryParse('${body['total'] ?? ''}') ?? total;
@@ -296,6 +339,7 @@ class CatalogueSync extends ChangeNotifier {
       }
       _done = out.length;
       _total = total;
+      _nbPages = total == null ? null : (total <= 0 ? 1 : (total + pageSize - 1) ~/ pageSize);
       notifyListeners();
       if (items.length < pageSize || added == 0 || (total != null && out.length >= total)) break;
       start += pageSize;

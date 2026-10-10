@@ -10,10 +10,15 @@
 //    déjà créé (/produit/retours-data, qui ne liste que les retours validés) ; si la réponse de la
 //    création est perdue et le retour introuvable, AUCUN renvoi : anomalie « vérifier sur Prestige ».
 //    Les produits suivants (add-item) sont relus dans /retourfournisseur/retours-items.
+//    H4 (serveur avec le patch docs/serveur/H4_client_ref.patch) : la création porte la clé client
+//    `X-Client-Ref` (clé de l'opération HL3-…) ; le serveur ne crée jamais deux fois et, si la réponse est
+//    perdue, le retour est relu par sa clé (GET /mobile/client-ref/{ref}) : reprise sans anomalie.
 // Les refus du serveur (BL clôturé, ligne déjà pointée, produit inconnu…) donnent une ligne « rejected »
 // avec le motif ; une panne réseau ou une session expirée interrompt l'envoi ([StockStopException]).
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/client_ref.dart';
+import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 
 /// Réponse brute du serveur (code HTTP + corps).
@@ -47,8 +52,8 @@ class StockStopException implements Exception {
 
 /// Accès HTTP au serveur Prestige (remplaçable dans les tests).
 abstract class StockServer {
-  /// Lève [StockStopException] si le serveur ne répond pas.
-  Future<StockHttp> call(String method, String path, {Map<String, dynamic>? query, Object? data});
+  /// Lève [StockStopException] si le serveur ne répond pas. [headers] : en-têtes en plus (H4 : X-Client-Ref).
+  Future<StockHttp> call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers});
 }
 
 class DioStockServer implements StockServer {
@@ -56,10 +61,10 @@ class DioStockServer implements StockServer {
   DioStockServer(this.dio);
 
   @override
-  Future<StockHttp> call(String method, String path, {Map<String, dynamic>? query, Object? data}) async {
+  Future<StockHttp> call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers}) async {
     try {
       final r = await dio.request(path,
-          queryParameters: query, data: data, options: Options(method: method, validateStatus: (_) => true));
+          queryParameters: query, data: data, options: Options(method: method, headers: headers, validateStatus: (_) => true));
       return StockHttp(r.statusCode ?? 0, r.data);
     } on DioException catch (e) {
       if (e.response != null) return StockHttp(e.response!.statusCode ?? 0, e.response!.data);
@@ -81,8 +86,8 @@ class StockSender {
   static final _fr = DateFormat('dd/MM/yyyy');
   static int _int(dynamic v) => v is num ? v.toInt() : int.tryParse('${v ?? ''}') ?? 0;
 
-  Future<StockHttp> _call(String method, String path, {Map<String, dynamic>? query, Object? data}) async {
-    final r = await server.call(method, path, query: query, data: data);
+  Future<StockHttp> _call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers}) async {
+    final r = await server.call(method, path, query: query, data: data, headers: headers);
     if (r.status == 401 || r.status == 403) {
       throw const StockStopException('Session expirée : reconnectez-vous puis relancez l\'envoi.');
     }
@@ -113,6 +118,17 @@ class StockSender {
     op.updatedAt = clock();
     await persist(op);
   }
+
+  bool? _clientRef;
+
+  /// H4 : le serveur gère la clé client (lu une fois par envoi ; cache commun par adresse de serveur).
+  Future<bool> clientRefSupporte() async => _clientRef ??= await CapaciteClientRef.verifier(
+        server is DioStockServer ? (server as DioStockServer).dio.options.baseUrl : 'stock-${identityHashCode(server)}',
+        () async {
+          final r = await server.call('GET', '/mobile/capacites');
+          return CapaciteClientRef.depuisReponse(r.status, r.body);
+        },
+      );
 
   /// Envoie les lignes restantes de [op] (états mis à jour dans [op]).
   Future<void> apply(StockOp op) async {
@@ -298,9 +314,28 @@ class StockSender {
     Map<String, dynamic> item(StockOpLine l) =>
         {'produitId': l.data['produitId'], 'lgMOTIFRETOUR': l.data['motifId'], 'intNUMBERRETURN': _int(l.data['qty'])};
 
+    // H4 : retour relu par la clé de l'opération ; true = trouvé (enregistré), false = jamais créé.
+    Future<bool> relire(StockOpLine first) async {
+      final r = await server.call('GET', '/mobile/client-ref/${Uri.encodeComponent(op.id)}');
+      final lu = clientRefDepuisReponse(r.status, r.body);
+      if (lu is! VenteOk<ClientRefInfo?>) {
+        throw StockStopException('${lu.message ?? 'Relecture du retour impossible.'} Envoi interrompu, rien n\'est perdu.');
+      }
+      final info = lu.value;
+      if (info == null) return false;
+      retourId = info.id;
+      op.meta['retourId'] = info.id;
+      op.meta['retourRef'] = info.reference ?? '';
+      await _set(op, first, StockLineEtat.dejaApplique, 'Retour déjà créé sur le serveur (envoi précédent, relu par sa clé).');
+      return true;
+    }
+
     while (retourId == null && op.toSend.isNotEmpty) {
       final first = op.toSend.first;
-      if (first.etat == StockLineEtat.sending) {
+      if (first.etat == StockLineEtat.sending && op.meta['clientRef'] == true && await clientRefSupporte()) {
+        // H4 : création envoyée avec la clé → relue ; clé inconnue = jamais créé, renvoi sans risque (même clé).
+        if (await relire(first)) break;
+      } else if (first.etat == StockLineEtat.sending) {
         // Création peut-être déjà faite : on cherche le retour par sa clé dans le commentaire.
         final from = op.sentAt ?? op.createdAt;
         final retours = await _list('/produit/retours-data', {
@@ -324,12 +359,31 @@ class StockSender {
         return _rejectAll(op,
             'Réponse perdue pendant la création du retour : vérifiez sur Prestige les retours en préparation (commentaire $marker) avant de le ressaisir.');
       }
+      final h4 = await clientRefSupporte();
+      op.meta['clientRef'] = h4;
       await _set(op, first, StockLineEtat.sending);
-      final r = await _call('POST', '/retourfournisseur/new', data: {
-        'lgBONLIVRAISONID': op.meta['blRef'],
-        'strCOMMENTAIRE': op.meta['comment'] ?? marker,
-        'items': [item(first)],
-      });
+      final StockHttp r;
+      try {
+        r = await _call('POST', '/retourfournisseur/new',
+            data: {
+              'lgBONLIVRAISONID': op.meta['blRef'],
+              'strCOMMENTAIRE': op.meta['comment'] ?? marker,
+              'items': [item(first)],
+            },
+            headers: h4 ? {enteteClientRef: op.id} : null);
+      } on StockStopException {
+        // H4 : réponse perdue → relecture immédiate par la clé (sinon : relue au prochain envoi).
+        var repris = false;
+        if (h4) {
+          try {
+            repris = await relire(first);
+          } on StockStopException {
+            repris = false;
+          }
+        }
+        if (repris) break;
+        rethrow;
+      }
       final data = r.map['data'];
       if (r.ok && r.map['success'] == true && data is Map) {
         retourId = '${data['lgRETOURFRSID']}';

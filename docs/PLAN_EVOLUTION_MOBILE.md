@@ -64,7 +64,7 @@
 | H1 | Base locale (produits, clients, modes) + recherche/scan hors ligne + bandeau d'état |
 | H2 | Préventes hors ligne + file d'envoi + écran « Ventes à vérifier » |
 | H3 | (option) Encaissement espèces hors ligne avec ticket provisoire |
-| H4 | (serveur) `clientRef` anti-doublon |
+| H4 | (serveur) `clientRef` anti-doublon — **fait côté app ; patch serveur à appliquer** (§1.6) |
 
 ### 1.5 H3 — Stock hors ligne (réception BL, pointages, péremptions, retours) : réalisé
 
@@ -78,9 +78,9 @@ NOMMÉES `withMigration`), `catalogue_sync.dart` (`CatalogueExtension`), `horsli
 | Catégorie | Route | Serveur de test |
 |---|---|---|
 | BL à entrer en stock | `/commande/list-bons?statut=enable` | 1 |
-| BL entrés en stock (30 j) | `/commande/list-bons?statut=is_Closed` (jour / 7 j / 30 j pour les périodes hors ligne) | 50 |
+| BL entrés en stock (**3 j**, voir §1.7) | `/commande/list-bons?statut=is_Closed` (3 jours + jour, pour les périodes hors ligne) | 50 (sur 30 j) |
 | Lignes de BL | `/commande/bon/items/{id}?filtre=ALL` (BL des deux listes) | 751 |
-| Contrôle réception (30 j) | `/etat-control-bon/list` (lignes incluses ; `dtUPDATED` = date d'entrée en stock) | 46 |
+| Contrôle réception (**3 j**) | `/etat-control-bon/list` (lignes incluses ; `dtUPDATED` = date d'entrée en stock) | 46 |
 | Commandes en cours / passées | `/commande/list`, `/commande/list/passees` | 5 |
 | Lignes de commandes | `/commande/commande-en-cours-items` | 8 |
 | Grossistes, motifs de retour, rayons | `/common/grossiste`, `/common/motifs-retour`, `/common/rayons` | 12 / 13 / 38 |
@@ -141,14 +141,111 @@ la fois ; la mise à jour manuelle est immédiate (elle lève la pause d'une mis
 Mesuré sur le serveur de test (catalogue 1 793 produits + clients + modes + copie stock, SQLite) : **durée totale ≈ 9,7 s**,
 **blocage max de la boucle d'événements 12 ms** (28 ms au premier lancement, compilation à la volée).
 
-**Limites** : pas de création de BL ni d'entrée en stock hors ligne ; BL entrés en stock limités aux 30 derniers jours ;
+**Limites** : pas de création de BL ni d'entrée en stock hors ligne ; BL entrés en stock limités aux 3 derniers jours (§1.7) ;
 saisie des périmés en cours : copie du jour seulement ; un pointage fait EN LIGNE après la dernière mise à jour de la copie
 puis modifié hors ligne est signalé en anomalie (prudence) ; détection « retour déjà créé » impossible côté serveur
-(voir ci-dessus — évolution serveur souhaitable : clé client sur `/retourfournisseur/new`, comme `clientRef` H4).
+(voir ci-dessus — **levée par H4** dès que le serveur a le patch, voir §1.6).
 
 **API pour l'écran commun d'anomalies** : `Anomalie` {id, source, date, type, reference, motif, traitee, operationId,
 details} et `AnomalieSource` {`anomalies()`, `setTraitee(id, bool)`} (`stock_models.dart`) ; `StockQueue` les implémente ;
 `lignesAnomaliesGeneriques()` pour ticket / PDF.
+
+### 1.6 H4 — Clé client anti-doublon (`X-Client-Ref`) : fait côté app, patch serveur à appliquer
+
+**Serveur** (on ne pousse pas sur `airm5500/prestige`) : patch `docs/serveur/H4_client_ref.patch` + notice
+`docs/serveur/H4_CLIENT_REF.md` (quoi, pourquoi, script SQL, application, tests, rétrocompatibilité). En-tête HTTP
+facultatif `X-Client-Ref` sur `/vente/add/vno`, `/vente/add/assurance` (assurance et carnet), `/vente/add/depot` et
+`/retourfournisseur/new` : même clé = même vente / même retour (réponse initiale renvoyée), y compris pour des envois
+simultanés (clé primaire de la table dédiée `mobile_client_ref`, posée dans la même transaction que la création ;
+création refusée = clé non gardée). Relecture `GET /mobile/client-ref/{ref}` → `{type, id, reference, statut}` ou 404 ;
+capacité `GET /mobile/capacites` → `{clientRef: true}`. Sans en-tête : code d'origine, inchangé.
+
+**Application** (`lib/horsligne/client_ref.dart`, `ventes_sync.dart`, `stock/stock_sender.dart`, `DioVenteGateway`) :
+- capacité lue avant la création, en cache par adresse de serveur (oui 30 min, non 5 min, réponse indéterminée jamais
+  gardée) : un changement de serveur (Réglages) entraîne une nouvelle vérification ;
+- serveur avec H4 : la création porte `X-Client-Ref` (`HL2-<id local>` pour une vente, clé `HL3-…` de l'opération pour
+  un retour) ; l'étape « création envoyée avec clé » est enregistrée avant l'appel. Réponse perdue (ou appli fermée
+  pendant l'appel) → relecture par la clé : trouvée = reprise (articles, net, fin ; produits suivants du retour) sans
+  anomalie ; clé inconnue = jamais créée, renvoi avec la même clé ; relecture impossible = envoi arrêté, rien de perdu ;
+- serveur sans H4 (ancien serveur : 401 « expire » ou 404 sur `/mobile/capacites`) : **aucun en-tête**, fonctionnement
+  d'origine exact (anomalies « vérifiez dans les préventes » / « vérifiez sur Prestige ») ;
+- vente en ligne : aucun changement (la passerelle en ligne n'envoie jamais l'en-tête).
+
+**Tests** : `test/horsligne_h4_test.dart` (faux serveurs avec et sans H4, HTTP local pour l'en-tête et la capacité,
+intégration réelle contre le serveur de test, sautée s'il est injoignable ou sans le patch).
+**Vérifié sur le serveur de test** (patch déployé) : double envoi / 6 envois simultanés même clé → 1 vente ; 5 envois
+même clé d'un retour → 1 retour ; sans clé → inchangé ; vente « envoyée avec clé » sans réponse → relue et terminée par
+l'application, aucune anomalie. Données de test supprimées.
+
+### 1.7 Période par défaut, journal du terminal, anti double encaissement, attentes visibles : réalisé
+
+**Période par défaut** (demande client) :
+- la copie locale des **BL entrés en stock** et du **contrôle réception** couvre les **3 DERNIERS JOURS** (aujourd'hui
+  compris ; `StockRefSync.jours = 3`, deux lectures : 3 jours + jour) au lieu de 30 ;
+- les écrans hors ligne s'ouvrent sur **le jour** : Pointage BL, Contrôle réception, Retours fournisseurs (déjà « aujourd'hui »
+  par défaut ; une période plus longue choisie hors ligne montre les 3 jours copiés), « Ventes hors ligne » (filtre en haut :
+  Aujourd'hui / 3 jours / Tout ; les ventes à envoyer ou en anomalie sont TOUJOURS affichées), historique des
+  « Opérations hors ligne (stock) » (interrupteur « Tout l'historique conservé »), « Journal du terminal » ;
+- historique **conservé au moins 90 jours** (terminaux 64 Go / 4 Go RAM : la place ne manque pas) : journal, ventes hors ligne
+  et opérations de stock TERMINÉES (envoyées, traitées, ressaisies) ; **purge automatique** au-delà à chaque connexion ;
+  durée réglable dans Réglages › Hors ligne (90, 180, 365 ou 730 jours, jamais moins de 90). Ce qui est en attente ou en
+  anomalie n'est jamais purgé.
+
+**Journal des actions du terminal** (`lib/horsligne/journal/`) — traçabilité « pour retracer en cas de souci » :
+- table SQLite dédiée `journal`, ajoutée au fichier du catalogue par la migration nommée `journal_terminal_v1`
+  (`withMigration`) ; **append-only** (aucune modification, seulement la purge au-delà de la conservation) ; « Vider la copie
+  locale » n'y touche pas ;
+- chaque entrée : horodatage, utilisateur, terminal (identifiant `T-XXXXXX` créé une fois sur l'appareil + modèle), type,
+  action, référence locale (HL-…, HL3-…) et serveur (vente, BL, retour…), montant et montants par mode, quantités par produit,
+  source (en ligne / hors ligne / envoi file HL), résultat (OK / refusé + motif / échec réseau / déjà appliqué / doublon
+  bloqué / info) ;
+- **en ligne : point unique** = intercepteur `JournalInterceptor` posé sur le Dio de l'appli (`HorsLigne.bind`), routes
+  d'écriture connues : création / ajout / modification / suppression de ligne, clôture-encaissement (comptant, assurance,
+  dépôt ; montants par mode lus dans `reglements`), prévente, annulation, ouverture / clôture de caisse, réception (BL,
+  lots, entrée en stock), pointages, péremptions, périmés, retours fournisseurs, ajustements, emplacement, connexion /
+  déconnexion. Les écrans ne changent pas. Les requêtes de la file des ventes hors ligne sont marquées « envoi file HL »
+  (avec l'en-tête `X-Client-Ref` H4 s'il est présent) et ne sont **jamais recomptées** dans les encaissements ;
+- **hors ligne : appels explicites d'une ligne** aux points clés des files : vente hors ligne (création avec espèces
+  encaissées et produits, envoi, anomalie, interruption, ressaisie, renvoi, traitée, suppression), panier hors ligne
+  (ajout / modification / suppression de ligne), opérations de stock (réception lot, pointage, péremption, périmés, retour,
+  emplacement ; envoi OK / refus / déjà appliqué / interruption ; ressaisie), confirmations d'envoi (qui, cochées /
+  décochées, « Plus tard »), passages en / hors ligne ;
+- **aucune donnée sensible** : seuls des champs choisis du corps sont lus (jamais le mot de passe, jeton ou cookie ; motifs
+  nettoyés) ;
+- écran **« Journal du terminal »** (Réglages › Hors ligne › Traçabilité, et icône de l'écran « Ventes hors ligne ») :
+  filtre période (aujourd'hui par défaut, 3 / 7 / 30 jours, tout, période…), type, utilisateur, recherche par référence ;
+  résumé (actions, refus, échecs, doublons bloqués, encaissé par mode, quantités par produit) ; **export PDF** (en-tête
+  officine, terminal, utilisateur, période, tableau des actions, totaux encaissés par mode, totaux de quantités par produit)
+  et **ticket résumé** imprimé (réglages d'impression de l'appareil).
+
+**Anti double encaissement / double mouvement de stock** (vérifié et renforcé) :
+- vente en ligne : déjà protégée (une opération à la fois, panier figé à l'encaissement, relecture du statut si réponse
+  perdue) ; **en plus**, l'intercepteur **bloque une requête « unique » identique encore en cours** (clôture / encaissement,
+  prévente, annulation, caisse, création de BL, entrée en stock, clôture des périmés, création de retour, clôture
+  d'ajustement) : elle échoue tout de suite sans partir vers le serveur (« Opération déjà en cours : double envoi bloqué »),
+  notée « doublon bloqué » ;
+- **une seule confirmation d'envoi** des ventes hors ligne à la fois (bandeau, écran, retour du serveur, double appui) ; un
+  double appui sur « Envoyer la sélection » / « Plus tard » ne ferme pas l'écran de dessous ; jamais de confirmation pendant
+  un envoi ;
+- file stock : le verrou d'envoi est pris AVANT toute attente (deux envois simultanés → un seul) ; bouton « Envoyer »
+  verrouillé dès l'appui (confirmation comprise) ;
+- une seule synchro de la copie à la fois (existant, testé) ; boutons d'impression / PDF désactivés pendant l'opération.
+
+**Attentes visibles** (barres et indicateurs animés ; actions concernées bloquées) :
+- mise à jour de la copie : Réglages › Hors ligne affiche « Mise à jour 1/7 », une barre globale déterminée et l'étape
+  « Produits : page 3/20 (200 / 2000) » ; bandeau global : barre fine déterminée ; bouton « Mise à jour en cours… » désactivé ;
+- envoi : « Envoi 2/5 » avec barre (écran Ventes hors ligne, bandeau, écran d'envoi stock) ;
+- chargement des écrans hors ligne (ventes, opérations stock, journal) : barre animée pendant la lecture seulement ;
+- génération PDF / impression : bouton remplacé par un indicateur animé et désactivé (pas d'animation quand l'aperçu est
+  ouvert par-dessus : les tests `pumpAndSettle` ne bloquent pas ; les barres permanentes sont déterminées).
+
+**Tests** : `test/journal_terminal_test.dart` (ajouté à la CI) — 3 jours / jour par défaut, journalisation en ligne (faux
+Dio) et hors ligne, SQLite (migration, purge), totaux et PDF non vide, anti double-clic (doublon bloqué, une seule
+confirmation, un seul envoi stock, une seule synchro), progression « page 3/20 » et « Envoi 1/2 », purge > 90 jours.
+
+**Limites** : la suppression d'une ligne en ligne n'indique que l'identifiant de ligne (quantité non retranchée des totaux par
+produit) ; les noms de modes viennent de la copie locale (sinon l'identifiant du mode est affiché) ; le journal est propre à
+chaque terminal (pas de consolidation multi-terminaux sans évolution serveur).
 
 ---
 
@@ -424,7 +521,7 @@ sur le téléphone le montre meilleur que la référence.**
 2. **Ordonnances O1 → O4** — banc d'essai d'abord, puis améliorations mesurées.
 3. **Hors ligne H1 → H2** (+ onduleur conseillé tout de suite).
 4. **Borne B1 → B2**, puis **agrégateur B3** (qui sert aussi au paiement multiple et au comptoir).
-5. Évolutions serveur à prévoir (étape D, côté développeur Prestige) : 3 modes de paiement, `clientRef` anti-doublon, images produits, module agrégateur + notifications.
+5. Évolutions serveur à prévoir (étape D, côté développeur Prestige) : 3 modes de paiement, `clientRef` anti-doublon (H4 : patch prêt, `docs/serveur/H4_client_ref.patch`), images produits, module agrégateur + notifications.
 
 ## 6. Questions pour valider
 1. **Hors ligne** : préventes seulement, ou aussi **encaissement espèces** avec ticket provisoire ?

@@ -144,6 +144,10 @@ class TpHL {
 abstract final class EtapeHL {
   static const creation = 'creation';
   static const creationEnvoyee = 'creationEnvoyee';
+
+  /// H4 : création envoyée avec la clé client (`X-Client-Ref`) à un serveur qui la gère : si la réponse est
+  /// perdue, la création est relue par sa clé (GET /mobile/client-ref/{ref}) au lieu d'une anomalie.
+  static const creationEnvoyeeRef = 'creationEnvoyeeRef';
   static const articles = 'articles';
   static const net = 'net';
   static const fin = 'fin';
@@ -228,7 +232,7 @@ class VenteHorsLigne {
   bool get aFaire => statut == StatutVenteHL.enAttente || statut == StatutVenteHL.envoiEnCours;
 
   /// Suppression possible : rien n'existe sur le serveur.
-  bool get supprimable => venteId == null && statut != StatutVenteHL.envoyee && !(etape == EtapeHL.creationEnvoyee);
+  bool get supprimable => venteId == null && statut != StatutVenteHL.envoyee && !(etape == EtapeHL.creationEnvoyee || etape == EtapeHL.creationEnvoyeeRef);
 
   String get clientNom => '${client?['fullName'] ?? ''}'.trim().isNotEmpty
       ? '${client!['fullName']}'.trim()
