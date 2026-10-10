@@ -193,9 +193,27 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> with Presenta
     }
     if (provider.searchResults.isEmpty) {
       if (q != _lastSent) return const SizedBox.shrink(); // recherche en attente
-      return InfoState(icon: Icons.search_off, text: 'Aucun résultat', actionLabel: 'Effacer', onAction: () => _clear(provider));
+      if (provider.searchError != null) {
+        // Panne (réseau, serveur) : jamais « aucun résultat ».
+        return InfoState(
+          icon: Icons.cloud_off,
+          text: 'Recherche impossible : ${provider.searchError}',
+          actionLabel: 'Réessayer',
+          onAction: () {
+            _lastSent = '';
+            _runSearch();
+          },
+        );
+      }
+      return InfoState(icon: Icons.search_off, text: provider.searchNotFound ?? 'Aucun résultat', actionLabel: 'Effacer', onAction: () => _clear(provider));
     }
-    return ProductResultsList(results: provider.searchResults, style: style, onTap: (p) => _select(provider, p));
+    return ProductResultsList(
+      results: provider.searchResults,
+      style: style,
+      onTap: (p) => _select(provider, p),
+      paging: provider.productSearch,
+      onLoadMore: provider.loadMoreProducts,
+    );
   }
 
   Widget _metric(String value, String label, {Color fg = Pal.ink}) => Expanded(

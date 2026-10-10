@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/product_info.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/api/models/product_search_result.dart';
+import 'package:prestige_vente_app/services/product_finder.dart';
 
 class MonthlyComparisonData {
   final int sales;
@@ -15,27 +16,35 @@ class MonthlyComparisonData {
   MonthlyComparisonData({this.sales = 0, this.orders = 0, this.orderFrequency = 0});
 }
 
-class ProductSearchProvider with ChangeNotifier {
+class ProductSearchProvider with ChangeNotifier, PagedProductSearchHost {
   ApiService _apiService;
   ProductSearchProvider(this._apiService);
   void updateApiService(ApiService newApiService) { _apiService = newApiService; }
 
   bool _isLoading = false;
 
-  List<ProductSearchResult> _searchResults = [];
+  /// Code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
+  @override
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
   ProductInfo? _selectedProductInfo;
   ProductDetails? _selectedProductDetails;
   List<MonthlyComparisonData> _comparisonData = [];
 
   bool get isLoading => _isLoading;
-  List<ProductSearchResult> get searchResults => _searchResults;
+  List<ProductSearchResult> get searchResults => productSearch.items;
+
+  /// Panne de la dernière recherche (≠ produit introuvable).
+  String? get searchError => productSearch.error;
+
+  /// Code inconnu : « Code X introuvable (essayé aussi Y) ».
+  String? get searchNotFound => productSearch.notFound;
   ProductInfo? get selectedProductInfo => _selectedProductInfo;
   ProductDetails? get selectedProductDetails => _selectedProductDetails;
   List<MonthlyComparisonData> get comparisonData => _comparisonData;
   bool get hasComparisonData => _comparisonData.isNotEmpty;
 
   void clear() {
-    _searchResults = [];
+    productSearch.clear();
     _selectedProductInfo = null;
     _selectedProductDetails = null;
     _comparisonData = [];
@@ -52,7 +61,7 @@ class ProductSearchProvider with ChangeNotifier {
     _selectedProductDetails = null;
     notifyListeners();
 
-    _searchResults = await _apiService.searchProducts(query);
+    await productSearch.run(query); // une recherche plus récente remplace celle-ci
     _isLoading = false;
     notifyListeners();
   }
@@ -60,7 +69,7 @@ class ProductSearchProvider with ChangeNotifier {
   // MODIFICATION : Corrigé pour charger TOUTES les infos
   Future<void> selectProduct(ProductSearchResult product) async {
     _isLoading = true;
-    _searchResults = [];
+    productSearch.clear();
     _selectedProductInfo = null; // Efface l'ancien
     notifyListeners();
 

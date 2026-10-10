@@ -12,6 +12,8 @@ import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/services/product_finder.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:provider/provider.dart';
 
 /// Source de l'ordonnance.
@@ -138,6 +140,9 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   /// 1) CIP lu -> uniquement le produit ayant exactement ce CIP ;
   /// 2) sinon nom identique -> ce produit ;
   /// 3) sinon meilleur candidat, marqué "à vérifier" (les autres restent accessibles via "Changer").
+  /// Nombre maximal de produits examinés pour un nom (pages de 50).
+  static const int _maxNameResults = 200;
+
   Future<void> _search(_RxLine rx, int generation) async {
     final api = Provider.of<ApiService>(context, listen: false);
     setState(() => rx.searching = true);
@@ -146,12 +151,19 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     var match = _Match.none;
     var alternatives = <ProductSearchResult>[];
 
+    final search = apiPageSearch(api);
+    String? failure; // panne (≠ produit introuvable)
+
     final cip = rx.line.cip;
     if (cip != null) {
-      final byCip = await api.searchProducts(cip);
-      final exact = byCip.where((p) => p.intCIP.trim() == cip).toList();
-      if (exact.length == 1) {
-        chosen = exact.first;
+      // Code exact, quel que soit le nombre de produits qui commencent pareil
+      // (avec les variantes : EAN-13 34009… → CIP7). Seul un produit portant l'un de ces codes est retenu.
+      final r = await ProductLookup.byCode(cip, search);
+      final found = r.valueOrNull;
+      if (found == null) failure = r.message;
+      final exact = found?.exact;
+      if (exact != null && found!.tried.contains(exact.intCIP.trim())) {
+        chosen = exact;
         match = _Match.exactCip;
       }
     }
@@ -159,7 +171,16 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     if (chosen == null) {
       List<ProductSearchResult> results = [];
       for (final q in PrescriptionParser.searchQueries(rx.line)) {
-        results = await api.searchProducts(q);
+        // Plusieurs pages (jusqu'à _maxNameResults produits) au lieu des 30 premiers seulement.
+        final pager = ProductPager(search, q);
+        while (pager.items.length < _maxNameResults && (pager.total == 0 || pager.hasMore)) {
+          if (!await pager.loadMore()) {
+            failure = pager.error;
+            break;
+          }
+          if (pager.total == 0) break;
+        }
+        results = List.of(pager.items);
         if (results.isNotEmpty) break;
       }
       final wanted = PrescriptionParser.comparableName(rx.line.text);
@@ -185,6 +206,9 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       }
     }
     if (!mounted || generation != _generation) return;
+    if (chosen == null && failure != null) {
+      _showError('Recherche impossible pour « ${rx.line.text} » : $failure');
+    }
 
     setState(() {
       rx.selected = chosen;

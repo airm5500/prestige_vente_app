@@ -225,7 +225,7 @@ class _AjustementScreenState extends State<AjustementScreen> with PresentationAw
           setState(() => _isProcessing = false);
           _openSearchModal(query);
         } else {
-          _snack("Produit introuvable : $query");
+          _snack(provider.scanNotFound ?? "Produit introuvable : $query");
         }
       } finally {
         if (mounted) {

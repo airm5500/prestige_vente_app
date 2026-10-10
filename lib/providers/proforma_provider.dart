@@ -5,10 +5,11 @@ import 'package:prestige_vente_app/api/api_service.dart';
 // C'est ici que sont vos modèles ClientModel, ClientCarnetModel, TypeDevis, RemiseModel...
 import 'package:prestige_vente_app/api/models/proforma_models.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/services/product_finder.dart';
 // Il faut importer ceci pour que ProductSearchResult soit reconnu
 //import 'package:prestige_vente_app/api/models/product_search_result.dart';
 
-class ProformaProvider with ChangeNotifier {
+class ProformaProvider with ChangeNotifier, PagedProductSearchHost {
   final ApiService _apiService;
 
   String? _currentSaleId;
@@ -31,8 +32,16 @@ class ProformaProvider with ChangeNotifier {
   List<SaleLine> _cartItems = [];
   List<SaleLine> get cartItems => _cartItems;
 
-  List<ProductSearchResult> _searchResults = [];
-  List<ProductSearchResult> get searchResults => _searchResults;
+  /// Recherche produit : code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
+  @override
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
+  List<ProductSearchResult> get searchResults => productSearch.items;
+
+  /// Panne de la dernière recherche (≠ produit introuvable).
+  String? get searchError => productSearch.error;
+
+  /// Code inconnu : « Code X introuvable (essayé aussi Y) ».
+  String? get searchNotFound => productSearch.notFound;
 
   List<ClientModel> _clientSearchResults = [];
   List<ClientModel> get clientSearchResults => _clientSearchResults;
@@ -73,7 +82,7 @@ class ProformaProvider with ChangeNotifier {
   // --- RECHERCHE DE PRODUITS ---
   Future<void> searchProducts(String query) async {
     if (query.length < 3) {
-      _searchResults = [];
+      productSearch.clear();
       notifyListeners();
       return;
     }
@@ -82,10 +91,7 @@ class ProformaProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      _searchResults = await _apiService.searchProducts(query);
-    } catch (e) {
-      _errorMessage = "Erreur de recherche produits: $e";
-      _searchResults = [];
+      if (!await productSearch.run(query)) return; // remplacée par une recherche plus récente
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -222,7 +228,7 @@ class ProformaProvider with ChangeNotifier {
 
       if (success) {
         await _refreshCart();
-        _searchResults = [];
+        productSearch.clear();
         _errorMessage = '';
       } else if (_errorMessage.isEmpty) {
         _errorMessage = "Impossible d'ajouter le produit.";
@@ -341,7 +347,7 @@ class ProformaProvider with ChangeNotifier {
     _selectedClient = null;
     _selectedRemise = null;
     _cartItems = [];
-    _searchResults = [];
+    productSearch.clear();
     _clientSearchResults = [];
     _totalAmount = 0;
     _montantRemise = 0;
@@ -391,7 +397,7 @@ class ProformaProvider with ChangeNotifier {
   }
 
   void clearSearchResults() {
-    _searchResults = [];
+    productSearch.clear();
     _clientSearchResults = [];
     notifyListeners();
   }

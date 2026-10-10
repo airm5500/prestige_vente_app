@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/ajustement.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/services/product_finder.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AjustementProvider with ChangeNotifier {
@@ -53,33 +54,46 @@ class AjustementProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> _hideRv() async {
+    try {
+      return (await SharedPreferences.getInstance()).getBool('hide_rv_products') ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  static bool _isRv(ProductSearchResult p) => p.strNAME.toUpperCase().startsWith("RV ");
+
+  /// Nouvelle recherche produit (fenêtre de recherche) : code → produit exact (EAN-13 → CIP7…),
+  /// texte → liste par pages (« 50 sur 120 »). Les « RV » sont masqués selon le réglage.
+  Future<PagedProductSearch> newProductSearch() async {
+    final hideRv = await _hideRv();
+    return PagedProductSearch(() => _apiService, visible: hideRv ? (p) => !_isRv(p) : null);
+  }
+
+  /// Première page de résultats pour [query] (liste vide en cas d'échec).
   Future<List<ProductSearchResult>> searchProduct(String query) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final hideRv = prefs.getBool('hide_rv_products') ?? true;
-
-      final results = await _apiService.searchProducts(query);
-
-      if (hideRv) {
-        results.removeWhere((p) => p.strNAME.toUpperCase().startsWith("RV "));
-      }
-      return results;
+      final search = await newProductSearch();
+      await search.run(query);
+      return search.items;
     } catch (e) {
       return [];
     }
   }
 
-  /// Recherche pour un scan : un échec réseau lève [ApiLoadException] (≠ produit introuvable).
+  /// Message du dernier scan sans résultat : « Code X introuvable (essayé aussi Y) ».
+  String? _scanNotFound;
+  String? get scanNotFound => _scanNotFound;
+
+  /// Recherche pour un scan (produit exact, avec les variantes EAN-13 → CIP7…) :
+  /// un échec réseau lève [ApiLoadException] (≠ produit introuvable).
   Future<List<ProductSearchResult>> searchProductForScan(String query) async {
-    bool hideRv = true;
-    try {
-      hideRv = (await SharedPreferences.getInstance()).getBool('hide_rv_products') ?? true;
-    } catch (_) {}
-    final results = await _apiService.searchProductsOrFail(query);
-    if (hideRv) {
-      results.removeWhere((p) => p.strNAME.toUpperCase().startsWith("RV "));
-    }
-    return results;
+    final search = await newProductSearch();
+    await search.run(query, asCode: true);
+    if (search.error != null) throw ApiLoadException(search.error!);
+    _scanNotFound = search.notFound;
+    return search.items;
   }
 
   Future<bool> addProduct({

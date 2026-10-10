@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart'; // Utilise le modèle de recherche rapide
+import 'package:prestige_vente_app/services/product_finder.dart';
 
-class ExpirationUpdateProvider with ChangeNotifier {
+class ExpirationUpdateProvider with ChangeNotifier, PagedProductSearchHost {
   ApiService _apiService;
 
   ExpirationUpdateProvider(this._apiService);
@@ -15,18 +16,27 @@ class ExpirationUpdateProvider with ChangeNotifier {
   }
 
   bool _isLoading = false;
-  List<ProductSearchResult> _searchResults = [];
+
+  /// Code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
+  @override
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
   // MODIFICATION : Le produit sélectionné est maintenant du type de la recherche rapide
   ProductSearchResult? _selectedProduct;
   String? _errorMessage;
 
   bool get isLoading => _isLoading;
-  List<ProductSearchResult> get searchResults => _searchResults;
+  List<ProductSearchResult> get searchResults => productSearch.items;
+
+  /// Panne de la dernière recherche (≠ produit introuvable).
+  String? get searchError => productSearch.error;
+
+  /// Code inconnu : « Code X introuvable (essayé aussi Y) ».
+  String? get searchNotFound => productSearch.notFound;
   ProductSearchResult? get selectedProduct => _selectedProduct;
   String? get errorMessage => _errorMessage;
 
   void clearSearch() {
-    _searchResults = [];
+    productSearch.clear();
     _selectedProduct = null;
     notifyListeners();
   }
@@ -43,42 +53,36 @@ class ExpirationUpdateProvider with ChangeNotifier {
     }
     _isLoading = true;
     notifyListeners();
-    // Utilise l'API de recherche rapide
-    _searchResults = await _apiService.searchProducts(query);
+    // Code → produit exact ; texte → 1ʳᵉ page (la suite se charge en faisant défiler)
+    await productSearch.run(query); // une recherche plus récente remplace celle-ci
     _isLoading = false;
     notifyListeners();
   }
 
-  /// Recherche successivement chaque code (EAN-13, CIP7...) issu d'un DataMatrix
-  /// et conserve les résultats du premier code qui trouve au moins un produit.
+  /// Recherche successivement chaque code (EAN-13, CIP7...) issu d'un DataMatrix :
+  /// le produit exact dès qu'un code le désigne, sinon les produits trouvés.
+  /// Une panne est exposée dans [searchError] (≠ produit introuvable).
   Future<void> searchFirstMatch(List<String> queries) async {
     _isLoading = true;
-    _searchResults = [];
+    productSearch.clear();
     notifyListeners();
-    for (final query in queries) {
-      final results = await _apiService.searchProducts(query);
-      if (results.isNotEmpty) {
-        _searchResults = results;
-        break;
-      }
-    }
+    await productSearch.runCodes(queries);
     _isLoading = false;
     notifyListeners();
   }
 
   /// Comme [searchFirstMatch] mais sans modifier l'état de l'écran (contrôle en arrière-plan).
+  /// En cas de panne : liste vide (aucun avertissement affiché).
   Future<List<ProductSearchResult>> lookupFirstMatch(List<String> queries) async {
-    for (final query in queries) {
-      final results = await _apiService.searchProducts(query);
-      if (results.isNotEmpty) return results;
-    }
-    return [];
+    final check = PagedProductSearch(() => _apiService);
+    await check.runCodes(queries);
+    return check.items;
   }
 
   // MODIFICATION : La sélection est maintenant une simple affectation, sans appel API
   void selectProduct(ProductSearchResult product) {
     _selectedProduct = product;
-    _searchResults = []; // On cache les résultats
+    productSearch.clear(); // On cache les résultats
     notifyListeners();
   }
 

@@ -3,8 +3,9 @@ import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/depot_model.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/services/product_finder.dart';
 
-class DepotSaleProvider with ChangeNotifier {
+class DepotSaleProvider with ChangeNotifier, PagedProductSearchHost {
   final ApiService _apiService;
 
   // État de la vente
@@ -20,12 +21,16 @@ class DepotSaleProvider with ChangeNotifier {
   List<SaleLine> get cartItems => _cartItems;
 
   // --- GESTION RECHERCHE ---
-  List<ProductSearchResult> _searchResults = [];
-  List<ProductSearchResult> get searchResults => _searchResults;
+  /// Code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
+  @override
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
+  List<ProductSearchResult> get searchResults => productSearch.items;
 
   /// Échec de la dernière recherche (réseau/serveur) : ≠ « produit introuvable ».
-  String? _searchError;
-  String? get searchError => _searchError;
+  String? get searchError => productSearch.error;
+
+  /// Code inconnu : « Code X introuvable (essayé aussi Y) ».
+  String? get searchNotFound => productSearch.notFound;
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -60,18 +65,14 @@ class DepotSaleProvider with ChangeNotifier {
   // --- Recherche Produits ---
   Future<void> searchProducts(String query) async {
     _isLoading = true;
-    _searchError = null;
     notifyListeners();
     try {
-      _searchResults = await _apiService.searchDepotProducts(query);
-    } on ApiLoadException catch (e) {
-      _searchResults = [];
-      _searchError = e.message;
-      _errorMessage = e.message;
+      await productSearch.run(query);
+      if (productSearch.error != null) _errorMessage = productSearch.error!;
     } catch (e) {
-      _searchResults = [];
-      _searchError = "Recherche impossible : $e";
-      _errorMessage = _searchError!;
+      productSearch.clear();
+      productSearch.error = "Recherche impossible : $e";
+      _errorMessage = productSearch.error!;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -79,7 +80,7 @@ class DepotSaleProvider with ChangeNotifier {
   }
 
   void clearSearchResults() {
-    _searchResults = [];
+    productSearch.clear();
     notifyListeners();
   }
 
@@ -93,8 +94,7 @@ class DepotSaleProvider with ChangeNotifier {
     _currentSaleId = null;
     _selectedDepot = null;
     _cartItems = [];
-    _searchResults = [];
-    _searchError = null;
+    productSearch.clear();
     _totalAmount = 0;
     _errorMessage = '';
     _cartError = null;

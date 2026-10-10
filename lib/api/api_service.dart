@@ -37,6 +37,7 @@ import 'package:prestige_vente_app/api/models/licence_model.dart';
 import 'package:prestige_vente_app/api/models/licence_lookup.dart';
 import 'package:prestige_vente_app/api/models/depot_model.dart'; // Pour DepotSaleListItem
 import 'package:prestige_vente_app/api/models/ajustement.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart' show ProductPage;
 
 /// Échec de chargement d'une liste (à distinguer d'une liste vide).
 class ApiLoadException implements Exception {
@@ -284,7 +285,12 @@ class ApiService {
   /// Charge une liste `{data: [...]}`. Une liste vide n'est renvoyée que si le serveur
   /// a bien répondu ; un échec (réseau, session, erreur serveur, réponse illisible)
   /// lève [ApiLoadException] avec un message clair, pour ne pas le confondre avec « aucun résultat ».
-  Future<List<T>> _loadList<T>(String what, Future<Response<dynamic>> Function() request, T Function(Map<String, dynamic>) parse) async {
+  Future<List<T>> _loadList<T>(String what, Future<Response<dynamic>> Function() request, T Function(Map<String, dynamic>) parse) async =>
+      (await _loadListWithBody(what, request, parse)).$1;
+
+  /// Comme [_loadList], mais renvoie aussi le corps de la réponse (pour lire `total`).
+  Future<(List<T>, Map)> _loadListWithBody<T>(
+      String what, Future<Response<dynamic>> Function() request, T Function(Map<String, dynamic>) parse) async {
     final Response<dynamic> response;
     try {
       response = await request();
@@ -300,10 +306,10 @@ class ApiService {
       throw ApiLoadException('Réponse inattendue du serveur pour les $what. La session a peut-être expiré : reconnectez-vous.');
     }
     final data = body['data'];
-    if (data == null) return [];
+    if (data == null) return (<T>[], body);
     if (data is! List) throw ApiLoadException('Réponse inattendue du serveur pour les $what.');
     try {
-      return [for (final item in data) parse(Map<String, dynamic>.from(item as Map))];
+      return ([for (final item in data) parse(Map<String, dynamic>.from(item as Map))], body);
     } catch (e) {
       throw ApiLoadException('Données des $what illisibles : $e');
     }
@@ -335,6 +341,18 @@ class ApiService {
         () => _dio.get('/common/type-ajustements', queryParameters: {'limit': 9999}),
         TypeAjustement.fromJson,
       );
+
+  /// Recherche produit PAR PAGES (même URL que [searchProducts]) : renvoie aussi le `total` du serveur,
+  /// pour afficher « 50 sur 120 » et charger la suite. Un échec lève [ApiLoadException] (≠ produit introuvable).
+  Future<ProductPage> searchProductsPageOrFail(String query, int start, int limit) async {
+    final (items, body) = await _loadListWithBody(
+      'produits',
+      () => _dio.get('/vente/search', queryParameters: {'query': query, 'page': start ~/ limit + 1, 'start': start, 'limit': limit}),
+      ProductSearchResult.fromJson,
+    );
+    final total = int.tryParse('${body['total'] ?? ''}');
+    return ProductPage(items, total ?? items.length);
+  }
 
   /// Même recherche que [searchProducts], mais un échec lève [ApiLoadException] (≠ produit introuvable).
   Future<List<ProductSearchResult>> searchProductsOrFail(String query) => _loadList(
