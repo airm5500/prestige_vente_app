@@ -1,4 +1,6 @@
 // lib/providers/ajustement_provider.dart
+// Les échecs (réseau, serveur) sont exposés en messages clairs : une ligne n'est
+// présentée comme enregistrée que si le serveur l'a confirmée.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/ajustement.dart';
@@ -11,8 +13,13 @@ class AjustementProvider with ChangeNotifier {
   String? _currentAjustementId;
   List<AjustementItem> _items = [];
   List<TypeAjustement> _typesAjustement = [];
-  bool _isLoading = false;
+  bool _isLoading = false; // envoi en cours (ajout de ligne ou clôture)
   String? _errorMessage;
+
+  bool _typesLoading = false;
+  String? _typesError;
+  bool _itemsLoading = false;
+  String? _itemsError;
 
   AjustementProvider(this._apiService);
 
@@ -22,22 +29,28 @@ class AjustementProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
+  /// Chargement des motifs en cours / échec (≠ aucun motif).
+  bool get typesLoading => _typesLoading;
+  String? get typesError => _typesError;
+
+  /// Rechargement des lignes en cours / échec (≠ aucune ligne).
+  bool get itemsLoading => _itemsLoading;
+  String? get itemsError => _itemsError;
+
   Future<void> loadTypesAjustement() async {
+    _typesLoading = true;
+    _typesError = null;
+    notifyListeners();
     try {
-      final response = await _apiService.request(
-        method: 'GET',
-        url: '/common/type-ajustements',
-        queryParameters: {'limit': 9999},
-      );
-      if (response != null && response['data'] != null) {
-        _typesAjustement = (response['data'] as List)
-            .map((e) => TypeAjustement.fromJson(e))
-            .toList();
-        notifyListeners();
-      }
+      // En cas d'échec, on garde les motifs déjà chargés.
+      _typesAjustement = await _apiService.getTypesAjustement();
+    } on ApiLoadException catch (e) {
+      _typesError = e.message;
     } catch (e) {
-      print("Erreur loadTypesAjustement: $e");
+      _typesError = "Impossible de charger les motifs d'ajustement : $e";
     }
+    _typesLoading = false;
+    notifyListeners();
   }
 
   Future<List<ProductSearchResult>> searchProduct(String query) async {
@@ -56,12 +69,31 @@ class AjustementProvider with ChangeNotifier {
     }
   }
 
+  /// Recherche pour un scan : un échec réseau lève [ApiLoadException] (≠ produit introuvable).
+  Future<List<ProductSearchResult>> searchProductForScan(String query) async {
+    bool hideRv = true;
+    try {
+      hideRv = (await SharedPreferences.getInstance()).getBool('hide_rv_products') ?? true;
+    } catch (_) {}
+    final results = await _apiService.searchProductsOrFail(query);
+    if (hideRv) {
+      results.removeWhere((p) => p.strNAME.toUpperCase().startsWith("RV "));
+    }
+    return results;
+  }
+
   Future<bool> addProduct({
     required ProductSearchResult product,
     required int quantity,
     required int typeAjustementId,
     String description = "",
   }) async {
+    // Pas de double envoi : un seul ajout à la fois (sinon deux créations possibles).
+    if (_isLoading) {
+      _errorMessage = "Un envoi est déjà en cours. Patientez.";
+      notifyListeners();
+      return false;
+    }
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -98,11 +130,12 @@ class AjustementProvider with ChangeNotifier {
         data: payload,
       );
 
-      if (response != null && response['success'] == true) {
+      if (response is Map && response['success'] == true) {
 
         // Si c'était une création (premier produit), on récupère l'ID créé
-        if (_currentAjustementId == null && response['data'] != null) {
-          _currentAjustementId = response['data']['lgAJUSTEMENTID'];
+        final data = response['data'];
+        if (_currentAjustementId == null && data is Map && data['lgAJUSTEMENTID'] is String) {
+          _currentAjustementId = data['lgAJUSTEMENTID'];
         }
 
         // Délai de sécurité pour l'écriture BDD
@@ -114,54 +147,48 @@ class AjustementProvider with ChangeNotifier {
         _isLoading = false;
         notifyListeners();
         return true;
+      } else if (response == null) {
+        _errorMessage = "Ligne NON enregistrée : serveur injoignable ou erreur du serveur. "
+            "Vérifiez le réseau, actualisez la liste puis réessayez.";
       } else {
-        _errorMessage = "Erreur API : ${response?['msg'] ?? 'Inconnue'}";
-        _isLoading = false;
-        notifyListeners();
-        return false;
+        final msg = response is Map ? response['msg'] : null;
+        _errorMessage = "Ligne refusée par le serveur : ${msg ?? 'raison inconnue'}";
       }
+      _isLoading = false;
+      notifyListeners();
+      return false;
     } catch (e) {
-      _errorMessage = "Erreur technique: $e";
+      _errorMessage = "Ligne NON enregistrée (erreur technique) : $e";
       _isLoading = false;
       notifyListeners();
       return false;
     }
   }
 
+  /// Recharge les lignes de l'ajustement en cours (bouton « Réessayer » / « Actualiser »).
+  Future<void> refreshItems() => _refreshItems();
+
   Future<void> _refreshItems() async {
     if (_currentAjustementId == null) return;
+    _itemsLoading = true;
+    _itemsError = null;
+    notifyListeners();
     try {
-      final response = await _apiService.request(
-        method: 'GET',
-        url: '/ajustement/items',
-        queryParameters: {
-          'ajustementId': _currentAjustementId,
-          'limit': 100,
-          'start': 0,
-          'page': 1,
-          // CORRECTION ANTI-CACHE : On ajoute un timestamp pour forcer une réponse fraîche
-          '_dc': DateTime.now().millisecondsSinceEpoch.toString(),
-        },
-      );
-
-      if (response != null && response['data'] != null) {
-        _items = (response['data'] as List)
-            .map((e) => AjustementItem.fromJson(e))
-            .toList();
-
-        // Optionnel : Trier pour voir le dernier ajouté en haut
-        // _items.sort((a, b) => b.heure.compareTo(a.heure));
-
-        notifyListeners();
-      }
+      _items = await _apiService.getAjustementItems(_currentAjustementId!);
+    } on ApiLoadException catch (e) {
+      _itemsError = e.message;
     } catch (e) {
-      print("Erreur refreshItems: $e");
+      _itemsError = "Impossible de charger les lignes d'ajustement : $e";
     }
+    _itemsLoading = false;
+    notifyListeners();
   }
 
   Future<bool> validateAjustement() async {
     if (_currentAjustementId == null) return false;
+    if (_isLoading) return false; // pas de double clôture
     _isLoading = true;
+    _errorMessage = null;
     notifyListeners();
 
     try {
@@ -173,16 +200,21 @@ class AjustementProvider with ChangeNotifier {
 
       _isLoading = false;
 
-      if (response != null && response['success'] == true) {
+      if (response is Map && response['success'] == true) {
         _currentAjustementId = null;
         _items = [];
+        _itemsError = null;
         notifyListeners();
         return true;
+      } else if (response == null) {
+        _errorMessage = "Clôture NON confirmée : serveur injoignable ou erreur du serveur. "
+            "L'ajustement reste en cours ; vérifiez le réseau puis réessayez.";
       } else {
-        _errorMessage = "Erreur validation: ${response?['msg'] ?? 'Inconnue'}";
-        notifyListeners();
-        return false;
+        final msg = response is Map ? response['msg'] : null;
+        _errorMessage = "Erreur validation: ${msg ?? 'Inconnue'}";
       }
+      notifyListeners();
+      return false;
     } catch (e) {
       _isLoading = false;
       _errorMessage = "Erreur technique: $e";
