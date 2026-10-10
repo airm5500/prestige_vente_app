@@ -129,10 +129,22 @@ class ServerMonitor extends ChangeNotifier with WidgetsBindingObserver {
   /// Le serveur a répondu à une opération : il est joignable.
   void signalReachable() => _succes();
 
+  /// Hors ligne MANUEL et serveur de nouveau joignable : on reste hors ligne (choix de
+  /// l'utilisateur) mais on le propose (« Repasser en ligne »).
+  bool get joignablePendantManuel => _joignablePendantManuel;
+  bool _joignablePendantManuel = false;
+
   void _succes() {
     _echecs = 0;
     _premierEchec = null;
     if (_etat == EtatServeur.enLigne) return;
+    if (_etat == EtatServeur.horsLigne && _raison == RaisonHorsLigne.manuel) {
+      if (!_joignablePendantManuel) {
+        _joignablePendantManuel = true;
+        notifyListeners();
+      }
+      return;
+    }
     _etat = EtatServeur.enLigne;
     _raison = null;
     _depuis = null;
@@ -156,6 +168,7 @@ class ServerMonitor extends ChangeNotifier with WidgetsBindingObserver {
     if (_etat == EtatServeur.horsLigne) return;
     _etat = EtatServeur.horsLigne;
     _raison = manuel ? RaisonHorsLigne.manuel : RaisonHorsLigne.confirme;
+    _joignablePendantManuel = false;
     _depuis = now;
     _retourAt = null;
     notifyListeners();
@@ -165,6 +178,7 @@ class ServerMonitor extends ChangeNotifier with WidgetsBindingObserver {
   void goOnline() {
     if (_etat != EtatServeur.enLigne) {
       _etat = EtatServeur.enLigne;
+      _joignablePendantManuel = false;
       _raison = null;
       _depuis = null;
       _echecs = 0;

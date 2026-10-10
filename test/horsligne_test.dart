@@ -319,6 +319,10 @@ void main() {
       final m2 = ServerMonitor(ping: () async => true, clock: () => _t0);
       m2.goOffline();
       expect((m2.etat, m2.raison), (EtatServeur.horsLigne, RaisonHorsLigne.manuel));
+      // Hors ligne manuel : le serveur répond, on RESTE hors ligne mais on le propose.
+      await m2.checkNow();
+      expect(m2.etat, EtatServeur.horsLigne);
+      expect(m2.joignablePendantManuel, isTrue);
       m2.goOnline();
       await Future<void>.delayed(Duration.zero);
       expect(m2.etat, EtatServeur.enLigne);

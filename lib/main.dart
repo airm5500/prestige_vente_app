@@ -165,10 +165,9 @@ class MyApp extends StatelessWidget {
         title: 'Prestige Vente',
         theme: AppTheme.lightTheme,
         // Tablette : fenêtres de dialogue à largeur raisonnable (téléphone inchangé).
-        builder: (context, child) => ResponsiveTheme(child: child ?? const SizedBox.shrink()),
         debugShowCheckedModeBanner: false,
-        // Bandeau hors ligne (rien tant que le serveur répond).
-        builder: (context, child) => HorsLigneScope(child: child ?? const SizedBox.shrink()),
+        // Thème des dialogues adapté aux tablettes + bandeau hors ligne (rien tant que le serveur répond).
+        builder: (context, child) => HorsLigneScope(child: ResponsiveTheme(child: child ?? const SizedBox.shrink())),
         home: const SplashScreen(),
       ),
     );

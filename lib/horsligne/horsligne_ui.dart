@@ -142,6 +142,7 @@ class HorsLigneBanner extends StatelessWidget {
           [
             'Hors ligne — ${horsLigne.catalogueLabel}',
             if (horsLigne.ventesEnAttente.value != null) '${horsLigne.ventesEnAttente.value} vente(s) en attente',
+            if (m.joignablePendantManuel) 'serveur joignable',
           ].join(' · '),
         ),
       BandeauHorsLigne.retour => (const Color(0xFFDCFCE7), const Color(0xFF166534), Icons.cloud_done, 'Serveur de nouveau joignable'),
@@ -173,6 +174,18 @@ class HorsLigneBanner extends StatelessWidget {
                   ),
                   onPressed: () => m.goOffline(manuel: false),
                   child: const Text('Continuer hors ligne'),
+                ),
+              if (kind == BandeauHorsLigne.horsLigne && m.joignablePendantManuel)
+                TextButton(
+                  key: const Key('repasser_en_ligne'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: fg,
+                    minimumSize: const Size(44, 34),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: m.goOnline,
+                  child: const Text('Repasser en ligne'),
                 ),
             ]),
           ),
