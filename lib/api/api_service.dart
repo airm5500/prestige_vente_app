@@ -416,31 +416,22 @@ class ApiService {
 
   // --- GESTION VENTE DEPOT ---
 
-  // 1. Liste des ventes dépôts
+  // 1. Liste des ventes dépôts (un échec lève [ApiLoadException], ≠ liste vide)
   Future<List<DepotSaleListItem>> fetchDepotSales({
     String query = '',
     String statut = 'is_Process',
     int start = 0,
     int limit = 15
-  }) async {
-    try {
-      final response = await _dio.get('/ventestats/preventes-depot', queryParameters: {
-        'statut': statut,
-        'query': query,
-        'start': start,
-        'limit': limit
-      });
-      if (response.statusCode == 200 && response.data['data'] != null) {
-        return (response.data['data'] as List)
-            .map((e) => DepotSaleListItem.fromJson(e))
-            .toList();
-      }
-      return [];
-    } catch (e) {
-      print("Erreur fetchDepotSales: $e");
-      return [];
-    }
-  }
+  }) => _loadList(
+        'ventes dépôt',
+        () => _dio.get('/ventestats/preventes-depot', queryParameters: {
+          'statut': statut,
+          'query': query,
+          'start': start,
+          'limit': limit
+        }),
+        DepotSaleListItem.fromJson,
+      );
 
   // 2. Charger une vente dépôt existante (Reprise)
   Future<Map<String, dynamic>?> getDepotSaleDetails(String saleId) async {
@@ -456,24 +447,35 @@ class ApiService {
     }
   }
 
-  // 3. Liste des dépôts disponibles (Choix Client/Emplacement)
-  Future<List<DepotModel>> fetchDepots({String query = ''}) async {
-    try {
-      final response = await _dio.get('/magasin/find-depots', queryParameters: {
-        'query': query,
-        'limit': 50
-      });
-      if (response.statusCode == 200 && response.data['data'] != null) {
-        return (response.data['data'] as List)
-            .map((e) => DepotModel.fromJson(e))
-            .toList();
-      }
-      return [];
-    } catch (e) {
-      print("Erreur fetchDepots: $e");
-      return [];
-    }
-  }
+  // 3. Liste des dépôts disponibles (Choix Client/Emplacement) ; un échec lève [ApiLoadException]
+  Future<List<DepotModel>> fetchDepots({String query = ''}) => _loadList(
+        'dépôts',
+        () => _dio.get('/magasin/find-depots', queryParameters: {
+          'query': query,
+          'limit': 50
+        }),
+        DepotModel.fromJson,
+      );
+
+  // 3 bis. Recherche produit pour la vente dépôt (même appel que [searchProducts]) ;
+  // un échec lève [ApiLoadException] au lieu de « produit introuvable ».
+  Future<List<ProductSearchResult>> searchDepotProducts(String query) => _loadList(
+        'produits',
+        () => _dio.get('/vente/search', queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 30}),
+        ProductSearchResult.fromJson,
+      );
+
+  // 3 ter. Lignes d'une vente dépôt (même appel que [fetchSaleItems]) ;
+  // un échec lève [ApiLoadException] au lieu d'un panier vide.
+  Future<List<SaleLine>> fetchDepotSaleItems(String venteId) => _loadList(
+        'lignes de la vente',
+        () => _dio.get('/vente/deatails', queryParameters: {
+          'venteId': venteId,
+          'start': 0,
+          'limit': 100
+        }),
+        SaleLine.fromJson,
+      );
 
   // 4. Créer vente dépôt (Ajout 1er article)
   Future<Map<String, dynamic>?> addFirstDepotItem({

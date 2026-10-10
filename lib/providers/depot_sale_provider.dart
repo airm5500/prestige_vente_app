@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/depot_model.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
-//import 'package:prestige_vente_app/api/models/product_search_result.dart'; // Assurez-vous d'importer ceci
 import 'package:prestige_vente_app/api/models/sale.dart';
 
 class DepotSaleProvider with ChangeNotifier {
@@ -20,9 +19,13 @@ class DepotSaleProvider with ChangeNotifier {
   List<SaleLine> _cartItems = [];
   List<SaleLine> get cartItems => _cartItems;
 
-  // --- NOUVEAU : GESTION RECHERCHE ---
+  // --- GESTION RECHERCHE ---
   List<ProductSearchResult> _searchResults = [];
   List<ProductSearchResult> get searchResults => _searchResults;
+
+  /// Échec de la dernière recherche (réseau/serveur) : ≠ « produit introuvable ».
+  String? _searchError;
+  String? get searchError => _searchError;
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -32,8 +35,20 @@ class DepotSaleProvider with ChangeNotifier {
   int _totalAmount = 0;
   int get totalAmount => _totalAmount;
 
+  /// Panier non relu depuis le serveur après une opération : affiché tel quel mais
+  /// la clôture est bloquée tant qu'il n'est pas actualisé.
+  String? _cartError;
+  String? get cartError => _cartError;
+
+  /// Clôture en cours (empêche une double clôture).
+  bool _isClosing = false;
+  bool get isClosing => _isClosing;
+
   bool _isQuickScanMode = false;
   bool get isQuickScanMode => _isQuickScanMode;
+
+  // Les ajouts sont faits l'un après l'autre (scan rapide) : jamais deux créations de vente.
+  Future<void> _addQueue = Future.value();
 
   DepotSaleProvider(this._apiService);
 
@@ -45,13 +60,18 @@ class DepotSaleProvider with ChangeNotifier {
   // --- Recherche Produits ---
   Future<void> searchProducts(String query) async {
     _isLoading = true;
+    _searchError = null;
     notifyListeners();
     try {
-      // Appel à l'API pour chercher
-      _searchResults = await _apiService.searchProducts(query);
+      _searchResults = await _apiService.searchDepotProducts(query);
+    } on ApiLoadException catch (e) {
+      _searchResults = [];
+      _searchError = e.message;
+      _errorMessage = e.message;
     } catch (e) {
       _searchResults = [];
-      _errorMessage = "Erreur recherche: $e";
+      _searchError = "Recherche impossible : $e";
+      _errorMessage = _searchError!;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -74,24 +94,32 @@ class DepotSaleProvider with ChangeNotifier {
     _selectedDepot = null;
     _cartItems = [];
     _searchResults = [];
+    _searchError = null;
     _totalAmount = 0;
     _errorMessage = '';
+    _cartError = null;
     _currentSaleRef = null;
     notifyListeners();
   }
 
-  Future<void> loadExistingSale(String saleId) async {
+  /// Charge une vente en cours. Renvoie `false` (avec [errorMessage]) si elle n'a pas pu être chargée.
+  Future<bool> loadExistingSale(String saleId) async {
     _isLoading = true;
+    _errorMessage = '';
     notifyListeners();
+    var ok = false;
     try {
       final data = await _apiService.getDepotSaleDetails(saleId);
       if (data != null) {
         _currentSaleId = saleId;
-        _currentSaleRef = data['strREF'];
-        if (data['magasin'] != null) {
-          _selectedDepot = DepotModel.fromJson(data['magasin']);
+        _currentSaleRef = data['strREF']?.toString();
+        if (data['magasin'] is Map) {
+          _selectedDepot = DepotModel.fromJson(Map<String, dynamic>.from(data['magasin'] as Map));
         }
-        await _refreshCart();
+        ok = await _refreshCart();
+        if (!ok) _errorMessage = _cartError ?? "Impossible de charger les lignes de la vente";
+      } else {
+        _errorMessage = "Impossible de charger la vente (réseau ou serveur indisponible).";
       }
     } catch (e) {
       _errorMessage = "Impossible de charger la vente";
@@ -99,15 +127,17 @@ class DepotSaleProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+    return ok;
   }
 
-  // --- Ajout au Panier (Alias pour compatibilité) ---
-  // L'écran appelle often 'addToCart(product, qty: x)', on adapte ici
-  Future<bool> addToCart(ProductSearchResult product, {int qty = 1}) async {
-    return _addProductInternal(product, qty);
+  // --- Ajout au Panier ---
+  Future<bool> addToCart(ProductSearchResult product, {int qty = 1}) {
+    final run = _addQueue.then((_) => _addProductInternal(product, qty));
+    _addQueue = run.then((_) {}, onError: (_) {});
+    return run;
   }
 
-  // Logique interne d'ajout (anciennement addProduct)
+  // Logique interne d'ajout
   Future<bool> _addProductInternal(ProductSearchResult product, int quantity) async {
     if (_selectedDepot == null) {
       _errorMessage = "Veuillez sélectionner un dépôt d'abord.";
@@ -152,7 +182,7 @@ class DepotSaleProvider with ChangeNotifier {
       if (success) {
         await _refreshCart();
       } else {
-        _errorMessage = "Erreur lors de l'ajout du produit";
+        _errorMessage = "Produit non ajouté : le serveur n'a pas enregistré la ligne (réseau ou serveur indisponible).";
       }
     } catch (e) {
       _errorMessage = "Erreur technique: $e";
@@ -168,58 +198,113 @@ class DepotSaleProvider with ChangeNotifier {
   Future<bool> updateItem(SaleLine item, int newQty, int newPrice) async {
     _isLoading = true;
     notifyListeners();
-    final success = await _apiService.updateDepotItem(
-      itemId: item.lgPREENREGISTREMENTDETAILID,
-      produitId: item.lgFAMILLEID,
-      itemPu: newPrice,
-      qte: newQty,
-    );
-    if (success) await _refreshCart();
-    else _errorMessage = "Impossible de modifier la ligne";
-    _isLoading = false;
-    notifyListeners();
+    var success = false;
+    try {
+      success = await _apiService.updateDepotItem(
+        itemId: item.lgPREENREGISTREMENTDETAILID,
+        produitId: item.lgFAMILLEID,
+        itemPu: newPrice,
+        qte: newQty,
+      );
+      if (success) {
+        await _refreshCart();
+      } else {
+        _errorMessage = "Ligne non modifiée : le serveur n'a pas enregistré la modification.";
+      }
+    } catch (e) {
+      success = false;
+      _errorMessage = "Ligne non modifiée : $e";
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
     return success;
   }
 
   Future<bool> removeItem(String itemId) async {
     _isLoading = true;
     notifyListeners();
-    final success = await _apiService.removeDepotItem(itemId);
-    if (success) await _refreshCart();
-    else _errorMessage = "Impossible de supprimer la ligne";
-    _isLoading = false;
-    notifyListeners();
+    var success = false;
+    try {
+      success = await _apiService.removeDepotItem(itemId);
+      if (success) {
+        await _refreshCart();
+      } else {
+        _errorMessage = "Ligne non supprimée : le serveur n'a pas confirmé la suppression.";
+      }
+    } catch (e) {
+      success = false;
+      _errorMessage = "Ligne non supprimée : $e";
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
     return success;
   }
 
   Future<bool> closeSale() async {
     if (_currentSaleId == null || _selectedDepot == null) return false;
+    if (_isClosing) return false;
+    _isClosing = true;
     _isLoading = true;
     notifyListeners();
-    final success = await _apiService.closeDepotSale(
-      venteId: _currentSaleId!,
-      clientId: _selectedDepot!.lgCLIENTID,
-    );
-    if (success) resetSale();
-    else _errorMessage = "Erreur lors de la clôture";
-    _isLoading = false;
-    notifyListeners();
+    var success = false;
+    try {
+      success = await _apiService.closeDepotSale(
+        venteId: _currentSaleId!,
+        clientId: _selectedDepot!.lgCLIENTID,
+      );
+      if (success) {
+        resetSale();
+      } else {
+        _errorMessage = "Vente NON clôturée : le serveur n'a pas confirmé (réseau ou serveur indisponible). Elle reste en cours.";
+      }
+    } catch (e) {
+      success = false;
+      _errorMessage = "Vente NON clôturée : $e";
+    } finally {
+      _isClosing = false;
+      _isLoading = false;
+      notifyListeners();
+    }
     return success;
   }
 
-  Future<void> _refreshCart() async {
-    if (_currentSaleId == null) return;
-    final items = await _apiService.fetchSaleItems(_currentSaleId!);
-    _cartItems = items;
-    _totalAmount = items.fold(0, (sum, item) => sum + item.intPRICE);
+  /// Relit le panier depuis le serveur (bouton « Réessayer »).
+  Future<bool> refreshCart() async {
+    _isLoading = true;
     notifyListeners();
+    final ok = await _refreshCart();
+    _isLoading = false;
+    notifyListeners();
+    return ok;
+  }
+
+  // Relit les lignes : en cas d'échec, le panier affiché est conservé et [cartError] est renseigné.
+  Future<bool> _refreshCart() async {
+    if (_currentSaleId == null) return true;
+    try {
+      final items = await _apiService.fetchDepotSaleItems(_currentSaleId!);
+      _cartItems = items;
+      _totalAmount = items.fold(0, (sum, item) => sum + item.intPRICE);
+      _cartError = null;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _cartError = "Panier non actualisé : ${e is ApiLoadException ? e.message : e}";
+      notifyListeners();
+      return false;
+    }
   }
 
   // --- GESTION DE LA LISTE DES VENTES EN COURS ---
 
-  // CORRECTION : On utilise le bon type 'DepotSaleListItem'
   List<DepotSaleListItem> _ongoingSales = [];
   List<DepotSaleListItem> get ongoingSales => _ongoingSales;
+
+  /// Échec du chargement de la liste (≠ aucune vente en cours).
+  String? _listError;
+  String? get listError => _listError;
 
   Future<void> fetchOngoingSales() async {
     _isLoading = true;
@@ -228,23 +313,33 @@ class DepotSaleProvider with ChangeNotifier {
       // 1. Récupération brute depuis l'API
       final rawList = await _apiService.fetchDepotSales();
 
-      // 2. FILTRE MAGIQUE : On ne garde que les ventes ayant un montant > 0
-      // CORRECTION : On utilise '.intPRICE' qui est le champ réel du modèle
+      // 2. On ne garde que les ventes ayant un montant > 0
       _ongoingSales = rawList.where((sale) => sale.intPRICE > 0).toList();
-
+      _listError = null;
+    } on ApiLoadException catch (e) {
+      // La liste précédente est conservée, l'erreur est affichée.
+      _listError = e.message;
+      _errorMessage = "Erreur chargement liste: ${e.message}";
     } catch (e) {
+      _listError = "Impossible de charger les ventes dépôt : $e";
       _errorMessage = "Erreur chargement liste: $e";
-      _ongoingSales = [];
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> deleteCurrentSale() async {
+  /// Supprime la vente courante (vide) sur le serveur. Renvoie `false` si le serveur ne l'a pas supprimée.
+  Future<bool> deleteCurrentSale() async {
+    var ok = true;
     if (_currentSaleId != null) {
-      await _apiService.deleteSale(_currentSaleId!); // Appel API
+      try {
+        ok = await _apiService.deleteSale(_currentSaleId!); // Appel API
+      } catch (_) {
+        ok = false;
+      }
       resetSale(); // Nettoyage local
     }
+    return ok;
   }
 }
