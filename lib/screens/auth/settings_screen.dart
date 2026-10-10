@@ -2,6 +2,7 @@
 // 13/11/2025 10:00 (Complet : Assurance + Menu Organizer + Sécurité PIN + Stock BL Mode)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
+import 'package:prestige_vente_app/interface_version.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart'; // Pour isAdmin
@@ -252,6 +253,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                       const SizedBox(height: 10),
                       const VentesVersionTile(),
+                      const InterfaceVersionTile(),
                       SwitchListTile(
                         title: const Text("Masquer les produits 'RV'"),
                         value: settings.hideRvProducts,

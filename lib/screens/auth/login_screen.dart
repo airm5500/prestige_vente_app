@@ -3,14 +3,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
+import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
-import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
-import 'package:prestige_vente_app/screens/home/home_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -97,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
           if (mounted) {
             Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const HomeScreen()),
+              MaterialPageRoute(builder: (_) => InterfaceVersion.home()),
             );
           }
         }
@@ -143,7 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   IconButton(
                     icon: const Icon(Icons.settings),
                     onPressed: () {
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => InterfaceVersion.settings()));
                     },
                     tooltip: 'Configuration',
                   ),

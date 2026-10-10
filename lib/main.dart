@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
+import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/article_analysis_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -36,6 +37,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('fr_FR', null);
   await VentesVersion.load();
+  await InterfaceVersion.load();
   runApp(const MyApp());
 }
 

@@ -4,14 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:prestige_vente_app/providers/auth_provider.dart';
+import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/api/api_service.dart'; // IMPORTANT
 
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
-import 'package:prestige_vente_app/screens/home/home_screen.dart';
 import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
-import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -63,7 +62,7 @@ class _SplashScreenState extends State<SplashScreen> {
         bool isAuth = await authProvider.tryAutoLogin();
         if (!mounted) return;
 
-        Widget nextScreen = isAuth ? const HomeScreen() : const LoginScreen();
+        Widget nextScreen = isAuth ? InterfaceVersion.home() : const LoginScreen();
         Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => nextScreen),
                 (route) => false
@@ -85,7 +84,7 @@ class _SplashScreenState extends State<SplashScreen> {
     } else {
       // Pas configuré du tout
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const SettingsScreen()),
+        MaterialPageRoute(builder: (_) => InterfaceVersion.settings()),
             (route) => false,
       );
     }
@@ -109,7 +108,7 @@ class _SplashScreenState extends State<SplashScreen> {
             onPressed: () {
               Navigator.pop(ctx);
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                MaterialPageRoute(builder: (_) => InterfaceVersion.settings()),
               ).then((_) => _checkConfiguration());
             },
             child: const Text("Configuration"),

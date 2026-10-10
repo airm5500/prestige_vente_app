@@ -2,9 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
+import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
-import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/utils/responsive.dart';
 
@@ -221,7 +221,7 @@ class _LicenceRegistrationScreenState extends State<LicenceRegistrationScreen> {
                           onPressed: () {
                             Navigator.push(
                               context,
-                              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                              MaterialPageRoute(builder: (_) => InterfaceVersion.settings()),
                             );
                           },
                           icon: const Icon(Icons.settings, size: 18),
