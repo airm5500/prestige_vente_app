@@ -42,7 +42,18 @@ Lecture du code du serveur (`SalesRessource.addVente`, `SalesServiceImpl`) :
 
 Avantage en plus : une vente en cours de saisie n'apparaît plus dans la liste des préventes des caissiers (aujourd'hui, une vente commencée dans l'onglet VENTE est en `is_Process` dès le 1ᵉʳ article et y apparaît).
 
-> ⚠️ À confirmer sur le serveur de test **avant** l'étape 2 : clôture directe d'une vente `pending` (stock, ticket, caisse, statistiques). Si un écart apparaît, repli : la vente est créée en `is_Process` comme aujourd'hui et le choix final appelle le même enchaînement que les onglets actuels.
+> ✅ **Vérifié sur le serveur de test (Payara + MariaDB, base du 08/10/2026)**, même produit, quantité 1 :
+>
+> | | Vente créée `prevente=false` (actuel) | Vente créée `prevente=true` puis encaissée |
+> |---|---|---|
+> | Statut à la création | `is_Process` | `pending` |
+> | Net, client, clôture | OK | OK |
+> | Statut après clôture | `is_Closed` | `is_Closed` |
+> | Stock | −1 | −1 |
+> | Mouvements de caisse | 1 (1 475 F) | 1 (1 475 F) |
+> | 2ᵉ clôture de la même vente | réponse « succès », **aucun mouvement ni stock en double** | idem |
+>
+> Le serveur est donc déjà idempotent sur la clôture : un double encaissement ne compte qu'une fois.
 
 ## 2. Défauts actuels à corriger (constatés dans le code)
 
