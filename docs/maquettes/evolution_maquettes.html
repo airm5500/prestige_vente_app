@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquettes évolutions</title>
+<style>
+:root{--navy:#003366;--amber:#F59E0B;--onAmber:#1F1300;--page:#F2F4F8;--ink:#14213D;--muted:#5B6B82;--line:#E3E8EF;--hm:#C9D6E8;--green:#16A34A;--blue:#2563EB;--red:#DC2626;--bg:#E9EDF3;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+header.top{padding:24px 16px 8px;max-width:1240px;margin:auto}
+h1{font-size:24px;margin:0 0 6px}
+.lead{color:var(--muted);margin:0 0 6px;max-width:900px}
+h2{max-width:1240px;margin:28px auto 4px;padding:0 16px;font-size:19px}
+.sub{max-width:1240px;margin:0 auto 12px;padding:0 16px;color:var(--muted);font-size:14px}
+.row{display:flex;flex-wrap:wrap;gap:22px;max-width:1240px;margin:auto;padding:0 16px 8px}
+figure{margin:0;display:flex;flex-direction:column;gap:8px;width:330px;max-width:100%}
+figcaption{font-size:13px;color:var(--muted)}
+figcaption b{color:var(--ink)}
+.phone{width:330px;max-width:100%;height:640px;border-radius:30px;border:8px solid #1b2433;background:var(--page);overflow:hidden;display:flex;flex-direction:column;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+.phone.white{background:#fff}
+.navy{background:var(--navy);color:#fff;padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px}
+.navy.round{border-radius:0 0 22px 22px}
+.bar{display:flex;align-items:center;gap:8px}
+.bar .t{flex:1;min-width:0}
+.bar .t b{display:block;font-size:17px}
+.bar .t span{font-size:12px;color:var(--hm)}
+.ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px}
+.wbar{background:#fff;border-bottom:1px solid var(--line);padding:12px 14px;display:flex;align-items:center;gap:8px;color:var(--navy)}
+.wbar .t{flex:1}.wbar .t b{display:block;font-size:17px}.wbar .t span{font-size:12px;color:var(--muted)}
+.search{background:#fff;border-radius:12px;padding:11px 12px;color:var(--muted);font-size:14px;display:flex;gap:8px;align-items:center}
+.search.out{border:1px solid #C5D0DE}
+.kpis{display:flex;gap:8px}
+.kpi{flex:1;background:rgba(255,255,255,.12);border-radius:12px;padding:8px 10px}
+.kpi b{display:block;font-size:17px}.kpi span{font-size:11px;color:var(--hm)}
+.kpi.hl{background:var(--amber);color:var(--onAmber)}.kpi.hl span{color:var(--onAmber)}
+.steps{display:flex;gap:4px}
+.st{flex:1;font-size:10.5px;text-align:center;padding:6px 2px;border-radius:8px;background:rgba(255,255,255,.12);color:var(--hm)}
+.st.on{background:var(--amber);color:var(--onAmber);font-weight:700}
+.st.done{background:rgba(22,163,74,.35);color:#fff}
+.body{flex:1;overflow:hidden;padding:12px;display:flex;flex-direction:column;gap:9px}
+.body.flat{padding:0;gap:0}
+.card{background:#fff;border-radius:14px;padding:11px 12px;box-shadow:0 1px 2px rgba(20,33,61,.06);position:relative;overflow:hidden}
+.card.band{padding-left:16px}
+.card.band::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--bandc,var(--navy))}
+.pn{font-weight:600;font-size:14px}
+.pm{font-size:12px;color:var(--muted)}
+.lr{display:flex;align-items:center;gap:8px}
+.lr .g{flex:1;min-width:0}
+.amt{font-weight:700;font-size:15px;white-space:nowrap}
+.mini{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:13px;background:#fff}
+.flatrow{background:#fff;border-bottom:1px solid #EEF1F5;padding:9px 14px}
+.foot{background:#fff;border-top:1px solid var(--line);padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.tot{display:flex;justify-content:space-between;align-items:baseline}
+.tot span{color:var(--muted);font-size:13px}.tot b{font-size:20px}
+.split{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.split b{color:var(--ink)}
+.btn{border-radius:12px;padding:12px;text-align:center;font-weight:700;font-size:14px}
+.btn.navy{background:var(--navy);color:#fff;padding:12px}
+.btn.amber{background:var(--amber);color:var(--onAmber)}
+.btn.out{border:1.5px solid var(--navy);color:var(--navy);background:#fff}
+.btn.dis{background:#DDE3EA;color:#8A99AD}
+.two{display:flex;gap:8px}.two>*{flex:1}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center;font-size:13px;font-weight:600}
+.tile .e{font-size:20px;display:block;margin-bottom:3px}
+.tile.on{border-color:var(--navy);background:#E3ECF7;color:var(--navy)}
+.field{background:#fff;border:1.5px solid var(--navy);border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.field b{font-size:18px;color:var(--ink)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid #C5D0DE;border-radius:20px;padding:6px 11px;font-size:12px;font-weight:600;color:var(--navy);background:#fff}
+.chip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.b-green{background:#E6F4EA;color:#166534}.b-amber{background:#FFF4E0;color:#9A3412}.b-blue{background:#E3ECF7;color:var(--navy)}.b-red{background:#FDECEC;color:#991B1B}
+.client{background:#fff;border-radius:14px;padding:10px 12px;border:1px solid var(--line)}
+.client .n{font-weight:700}
+.tp{display:flex;justify-content:space-between;font-size:12.5px;padding-top:5px}
+.check{display:flex;gap:6px;align-items:center;font-size:13px}
+.box{width:18px;height:18px;border-radius:5px;background:var(--navy);color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center}
+.warn{background:#FFF4E0;border:1px solid #F5D08A;color:#7C2D12;border-radius:12px;padding:9px 11px;font-size:12.5px;display:flex;gap:8px;align-items:center}
+.err{background:#FDECEC;border:1px solid #F5C2C2;color:#7F1D1D;border-radius:12px;padding:9px 11px;font-size:12.5px;display:flex;gap:8px;align-items:center}
+.err .r,.warn .r{margin-left:auto;font-weight:700;color:var(--navy);white-space:nowrap}
+.ok{background:#E6F4EA;color:#14532D;border-radius:12px;padding:8px 11px;font-size:12.5px}
+.lbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.dlg{position:absolute;inset:0;background:rgba(10,20,40,.45);display:flex;align-items:center;justify-content:center;padding:18px}
+.dlg .in{background:#fff;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:10px;width:100%}
+.dlg h4{margin:0;font-size:16px}
+.note{max-width:1240px;margin:8px auto 40px;padding:0 16px;color:var(--muted);font-size:13px}
+@media (max-width:420px){figure,.phone{width:100%}}
+</style>
+<style>
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.mt{background:#fff;border-radius:12px;padding:8px 2px;text-align:center;font-size:10.5px;font-weight:600;line-height:1.15;position:relative;box-shadow:0 1px 2px rgba(20,33,61,.06)}
+.mt .e{display:block;font-size:19px;margin-bottom:3px}
+.mt .cnt{position:absolute;top:3px;right:5px;background:var(--red);color:#fff;border-radius:10px;font-size:9.5px;padding:1px 5px}
+.mt .lock{position:absolute;top:3px;right:6px;font-size:9px}
+.fav{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fv{background:#fff;border-radius:14px;padding:11px;display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px;box-shadow:0 1px 2px rgba(20,33,61,.06)}
+.fv .e{width:34px;height:34px;border-radius:10px;background:#E3ECF7;display:flex;align-items:center;justify-content:center;font-size:17px}
+.task{background:#fff;border-radius:12px;padding:9px 11px;display:flex;align-items:center;gap:9px;font-size:13px;box-shadow:0 1px 2px rgba(20,33,61,.06)}
+.task b{font-size:17px;min-width:22px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+.pill{background:rgba(255,255,255,.14);border-radius:20px;padding:4px 10px;font-size:11.5px;display:inline-flex;align-items:center}
+.nav{background:#fff;border-top:1px solid var(--line);display:flex}
+.nav div{flex:1;text-align:center;font-size:10.5px;padding:7px 0 9px;color:var(--muted)}
+.nav div .e{display:block;font-size:17px}
+.nav div.on{color:var(--navy);font-weight:700}
+.sec{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:4px 2px 0}
+.lrow{background:#fff;display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #EEF1F5}
+.lrow .e{width:32px;height:32px;border-radius:9px;background:#E3ECF7;display:flex;align-items:center;justify-content:center;font-size:15px}
+.lrow .g{flex:1;min-width:0}
+.lrow .g b{display:block;font-size:13.5px}
+.lrow .g span{font-size:11.5px;color:var(--muted)}
+.big{background:#fff;border-radius:16px;padding:13px;display:flex;gap:12px;align-items:center;box-shadow:0 1px 2px rgba(20,33,61,.06)}
+.big .e{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.big b{display:block;font-size:15px}.big span{font-size:12px;color:var(--muted)}
+.sw{width:36px;height:20px;border-radius:12px;background:var(--navy);position:relative;flex:none}
+.sw::after{content:"";position:absolute;right:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+.sw.off{background:#C5D0DE}.sw.off::after{right:auto;left:2px}
+.seg{display:flex;background:#EEF2F7;border-radius:10px;padding:3px}
+.seg div{flex:1;text-align:center;font-size:12px;padding:6px 0;border-radius:8px;font-weight:600;color:var(--muted)}
+.seg div.on{background:#fff;color:var(--navy);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.drag{color:#A7B3C4;font-size:15px}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Évolutions : propositions de présentation</h1>
+  <p class="lead">Paiement en plusieurs modes, mode hors ligne, borne de vente libre-service (3 présentations au choix, téléphone et tablette). Données fictives.</p>
+</header>
+
+<h2>1. Paiement en plusieurs modes</h2>
+<p class="sub">La somme doit être exactement le net à payer ; le dernier mode reçoit le reste ; monnaie calculée sur les espèces seulement.</p>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Encaissement</b><span>PV-000123 · 4 articles</span></div></div>
+        <div style="text-align:center"><div style="font-size:12px;color:var(--hm)">Total à payer</div><div style="font-size:30px;font-weight:800">12 500 F</div></div>
+      </div>
+      <div class="body">
+        <div class="lbl">Règlements</div>
+        <div class="card band" style="--bandc:var(--green)"><div class="lr"><div class="g"><div class="pn">💵 Espèces</div><div class="pm">Reçu 10 000 · à rendre 5 000</div></div><div class="amt">5 000 F</div><span class="mini">✕</span></div></div>
+        <div class="card band" style="--bandc:var(--blue)"><div class="lr"><div class="g"><div class="pn">📱 Wave</div><div class="pm">QR affiché · <b style="color:var(--green)">✓ reçu</b></div></div><div class="amt">7 500 F</div><span class="mini">✕</span></div></div>
+        <div class="btn dis" style="padding:9px">+ Ajouter un mode (2 maximum)</div>
+        <div class="chips"><div class="chip">Tout en espèces</div><div class="chip">Tout en Wave</div><div class="chip">50 / 50</div></div>
+        <div class="tot" style="background:#E6F4EA;border-radius:12px;padding:10px 12px"><span style="color:#14532D">Reste à payer</span><b style="color:#14532D">0 F ✓</b></div>
+      </div>
+      <div class="foot"><div class="btn navy">VALIDER L'ENCAISSEMENT</div></div>
+    </div>
+    <figcaption><b>Espèces + Wave</b> : tout est couvert, chaque mobile money confirmé → Valider actif.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Encaissement</b><span>PV-000124</span></div></div>
+        <div style="text-align:center"><div style="font-size:12px;color:var(--hm)">Total à payer</div><div style="font-size:30px;font-weight:800">8 000 F</div></div>
+      </div>
+      <div class="body">
+        <div class="card band" style="--bandc:var(--amber)"><div class="lr"><div class="g"><div class="pn">📱 Orange Money</div><div class="pm">En attente du paiement…</div></div><div class="amt">5 000 F</div></div>
+          <div style="width:110px;height:110px;margin:8px auto 2px;background:repeating-linear-gradient(45deg,#14213D 0 5px,#fff 5px 10px);border:6px solid #fff;outline:1px solid var(--line)"></div>
+          <div class="pm" style="text-align:center">Faites scanner · 5 000 F</div></div>
+        <div class="card band" style="--bandc:var(--line)"><div class="lr"><div class="g"><div class="pn">📱 Wave</div><div class="pm">Reste automatique</div></div><div class="amt">3 000 F</div></div></div>
+        <div class="err">✋ 5 500 F dépasse le reste (3 000 F) : montant corrigé.</div>
+        <div class="tot"><span>Reste à payer</span><b>0 F</b></div>
+      </div>
+      <div class="foot"><div class="btn dis">EN ATTENTE DES PAIEMENTS (1/2)</div></div>
+    </div>
+    <figcaption><b>Orange + Wave</b> : impossible de dépasser le net ; validation bloquée tant qu'un paiement n'est pas reçu.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone white">
+      <div style="padding:16px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.6;color:#111">
+        <div style="text-align:center;font-weight:700">PHARMACIE LES PALMIERS</div>
+        <div style="text-align:center">Vente PV-000123 · 10/10/2026 10:42</div>
+        <div>--------------------------------</div>
+        <div>DOLIPRANE 1000MG x2 ...... 3 000</div>
+        <div>AUGMENTIN 1G x1 .......... 6 500</div>
+        <div>SMECTA B/30 x1 ........... 3 000</div>
+        <div>--------------------------------</div>
+        <div><b>TOTAL ................. 12 500</b></div>
+        <div>Espèces .................. 5 000</div>
+        <div>  reçu 10 000 · rendu ..... 5 000</div>
+        <div>Wave ..................... 7 500</div>
+        <div>--------------------------------</div>
+        <div style="text-align:center">Merci de votre visite</div>
+      </div>
+    </div>
+    <figcaption><b>Ticket</b> : détail par mode de paiement et monnaie rendue.</figcaption>
+  </figure>
+</div>
+
+<h2>2. Mode hors ligne (coupure de courant ou de réseau)</h2>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Vente</b><span>HL-0007 · prévente hors ligne</span></div></div>
+        <div style="background:#FFF4E0;color:#7C2D12;border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:600">⚡ Hors ligne — catalogue du 10/10 08:00 · 2 ventes en attente d'envoi</div>
+        <div class="search">🔍 Scanner ou rechercher (catalogue local)</div>
+      </div>
+      <div class="body">
+        <div class="card"><div class="lr"><div class="g"><div class="pn">DOLIPRANE 1000MG CP B/8</div><div class="pm">Stock connu : 42 (à 08:00)</div></div><div class="amt">3 000 F</div></div></div>
+        <div class="card"><div class="lr"><div class="g"><div class="pn">EFFERALGAN 500MG</div><div class="pm">Stock connu : 8</div></div><div class="amt">1 200 F</div></div></div>
+        <div class="warn">Prix et stock vérifiés à l'envoi. Mobile money indisponible hors ligne.</div>
+      </div>
+      <div class="foot"><div class="tot"><span>Total</span><b>4 200 F</b></div><div class="btn amber">ENREGISTRER (PRÉVENTE PROVISOIRE)</div></div>
+    </div>
+    <figcaption><b>Saisie hors ligne</b> : catalogue local, numéro provisoire HL-…, ticket « PROVISOIRE ».</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="t"><b>Envoi des ventes</b><span>Serveur de nouveau joignable</span></div></div></div>
+      <div class="body">
+        <div class="card band" style="--bandc:var(--green)"><div class="lr"><div class="g"><div class="pn">HL-0006 → PV-000131</div><div class="pm">Envoyée 10:15</div></div><span class="badge b-green">✓</span></div></div>
+        <div class="card band" style="--bandc:var(--blue)"><div class="lr"><div class="g"><div class="pn">HL-0007</div><div class="pm">Envoi en cours… 2/3 articles</div></div><span class="badge b-blue">…</span></div></div>
+        <div class="card band" style="--bandc:var(--amber)"><div class="lr"><div class="g"><div class="pn">HL-0005 · à vérifier</div><div class="pm">Prix modifié : AUGMENTIN 6 300 → 6 500</div></div><span class="badge b-amber">Corriger</span></div></div>
+      </div>
+      <div class="foot"><div class="btn out">VOIR LES VENTES À VÉRIFIER (1)</div></div>
+    </div>
+    <figcaption><b>Synchronisation</b> : une vente à la fois, sans doublon ; les conflits sont listés, rien n'est perdu.</figcaption>
+  </figure>
+</div>
+
+<h2>3. Borne libre-service — 3 présentations (désactivée par défaut)</h2>
+<p class="sub">Discrète, moderne, sans accès au reste de l'application ; retour à l'accueil après le ticket ou 60 s d'inactivité.</p>
+<div class="row">
+  <figure>
+    <div class="phone" style="background:#F7F9FC">
+      <div style="background:linear-gradient(135deg,#003366,#0B5394);color:#fff;padding:18px 16px 20px;border-radius:0 0 26px 26px">
+        <div style="font-size:12px;color:var(--hm)">Pharmacie Les Palmiers</div>
+        <div style="font-size:21px;font-weight:800;line-height:1.2;margin:4px 0 12px">Trouvez vos produits<br>en toute discrétion</div>
+        <div class="search" style="font-size:15px;padding:13px">🔍 Tapez le nom d'un produit…</div>
+      </div>
+      <div class="body">
+        <div class="sec">Catégories</div>
+        <div class="grid4">
+          <div class="mt"><span class="e">💊</span>Douleur</div><div class="mt"><span class="e">🤧</span>Rhume</div><div class="mt"><span class="e">🧴</span>Hygiène</div><div class="mt"><span class="e">🍼</span>Bébé</div>
+        </div>
+        <div class="sec">Produits</div>
+        <div class="fav">
+          <div class="card" style="padding:8px;text-align:center"><div style="height:62px;border-radius:10px;background:#E3ECF7;display:flex;align-items:center;justify-content:center;font-size:28px">💊</div><div class="pn" style="font-size:12.5px;margin-top:5px">DOLIPRANE 1000</div><div style="font-weight:800;color:var(--navy)">1 500 F</div></div>
+          <div class="card" style="padding:8px;text-align:center"><div style="height:62px;border-radius:10px;background:#FDECEC;display:flex;align-items:center;justify-content:center;font-size:28px">🧴</div><div class="pn" style="font-size:12.5px;margin-top:5px">GEL INTIME 200ML</div><div style="font-weight:800;color:var(--navy)">4 800 F</div></div>
+        </div>
+      </div>
+      <div class="foot" style="flex-direction:row;align-items:center"><div style="flex:1"><b>🛒 2 articles</b><div class="pm">6 300 F</div></div><div class="btn amber" style="padding:10px 18px">PANIER</div></div>
+    </div>
+    <figcaption><b>Vitrine</b> : grandes cartes avec images, catégories, panier toujours visible.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone white">
+      <div class="wbar"><div class="t"><b>Recherche</b><span>Pharmacie Les Palmiers</span></div><span class="badge b-amber">🛒 2</span></div>
+      <div style="padding:8px 12px"><div class="search out" style="color:var(--ink)">🔍 doli</div></div>
+      <div class="body flat">
+        <div class="flatrow lr"><div style="width:38px;height:38px;border-radius:8px;background:#E3ECF7;display:flex;align-items:center;justify-content:center">💊</div><div class="g"><div class="pn">DOLIPRANE 1000MG CP B/8</div><div class="pm">3595583</div></div><div class="amt">1 500 F</div></div>
+        <div class="flatrow lr"><div style="width:38px;height:38px;border-radius:8px;background:#E3ECF7;display:flex;align-items:center;justify-content:center">💊</div><div class="g"><div class="pn">DOLIPRANE 500MG CP B/16</div><div class="pm">3000000</div></div><div class="amt">900 F</div></div>
+        <div class="flatrow lr"><div style="width:38px;height:38px;border-radius:8px;background:#FFF4E0;display:flex;align-items:center;justify-content:center">🧪</div><div class="g"><div class="pn">DOLIPRANE 2,4% SUSP BUV</div><div class="pm">3400001</div></div><div class="amt">2 100 F</div></div>
+        <div class="flatrow pm" style="text-align:center">3 résultats</div>
+      </div>
+      <div class="foot"><div class="btn navy">VOIR MON PANIER · 6 300 F</div></div>
+    </div>
+    <figcaption><b>Liste rapide</b> : code, nom, prix, petite image ; idéal sur terminal.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy"><div class="steps"><div class="st done">1 Chercher</div><div class="st on">2 Panier</div><div class="st">3 Payer</div></div></div>
+      <div class="body">
+        <div class="card band" style="--bandc:var(--navy)"><div class="lr"><div class="g"><div class="pn">DOLIPRANE 1000MG CP B/8</div><div class="pm">1 500 F l'unité</div></div><span class="mini">−</span><b>1</b><span class="mini">+</span></div></div>
+        <div class="card band" style="--bandc:var(--navy)"><div class="lr"><div class="g"><div class="pn">GEL INTIME 200ML</div><div class="pm">4 800 F</div></div><span class="mini">−</span><b>1</b><span class="mini">+</span></div></div>
+        <div class="tot" style="padding:6px 4px"><span>Total</span><b>6 300 F</b></div>
+        <div class="lbl">Comment payer ?</div>
+        <div class="big" style="padding:10px"><span class="e" style="background:#E6F4EA">💵</span><div><b>À la caisse (espèces)</b><span>Un ticket sort, présentez-le à la caisse</span></div></div>
+        <div class="big" style="padding:10px"><span class="e" style="background:#E3ECF7">📱</span><div><b>Mobile money</b><span>Wave, Orange, MTN, Moov</span></div></div>
+      </div>
+      <div class="foot"><div class="btn out">← CONTINUER MES ACHATS</div></div>
+    </div>
+    <figcaption><b>Guidée</b> : étapes 1-2-3, gros boutons, pour tous les publics.</figcaption>
+  </figure>
+</div>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="ic">←</div><div class="t"><b>Produit</b></div></div></div>
+      <div class="body">
+        <div style="height:170px;border-radius:16px;background:#E3ECF7;display:flex;align-items:center;justify-content:center;font-size:64px">💊</div>
+        <div class="pn" style="font-size:17px">DOLIPRANE 1000MG CP B/8</div>
+        <div class="pm">Comprimés · boîte de 8 · code 3595583</div>
+        <div style="font-size:28px;font-weight:800;color:var(--navy)">1 500 F</div>
+        <div class="lr"><span class="mini" style="width:44px;height:44px">−</span><b style="font-size:20px;flex:1;text-align:center">1</b><span class="mini" style="width:44px;height:44px">+</span></div>
+      </div>
+      <div class="foot"><div class="btn amber">AJOUTER AU PANIER</div></div>
+    </div>
+    <figcaption><b>Fiche produit</b> : grande image, prix bien visible, quantité (1 à 10).</figcaption>
+  </figure>
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="t"><b>Paiement Wave</b><span>Montant exact : 6 300 F</span></div></div></div>
+      <div class="body" style="align-items:center;text-align:center">
+        <div style="width:190px;height:190px;margin-top:6px;background:repeating-linear-gradient(45deg,#14213D 0 7px,#fff 7px 14px);border:10px solid #fff;outline:1px solid var(--line);border-radius:10px"></div>
+        <div class="pn">Scannez avec votre application Wave</div>
+        <div class="warn" style="width:100%">⏳ En attente de la confirmation du paiement…</div>
+        <div class="pm">Annulation automatique dans 4:52</div>
+      </div>
+      <div class="foot"><div class="btn out">CHANGER DE MODE</div></div>
+    </div>
+    <figcaption><b>Mobile money</b> : QR du montant exact ; confirmation automatique par l'agrégateur.</figcaption>
+  </figure>
+  <figure>
+    <div class="phone">
+      <div class="body" style="align-items:center;justify-content:center;text-align:center">
+        <div style="width:88px;height:88px;border-radius:50%;background:#E6F4EA;display:flex;align-items:center;justify-content:center;font-size:44px">✓</div>
+        <div style="font-size:20px;font-weight:800">Merci !</div>
+        <div class="pm">Votre ticket <b>B-0042</b> s'imprime.<br>Présentez-le au comptoir pour récupérer vos produits.</div>
+        <div class="pm" style="margin-top:14px">Retour à l'accueil dans 10 s</div>
+      </div>
+    </div>
+    <figcaption><b>Fin</b> : ticket, puis retour automatique à l'accueil (panier vidé).</figcaption>
+  </figure>
+</div>
+
+<h2>4. Borne sur tablette (paysage)</h2>
+<div class="row">
+  <figure style="width:100%;max-width:900px">
+    <div class="phone" style="width:100%;max-width:900px;height:430px;flex-direction:row;background:#F7F9FC">
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div style="background:linear-gradient(135deg,#003366,#0B5394);color:#fff;padding:14px 18px;display:flex;gap:14px;align-items:center">
+          <div style="font-weight:800;font-size:18px;white-space:nowrap">Les Palmiers</div><div class="search" style="flex:1">🔍 Tapez le nom d'un produit…</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px">
+          <div class="card" style="text-align:center;padding:8px"><div style="height:70px;border-radius:10px;background:#E3ECF7;display:flex;align-items:center;justify-content:center;font-size:30px">💊</div><div class="pn" style="font-size:12px">DOLIPRANE 1000</div><b style="color:var(--navy)">1 500 F</b></div>
+          <div class="card" style="text-align:center;padding:8px"><div style="height:70px;border-radius:10px;background:#FFF4E0;display:flex;align-items:center;justify-content:center;font-size:30px">🧪</div><div class="pn" style="font-size:12px">SIROP TOUX</div><b style="color:var(--navy)">2 900 F</b></div>
+          <div class="card" style="text-align:center;padding:8px"><div style="height:70px;border-radius:10px;background:#FDECEC;display:flex;align-items:center;justify-content:center;font-size:30px">🧴</div><div class="pn" style="font-size:12px">GEL INTIME</div><b style="color:var(--navy)">4 800 F</b></div>
+          <div class="card" style="text-align:center;padding:8px"><div style="height:70px;border-radius:10px;background:#E6F4EA;display:flex;align-items:center;justify-content:center;font-size:30px">🍼</div><div class="pn" style="font-size:12px">LAIT 1ER ÂGE</div><b style="color:var(--navy)">6 500 F</b></div>
+        </div>
+      </div>
+      <div style="width:250px;background:#fff;border-left:1px solid var(--line);display:flex;flex-direction:column;padding:14px;gap:8px">
+        <b>🛒 Mon panier</b>
+        <div class="lr pm"><div class="g">DOLIPRANE 1000 ×1</div>1 500</div>
+        <div class="lr pm"><div class="g">GEL INTIME ×1</div>4 800</div>
+        <div style="flex:1"></div>
+        <div class="tot"><span>Total</span><b>6 300 F</b></div>
+        <div class="btn amber">PAYER</div>
+      </div>
+    </div>
+    <figcaption><b>Tablette / borne</b> : 4 colonnes et panier latéral (responsive).</figcaption>
+  </figure>
+</div>
+<p class="note">Toutes les maquettes suivent la charte des menus refaits. La borne est désactivée par défaut et s'active dans les Réglages (code administrateur).</p>
+</body>
+</html>
