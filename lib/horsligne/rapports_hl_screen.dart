@@ -5,6 +5,7 @@
 // Impression sur le ticket (mode test : aperçu) et partage en PDF.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/attente_ui.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
@@ -52,16 +53,17 @@ Future<void> _pdf(BuildContext context, String titre, List<String> lignes, Strin
 }
 
 List<Widget> _actions(BuildContext context, {required String titre, required List<String> Function(int cols) lignes, required String fichier}) => [
-      IconButton(
+      // Impression / PDF : bouton désactivé et animé pendant l'opération (pas de double impression).
+      IconActionOccupee(
         key: const Key('rapport_imprimer'),
         tooltip: 'Imprimer le ticket',
-        icon: const Icon(Icons.print),
+        icon: Icons.print,
         onPressed: () => imprimerRapport(context, titre: titre, lignes: lignes),
       ),
-      IconButton(
+      IconActionOccupee(
         key: const Key('rapport_pdf'),
         tooltip: 'Partager en PDF',
-        icon: const Icon(Icons.picture_as_pdf_outlined),
+        icon: Icons.picture_as_pdf_outlined,
         onPressed: () => _pdf(context, titre, lignes(80), fichier),
       ),
     ];

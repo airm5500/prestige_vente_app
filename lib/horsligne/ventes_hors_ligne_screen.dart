@@ -7,7 +7,10 @@
 // Accès aux rapports : anomalies de synchronisation, fin de journée.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/attente_ui.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_screen.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
@@ -25,20 +28,46 @@ Future<void> ouvrirVentesHorsLigne([BuildContext? context]) async {
 
 /// Confirmation AVANT tout envoi : liste des ventes (HL, heure, montant, articles), à décocher si déjà
 /// ressaisies sur le serveur (elles passent « ressaisie », jamais envoyées). [seulement] : ventes proposées.
+/// Une seule confirmation d'envoi à la fois (bandeau, écran, retour du serveur, double appui).
+bool get confirmationEnvoiOuverte => _confirmationOuverte;
+bool _confirmationOuverte = false;
+
 Future<void> confirmerEnvoiVentes(BuildContext context, {HorsLigne? horsLigne, Iterable<String>? seulement}) async {
   final f = (horsLigne ?? HorsLigne.instance).ventes;
-  await f.ensureLoaded();
-  final ids = seulement?.toSet();
-  final ventes = f.ventes.where((v) => v.aFaire && (ids == null || ids.contains(v.id))).toList();
-  if (ventes.isEmpty || !context.mounted) {
+  if (_confirmationOuverte || f.running) return;
+  _confirmationOuverte = true;
+  try {
+    await f.ensureLoaded();
+    final ids = seulement?.toSet();
+    final ventes = f.ventes.where((v) => v.aFaire && (ids == null || ids.contains(v.id))).toList();
+    if (ventes.isEmpty || !context.mounted) {
+      f.confirmationVue();
+      return;
+    }
+    final choix = await showDialog<Set<String>>(context: context, barrierDismissible: false, builder: (_) => _ConfirmationEnvoi(ventes: ventes));
     f.confirmationVue();
-    return;
+    final j = JournalTerminal.instance;
+    if (choix == null) {
+      j.noter(
+          type: TypeJournal.confirmation,
+          action: 'Envoi des ventes hors ligne reporté (« Plus tard »)',
+          refLocale: ventes.map((v) => v.numeroLabel).join(', '),
+          resultat: ResultatJournal.info);
+      return; // Plus tard
+    }
+    final decochees = [for (final v in ventes) if (!choix.contains(v.id)) v.numeroLabel];
+    j.noter(
+      type: TypeJournal.confirmation,
+      action: 'Envoi confirmé : ${choix.length} cochée(s), ${decochees.length} décochée(s)',
+      refLocale: [for (final v in ventes) if (choix.contains(v.id)) v.numeroLabel].join(', '),
+      motif: decochees.isEmpty ? '' : 'Décochées (ressaisies sur le serveur) : ${decochees.join(', ')}',
+      resultat: ResultatJournal.info,
+    );
+    await f.exclure([for (final v in ventes) if (!choix.contains(v.id)) v.id]);
+    if (choix.isNotEmpty) await f.envoyer(ids: choix);
+  } finally {
+    _confirmationOuverte = false;
   }
-  final choix = await showDialog<Set<String>>(context: context, barrierDismissible: false, builder: (_) => _ConfirmationEnvoi(ventes: ventes));
-  f.confirmationVue();
-  if (choix == null) return; // Plus tard
-  await f.exclure([for (final v in ventes) if (!choix.contains(v.id)) v.id]);
-  if (choix.isNotEmpty) await f.envoyer(ids: choix);
 }
 
 /// Confirmation demandée par le retour du serveur, affichée depuis le bandeau global.
@@ -59,6 +88,15 @@ class _ConfirmationEnvoi extends StatefulWidget {
 
 class _ConfirmationEnvoiState extends State<_ConfirmationEnvoi> {
   late final Set<String> _coches = {for (final v in widget.ventes) v.id};
+
+  /// Réponse déjà donnée : un second appui ne ferme pas l'écran de dessous.
+  bool _repondu = false;
+
+  void _fermer([Set<String>? choix]) {
+    if (_repondu) return;
+    _repondu = true;
+    Navigator.of(context).pop(choix);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -107,13 +145,13 @@ class _ConfirmationEnvoiState extends State<_ConfirmationEnvoi> {
         TextButton(
           key: const Key('envoi_plus_tard'),
           style: TextButton.styleFrom(minimumSize: const Size(64, 44)),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => _fermer(),
           child: const Text('Plus tard'),
         ),
         ElevatedButton(
           key: const Key('envoyer_selection'),
           style: ElevatedButton.styleFrom(minimumSize: const Size(88, 44)),
-          onPressed: () => Navigator.of(context).pop(Set<String>.of(_coches)),
+          onPressed: () => _fermer(Set<String>.of(_coches)),
           child: const Text('Envoyer la sélection'),
         ),
       ],
@@ -144,9 +182,30 @@ class VentesHorsLigneScreen extends StatefulWidget {
   State<VentesHorsLigneScreen> createState() => _VentesHorsLigneScreenState();
 }
 
+/// Période affichée de l'historique (les ventes à envoyer ou en anomalie sont toujours affichées).
+enum PeriodeVentesHL { jour, troisJours, tout }
+
+extension PeriodeVentesHLInfo on PeriodeVentesHL {
+  String get label => switch (this) {
+        PeriodeVentesHL.jour => 'Aujourd\'hui',
+        PeriodeVentesHL.troisJours => '3 jours',
+        PeriodeVentesHL.tout => 'Tout',
+      };
+}
+
 class _VentesHorsLigneScreenState extends State<VentesHorsLigneScreen> {
   HorsLigne get _hl => widget.horsLigne ?? HorsLigne.instance;
   String? _selected;
+
+  /// Par défaut : les ventes du JOUR (+ toutes celles encore à faire ou à vérifier).
+  PeriodeVentesHL _periode = PeriodeVentesHL.jour;
+
+  bool _visible(VenteHorsLigne v) {
+    if (v.aFaire || v.statut == StatutVenteHL.aVerifier || _periode == PeriodeVentesHL.tout) return true;
+    final n = _hl.ventes.now;
+    final debut = DateTime(n.year, n.month, n.day).subtract(Duration(days: _periode == PeriodeVentesHL.jour ? 0 : 2));
+    return !v.createdAt.isBefore(debut);
+  }
 
   @override
   void initState() {
@@ -198,14 +257,23 @@ class _VentesHorsLigneScreenState extends State<VentesHorsLigneScreen> {
       listenable: Listenable.merge([hl.ventes, hl.monitor]),
       builder: (context, _) {
         final f = hl.ventes;
-        final ventes = _ordre(f.ventes);
+        final ventes = _ordre(f.ventes.where(_visible).toList());
+        final masquees = f.ventes.length - ventes.length;
         final split = Responsive.isExpanded(context);
         final list = ListView(
           key: const Key('liste_ventes_hl'),
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
           children: [
+            BarreChargement(visible: !f.loaded),
             _entete(hl),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            if (masquees > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('${_periode.label} : $masquees vente(s) plus ancienne(s) masquée(s) (filtre en haut : « 3 jours » ou « Tout »).',
+                    key: const Key('ventes_hl_masquees'), style: const TextStyle(fontSize: 12, color: Pal.muted)),
+              ),
+            const SizedBox(height: 8),
             if (f.storeError != null) _note(f.storeError!, error: true),
             if (f.loaded && ventes.isEmpty)
               const Padding(
@@ -226,7 +294,25 @@ class _VentesHorsLigneScreenState extends State<VentesHorsLigneScreen> {
         final sel = _selected == null ? null : f.byId(_selected!);
         return Scaffold(
           backgroundColor: Pal.page,
-          appBar: AppBar(title: const Text('Ventes hors ligne')),
+          appBar: AppBar(title: const Text('Ventes hors ligne'), actions: [
+            // Période de l'historique : aujourd'hui par défaut (à envoyer / à vérifier toujours affichées).
+            PopupMenuButton<PeriodeVentesHL>(
+              key: const Key('periode_ventes_hl'),
+              tooltip: 'Période : ${_periode.label}',
+              initialValue: _periode,
+              onSelected: (p) => setState(() => _periode = p),
+              itemBuilder: (_) => [
+                for (final p in PeriodeVentesHL.values) PopupMenuItem(key: Key('periode_ventes_hl_${p.name}'), value: p, child: Text(p.label)),
+              ],
+              icon: const Icon(Icons.filter_list),
+            ),
+            IconButton(
+              key: const Key('ouvrir_journal'),
+              tooltip: 'Journal du terminal',
+              icon: const Icon(Icons.history),
+              onPressed: () => ouvrirJournalTerminal(context),
+            ),
+          ]),
           body: SafeArea(
             top: false,
             child: !split

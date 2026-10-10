@@ -5,6 +5,8 @@
 // H2 : ventes hors ligne (en attente, anomalies), accès à la liste, aux anomalies et au rapport du jour.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_screen.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/horsligne/ventes_hors_ligne_screen.dart';
@@ -177,25 +179,32 @@ class _HorsLignePageState extends State<HorsLignePage> {
             ),
             if (sync.running)
               SettingCard(
+                key: const Key('carte_progression_maj'),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(
-                      'Mise à jour : ${sync.etape ?? ''}${sync.total == null ? (sync.done > 0 ? ' ${sync.done}' : '') : ' ${sync.done} / ${sync.total}'}',
-                      style: const TextStyle(fontSize: 13, color: Pal.ink)),
-                  const SizedBox(height: 6),
-                  LinearProgressIndicator(value: sync.progress, color: Pal.navy, backgroundColor: Pal.line),
+                  Text('Mise à jour ${sync.etapeNum}/${sync.etapesTotal}${sync.enPause ? ' (en pause : vous travaillez)' : ''}',
+                      key: const Key('progression_maj_etapes'), style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
+                  const SizedBox(height: 4),
+                  // Barre globale déterminée (étapes), puis l'étape en cours (pages).
+                  LinearProgressIndicator(
+                      key: const Key('barre_maj_globale'), value: sync.avancementGlobal, minHeight: 6, color: Pal.navy, backgroundColor: Pal.line),
+                  const SizedBox(height: 8),
+                  Text(sync.progressionLabel ?? '', key: const Key('progression_maj'), style: const TextStyle(fontSize: 13, color: Pal.ink)),
+                  const SizedBox(height: 4),
+                  LinearProgressIndicator(key: const Key('barre_maj_etape'), value: sync.progress, color: Pal.navy, backgroundColor: Pal.line),
                 ]),
               ),
             if (!sync.running && sync.error != null) InfoBanner.error('Dernière mise à jour incomplète :\n${sync.error}'),
             for (final w in sync.warnings) InfoBanner.warning(w),
             const InfoBanner('La copie se met à jour après la connexion si elle a plus de 12 h, puis toutes les 30 min '
-                'tant que le serveur répond. Le stock affiché hors ligne est celui connu à la dernière mise à jour.'),
+                'tant que le serveur répond. Le stock affiché hors ligne est celui connu à la dernière mise à jour. '
+                'BL entrés en stock : les 3 derniers jours (écrans hors ligne : aujourd\'hui par défaut).'),
             const SizedBox(height: 4),
             ElevatedButton.icon(
               key: const Key('maj_copie'),
               style: navyButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size.fromHeight(48))),
               onPressed: sync.running || offline || sync.fetch == null ? null : _maj,
               icon: const Icon(Icons.sync),
-              label: const Text('Mettre à jour maintenant'),
+              label: Text(sync.running ? 'Mise à jour en cours…' : 'Mettre à jour maintenant'),
             ),
             const SizedBox(height: 8),
             TextButton.icon(
@@ -207,6 +216,29 @@ class _HorsLignePageState extends State<HorsLignePage> {
             ),
             // Stock hors ligne (H3) : copie BL / commandes / retours, opérations et anomalies.
             const StockHorsLigneSection(),
+            const SectionLabel('Traçabilité et historique'),
+            SettingCard(
+              child: _lien(const Key('ouvrir_journal_terminal'), Icons.history, 'Journal du terminal (actions stock et caisse)', const JournalTerminalScreen()),
+            ),
+            SettingCard(
+              child: Row(children: [
+                const Expanded(
+                  child: Text('Journal du terminal, ventes et opérations envoyées : purge automatique au-delà de',
+                      style: TextStyle(fontSize: 13.5, color: Pal.ink)),
+                ),
+                const SizedBox(width: 8),
+                DropdownButton<int>(
+                  key: const Key('conservation_jours'),
+                  value: JournalTerminal.conservationsPossibles.contains(JournalTerminal.conservationJours) ? JournalTerminal.conservationJours : 90,
+                  items: [for (final j in JournalTerminal.conservationsPossibles) DropdownMenuItem(value: j, child: Text('$j jours'))],
+                  onChanged: (j) async {
+                    if (j == null) return;
+                    await JournalTerminal.reglerConservation(j);
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ]),
+            ),
           ],
         );
       },

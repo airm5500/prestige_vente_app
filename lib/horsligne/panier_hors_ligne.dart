@@ -6,6 +6,7 @@
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -23,6 +24,18 @@ class PanierHorsLigne {
   int _seq = 0;
 
   PanierHorsLigne({required this.numero, this.venteId, this.reference = ''});
+
+  /// Journal du terminal : ligne du panier hors ligne (aucun effet serveur avant l'envoi).
+  void _journal(String action, LigneHL l) => JournalTerminal.instance.noter(
+        type: TypeJournal.vente,
+        action: action,
+        refLocale: label,
+        refServeur: venteId ?? '',
+        montant: l.total,
+        // Quantités comptées à l'enregistrement de la vente hors ligne (pas ici).
+        motif: '${l.qte} × ${l.nom}',
+        source: SourceJournal.horsLigne,
+      );
 
   /// Vente commencée en ligne : ses lignes (déjà sur le serveur) sont reprises telles quelles.
   factory PanierHorsLigne.depuisServeur({required int numero, required String venteId, String reference = '', required List<SaleItemDetail> items}) {
@@ -69,6 +82,7 @@ class PanierHorsLigne {
       final q = _lignes[i].qte + qty;
       if (q > VenteInput.maxQuantity) return const VenteRefused('Quantité invalide (1 à 9 999).');
       _lignes[i] = _lignes[i].copyWith(qte: q);
+      _journal('Ajout de ligne (hors ligne, quantité cumulée)', _lignes[i]);
       return const VenteOk(null);
     }
     _lignes.add(LigneHL(
@@ -80,6 +94,7 @@ class PanierHorsLigne {
       prix: p.intPRICE,
       stockConnu: p.intNUMBERAVAILABLE,
     ));
+    _journal('Ajout de ligne (hors ligne)', _lignes.last);
     return const VenteOk(null);
   }
 
@@ -92,6 +107,7 @@ class PanierHorsLigne {
     if (qty < 1 || qty > VenteInput.maxQuantity) return const VenteRefused('Quantité invalide (1 à 9 999).');
     if (prix < 0 || prix > VenteInput.maxPrice) return const VenteRefused('Prix invalide.');
     _lignes[i] = _lignes[i].copyWith(qte: qty, prix: prix);
+    _journal('Modification de ligne (hors ligne)', _lignes[i]);
     return const VenteOk(null);
   }
 
@@ -99,7 +115,7 @@ class PanierHorsLigne {
     final i = _lignes.indexWhere((l) => l.cle == cle);
     if (i < 0) return const VenteOk(null);
     if (_lignes[i].serveur) return const VenteRefused(_ligneServeur);
-    _lignes.removeAt(i);
+    _journal('Suppression de ligne (hors ligne)', _lignes.removeAt(i));
     return const VenteOk(null);
   }
 }

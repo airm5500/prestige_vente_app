@@ -8,6 +8,7 @@
 // ANOMALIE (motif conservé dans le rapport d'anomalies) ; une panne interrompt l'envoi sans rien perdre.
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_sender.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_store.dart';
@@ -59,6 +60,10 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
 
   /// « Envoi 2/5 : Réception BL … ».
   String? get progress => _progress;
+
+  /// Avancement de l'envoi (0 à 1), null hors envoi.
+  double? get avancement => _avancement;
+  double? _avancement;
 
   /// Base locale illisible.
   String? get error => _error;
@@ -134,6 +139,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
       'expiry': expiry == null ? '' : _iso.format(expiry),
     }));
     await _save(op);
+    journalStockOp(op, 'lot saisi hors ligne', ligne: op.lines.last);
     return op;
   }
 
@@ -145,6 +151,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
       final before = op.lines.length;
       op.lines.removeWhere((l) => l.etat == StockLineEtat.pending && '${l.data['detailId']}' == detailId);
       n += before - op.lines.length;
+      if (before != op.lines.length) journalStockOp(op, 'lots saisis hors ligne retirés (${before - op.lines.length})');
       if (op.lines.isEmpty) {
         await _delete(op);
       } else if (before != op.lines.length) {
@@ -175,6 +182,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
       op.lines.add(StockOpLine(key: _lineKey(op), label: produit, data: {'detailId': detailId, 'qty': qty, 'base': base}));
     }
     await _save(op);
+    journalStockOp(op, 'quantité pointée hors ligne', ligne: op.lines.where((l) => '${l.data['detailId']}' == detailId).last);
     return op;
   }
 
@@ -191,6 +199,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
     op.lines.add(StockOpLine(
         key: _lineKey(op), label: produit, data: {'produitId': produitId, 'cip': cip, 'numLot': numLot, 'date': _iso.format(date), 'qty': qty}));
     await _save(op);
+    journalStockOp(op, 'lot / péremption saisi hors ligne', ligne: op.lines.last);
     return op;
   }
 
@@ -206,6 +215,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
     final op = await _openOrNew(StockOpType.perime, 'perimes', reference: 'Saisie périmés');
     op.lines.add(StockOpLine(key: _lineKey(op), label: produit, data: {'produitId': produitId, 'cip': cip, 'lot': lot, 'date': date, 'qty': qty}));
     await _save(op);
+    journalStockOp(op, 'périmé saisi hors ligne', ligne: op.lines.last);
     return op;
   }
 
@@ -217,6 +227,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
       if (l == null) continue;
       op.lines.remove(l);
       op.lines.isEmpty ? await _delete(op) : await _save(op);
+      journalStockOp(op, 'ligne retirée avant envoi (${l.label})');
       return true;
     }
     return false;
@@ -249,6 +260,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
           key: _lineKey(op), label: produit, data: {'produitId': produitId, 'cip': cip, 'motifId': motifId, 'motif': motif, 'qty': qty}));
     }
     await _save(op);
+    journalStockOp(op, 'produit ajouté au retour hors ligne', ligne: StockOpLine(key: '', label: produit, data: {'produitId': produitId, 'qty': qty}));
     return op;
   }
 
@@ -259,6 +271,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
       if (l == null) continue;
       l.data['qty'] = qty;
       await _save(op);
+      journalStockOp(op, 'quantité modifiée hors ligne', ligne: StockOpLine(key: l.key, label: l.label, data: {...l.data, 'qty': qty}));
       return true;
     }
     return false;
@@ -271,6 +284,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
     if (existing != null) op.lines.remove(existing);
     op.lines.add(StockOpLine(key: _lineKey(op), label: produit, data: {'produitId': produitId, 'rayonId': rayonId, 'rayon': rayon}));
     await _save(op);
+    journalStockOp(op, 'emplacement saisi hors ligne ($produit → $rayon)');
     return op;
   }
 
@@ -307,6 +321,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
         if (l.etat == StockLineEtat.pending) l.etat = StockLineEtat.ignored;
       }
       await _save(op);
+      journalStockOp(op, 'non envoyée : ressaisie sur le serveur (décochée)');
     }
   }
 
@@ -315,12 +330,13 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
   Future<StockEnvoiResultat> envoyer({required Set<String> selection, Set<String> ressaisies = const {}}) async {
     final srv = server;
     if (_sending) return const StockEnvoiResultat(interruption: 'Envoi déjà en cours.');
-    await load();
+    // Pris AVANT toute attente : un second appel simultané est refusé (jamais deux envois).
     _sending = true;
     notifyListeners();
     var envoyees = 0, anomalies = 0;
     String? interruption;
     try {
+      await load();
       await marquerRessaisies(ressaisies.difference(selection));
       final todo = _ops.where((o) => o.pending && selection.contains(o.id)).toList();
       if (todo.isNotEmpty && srv == null) {
@@ -330,6 +346,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
         for (var i = 0; i < todo.length; i++) {
           final op = todo[i];
           _progress = 'Envoi ${i + 1}/${todo.length} : ${op.type.label}${op.titre.isEmpty ? '' : ' — ${op.titre}'}';
+          _avancement = i / todo.length;
           notifyListeners();
           op.sentAt ??= _clock();
           try {
@@ -337,6 +354,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
           } on StockStopException catch (e) {
             interruption = e.message;
             await _save(op);
+            journalStockOp(op, 'envoi interrompu', resultat: ResultatJournal.echecReseau, motif: e.message, source: SourceJournal.fileHL);
             break;
           }
           final rejected = op.lines.where((l) => l.etat == StockLineEtat.rejected).toList();
@@ -344,10 +362,14 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
             op.statut = StockOpStatut.envoyee;
             op.motif = null;
             envoyees++;
+            final deja = op.lines.isNotEmpty && op.lines.every((l) => l.etat == StockLineEtat.dejaApplique);
+            journalStockOp(op, deja ? 'déjà sur le serveur (rien renvoyé)' : 'envoyée au serveur (${op.lines.length} ligne(s))',
+                resultat: deja ? ResultatJournal.dejaApplique : ResultatJournal.ok, source: SourceJournal.fileHL);
           } else {
             op.statut = StockOpStatut.anomalie;
             op.motif = _motif(rejected);
             anomalies++;
+            journalStockOp(op, 'refusée par le serveur (${rejected.length} ligne(s))', resultat: ResultatJournal.refus, motif: op.motif ?? '', source: SourceJournal.fileHL);
             await _anomalie(op, rejected);
           }
           await _save(op);
@@ -356,6 +378,7 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
     } finally {
       _sending = false;
       _progress = null;
+      _avancement = null;
       notifyListeners();
     }
     return StockEnvoiResultat(
@@ -418,6 +441,23 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
     a.traitee = traitee;
     await store.saveAnomalie(a);
     notifyListeners();
+  }
+
+  /// Purge de l'historique : opérations TERMINÉES (envoyées, ressaisies) antérieures à [avant].
+  /// Les opérations en attente ou en anomalie ne sont jamais effacées.
+  Future<int> purger(DateTime avant) async {
+    await load();
+    var n = 0;
+    for (final op in _ops.where((o) => o.statut == StockOpStatut.envoyee || o.statut == StockOpStatut.ressaisie).toList()) {
+      if (!op.updatedAt.isBefore(avant)) continue;
+      try {
+        await store.deleteOp(op.id);
+        _ops.removeWhere((o) => o.id == op.id);
+        n++;
+      } catch (_) {}
+    }
+    if (n > 0) notifyListeners();
+    return n;
   }
 
   /// Nombre de lignes d'une opération (affichage).

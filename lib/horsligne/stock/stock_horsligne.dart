@@ -110,13 +110,14 @@ class StockHorsLigne {
     return DateTime(n.year, n.month, n.day);
   }
 
-  /// BL entré en stock dans la période ? Date exacte si connue, sinon tranche (jour / 7 j / 30 j).
+  /// BL entré en stock dans la période ? Date exacte si connue, sinon tranche (jour / 2 jours précédents).
+  /// Seuls les 3 derniers jours sont sur l'appareil : une période plus longue montre ces 3 jours.
   bool _inPeriod(Map<String, dynamic> r, DateTime? from, DateTime? to) {
     if (from == null && to == null) return true;
     final d = _day('${r['_hl_maj'] ?? ''}');
     if (d != null) return (from == null || !d.isBefore(from)) && (to == null || !d.isAfter(to));
     final jours = (r['_hl_jours'] as num?)?.toInt() ?? StockRefSync.jours - 1;
-    final (minAge, maxAge) = jours == 0 ? (0, 0) : jours <= 6 ? (1, 6) : (7, StockRefSync.jours - 1);
+    final (minAge, maxAge) = jours == 0 ? (0, 0) : (1, StockRefSync.jours - 1);
     final back = from == null ? StockRefSync.jours : _today.difference(from).inDays;
     final end = to == null ? 0 : _today.difference(to).inDays;
     return minAge <= back && maxAge >= end;

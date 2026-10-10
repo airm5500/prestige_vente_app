@@ -10,7 +10,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/attente_ui.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
@@ -144,6 +146,9 @@ class StockOperationsScreen extends StatefulWidget {
 class _StockOperationsScreenState extends State<StockOperationsScreen> {
   StockHorsLigne get _stock => widget.stock ?? StockHorsLigne.instance;
 
+  /// Historique : opérations du JOUR par défaut (les opérations en attente sont toujours affichées).
+  bool _toutHistorique = false;
+
   @override
   void initState() {
     super.initState();
@@ -158,7 +163,10 @@ class _StockOperationsScreenState extends State<StockOperationsScreen> {
       listenable: Listenable.merge([q, hl.monitor]),
       builder: (context, _) {
         final enAttente = q.pending;
-        final historique = q.ops.where((o) => !o.pending).toList().reversed.toList();
+        final n = _stock.now;
+        final jour = DateTime(n.year, n.month, n.day);
+        final historiqueTout = q.ops.where((o) => !o.pending).toList().reversed.toList();
+        final historique = _toutHistorique ? historiqueTout : historiqueTout.where((o) => !o.createdAt.isBefore(jour)).toList();
         final enLigne = hl.monitor.etat == EtatServeur.enLigne;
         return RubriquePage(
           title: 'Opérations hors ligne (stock)',
@@ -174,6 +182,7 @@ class _StockOperationsScreenState extends State<StockOperationsScreen> {
             if (!enLigne && enAttente.isNotEmpty) const EnLigneUniquementNote(action: 'Envoi'),
           ]),
           children: [
+            BarreChargement(visible: !q.loaded),
             if (q.error != null) InfoBanner.error(q.error!),
             const InfoBanner('Les saisies faites hors ligne sont gardées sur cet appareil (même après redémarrage). '
                 'Elles ne partent qu\'après votre confirmation, une opération à la fois.'),
@@ -187,7 +196,14 @@ class _StockOperationsScreenState extends State<StockOperationsScreen> {
             if (enAttente.isEmpty)
               const SettingCard(child: Text('Aucune opération en attente.', style: TextStyle(color: Pal.muted))),
             for (final op in enAttente) StockOpCard(op: op),
-            SectionLabel('Historique (${historique.length})'),
+            SectionLabel('Historique (${historique.length}${_toutHistorique ? '' : ' aujourd\'hui'})'),
+            SwitchListTile(
+              key: const Key('historique_stock_tout'),
+              contentPadding: EdgeInsets.zero,
+              title: Text('Tout l\'historique conservé (${historiqueTout.length})', style: const TextStyle(fontSize: 13.5)),
+              value: _toutHistorique,
+              onChanged: (v) => setState(() => _toutHistorique = v),
+            ),
             if (historique.isEmpty) const SettingCard(child: Text('Aucune opération envoyée.', style: TextStyle(color: Pal.muted))),
             for (final op in historique) StockOpCard(op: op),
           ],
@@ -227,7 +243,15 @@ class _StockEnvoiScreenState extends State<StockEnvoiScreen> {
   final Set<String> _decochees = {};
   StockEnvoiResultat? _resultat;
 
-  Future<void> _envoyer() async {
+  /// Envoi demandé (confirmation comprise) : un second appui est ignoré.
+  final _verrou = Verrou();
+
+  Future<void> _envoyer() => _verrou.executer(_envoyer0).then((_) {
+        if (mounted) setState(() {});
+      });
+
+  Future<void> _envoyer0() async {
+    setState(() {});
     final pending = _stock.queue.pending;
     final selection = {for (final o in pending) if (!_decochees.contains(o.id)) o.id};
     final ressaisies = {for (final o in pending) if (_decochees.contains(o.id)) o.id};
@@ -239,6 +263,13 @@ class _StockEnvoiScreenState extends State<StockEnvoiScreen> {
           action: 'Continuer');
       if (!ok || !mounted) return;
     }
+    JournalTerminal.instance.noter(
+      type: TypeJournal.confirmation,
+      action: 'Envoi des opérations de stock confirmé : ${selection.length} cochée(s), ${ressaisies.length} décochée(s)',
+      refLocale: [for (final o in pending) if (selection.contains(o.id)) '${o.type.label} ${o.titre}'.trim()].join(', '),
+      motif: ressaisies.isEmpty ? '' : 'Décochées (ressaisies) : ${[for (final o in pending) if (ressaisies.contains(o.id)) '${o.type.label} ${o.titre}'.trim()].join(', ')}',
+      resultat: ResultatJournal.info,
+    );
     final r = await _stock.queue.envoyer(selection: selection, ressaisies: ressaisies);
     if (mounted) setState(() => _resultat = r);
   }
@@ -260,7 +291,7 @@ class _StockEnvoiScreenState extends State<StockEnvoiScreen> {
               ElevatedButton.icon(
                 key: const Key('confirmer_envoi'),
                 style: navyButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size.fromHeight(48))),
-                onPressed: q.sending || pending.isEmpty ? null : _envoyer,
+                onPressed: q.sending || _verrou.occupe || pending.isEmpty ? null : _envoyer,
                 icon: q.sending
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.cloud_upload),
@@ -274,6 +305,12 @@ class _StockEnvoiScreenState extends State<StockEnvoiScreen> {
             ),
           ]),
           children: [
+            if (q.sending) ...[
+              Text(q.progress ?? 'Envoi…', key: const Key('progression_envoi_stock'), style: const TextStyle(fontSize: 13, color: Pal.navy)),
+              const SizedBox(height: 4),
+              LinearProgressIndicator(key: const Key('barre_envoi_stock'), value: q.avancement, color: Pal.navy, backgroundColor: Pal.line),
+              const SizedBox(height: 8),
+            ],
             if (r != null)
               r.anomalies > 0 || r.interruption != null
                   ? InfoBanner.warning('Résultat : ${r.resume}')

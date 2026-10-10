@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_ui.dart';
@@ -72,10 +73,15 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
       _bound.bind(api);
       _stock.bind(api);
     }
-    final connecte = Provider.of<AuthProvider?>(context)?.user != null;
+    final user = Provider.of<AuthProvider?>(context)?.user;
+    final connecte = user != null;
+    // Journal du terminal : utilisateur connecté (nom affiché, jamais de mot de passe).
+    if (user != null) JournalTerminal.instance.utilisateur = user.fullName.trim().isEmpty ? user.login : user.fullName.trim();
     if (connecte == _connecte) return;
     _connecte = connecte;
     if (connecte) {
+      // Historique au-delà de la durée de conservation (90 jours par défaut) : purge automatique.
+      _bound.purgerHistorique().then((_) => _stock.queue.purger(JournalTerminal.instance.limiteConservation)).catchError((_) => 0);
       // Après la connexion : copie mise à jour si elle a plus de 12 h, puis toutes les 30 min.
       _bound.sync.syncIfStale();
       _bound.sync.startAuto(() => _bound.monitor.etat == EtatServeur.enLigne);
@@ -83,6 +89,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
       _bound.demarrerVentes();
     } else {
       _bound.sync.stopAuto();
+      JournalTerminal.instance.utilisateur = '';
     }
   }
 
@@ -151,12 +158,28 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
   @override
   Widget build(BuildContext context) {
     final b = _bandeau;
+    final maj = _bound.sync.running;
+    final enHaut = b == null && !StockBandeau.visible(_stock);
     // Structure fixe (le Navigator n'est jamais recréé) ; sans bandeau, l'écran est identique.
     return Column(children: [
       b == null ? const SizedBox.shrink() : HorsLigneBanner(kind: b, horsLigne: _bound),
       MediaQuery.removePadding(context: context, removeTop: b != null, child: StockBandeau(horsLigne: _bound, stock: _stock)),
+      // Mise à jour de la copie locale en cours : indicateur discret (barre fine, avancement déterminé).
+      if (maj)
+        Padding(
+          padding: EdgeInsets.only(top: enHaut ? MediaQuery.paddingOf(context).top : 0),
+          child: LinearProgressIndicator(
+            key: const Key('bandeau_maj_copie'),
+            value: _bound.sync.avancementGlobal,
+            minHeight: 2,
+            backgroundColor: const Color(0x22334155),
+            color: const Color(0xFF1F4F8F),
+            semanticsLabel: 'Mise à jour de la copie locale',
+          ),
+        ),
       Expanded(
-          child: MediaQuery.removePadding(context: context, removeTop: b != null || StockBandeau.visible(_stock), child: widget.child)),
+          child: MediaQuery.removePadding(
+              context: context, removeTop: b != null || StockBandeau.visible(_stock) || maj, child: widget.child)),
     ]);
   }
 }
@@ -222,7 +245,8 @@ class HorsLigneBanner extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 34),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-            child: Row(children: [
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
               Icon(icon, size: 16, color: fg),
               const SizedBox(width: 8),
               Expanded(
@@ -276,6 +300,14 @@ class HorsLigneBanner extends StatelessWidget {
                   ),
                   onPressed: () => ouvrirVentesHorsLigne(),
                   child: const Text('Voir'),
+                ),
+            ]),
+              // Envoi de la file : « Envoi 2/5 » avec barre d'avancement.
+              if (f.running)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: LinearProgressIndicator(
+                      key: const Key('bandeau_envoi_barre'), value: f.total == 0 ? 0 : (f.index - 1).clamp(0, f.total) / f.total, minHeight: 2, color: fg),
                 ),
             ]),
           ),
