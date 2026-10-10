@@ -1,25 +1,40 @@
 // lib/screens/perimes/tabs/saisie_perimes_screen.dart
-// 09/11/2025 17:30
+// Saisie en cours + Historique des saisies dans deux sous-onglets lisibles
+// (texte blanc, indicateur ambre sur fond bleu). Le menu principal affiche
+// désormais ces deux onglets directement ; cet écran reste disponible tel quel.
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/screens/perimes/perime_widgets.dart';
 import 'package:prestige_vente_app/screens/perimes/tabs/historique_saisies_tab.dart';
 import 'package:prestige_vente_app/screens/perimes/tabs/saisie_en_cours_tab.dart';
-
-import '../../../utils/constants.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 class SaisiePerimesScreen extends StatefulWidget {
-  const SaisiePerimesScreen({super.key});
+  /// Présentation imposée par l'écran parent ; celle de l'appareil sinon.
+  final ListPresentation? presentation;
+  const SaisiePerimesScreen({super.key, this.presentation});
 
   @override
   State<SaisiePerimesScreen> createState() => _SaisiePerimesScreenState();
 }
 
-class _SaisiePerimesScreenState extends State<SaisiePerimesScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _SaisiePerimesScreenState extends State<SaisiePerimesScreen> with SingleTickerProviderStateMixin, PresentationAware {
+  @override
+  ListPresentation? get forcedPresentation => widget.presentation;
+
+  late final TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    loadPresentation();
     _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void didUpdateWidget(covariant SaisiePerimesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final p = widget.presentation;
+    if (p != null && p != style) style = p;
   }
 
   @override
@@ -30,22 +45,26 @@ class _SaisiePerimesScreenState extends State<SaisiePerimesScreen> with SingleTi
 
   @override
   Widget build(BuildContext context) {
+    final compact = style == ListPresentation.compact;
     return Column(
       children: [
-        TabBar(
-          controller: _tabController,
-          labelColor: AppColors.primary,
-          tabs: const [
-            Tab(text: 'Saisie en Cours'),
-            Tab(text: 'Historique des Saisies'),
-          ],
+        Container(
+          color: compact ? Colors.white : Pal.navy,
+          child: PerimeTabBar(
+            controller: _tabController,
+            dark: !compact,
+            tabs: const [
+              (Icons.edit_document, 'Saisie en Cours'),
+              (Icons.history, 'Historique des Saisies'),
+            ],
+          ),
         ),
         Expanded(
           child: TabBarView(
             controller: _tabController,
-            children: const [
-              SaisieEnCoursTab(),
-              HistoriqueSaisiesTab(),
+            children: [
+              SaisieEnCoursTab(presentation: style),
+              HistoriqueSaisiesTab(presentation: style),
             ],
           ),
         ),
