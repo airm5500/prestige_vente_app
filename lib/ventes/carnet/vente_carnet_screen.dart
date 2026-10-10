@@ -4,6 +4,7 @@
 // pied Total / Part carnet / Part client, « PRÉVENTE » ou « VALIDER » (clôture carnet sans dialogue
 // de paiement, comme l'original). Vente en cours mémorisée : « Reprendre la vente ? » à la réouverture.
 // La logique (file d'opérations, réponses perdues, net à jour, reprise) reste dans CarnetController.
+// Hors ligne (H2) : prévente PROVISOIRE (HL-0007) mise dans la file d'envoi, ticket « PROVISOIRE ».
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
@@ -12,6 +13,8 @@ import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
@@ -70,11 +73,36 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
 
   CarnetController get _ctrl => context.read<CarnetController>();
 
+  /// Surveillance du serveur (proposition « Terminer hors ligne »).
+  late final ServerMonitor _monitor = HorsLigne.instance.monitor;
+
   @override
   void initState() {
     super.initState();
     loadPresentation();
+    _monitor.addListener(_onMonitor);
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+  }
+
+  @override
+  void dispose() {
+    _monitor.removeListener(_onMonitor);
+    super.dispose();
+  }
+
+  void _onMonitor() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _terminerHorsLigne() async {
+    final r = await _ctrl.passerHorsLigne();
+    if (!mounted) return;
+    if (!r.isOk) {
+      showVenteFailure(context, r);
+      return;
+    }
+    showVenteSnack(context, 'Vente continuée hors ligne (${_ctrl.panierHorsLigne?.label ?? ''}) : seuls les nouveaux articles seront envoyés.');
+    _focusSearch();
   }
 
   void _setStyle(ListPresentation p) {
@@ -104,6 +132,8 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
   Future<void> _start() async {
     if (!mounted) return;
     final c = _ctrl;
+    // Hors ligne : la vente mémorisée sera proposée au retour du serveur.
+    if (CarnetController.serveurHorsLigne) return;
     final pending = await PendingSaleStore.load(VenteMenu.carnet);
     if (pending == null || !mounted) return;
     final restore = CarnetController.restoreFromPending(pending);
@@ -308,6 +338,18 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
       final c = _ctrl;
       final snap = _snapshot(c);
       if (snap == null) return;
+      final hl = c.panierHorsLigne;
+      if (hl != null) {
+        // Hors ligne : prévente provisoire dans la file des ventes hors ligne.
+        final r = await c.enregistrerHorsLigne(userName: user.fullName, expectedChanges: c.changes);
+        if (!mounted) return;
+        if (!r.isOk) {
+          showVenteFailure(context, r);
+          return;
+        }
+        await _afterFinish(prevente: true, snap: snap, user: user, provisoire: hl.label);
+        return;
+      }
       final r = await c.terminerPrevente(expectedChanges: c.changes);
       if (!mounted) return;
       if (!r.isOk) {
@@ -355,15 +397,23 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
     required ({AssuranceSaleSummary summary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit}) snap,
     required User user,
     bool dejaCloturee = false,
+    String? provisoire,
   }) async {
     final print = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Text(prevente ? 'Prévente carnet enregistrée' : (dejaCloturee ? 'Vente déjà clôturée' : 'Vente carnet validée')),
-        content: Text(dejaCloturee
-            ? 'Le serveur indique que cette vente est déjà clôturée (aucune seconde clôture).\nVoulez-vous imprimer le ticket ?'
-            : 'Voulez-vous imprimer le ticket ?'),
+        title: Text(provisoire != null
+            ? 'Prévente carnet provisoire enregistrée'
+            : prevente
+                ? 'Prévente carnet enregistrée'
+                : (dejaCloturee ? 'Vente déjà clôturée' : 'Vente carnet validée')),
+        content: Text(provisoire != null
+            ? 'La prévente $provisoire est enregistrée sur l\'appareil. Elle sera envoyée au serveur à son retour '
+                '(Ventes hors ligne).\nVoulez-vous imprimer le ticket provisoire ?'
+            : dejaCloturee
+                ? 'Le serveur indique que cette vente est déjà clôturée (aucune seconde clôture).\nVoulez-vous imprimer le ticket ?'
+                : 'Voulez-vous imprimer le ticket ?'),
         actions: [
           TextButton(style: TextButton.styleFrom(minimumSize: const Size(64, 44)), onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Non')),
           ElevatedButton(
@@ -390,6 +440,7 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
           paperWidth: settings.paperWidth,
           ticketCodeType: settings.ticketCodeType,
           numberOfCopies: 1, // prévente : un seul ticket
+          provisoire: provisoire,
         );
       } else {
         await ReceiptService().printAssuranceSaleTicket(
@@ -501,6 +552,7 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
           onRetry: _retry,
           onRetryAll: _retryAll,
           onDrop: _dropUnsaved,
+          onTerminerHorsLigne: _terminerHorsLigne,
         ),
     };
     return PopScope(

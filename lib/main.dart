@@ -35,6 +35,7 @@ import 'package:prestige_vente_app/providers/proforma_provider.dart';
 import 'package:prestige_vente_app/providers/ajustement_provider.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/horsligne/connexion_toasts.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 
 Future<void> main() async {
@@ -164,6 +165,8 @@ class MyApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'Prestige Vente',
+        // Navigateur global : le bandeau hors ligne ouvre « Ventes hors ligne ».
+        navigatorKey: HorsLigne.navigatorKey,
         theme: AppTheme.lightTheme,
         // Tablette : fenêtres de dialogue à largeur raisonnable (téléphone inchangé).
         debugShowCheckedModeBanner: false,

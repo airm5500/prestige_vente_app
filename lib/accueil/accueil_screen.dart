@@ -19,6 +19,7 @@ import 'package:prestige_vente_app/accueil/recherche_globale_screen.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart' as srv;
+import 'package:prestige_vente_app/horsligne/ventes_hors_ligne_screen.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -130,6 +131,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     _licenceWatchdogTimer = Timer.periodic(const Duration(minutes: 15), (timer) {
       _performSecurityCheck();
     });
+    _ventesHL.addListener(_onVentesHL);
     _monitor.addListener(_onMonitor);
     _etatMonitor = _monitor.etat;
   }
@@ -150,8 +152,16 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     });
   }
 
+  /// Ventes hors ligne (tâche « N vente(s) hors ligne »).
+  late final _ventesHL = HorsLigne.instance.ventes;
+
+  void _onVentesHL() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _ventesHL.removeListener(_onVentesHL);
     _monitor.removeListener(_onMonitor);
     WidgetsBinding.instance.removeObserver(this);
     _licenceWatchdogTimer?.cancel();
@@ -417,6 +427,19 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         if (sale.total > 0) '${Constants.formatNumber(sale.total)} F',
       ].join(' · ');
       out.add(_Tache(titre: 'Vente interrompue', detail: details, icon: Icons.pause_circle_outline, couleur: _rouge, action: 'Reprendre', onTap: () => _push(m.screen())));
+    }
+    // Ventes saisies hors ligne : en attente d'envoi ou en anomalie.
+    final hl = _ventesHL;
+    if (hl.enAttente + hl.aVerifier > 0) {
+      out.add(_Tache(
+        titre: '${hl.enAttente + hl.aVerifier} vente(s) hors ligne',
+        detail: '${hl.enAttente} en attente d\'envoi · ${hl.aVerifier} en anomalie',
+        nombre: hl.enAttente + hl.aVerifier,
+        icon: Icons.cloud_upload_outlined,
+        couleur: hl.aVerifier > 0 ? _rouge : Pal.amber,
+        action: 'Voir',
+        onTap: () => _push(const VentesHorsLigneScreen()),
+      ));
     }
     // Caisse : seulement si l'état est déjà connu (aucun appel supplémentaire).
     final caisse = _caisse(context);

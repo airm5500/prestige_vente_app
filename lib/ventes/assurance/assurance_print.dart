@@ -165,6 +165,8 @@ Future<void> printAssuranceTicket(
   int? montantVerse,
   int? monnaie,
   List<TicketReglement>? reglements,
+  // Hors ligne : numéro provisoire « HL-0007 » (null = ticket d'origine).
+  String? provisoire,
 }) async {
   if (copies < 1) return;
   final auth = Provider.of<AuthProvider>(context, listen: false);
@@ -190,6 +192,7 @@ Future<void> printAssuranceTicket(
       reference: reference,
       carnet: false,
       confirmEachCopy: false,
+      provisoire: provisoire,
     );
   } else {
     await ReceiptService().printAssuranceSaleTicket(

@@ -52,6 +52,9 @@ class CarnetProductsStep extends StatelessWidget {
   final VoidCallback onRetryAll;
   final void Function(CarnetUnsavedLine line) onDrop;
 
+  /// Hors ligne : terminer sur l'appareil une vente commencée en ligne.
+  final VoidCallback? onTerminerHorsLigne;
+
   const CarnetProductsStep({
     super.key,
     required this.frame,
@@ -65,6 +68,7 @@ class CarnetProductsStep extends StatelessWidget {
     required this.onRetry,
     required this.onRetryAll,
     required this.onDrop,
+    this.onTerminerHorsLigne,
   });
 
   void _focus() => searchKey.currentState?.requestFocus();
@@ -92,7 +96,13 @@ class CarnetProductsStep extends StatelessWidget {
           // Bandeaux limités à la moitié de la hauteur (petits écrans) : le panier reste visible.
           ConstrainedBox(
             constraints: BoxConstraints(maxHeight: box.maxHeight * 0.5),
-            child: SingleChildScrollView(child: _CarnetStatus(controller: c, unsaved: unsaved, retrying: retrying, onRetryAll: onRetryAll)),
+            child: SingleChildScrollView(
+                child: _CarnetStatus(
+                    controller: c,
+                    unsaved: unsaved,
+                    retrying: retrying,
+                    onRetryAll: onRetryAll,
+                    onTerminerHorsLigne: paying || c.finished ? null : onTerminerHorsLigne)),
           ),
           Expanded(
             child: CarnetCart(onDone: _focus, style: frame.style, unsaved: unsaved, retrying: retrying, onRetry: onRetry, onDrop: onDrop),
@@ -126,11 +136,37 @@ class _CarnetStatus extends StatelessWidget {
   final List<CarnetUnsavedLine> unsaved;
   final bool retrying;
   final VoidCallback onRetryAll;
-  const _CarnetStatus({required this.controller, required this.unsaved, required this.retrying, required this.onRetryAll});
+  final VoidCallback? onTerminerHorsLigne;
+  const _CarnetStatus({required this.controller, required this.unsaved, required this.retrying, required this.onRetryAll, this.onTerminerHorsLigne});
 
   @override
   Widget build(BuildContext context) {
     final c = controller;
+    final hl = c.panierHorsLigne;
+    if (hl != null && !c.finished) {
+      return _Strip(
+        key: const ValueKey('carnet-etat-hors-ligne'),
+        bg: const Color(0xFFFFF4E0),
+        fg: const Color(0xFF7C2D12),
+        leading: const Icon(Icons.cloud_off, size: 16, color: Color(0xFF9A3412)),
+        text: '${hl.label} enregistrée sur l\'appareil · parts estimées : le net définitif sera celui du serveur',
+      );
+    }
+    if (c.peutTerminerHorsLigne) {
+      return _Strip(
+        key: const ValueKey('carnet-proposer-hors-ligne'),
+        bg: const Color(0xFFFFF4E0),
+        fg: const Color(0xFF7C2D12),
+        leading: const Icon(Icons.cloud_off, size: 16, color: Color(0xFF9A3412)),
+        text: 'Serveur hors ligne : cette vente peut être terminée sur l\'appareil.',
+        action: TextButton(
+          key: const ValueKey('carnet-terminer-hors-ligne'),
+          style: TextButton.styleFrom(minimumSize: const Size(0, 44), foregroundColor: Pal.navy, padding: const EdgeInsets.symmetric(horizontal: 8)),
+          onPressed: c.busy ? null : onTerminerHorsLigne,
+          child: const Text('Terminer hors ligne', style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      );
+    }
     final banners = <Widget>[
       if (c.cartError != null && c.items.isNotEmpty)
         LoadErrorBanner(message: 'Panier non relu : ${venteMessage(c.cartError)} (dernier état affiché).', onRetry: c.busy ? null : c.reload),
@@ -490,12 +526,14 @@ class _CarnetFooter extends StatelessWidget {
     final tpNames = {for (final tp in c.client?.tiersPayants ?? const []) tp.compteTp: tp.tpFullName};
     final taux = c.activeTps.fold<int>(0, (a, tp) => a + tp.taux);
     final several = upToDate && s.tierspayants.length > 1;
+    final hl = c.horsLigne;
+    final est = hl ? ' (estimée)' : '';
 
     return CarnetBottomBar(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         if (c.hasCart) ...[
-          _row('Total', amount(s?.montant ?? 0)),
-          _row('Part carnet${c.activeTps.isEmpty ? '' : ' $taux %'}', amount(s?.montantTp ?? 0)),
+          _row(hl ? 'Total (estimé)' : 'Total', amount(s?.montant ?? 0)),
+          _row('Part carnet${c.activeTps.isEmpty ? '' : ' $taux %'}$est', amount(s?.montantTp ?? 0)),
           if (several)
             for (final tp in s.tierspayants)
               Padding(
@@ -504,7 +542,7 @@ class _CarnetFooter extends StatelessWidget {
               ),
         ],
         Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          const Expanded(child: Text('Part client', style: TextStyle(fontSize: 14, color: Pal.muted))),
+          Expanded(child: Text('Part client$est', style: const TextStyle(fontSize: 14, color: Pal.muted))),
           if (c.busy) const Padding(padding: EdgeInsets.only(right: 8, bottom: 4), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))),
           Flexible(
             child: FittedBox(
@@ -523,6 +561,18 @@ class _CarnetFooter extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 8),
+        if (hl)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              key: const ValueKey('carnet-hl-prevente'),
+              style: frame.mainButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 50))),
+              onPressed: enabled ? onPrevente : null,
+              icon: const Icon(Icons.bookmark_add_outlined, size: 20),
+              label: const FittedBox(fit: BoxFit.scaleDown, child: Text('ENREGISTRER (PRÉVENTE PROVISOIRE)')),
+            ),
+          )
+        else
         Row(children: [
           Expanded(
             child: Tooltip(

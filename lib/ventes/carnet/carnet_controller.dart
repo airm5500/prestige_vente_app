@@ -9,8 +9,13 @@
 // (« NOM Prénom ») et la création de client envoie Nom → strFIRSTNAME, Prénom → strLASTNAME.
 // L'ancienne création d'ayant droit carnet envoyait l'inverse (défaut n°12) : ici, client et
 // ayant droit suivent la même règle (Nom → strFIRSTNAME, Prénom → strLASTNAME).
+//
+// Hors ligne (étape H2) : client choisi dans la copie locale (création impossible), panier local,
+// parts carnet / client ESTIMÉES sur l'appareil, « prévente provisoire » mise dans la file d'envoi.
 import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/panier_hors_ligne.dart';
+import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
@@ -92,18 +97,124 @@ class CarnetController extends ChangeNotifier {
 
   /// Une opération est en cours ou en attente.
   bool get busy => _working > 0;
-  bool get hasCart => _venteId != null && _items.isNotEmpty;
+  bool get hasCart => (_venteId != null || _hl != null) && _items.isNotEmpty;
 
-  /// L'ayant droit est fixé dès que la vente existe sur le serveur.
-  bool get ayantDroitLocked => _venteId != null;
+  /// L'ayant droit est fixé dès que la vente existe sur le serveur (ou sur l'appareil, hors ligne).
+  bool get ayantDroitLocked => _venteId != null || _hl != null;
 
   /// Net calculé APRÈS la dernière modification (panier, bons, tiers payants).
-  bool get netUpToDate => _venteId != null && _summary != null && _netAt == _changes && _netError == null;
+  bool get netUpToDate => (_venteId != null || _hl != null) && _summary != null && _netAt == _changes && _netError == null;
+
+  // ---------------------------------------------------------------------------
+  // Hors ligne (étape H2)
+  // ---------------------------------------------------------------------------
+
+  PanierHorsLigne? _hl;
+
+  /// Vente saisie hors ligne (panier local, net estimé).
+  bool get horsLigne => _hl != null;
+  PanierHorsLigne? get panierHorsLigne => _hl;
+  static bool get serveurHorsLigne => HorsLigne.instance.offline;
+
+  /// Vente commencée en ligne, serveur maintenant hors ligne : on peut la terminer hors ligne.
+  bool get peutTerminerHorsLigne => serveurHorsLigne && _hl == null && !_finished && _venteId != null && _items.isNotEmpty;
+
+  static const _horsLigneCreation = 'Hors ligne : création de client ou d\'ayant droit impossible. '
+      'Choisissez un client existant (copie locale) ou attendez le retour du serveur.';
+  static const _venteLocale = 'Vente saisie hors ligne : utilisez « Enregistrer (prévente provisoire) ».';
+
+  List<TpHL> get _tpsHL => [
+        for (final tp in _activeTps) TpHL(compteTp: tp.compteTp, numBon: _bons[tp.compteTp] ?? '', taux: tp.taux, nom: tp.tpFullName),
+      ];
+
+  /// Net estimé sur l'appareil (le net définitif sera celui du serveur).
+  void _recalcLocal() {
+    final hl = _hl;
+    if (hl == null) return;
+    _items = hl.items;
+    _summary = estimerAssurance(hl.total, _tpsHL, reference: hl.venteId == null ? hl.label : hl.reference);
+    _cartError = null;
+    _netError = null;
+    _netAt = _changes;
+  }
+
+  void _syncLocal() {
+    _changes++;
+    _recalcLocal();
+    _notify();
+  }
+
+  /// « Terminer hors ligne » : la vente commencée en ligne garde son identifiant serveur.
+  Future<VenteResult<void>> passerHorsLigne() => _run(() async {
+        final id = _venteId;
+        if (_hl != null) return const VenteOk(null);
+        if (id == null || _finished) return const VenteRefused('Aucune vente en cours.');
+        try {
+          final n = await HorsLigne.instance.ventes.reserverNumero();
+          final ref = _items.where((i) => i.strREF.isNotEmpty).firstOrNull?.strREF ?? '';
+          _hl = PanierHorsLigne.depuisServeur(numero: n, venteId: id, reference: ref, items: _items);
+        } catch (e) {
+          return VenteFailed('Hors ligne : enregistrement local impossible ($e).');
+        }
+        _syncLocal();
+        return const VenteOk(null);
+      });
+
+  Future<VenteResult<void>> _addLocal(ProductSearchResult p, int qty) async {
+    if (_hl == null) {
+      try {
+        _hl = PanierHorsLigne(numero: await HorsLigne.instance.ventes.reserverNumero());
+      } catch (e) {
+        return VenteFailed('Hors ligne : enregistrement local impossible ($e).');
+      }
+    }
+    final r = _hl!.ajouter(p, qty);
+    if (r.isOk) _syncLocal();
+    return r;
+  }
+
+  /// Fin hors ligne : prévente provisoire mise dans la file des ventes hors ligne.
+  Future<VenteResult<VenteHorsLigne>> enregistrerHorsLigne({required String userName, required int expectedChanges}) => _run(() async {
+        final hl = _hl, c = _client, ad = _ayantDroit, s = _summary;
+        if (hl == null) return const VenteRefused('Vente en ligne : utilisez Prévente ou Valider.');
+        if (_finished) return const VenteRefused('Vente déjà terminée.');
+        if (hl.isEmpty) return const VenteRefused('Le panier est vide.');
+        if (c == null || ad == null || s == null) return const VenteRefused('Client ou ayant droit manquant.');
+        if (expectedChanges != _changes) return const VenteRefused('Le panier a changé : vérifiez le net puis recommencez.');
+        final file = HorsLigne.instance.ventes;
+        final now = file.now;
+        final v = VenteHorsLigne(
+          id: file.nouvelId(),
+          numero: hl.numero,
+          type: TypeVenteHL.carnet,
+          lignes: hl.lignes,
+          client: clientToJson(c),
+          ayantDroit: ayantDroitToJson(ad),
+          tps: _tpsHL,
+          fin: FinVenteHL.prevente,
+          totalEstime: s.montant,
+          netEstime: s.montantNet,
+          venteId: hl.venteId,
+          commenceeEnLigne: hl.venteId != null,
+          reference: hl.venteId == null || hl.reference.isEmpty ? null : hl.reference,
+          createdAt: now,
+          updatedAt: now,
+          userId: userId,
+          userName: userName,
+        );
+        try {
+          await file.ajouter(v);
+        } catch (e) {
+          return VenteFailed('Vente non enregistrée sur l\'appareil : $e');
+        }
+        await _finish();
+        return VenteOk(v);
+      });
 
   /// Pourquoi la vente ne peut pas être terminée (null = possible).
   String? get finishBlockedReason {
     if (_client == null || _ayantDroit == null) return 'Client ou ayant droit manquant.';
-    if (_venteId == null || _items.isEmpty) return 'Le panier est vide.';
+    if ((_venteId == null && _hl == null) || _items.isEmpty) return 'Le panier est vide.';
     if (busy) return 'Envoi en cours, patientez…';
     if (_cartError != null) return 'Panier non relu : touchez « Réessayer » avant de valider.';
     if (!netUpToDate) return 'Net à payer non calculé : touchez « Réessayer » avant de valider.';
@@ -144,6 +255,7 @@ class CarnetController extends ChangeNotifier {
   void startNew() {
     _epoch++;
     _queue = SaleOpQueue();
+    _hl = null;
     _step = CarnetStep.clientSearch;
     _client = null;
     _ayantDroits = const [];
@@ -174,7 +286,18 @@ class CarnetController extends ChangeNotifier {
     // Texte selon le réglage « Commence par » / « Contient ».
     final sent = serverQuery(q, modeFor(q));
     if (sent.isEmpty) return Future.value(const VenteOk([]));
+    if (serveurHorsLigne) return _clientsLocaux(sent);
     return gateway.searchClients(sent, typeClientId: typeClientId);
+  }
+
+  /// Hors ligne : clients carnet de la copie locale (même texte que celui envoyé au serveur).
+  static Future<VenteResult<List<ClientAssurance>>> _clientsLocaux(String q) async {
+    try {
+      final rows = await HorsLigne.instance.store.searchClients(q, typeClientId: typeClientId, limit: 25);
+      return VenteOk([for (final r in rows) parseClient(r)].whereType<ClientAssurance>().toList());
+    } catch (e) {
+      return VenteFailed('Hors ligne : recherche locale des clients impossible ($e).');
+    }
   }
 
   /// Recherche de carnet (tiers payant) pour la création d'un client (≥ 3 caractères).
@@ -221,6 +344,8 @@ class CarnetController extends ChangeNotifier {
   Future<void> loadAyantDroits() async {
     final c = _client;
     if (c == null) return;
+    // Hors ligne : ayants droit de la copie locale (le client lui-même au moins).
+    if (serveurHorsLigne) return;
     final epoch = _epoch;
     _ayantDroitsLoading = true;
     _notify();
@@ -246,6 +371,7 @@ class CarnetController extends ChangeNotifier {
     required String matricule,
     required TiersPayantAssurance carnet,
   }) async {
+    if (serveurHorsLigne) return const VenteRefused(_horsLigneCreation);
     final n = VenteInput.cleanName(nom), p = VenteInput.cleanName(prenom), m = VenteInput.cleanName(matricule);
     if (n.isEmpty) return const VenteRefused('Le nom est obligatoire.');
     final r = await gateway.createClientCarnet(firstName: n, lastName: p, numSecu: m, tiersPayantId: carnet.lgTIERSPAYANTID);
@@ -274,6 +400,7 @@ class CarnetController extends ChangeNotifier {
     final c = _client;
     if (c == null) return const VenteRefused('Aucun client sélectionné.');
     if (ayantDroitLocked) return const VenteRefused('Ayant droit fixé : la vente est déjà créée.');
+    if (serveurHorsLigne) return const VenteRefused(_horsLigneCreation);
     final n = VenteInput.cleanName(nom), p = VenteInput.cleanName(prenom), m = VenteInput.cleanName(matricule);
     if (n.isEmpty) return const VenteRefused('Le nom est obligatoire.');
     final epoch = _epoch;
@@ -336,7 +463,7 @@ class CarnetController extends ChangeNotifier {
     _step = CarnetStep.productSearch;
     if (changed || !netUpToDate) {
       _invalidateNet();
-      if (_venteId != null) reload();
+      if (_venteId != null || _hl != null) reload();
     } else {
       _notify();
     }
@@ -395,6 +522,12 @@ class CarnetController extends ChangeNotifier {
   Future<void> reload() => _run(_reload);
 
   Future<void> _reload() async {
+    if (_hl != null) {
+      // Hors ligne : net estimé sur l'appareil.
+      _recalcLocal();
+      _notify();
+      return;
+    }
     final id = _venteId;
     if (id == null) return;
     final at = _changes;
@@ -431,6 +564,12 @@ class CarnetController extends ChangeNotifier {
         if (c == null) return const VenteRefused('Aucun client sélectionné.');
         if (ad == null || ad.lgAYANTSDROITSID.isEmpty) return const VenteRefused('Ayant droit non défini : revenez à l\'étape des bons.');
         if (qty < 1 || qty > VenteInput.maxQuantity) return const VenteRefused('Quantité invalide (1 à 9 999).');
+        // Hors ligne : panier local (une vente commencée en ligne passe par « Terminer hors ligne »).
+        if (_hl != null || (_venteId == null && serveurHorsLigne)) return _addLocal(p, qty);
+        if (peutTerminerHorsLigne) {
+          return const VenteRefused('Serveur hors ligne : cette vente a été commencée en ligne. '
+              'Touchez « Terminer hors ligne » pour continuer, ou attendez le retour du serveur.');
+        }
         final id = _venteId;
         final epoch = _epoch;
         final before = _qtyOf(p.lgFAMILLEID);
@@ -478,6 +617,12 @@ class CarnetController extends ChangeNotifier {
   /// Modifie quantité et prix d'une ligne.
   Future<VenteResult<void>> updateLine(SaleItemDetail item, int qty, int price) => _run(() async {
         if (_finished) return const VenteRefused('Vente déjà terminée.');
+        final hl = _hl;
+        if (hl != null) {
+          final l = hl.modifier(item.lgPREENREGISTREMENTDETAILID, qty, price);
+          if (l.isOk) _syncLocal();
+          return l;
+        }
         final r = await gateway.updateItem(itemId: item.lgPREENREGISTREMENTDETAILID, produitId: item.lgFAMILLEID, qte: qty, itemPu: price);
         if (r.isOk || r.uncertain) {
           _changes++;
@@ -496,6 +641,12 @@ class CarnetController extends ChangeNotifier {
   /// Retire une ligne.
   Future<VenteResult<void>> removeLine(SaleItemDetail item) => _run(() async {
         if (_finished) return const VenteRefused('Vente déjà terminée.');
+        final hl = _hl;
+        if (hl != null) {
+          final l = hl.retirer(item.lgPREENREGISTREMENTDETAILID);
+          if (l.isOk) _syncLocal();
+          return l;
+        }
         final r = await gateway.removeItem(item.lgPREENREGISTREMENTDETAILID);
         if (r.isOk || r.uncertain) {
           _changes++;
@@ -537,6 +688,7 @@ class CarnetController extends ChangeNotifier {
 
   /// « Enregistrer en prévente » (terminerprevente), comme le bouton « Prévente » d'origine.
   Future<VenteResult<void>> terminerPrevente({required int expectedChanges}) => _run(() async {
+        if (_hl != null) return const VenteRefused(_venteLocale);
         final id = _venteId;
         if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
         if (_finished) return const VenteOk(null);
@@ -555,6 +707,7 @@ class CarnetController extends ChangeNotifier {
 
   /// « Valider » : clôture carnet, comme l'original (espèces id '1', montant reçu = net, sans dialogue de paiement).
   Future<VenteResult<CarnetClotureOk>> valider({required int expectedChanges}) => _run(() async {
+        if (_hl != null) return const VenteRefused(_venteLocale);
         final id = _venteId, c = _client, ad = _ayantDroit, s = _summary;
         if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
         if (c == null || ad == null) return const VenteRefused('Client ou ayant droit manquant.');
@@ -613,7 +766,7 @@ class CarnetController extends ChangeNotifier {
 
   Future<void> _remember() async {
     final id = _venteId, c = _client, ad = _ayantDroit;
-    if (id == null || c == null || ad == null || _finished) return;
+    if (id == null || c == null || ad == null || _finished || _hl != null) return;
     if (_items.isEmpty && _cartError == null) {
       await PendingSaleStore.clear(VenteMenu.carnet);
       return;

@@ -2,9 +2,12 @@
 // Rubrique « Hors ligne » des Réglages : état du serveur, interrupteur manuel, copie locale
 // (dernière mise à jour et nombre d'éléments par catégorie), « Mettre à jour maintenant »,
 // « Vider la copie locale » (avec confirmation).
+// H2 : ventes hors ligne (en attente, anomalies), accès à la liste, aux anomalies et au rapport du jour.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
+import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
+import 'package:prestige_vente_app/horsligne/ventes_hors_ligne_screen.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -36,7 +39,19 @@ class _HorsLignePageState extends State<HorsLignePage> {
   void initState() {
     super.initState();
     _hl.sync.refreshStats();
+    _hl.ventes.ensureLoaded();
   }
+
+  void _ouvrir(Widget page) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+
+  Widget _lien(Key key, IconData icon, String text, Widget page) => ListTile(
+        key: key,
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(icon, color: Pal.navy),
+        title: Text(text, style: const TextStyle(fontSize: 14, color: Pal.ink)),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _ouvrir(page),
+      );
 
   String _etat(ServerMonitor m) {
     final depuis = m.depuis == null ? '' : ' depuis ${HorsLigne.formatDate(m.depuis!)}';
@@ -92,9 +107,10 @@ class _HorsLignePageState extends State<HorsLignePage> {
   Widget build(BuildContext context) {
     final hl = _hl;
     return ListenableBuilder(
-      listenable: Listenable.merge([hl.monitor, hl.sync]),
+      listenable: Listenable.merge([hl.monitor, hl.sync, hl.ventes]),
       builder: (context, _) {
         final m = hl.monitor;
+        final ventes = hl.ventes;
         final sync = hl.sync;
         final s = sync.stats;
         final offline = m.isOffline;
@@ -123,6 +139,18 @@ class _HorsLignePageState extends State<HorsLignePage> {
               subtitle: 'La recherche produit utilise la copie locale. Désactiver pour revenir en ligne.',
               value: offline,
               onChanged: (v) => v ? m.goOffline(manuel: true) : m.goOnline(),
+            ),
+            const SectionLabel('Ventes hors ligne'),
+            SettingCard(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${ventes.enAttente} en attente d\'envoi · ${ventes.aVerifier} en anomalie',
+                    key: const Key('resume_ventes_hl'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Pal.ink)),
+                _lien(const Key('ouvrir_ventes_hl'), Icons.cloud_upload_outlined, 'Ventes hors ligne', VentesHorsLigneScreen(horsLigne: widget.horsLigne)),
+                _lien(const Key('ouvrir_anomalies_hl'), Icons.report_problem_outlined, 'Anomalies de synchronisation (${ventes.anomaliesNonTraitees})',
+                    AnomaliesHorsLigneScreen(horsLigne: widget.horsLigne)),
+                _lien(const Key('ouvrir_rapport_jour_hl'), Icons.summarize_outlined, 'Rapport de fin de journée',
+                    RapportJourHorsLigneScreen(horsLigne: widget.horsLigne)),
+              ]),
             ),
             const SectionLabel('Copie locale'),
             if (sync.storeError != null) InfoBanner.error(sync.storeError!),
