@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/services/label_text_parser.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/product_paging.dart';
 import 'package:provider/provider.dart';
 
 class ExpirationUpdateScreen extends StatefulWidget {
@@ -203,7 +204,11 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
     }
 
     final results = provider.searchResults;
-    if (results.length == 1) {
+    if (provider.searchError != null) {
+      // Panne : ne pas annoncer « produit introuvable ».
+      Constants.showSnackBar(context, 'Recherche impossible : ${provider.searchError}', isError: true);
+      FocusScope.of(context).requestFocus(_searchFocusNode);
+    } else if (results.length == 1) {
       _selectProduct(results.first);
     } else if (results.isEmpty) {
       setState(() => _scanProductNotFound = true);
@@ -669,8 +674,22 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
   }
 
   Widget _buildSearchResults(ExpirationUpdateProvider provider) {
+    // Panne (réseau, serveur) : jamais « aucun produit ».
+    if (provider.searchError != null && !provider.isLoading && _searchController.text.isNotEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.cloud_off, size: 40, color: Colors.red.shade700),
+            const SizedBox(height: 8),
+            Text('Recherche impossible : ${provider.searchError}', textAlign: TextAlign.center, style: TextStyle(color: Colors.red.shade900)),
+            TextButton(onPressed: _onSearchChanged, child: const Text('Réessayer')),
+          ]),
+        ),
+      );
+    }
     if (provider.searchResults.isEmpty && _searchController.text.isNotEmpty) {
-      return const Center(child: Text('Aucun produit trouvé.'));
+      return Center(child: Text(provider.searchNotFound ?? 'Aucun produit trouvé.', textAlign: TextAlign.center));
     }
     if (provider.searchResults.isEmpty) {
       return Center(
@@ -685,11 +704,14 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
       );
     }
     final compact = style == ListPresentation.compact;
-    return ListView.separated(
+    final paging = provider.productSearch;
+    final footer = ProductPagingFooter.visibleFor(paging);
+    final list = ListView.separated(
       padding: EdgeInsets.fromLTRB(compact ? 0 : 12, 10, compact ? 0 : 12, 16),
-      itemCount: provider.searchResults.length,
+      itemCount: provider.searchResults.length + (footer ? 1 : 0),
       separatorBuilder: (_, __) => SizedBox(height: compact ? 0 : 8),
       itemBuilder: (context, index) {
+        if (index >= provider.searchResults.length) return ProductPagingFooter(paging, onLoadMore: provider.loadMoreProducts);
         final product = provider.searchResults[index];
         void open() {
           _searchFocusNode.unfocus();
@@ -725,6 +747,11 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
         );
       },
     );
+    // Liste par pages : « 50 sur 120 », la suite se charge en faisant défiler.
+    return Column(children: [
+      ProductPagingCount(paging),
+      Expanded(child: ProductPagingScroll(search: paging, onLoadMore: provider.loadMoreProducts, child: list)),
+    ]);
   }
 
   Widget _buildChoices<T>({

@@ -6,14 +6,17 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/rayon.dart';
 // MODIFICATION : Import pour les détails du produit
 import 'package:prestige_vente_app/api/models/product_search_result.dart';
+import 'package:prestige_vente_app/services/product_finder.dart';
 
-class ProductUpdateProvider with ChangeNotifier {
+class ProductUpdateProvider with ChangeNotifier, PagedProductSearchHost {
   ApiService _apiService;
   ProductUpdateProvider(this._apiService);
   void updateApiService(ApiService newApiService) { _apiService = newApiService; }
 
   bool _isLoading = false;
-  List<ProductSearchResult> _searchResults = [];
+  /// Code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
+  @override
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
   ProductSearchResult? _selectedProduct;
   // MODIFICATION : Ajout pour stocker les détails (qui contiennent l'EAN)
   ProductDetails? _selectedProductDetails;
@@ -22,7 +25,13 @@ class ProductUpdateProvider with ChangeNotifier {
   String? _errorMessage;
 
   bool get isLoading => _isLoading;
-  List<ProductSearchResult> get searchResults => _searchResults;
+  List<ProductSearchResult> get searchResults => productSearch.items;
+
+  /// Panne de la dernière recherche (≠ produit introuvable).
+  String? get searchError => productSearch.error;
+
+  /// Code inconnu : « Code X introuvable (essayé aussi Y) ».
+  String? get searchNotFound => productSearch.notFound;
   ProductSearchResult? get selectedProduct => _selectedProduct;
   // MODIFICATION : Getter pour les détails
   ProductDetails? get selectedProductDetails => _selectedProductDetails;
@@ -30,7 +39,7 @@ class ProductUpdateProvider with ChangeNotifier {
   String? get errorMessage => _errorMessage;
 
   void clearAll() {
-    _searchResults = [];
+    productSearch.clear();
     _selectedProduct = null;
     _selectedProductDetails = null; // MODIFICATION
     _errorMessage = null;
@@ -45,7 +54,7 @@ class ProductUpdateProvider with ChangeNotifier {
 
   Future<void> search(String query) async {
     if (query.length < 3) {
-      _searchResults = [];
+      productSearch.clear();
       notifyListeners();
       return;
     }
@@ -53,7 +62,7 @@ class ProductUpdateProvider with ChangeNotifier {
     _selectedProduct = null;
     _selectedProductDetails = null; // MODIFICATION
     notifyListeners();
-    _searchResults = await _apiService.searchProducts(query);
+    await productSearch.run(query); // une recherche plus récente remplace celle-ci
     _isLoading = false;
     notifyListeners();
   }
@@ -63,7 +72,7 @@ class ProductUpdateProvider with ChangeNotifier {
     _isLoading = true;
     _selectedProduct = product;
     _selectedProductDetails = null; // On efface les anciens détails
-    _searchResults = [];
+    productSearch.clear();
     notifyListeners(); // Affiche le chargement et cache les résultats
 
     // On charge les détails (qui contiennent 'intEan13')

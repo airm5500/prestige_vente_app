@@ -13,8 +13,16 @@ import 'package:prestige_vente_app/screens/product_update/emplacement_update_scr
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart' show ProductPage;
 
 class _FakeApi extends ApiService {
+  // Recherche par pages : mêmes produits que la recherche simulée ci-dessous.
+  @override
+  Future<ProductPage> searchProductsPageOrFail(String query, int start, int limit) async {
+    final all = await searchProducts(query);
+    return ProductPage(all.skip(start).take(limit).toList(), all.length);
+  }
+
   _FakeApi() : super(baseUrl: 'http://localhost');
 
   final liteInfo = <Map<String, dynamic>>[];

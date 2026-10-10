@@ -6,15 +6,18 @@ import 'package:prestige_vente_app/api/models/product_info.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 // MODIFICATION : Import du modèle de recherche standard
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/services/product_finder.dart';
 
-class ProductStatsProvider with ChangeNotifier {
+class ProductStatsProvider with ChangeNotifier, PagedProductSearchHost {
   ApiService _apiService;
   ProductStatsProvider(this._apiService);
   void updateApiService(ApiService newApiService) { _apiService = newApiService; }
 
   bool _isLoading = false;
   // MODIFICATION : Le résultat de recherche utilise le modèle standard
-  List<ProductSearchResult> _searchResults = [];
+  /// Code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
+  @override
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
   ProductAnnualSale? _selectedProductSales;
   ProductInfo? _selectedProductInfo;
   List<ProductAnnualSale> _comparisonData = [];
@@ -23,7 +26,13 @@ class ProductStatsProvider with ChangeNotifier {
 
   bool get isLoading => _isLoading;
   // MODIFICATION : Le getter renvoie le type standard
-  List<ProductSearchResult> get searchResults => _searchResults;
+  List<ProductSearchResult> get searchResults => productSearch.items;
+
+  /// Panne de la dernière recherche (≠ produit introuvable).
+  String? get searchError => productSearch.error;
+
+  /// Code inconnu : « Code X introuvable (essayé aussi Y) ».
+  String? get searchNotFound => productSearch.notFound;
   ProductAnnualSale? get selectedProductSales => _selectedProductSales;
   ProductInfo? get selectedProductInfo => _selectedProductInfo;
   List<ProductAnnualSale> get comparisonData => _comparisonData;
@@ -31,7 +40,7 @@ class ProductStatsProvider with ChangeNotifier {
   bool get showComparisonChart => _showComparisonChart;
 
   void clear() {
-    _searchResults = [];
+    productSearch.clear();
     _selectedProductSales = null;
     _selectedProductInfo = null;
     _comparisonData = [];
@@ -42,13 +51,13 @@ class ProductStatsProvider with ChangeNotifier {
   Future<void> searchProducts(String query) async {
     bool isCip = int.tryParse(query) != null;
     if ((isCip && query.length < 3) || (!isCip && query.length < 2)) {
-      _searchResults = [];
+      productSearch.clear();
       notifyListeners();
       return;
     }
     _setLoading(true);
     // MODIFICATION : Utilise l'API de recherche standard
-    _searchResults = await _apiService.searchProducts(query);
+    await productSearch.run(query); // une recherche plus récente remplace celle-ci
     _setLoading(false);
   }
 
@@ -57,7 +66,7 @@ class ProductStatsProvider with ChangeNotifier {
     _setLoading(true);
     _showComparisonChart = false;
     _comparisonData = [];
-    _searchResults = []; // Cache la liste de recherche
+    productSearch.clear(); // Cache la liste de recherche
     notifyListeners();
 
     // Charge les données spécifiques à cet écran (Stats et Info)

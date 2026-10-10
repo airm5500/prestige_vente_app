@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
+import 'package:prestige_vente_app/ventes/common/product_list_modal.dart' show showProductListModal;
 
 /// Bornes de saisie de la vente dépôt.
 class DepotSaleLimits {
@@ -187,11 +188,15 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> with PresentationAwar
       final results = provider.searchResults;
 
       if (results.isEmpty) {
-        if (autoAddIfUnique) {
+        final notFound = provider.searchNotFound; // code inconnu : « Code X introuvable (essayé aussi Y) »
+        if (autoAddIfUnique || notFound != null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Produit introuvable"), backgroundColor: Colors.orange, duration: Duration(seconds: 1)),
+            SnackBar(
+                content: Text(notFound ?? "Produit introuvable"),
+                backgroundColor: Colors.orange,
+                duration: Duration(milliseconds: notFound != null ? 2500 : 1000)),
           );
-          _searchController.clear();
+          if (autoAddIfUnique) _searchController.clear();
         }
       } else {
         if (results.length == 1) {
@@ -275,15 +280,11 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> with PresentationAwar
   void _showEnrichedSelectionModal(List<ProductSearchResult> results) async {
     setState(() => _isPopupOpen = true);
 
-    final selectedProduct = await showModalBottomSheet<ProductSearchResult>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => ProductListModal(
-        results: results,
-        initialQuery: _searchController.text,
-        onProductSelected: (p) => Navigator.pop(ctx, p),
-      ),
+    // Liste par pages : « 50 sur 120 », la suite se charge en faisant défiler.
+    final selectedProduct = await showProductListModal(
+      context,
+      results,
+      pager: Provider.of<DepotSaleProvider>(context, listen: false).productSearch.pager,
     );
 
     if (!mounted) return;
@@ -1157,106 +1158,6 @@ class _EditLineDialogState extends State<EditLineDialog> {
               : const Text("Valider"),
         ),
       ],
-    );
-  }
-}
-
-// =========================================================
-// MODAL RÉSULTATS
-// =========================================================
-class ProductListModal extends StatefulWidget {
-  final List<ProductSearchResult> results;
-  final String initialQuery;
-  final Function(ProductSearchResult) onProductSelected;
-  const ProductListModal({super.key, required this.results, required this.initialQuery, required this.onProductSelected});
-
-  @override
-  State<ProductListModal> createState() => _ProductListModalState();
-}
-
-class _ProductListModalState extends State<ProductListModal> {
-  late List<ProductSearchResult> _filteredList;
-  final TextEditingController _modalSearchCtrl = TextEditingController();
-  final FocusNode _modalFocusNode = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    _filteredList = widget.results;
-    _modalSearchCtrl.text = widget.initialQuery;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _modalFocusNode.requestFocus();
-        _modalSearchCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _modalSearchCtrl.text.length));
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _modalFocusNode.unfocus();
-    _modalFocusNode.dispose();
-    _modalSearchCtrl.dispose();
-    super.dispose();
-  }
-
-  void _filterResults(String query) {
-    setState(() {
-      _filteredList = widget.results.where((p) => p.strNAME.toLowerCase().contains(query.toLowerCase()) || p.intCIP.toString().contains(query)).toList();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.85,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      child: Column(
-        children: [
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text("Résultats (${_filteredList.length})", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-          ]),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _modalSearchCtrl,
-            focusNode: _modalFocusNode,
-            decoration: const InputDecoration(hintText: "Filtrer dans la liste...", prefixIcon: Icon(Icons.search), border: OutlineInputBorder(), isDense: true),
-            onChanged: _filterResults,
-          ),
-          const SizedBox(height: 10),
-          const Divider(height: 1),
-          Expanded(
-            child: ListView.separated(
-              padding: EdgeInsets.only(bottom: keyboardHeight + 20),
-              itemCount: _filteredList.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (ctx, index) {
-                final p = _filteredList[index];
-                return ListTile(
-                  dense: true,
-                  title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: RichText(
-                    text: TextSpan(
-                      style: const TextStyle(fontSize: 12, color: Colors.black87),
-                      children: [
-                        TextSpan(text: "CIP: ${p.intCIP} | "),
-                        TextSpan(text: "Stock: ${p.intNUMBERAVAILABLE}", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.withValues(alpha: 1))),
-                        const TextSpan(text: " | "),
-                        TextSpan(text: "Prix: ${Constants.formatNumber(p.intPRICE)} F", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.withValues(alpha: 1))),
-                      ],
-                    ),
-                  ),
-                  onTap: () => widget.onProductSelected(p),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

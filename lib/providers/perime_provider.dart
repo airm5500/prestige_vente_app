@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/perime_models.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/services/product_finder.dart';
 
-class PerimeProvider with ChangeNotifier {
+class PerimeProvider with ChangeNotifier, PagedProductSearchHost {
   ApiService _apiService;
   PerimeProvider(this._apiService);
   void updateApiService(ApiService newApiService) { _apiService = newApiService; }
@@ -20,7 +21,9 @@ class PerimeProvider with ChangeNotifier {
   int _nbreMoisFilter = 3;
 
   // --- Etat pour l'onglet "Saisie" ---
-  List<ProductSearchResult> _productSearchResults = [];
+  /// Code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
+  @override
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
   ProductSearchResult? _selectedProduct;
   List<SaisieEnCoursItem> _saisieEnCoursList = [];
   List<SaisiePerimeItem> _saisieHistoryList = [];
@@ -34,7 +37,13 @@ class PerimeProvider with ChangeNotifier {
   PerimeMetaData? get metaData => _metaData;
   int get nbreMoisFilter => _nbreMoisFilter;
 
-  List<ProductSearchResult> get productSearchResults => _productSearchResults;
+  List<ProductSearchResult> get productSearchResults => productSearch.items;
+
+  /// Panne de la dernière recherche produit (≠ produit introuvable).
+  String? get productSearchError => productSearch.error;
+
+  /// Code inconnu : « Code X introuvable (essayé aussi Y) ».
+  String? get productSearchNotFound => productSearch.notFound;
   ProductSearchResult? get selectedProduct => _selectedProduct;
   List<SaisieEnCoursItem> get saisieEnCoursList => _saisieEnCoursList;
   List<SaisiePerimeItem> get saisieHistoryList => _saisieHistoryList;
@@ -95,19 +104,19 @@ class PerimeProvider with ChangeNotifier {
 
   Future<void> searchProduct(String query) async {
     if (query.length < 3) {
-      _productSearchResults = [];
+      productSearch.clear();
       notifyListeners();
       return;
     }
     _setLoading(true);
-    _productSearchResults = await _apiService.searchProducts(query);
+    await productSearch.run(query); // une recherche plus récente remplace celle-ci
     _isLoading = false;
     notifyListeners();
   }
 
   void selectProduct(ProductSearchResult product) {
     _selectedProduct = product;
-    _productSearchResults = [];
+    productSearch.clear();
     notifyListeners();
   }
 

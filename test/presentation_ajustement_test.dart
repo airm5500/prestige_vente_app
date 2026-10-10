@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/screens/ajustement/ajustement_screen.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart' show ProductPage;
 
 const _longName = 'DOLIPRANE 1000MG COMPRIMES PELLICULES SECABLES BOITE DE 8 GRAND FORMAT';
 
@@ -26,6 +27,13 @@ ProductSearchResult _product({int stock = 12}) => ProductSearchResult(
     );
 
 class _Api extends ApiService {
+  // Recherche par pages : mêmes produits que la recherche simulée ci-dessous.
+  @override
+  Future<ProductPage> searchProductsPageOrFail(String query, int start, int limit) async {
+    final all = await searchProductsOrFail(query);
+    return ProductPage(all.skip(start).take(limit).toList(), all.length);
+  }
+
   _Api() : super(baseUrl: 'http://localhost');
 
   String? typesFailure;

@@ -10,6 +10,7 @@ import 'package:prestige_vente_app/api/models/rayon.dart';
 import 'package:prestige_vente_app/providers/product_update_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/product_paging.dart';
 import 'package:provider/provider.dart';
 
 /// Longueur max d'une recherche produit ou d'un libellé d'emplacement saisi.
@@ -151,6 +152,11 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> with 
         await provider.search(query);
       } catch (_) {
         if (mounted) Constants.showSnackBar(context, 'Recherche impossible. Vérifiez la connexion au serveur.', isError: true);
+        return;
+      }
+      // Panne (réseau, serveur) : jamais « aucun produit trouvé ».
+      if (mounted && provider.searchError != null) {
+        Constants.showSnackBar(context, 'Recherche impossible : ${provider.searchError}', isError: true);
         return;
       }
 
@@ -367,8 +373,10 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> with 
       final String text;
       if (query.isNotEmpty && query.length < 3) {
         text = 'Saisissez au moins 3 caractères.';
+      } else if (query.isNotEmpty && !provider.isLoading && provider.searchError != null) {
+        text = 'Recherche impossible : ${provider.searchError}';
       } else if (query.isNotEmpty && !provider.isLoading) {
-        text = 'Aucun produit trouvé.';
+        text = provider.searchNotFound ?? 'Aucun produit trouvé.';
       } else {
         text = 'Scannez le code du produit ou recherchez-le par nom ou CIP.';
       }
@@ -384,11 +392,14 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> with 
       ]);
     }
     final compact = style == ListPresentation.compact;
-    return ListView.separated(
+    final paging = provider.productSearch;
+    final footer = ProductPagingFooter.visibleFor(paging);
+    final list = ListView.separated(
       padding: EdgeInsets.fromLTRB(compact ? 0 : 12, 10, compact ? 0 : 12, 16),
-      itemCount: provider.searchResults.length,
+      itemCount: provider.searchResults.length + (footer ? 1 : 0),
       separatorBuilder: (_, __) => SizedBox(height: compact ? 0 : 8),
       itemBuilder: (context, index) {
+        if (index >= provider.searchResults.length) return ProductPagingFooter(paging, onLoadMore: provider.loadMoreProducts);
         final product = provider.searchResults[index];
         void open() => _openProduct(provider, product);
         final place = product.strLIBELLEE.trim();
@@ -423,6 +434,11 @@ class _EmplacementUpdateScreenState extends State<EmplacementUpdateScreen> with 
         );
       },
     );
+    // Liste par pages : « 50 sur 120 », la suite se charge en faisant défiler.
+    return Column(children: [
+      ProductPagingCount(paging),
+      Expanded(child: ProductPagingScroll(search: paging, onLoadMore: provider.loadMoreProducts, child: list)),
+    ]);
   }
 
   Widget _buildUpdateForm(ProductUpdateProvider provider) {

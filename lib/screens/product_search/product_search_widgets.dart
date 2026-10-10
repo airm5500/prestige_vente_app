@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/services/product_finder.dart';
+import 'package:prestige_vente_app/widgets/product_paging.dart';
 
 /// Règles de saisie d'une recherche produit (nom, CIP ou code scanné).
 class SearchQuery {
@@ -112,7 +114,18 @@ class ProductResultsList extends StatelessWidget {
   final List<ProductSearchResult> results;
   final ListPresentation style;
   final ValueChanged<ProductSearchResult> onTap;
-  const ProductResultsList({super.key, required this.results, required this.style, required this.onTap});
+
+  /// Liste par pages : « 50 sur 120 » et chargement de la suite en faisant défiler.
+  final PagedProductSearch? paging;
+  final VoidCallback? onLoadMore;
+  const ProductResultsList({super.key, required this.results, required this.style, required this.onTap, this.paging, this.onLoadMore});
+
+  bool get _footer => paging != null && onLoadMore != null && ProductPagingFooter.visibleFor(paging!);
+
+  Widget _footerRow() => ProductPagingFooter(paging!, onLoadMore: onLoadMore!);
+
+  Widget _scroll(Widget list) =>
+      paging != null && onLoadMore != null ? ProductPagingScroll(search: paging!, onLoadMore: onLoadMore!, child: list) : list;
 
   Color _stockColor(int stock) => stock <= 0 ? const Color(0xFFB91C1C) : Pal.green;
 
@@ -200,23 +213,26 @@ class ProductResultsList extends StatelessWidget {
           ]),
         ),
         const Divider(height: 1, color: Pal.line),
+        if (paging != null) ProductPagingCount(paging!),
         Expanded(
-          child: ListView.builder(
+          child: _scroll(ListView.builder(
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            itemCount: results.length,
-            itemBuilder: (_, i) => _row(results[i]),
-          ),
+            itemCount: results.length + (_footer ? 1 : 0),
+            itemBuilder: (_, i) => i >= results.length ? _footerRow() : _row(results[i]),
+          )),
         ),
       ]);
     }
     final guided = style == ListPresentation.guided;
-    return ListView.separated(
+    final list = _scroll(ListView.separated(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-      itemCount: results.length,
+      itemCount: results.length + (_footer ? 1 : 0),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, i) => _card(results[i], band: guided && i == 0 ? Pal.navy : null),
-    );
+      itemBuilder: (_, i) => i >= results.length ? _footerRow() : _card(results[i], band: guided && i == 0 ? Pal.navy : null),
+    ));
+    if (paging == null || !paging!.showCount) return list;
+    return Column(children: [ProductPagingCount(paging!), Expanded(child: list)]);
   }
 }
 

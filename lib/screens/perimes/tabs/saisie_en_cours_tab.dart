@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/providers/perime_provider.dart';
 import 'package:prestige_vente_app/screens/perimes/perime_widgets.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/product_paging.dart';
 import 'package:provider/provider.dart';
 
 class SaisieEnCoursTab extends StatefulWidget {
@@ -326,6 +327,7 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> with PresentationAw
         children: [
           if (selected == null)
             Padding(padding: const EdgeInsets.fromLTRB(12, 10, 12, 4), child: _buildSearchField(provider)),
+          if (selected == null) _searchNotice(provider),
           if (provider.isLoading) const LinearProgressIndicator(minHeight: 2),
           Expanded(child: content),
           if (bottom != null) bottom,
@@ -490,14 +492,37 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> with PresentationAw
     );
   }
 
+  /// Recherche en panne (≠ introuvable) ou code inconnu : message sous le champ.
+  Widget _searchNotice(PerimeProvider provider) {
+    if (provider.isLoading || _searchController.text.trim().isEmpty) return const SizedBox.shrink();
+    final error = provider.productSearchError;
+    final notFound = provider.productSearchNotFound;
+    if (error == null && notFound == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 8, 2),
+      child: Row(children: [
+        Icon(error != null ? Icons.cloud_off : Icons.search_off, size: 18, color: error != null ? Colors.red.shade700 : Colors.orange.shade800),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(error != null ? 'Recherche impossible : $error' : notFound!,
+              style: TextStyle(fontSize: 13, color: error != null ? Colors.red.shade900 : Colors.orange.shade900)),
+        ),
+        if (error != null) TextButton(onPressed: _onSearchChanged, child: const Text('Réessayer')),
+      ]),
+    );
+  }
+
   Widget _buildSearchResults(PerimeProvider provider) {
     final compact = style == ListPresentation.compact;
     final results = provider.productSearchResults;
-    return ListView.separated(
+    final paging = provider.productSearch;
+    final footer = ProductPagingFooter.visibleFor(paging);
+    final list = ListView.separated(
       padding: EdgeInsets.fromLTRB(compact ? 0 : 12, 8, compact ? 0 : 12, 16),
-      itemCount: results.length,
+      itemCount: results.length + (footer ? 1 : 0),
       separatorBuilder: (_, __) => SizedBox(height: compact ? 0 : 8),
       itemBuilder: (context, index) {
+        if (index >= results.length) return ProductPagingFooter(paging, onLoadMore: provider.loadMoreProducts);
         final product = results[index];
         final row = Row(children: [
           Expanded(
@@ -527,5 +552,10 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> with PresentationAw
         );
       },
     );
+    // Liste par pages : « 50 sur 120 », la suite se charge en faisant défiler.
+    return Column(children: [
+      ProductPagingCount(paging),
+      Expanded(child: ProductPagingScroll(search: paging, onLoadMore: provider.loadMoreProducts, child: list)),
+    ]);
   }
 }
