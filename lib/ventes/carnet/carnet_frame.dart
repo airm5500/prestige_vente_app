@@ -32,9 +32,11 @@ class CarnetFrame {
     required Widget body,
     Widget? bottom,
     bool pills = true,
+    bool wide = false,
   }) =>
       PresentationScaffold(
         style: style,
+        wide: wide,
         title: title,
         subtitle: subtitle,
         actions: actions,

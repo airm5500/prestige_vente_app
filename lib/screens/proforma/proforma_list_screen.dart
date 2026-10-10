@@ -11,6 +11,7 @@ import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/screens/proforma/proforma_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 
 // Imports PDF & Printing
 import 'package:pdf/pdf.dart';
@@ -336,6 +337,7 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
         body: Column(children: [
           NavyHeader(
             title: 'Proformas / Devis',
+            wide: true,
             subtitle: "Devis du jour · ${DateFormat('dd/MM/yyyy').format(DateTime.now())}",
             actions: [
               PresentationMenuButton(value: _style, onChanged: _setStyle),
@@ -352,12 +354,16 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
             ],
           ),
           Expanded(
-            child: _list(() => ListView.separated(
+            child: ContentWidth(
+              wide: true,
+              child: _list(() => AdaptiveCardList(
+                  columns: Responsive.columns(context),
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 96),
                   itemCount: _proformas.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (_, i) => _cardA(_proformas[i]),
                 )),
+            ),
           ),
         ]),
       );
@@ -416,56 +422,58 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
           ],
           bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
         ),
-        body: Column(children: [
-          Expanded(
-            child: _list(() => ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 88),
-                  itemCount: _proformas.length,
-                  itemBuilder: (_, i) {
-                    final item = _proformas[i];
-                    return InkWell(
-                      onTap: () => _openProforma(item),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
-                        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
-                        child: Row(children: [
-                          Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(item.strClientFullName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
-                              Text.rich(TextSpan(style: const TextStyle(fontSize: 13, color: Pal.muted), children: [
-                                TextSpan(text: "${item.strREF} · ${item.heure}${item.userFullName.isNotEmpty ? ' · ${item.userFullName}' : ''} · "),
-                                TextSpan(
-                                  text: item.strSTATUT,
-                                  style: TextStyle(fontWeight: FontWeight.w600, color: _isOpen(item) ? const Color(0xFF0B6B45) : Pal.muted),
-                                ),
-                              ])),
-                            ]),
-                          ),
-                          Text("${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Pal.navy)),
-                          IconButton(
-                            icon: const Icon(Icons.print, color: Colors.blueGrey),
-                            tooltip: "Imprimer A4",
-                            onPressed: () => _handlePrint(item),
-                          ),
-                        ]),
-                      ),
-                    );
-                  },
-                )),
-          ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(color: Color(0xFFF8FAFC), border: Border(top: BorderSide(color: Pal.line))),
-            child: SafeArea(
-              top: false,
-              child: Row(children: [
-                Expanded(child: Text("${_proformas.length} devis aujourd'hui", style: const TextStyle(fontSize: 13, color: Color(0xFF4A5A70)))),
-                Text("Total ${_formatCurrency(_total)} F", style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
-              ]),
+        body: ContentWidth(
+          child: Column(children: [
+            Expanded(
+              child: _list(() => ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 88),
+                    itemCount: _proformas.length,
+                    itemBuilder: (_, i) {
+                      final item = _proformas[i];
+                      return InkWell(
+                        onTap: () => _openProforma(item),
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
+                          decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+                          child: Row(children: [
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(item.strClientFullName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                                Text.rich(TextSpan(style: const TextStyle(fontSize: 13, color: Pal.muted), children: [
+                                  TextSpan(text: "${item.strREF} · ${item.heure}${item.userFullName.isNotEmpty ? ' · ${item.userFullName}' : ''} · "),
+                                  TextSpan(
+                                    text: item.strSTATUT,
+                                    style: TextStyle(fontWeight: FontWeight.w600, color: _isOpen(item) ? const Color(0xFF0B6B45) : Pal.muted),
+                                  ),
+                                ])),
+                              ]),
+                            ),
+                            Text("${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Pal.navy)),
+                            IconButton(
+                              icon: const Icon(Icons.print, color: Colors.blueGrey),
+                              tooltip: "Imprimer A4",
+                              onPressed: () => _handlePrint(item),
+                            ),
+                          ]),
+                        ),
+                      );
+                    },
+                  )),
             ),
-          ),
-        ]),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(color: Color(0xFFF8FAFC), border: Border(top: BorderSide(color: Pal.line))),
+              child: SafeArea(
+                top: false,
+                child: Row(children: [
+                  Expanded(child: Text("${_proformas.length} devis aujourd'hui", style: const TextStyle(fontSize: 13, color: Color(0xFF4A5A70)))),
+                  Text("Total ${_formatCurrency(_total)} F", style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
+                ]),
+              ),
+            ),
+          ]),
+        ),
       );
 
   // --- C ---
@@ -474,6 +482,7 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
         body: Column(children: [
           NavyHeader(
             title: 'Proformas / Devis',
+            wide: true,
             rounded: false,
             actions: [
               PresentationMenuButton(value: _style, onChanged: _setStyle),
@@ -488,58 +497,61 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
             ],
           ),
           Expanded(
-            child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
-              SoftCard(
-                band: Pal.amber,
-                padding: const EdgeInsets.all(16),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  const Text('Nouveau devis', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
-                  const Text('Choisissez le client, ajoutez les produits, puis imprimez la proforma.',
-                      style: TextStyle(fontSize: 13, color: Pal.muted)),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      style: amberButton,
-                      icon: const Icon(Icons.add),
-                      label: const Text("Nouveau Devis"),
-                      onPressed: () => _openProforma(null),
+            child: ContentWidth(
+              wide: true,
+              child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
+                SoftCard(
+                  band: Pal.amber,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    const Text('Nouveau devis', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
+                    const Text('Choisissez le client, ajoutez les produits, puis imprimez la proforma.',
+                        style: TextStyle(fontSize: 13, color: Pal.muted)),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        style: amberButton,
+                        icon: const Icon(Icons.add),
+                        label: const Text("Nouveau Devis"),
+                        onPressed: () => _openProforma(null),
+                      ),
                     ),
-                  ),
-                ]),
-              ),
-              const SizedBox(height: 16),
-              Text("DEVIS DU JOUR · ${_proformas.length} · ${_formatCurrency(_total)} F",
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70))),
-              const SizedBox(height: 8),
-              if (_isLoading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
-              if (!_isLoading && _proformas.isEmpty)
-                const Padding(padding: EdgeInsets.all(24), child: Text("Aucun devis trouvé pour aujourd'hui", textAlign: TextAlign.center)),
-              if (!_isLoading)
-                for (final item in _proformas) ...[
-                  SoftCard(
-                    child: Row(children: [
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => _openProforma(item),
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(item.strClientFullName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Pal.ink)),
-                            Text("${item.strREF} · ${item.heure} · ${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontSize: 13, color: Pal.muted)),
-                          ]),
-                        ),
+                  ]),
+                ),
+                const SizedBox(height: 16),
+                Text("DEVIS DU JOUR · ${_proformas.length} · ${_formatCurrency(_total)} F",
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70))),
+                const SizedBox(height: 8),
+                if (_isLoading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+                if (!_isLoading && _proformas.isEmpty)
+                  const Padding(padding: EdgeInsets.all(24), child: Text("Aucun devis trouvé pour aujourd'hui", textAlign: TextAlign.center)),
+                if (!_isLoading)
+                  ...cardColumn([
+                    for (final item in _proformas)
+                      SoftCard(
+                        child: Row(children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _openProforma(item),
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(item.strClientFullName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Pal.ink)),
+                                Text("${item.strREF} · ${item.heure} · ${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                              ]),
+                            ),
+                          ),
+                          IconButton(icon: const Icon(Icons.print, color: Colors.blueGrey), tooltip: "Imprimer A4", onPressed: () => _handlePrint(item)),
+                          IconButton.filled(
+                            tooltip: 'Ouvrir ${item.strREF}',
+                            style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
+                            icon: const Icon(Icons.arrow_forward),
+                            onPressed: () => _openProforma(item),
+                          ),
+                        ]),
                       ),
-                      IconButton(icon: const Icon(Icons.print, color: Colors.blueGrey), tooltip: "Imprimer A4", onPressed: () => _handlePrint(item)),
-                      IconButton.filled(
-                        tooltip: 'Ouvrir ${item.strREF}',
-                        style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
-                        icon: const Icon(Icons.arrow_forward),
-                        onPressed: () => _openProforma(item),
-                      ),
-                    ]),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-            ]),
+                  ], Responsive.columns(context), spacing: 10),
+              ]),
+            ),
           ),
         ]),
       );

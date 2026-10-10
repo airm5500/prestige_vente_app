@@ -10,6 +10,7 @@ import 'package:prestige_vente_app/api/models/product_info.dart';
 import 'package:prestige_vente_app/screens/product_search/product_search_widgets.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 
 class FicheProduitScreen extends StatefulWidget {
   final ProductSearchResult produit;
@@ -68,40 +69,42 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
       body: Column(children: [
         const NavyHeader(title: 'Fiche produit', subtitle: 'Stock, prix et emplacement'),
         Expanded(
-          child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 24), children: [
-            SoftCard(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Text(orDash(info?.libelle.isNotEmpty == true ? info!.libelle : p.strNAME),
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Pal.ink)),
-                const SizedBox(height: 12),
-                Row(children: [
-                  Expanded(child: _figure('$stock', 'En stock', stockColor)),
-                  const SizedBox(width: 8),
-                  Expanded(child: _figure('${Constants.formatNumber(p.intPRICE)} F', 'Prix de vente', Pal.ink)),
-                ]),
-                const SizedBox(height: 12),
-                DetailLine('Code CIP', orDash(p.intCIP), bold: true),
-                if (p.strLIBELLEE.trim().isNotEmpty) DetailLine('Famille', orDash(p.strLIBELLEE)),
-                if (_loading)
-                  const Padding(padding: EdgeInsets.symmetric(vertical: 10), child: LinearProgressIndicator(minHeight: 2))
-                else if (info != null) ...[
-                  DetailLine('Emplacement', orDash(info.emplacement)),
-                  DetailLine('Grossiste', orDash(info.grossiste)),
-                ],
-              ]),
-            ),
-            if (_failed && !_loading) ...[
-              const SizedBox(height: 12),
+          child: ContentWidth(
+            child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 24), children: [
               SoftCard(
-                child: Row(children: [
-                  const Icon(Icons.cloud_off, color: Color(0xFFB45309)),
-                  const SizedBox(width: 10),
-                  const Expanded(child: Text('Emplacement et grossiste non disponibles (serveur ou fiche introuvable).', style: TextStyle(color: Pal.muted))),
-                  TextButton(onPressed: _load, child: const Text('Réessayer')),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Text(orDash(info?.libelle.isNotEmpty == true ? info!.libelle : p.strNAME),
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Pal.ink)),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Expanded(child: _figure('$stock', 'En stock', stockColor)),
+                    const SizedBox(width: 8),
+                    Expanded(child: _figure('${Constants.formatNumber(p.intPRICE)} F', 'Prix de vente', Pal.ink)),
+                  ]),
+                  const SizedBox(height: 12),
+                  DetailLine('Code CIP', orDash(p.intCIP), bold: true),
+                  if (p.strLIBELLEE.trim().isNotEmpty) DetailLine('Famille', orDash(p.strLIBELLEE)),
+                  if (_loading)
+                    const Padding(padding: EdgeInsets.symmetric(vertical: 10), child: LinearProgressIndicator(minHeight: 2))
+                  else if (info != null) ...[
+                    DetailLine('Emplacement', orDash(info.emplacement)),
+                    DetailLine('Grossiste', orDash(info.grossiste)),
+                  ],
                 ]),
               ),
-            ],
-          ]),
+              if (_failed && !_loading) ...[
+                const SizedBox(height: 12),
+                SoftCard(
+                  child: Row(children: [
+                    const Icon(Icons.cloud_off, color: Color(0xFFB45309)),
+                    const SizedBox(width: 10),
+                    const Expanded(child: Text('Emplacement et grossiste non disponibles (serveur ou fiche introuvable).', style: TextStyle(color: Pal.muted))),
+                    TextButton(onPressed: _load, child: const Text('Réessayer')),
+                  ]),
+                ),
+              ],
+            ]),
+          ),
         ),
       ]),
     );

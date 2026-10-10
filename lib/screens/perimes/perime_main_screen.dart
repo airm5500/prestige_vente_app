@@ -104,6 +104,7 @@ class _PerimeMainScreenState extends State<PerimeMainScreen> with SingleTickerPr
         ]);
         return PresentationScaffold(
           style: style,
+          wide: style != ListPresentation.compact,
           title: 'Gestion des Périmés',
           subtitle: style == ListPresentation.dashboard ? _subtitles[_tabController.index] : null,
           actions: (c) => [PresentationMenuButton(value: style, onChanged: _setStyle, color: c)],

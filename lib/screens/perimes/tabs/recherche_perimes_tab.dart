@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/screens/perimes/perime_widgets.dart';
 import 'package:prestige_vente_app/services/pdf_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
 
 class RecherchePerimesTab extends StatefulWidget {
@@ -205,7 +206,8 @@ class _RecherchePerimesTabState extends State<RecherchePerimesTab> with Presenta
               actionLabel: 'Actualiser',
               onAction: () => provider.loadProduitsPerimes(),
             )
-          : ListView.separated(
+          : AdaptiveCardList(
+              columns: compact ? 1 : Responsive.columns(context), // tablette : 2 ou 3 colonnes
               physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.fromLTRB(compact ? 0 : 12, 8, compact ? 0 : 12, 24),
               itemCount: list.length,

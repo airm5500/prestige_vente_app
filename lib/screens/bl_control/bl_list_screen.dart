@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/providers/bl_control_provider.dart';
 import 'package:prestige_vente_app/screens/bl_control/bl_detail_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
@@ -198,6 +199,7 @@ class _BlListScreenState extends State<BlListScreen> with PresentationAware {
 
       return PresentationScaffold(
         style: style,
+        wide: style != ListPresentation.compact,
         title: 'Bons de Livraison',
         subtitle: 'Du ${DateFormat('dd/MM').format(_start)} au ${_uiDate.format(_end)}',
         actions: (col) => [
@@ -392,20 +394,32 @@ class _BlListScreenState extends State<BlListScreen> with PresentationAware {
         ]),
       );
     }
+    Widget cardAt(int k) {
+      final bl = list[k];
+      return switch (style) {
+        ListPresentation.dashboard => _tappable(provider, bl, _cardA(provider, bl)),
+        ListPresentation.compact => _rowB(provider, bl),
+        ListPresentation.guided => _tappable(provider, bl, _cardC(provider, bl, featured: k == 0)),
+      };
+    }
+
+    // Tablette : cartes (A, C) sur 2 ou 3 colonnes.
+    final cols = compact ? 1 : Responsive.columns(context);
     return RefreshIndicator(
       onRefresh: _fetchData,
       child: ListView.separated(
         padding: compact ? const EdgeInsets.only(bottom: 16) : const EdgeInsets.only(bottom: 24),
-        itemCount: list.length + 1,
+        itemCount: (list.length + cols - 1) ~/ cols + 1,
         separatorBuilder: (_, __) => SizedBox(height: compact ? 0 : 12),
         itemBuilder: (_, i) {
           if (i == 0) return top;
-          final bl = list[i - 1];
-          final card = switch (style) {
-            ListPresentation.dashboard => _tappable(provider, bl, _cardA(provider, bl)),
-            ListPresentation.compact => _rowB(provider, bl),
-            ListPresentation.guided => _tappable(provider, bl, _cardC(provider, bl, featured: i == 1)),
-          };
+          if (cols > 1) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(children: cardRows([for (var k = (i - 1) * cols; k < i * cols && k < list.length; k++) cardAt(k)], cols, gap: 12)),
+            );
+          }
+          final card = cardAt(i - 1);
           return compact ? card : Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: card);
         },
       ),

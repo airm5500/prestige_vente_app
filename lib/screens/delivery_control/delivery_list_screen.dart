@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/providers/delivery_control_provider.dart';
 import 'package:prestige_vente_app/screens/delivery_control/delivery_detail_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
@@ -198,6 +199,7 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> with Presentati
 
       return PresentationScaffold(
         style: style,
+        wide: !compact,
         title: 'Contrôle Livraison',
         subtitle: compact ? null : 'Liste des Commandes · $total commande(s)',
         actions: (col) => [
@@ -264,7 +266,8 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> with Presentati
               else if (visible.isEmpty)
                 _empty(provider)
               else
-                for (final c in visible) _row(provider, c),
+                // Tablette : cartes (A, C) sur 2 ou 3 colonnes.
+                ...cardRows([for (final c in visible) _row(provider, c)], compact ? 1 : Responsive.columns(context), gap: 12),
             ],
           ),
         ),

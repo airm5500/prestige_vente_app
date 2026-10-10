@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/vente_dialogs.dart';
+import 'package:prestige_vente_app/ventes/common/vente_layout.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/common/vente_product_search.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
@@ -407,6 +408,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
     final ref = c.summary.reference;
     final n = c.items.length;
     final compact = style == ListPresentation.compact;
+    final split = venteSplit(context); // tablette paysage : recherche à gauche, panier à droite
     final String subtitle;
     if (c.venteId == null) {
       subtitle = 'Nouvelle vente';
@@ -422,10 +424,26 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
       visible: c.visibleProduct,
       addProduct: _addProduct,
       enabled: !_paying && !c.finished,
-      onDark: !compact,
-      padding: compact ? EdgeInsets.zero : null,
+      onDark: !compact && !split,
+      padding: compact || split ? EdgeInsets.zero : null,
     );
     final total = c.hasCart ? c.summary.montantNet : 0;
+    final cart = Column(children: [
+      _StatusBanner(controller: c),
+      Expanded(
+        child: VenteCart(
+          onDone: _focusSearch,
+          style: style,
+          stockOf: _stockOf,
+          emptyAction: OutlinedButton.icon(
+            style: outlineButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 48))),
+            onPressed: _paying ? null : _openList,
+            icon: const Icon(Icons.receipt_long_outlined),
+            label: const Text('Préventes à encaisser'),
+          ),
+        ),
+      ),
+    ]);
     return PopScope(
       canPop: !c.busy && (!c.hasCart || c.finished),
       onPopInvokedWithResult: (didPop, _) {
@@ -462,7 +480,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
               const SizedBox(width: 8),
               Expanded(flex: 2, child: _TotalKpi(total)),
             ]),
-          search,
+          if (!split) search,
         ],
         compactHeader: [
           LightFigures([
@@ -470,24 +488,10 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
             ('${_boxes(c)}', 'boîtes', Pal.blue),
             ('${Constants.formatNumber(total)} F', 'total', Pal.green),
           ]),
-          search,
+          if (!split) search,
         ],
-        body: Column(children: [
-          _StatusBanner(controller: c),
-          Expanded(
-            child: VenteCart(
-              onDone: _focusSearch,
-              style: style,
-              stockOf: _stockOf,
-              emptyAction: OutlinedButton.icon(
-                style: outlineButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 48))),
-                onPressed: _paying ? null : _openList,
-                icon: const Icon(Icons.receipt_long_outlined),
-                label: const Text('Préventes à encaisser'),
-              ),
-            ),
-          ),
-        ]),
+        wide: split,
+        body: split ? VenteSplitBody(panelKey: const ValueKey('vente-panneau-recherche'), side: [search], main: cart) : cart,
         bottomNavigationBar: _footer(c),
       ),
     );

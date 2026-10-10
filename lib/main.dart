@@ -1,6 +1,7 @@
 // lib/main.dart
 // 10/11/2025 09:30 (Ajout LicenceProvider)
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/interface_version.dart';
@@ -162,6 +163,8 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Prestige Vente',
         theme: AppTheme.lightTheme,
+        // Tablette : fenêtres de dialogue à largeur raisonnable (téléphone inchangé).
+        builder: (context, child) => ResponsiveTheme(child: child ?? const SizedBox.shrink()),
         debugShowCheckedModeBanner: false,
         home: const SplashScreen(),
       ),

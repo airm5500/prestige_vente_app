@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
 import 'package:prestige_vente_app/screens/depot_sale/depot_sale_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 
 enum _Period { all, today, week, month }
@@ -142,6 +143,7 @@ class _DepotSaleListScreenState extends State<DepotSaleListScreen> with Presenta
       final guided = style == ListPresentation.guided;
       return PresentationScaffold(
         style: style,
+        wide: style != ListPresentation.compact,
         title: 'Ventes Dépôt en cours',
         subtitle: 'Reprenez une vente ou créez-en une',
         actions: (col) => [
@@ -293,7 +295,8 @@ class _DepotSaleListScreenState extends State<DepotSaleListScreen> with Presenta
             itemCount: list.length,
             itemBuilder: (_, i) => _rowB(list[i]),
           ),
-        _ => ListView.separated(
+        _ => AdaptiveCardList(
+            columns: Responsive.columns(context), // tablette : cartes sur 2 ou 3 colonnes
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             itemCount: list.length,
             separatorBuilder: (_, __) => const SizedBox(height: 12),

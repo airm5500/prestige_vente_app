@@ -2,8 +2,10 @@
 // Petits éléments communs aux pages des réglages (en-tête bleu, cartes, choix segmentés, compteurs).
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 
-/// Page d'une rubrique : en-tête bleu arrondi, contenu qui défile, barre fixe éventuelle en bas.
+/// Page d'une rubrique : en-tête bleu arrondi, contenu qui défile, barre fixe éventuelle en bas
+/// (tablette : contenu et barre centrés à la largeur maximale).
 class RubriquePage extends StatelessWidget {
   final String title;
   final String? subtitle;
@@ -15,13 +17,15 @@ class RubriquePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Pal.page,
-        bottomNavigationBar: bottom,
+        bottomNavigationBar: bottom == null ? null : BottomBarWidth(child: bottom!),
         body: Column(children: [
           NavyHeader(title: title, subtitle: subtitle, actions: actions),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-              children: children,
+            child: ContentWidth(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                children: children,
+              ),
             ),
           ),
         ]),

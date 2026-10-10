@@ -10,6 +10,7 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_controller.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_frame.dart';
 import 'package:prestige_vente_app/ventes/common/vente_dialogs.dart';
+import 'package:prestige_vente_app/ventes/common/vente_layout.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/common/vente_product_search.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -74,6 +75,7 @@ class CarnetProductsStep extends StatelessWidget {
     final compact = frame.compact;
     final ref = c.items.isNotEmpty ? c.items.first.strREF : '';
     final n = c.items.length;
+    final split = venteSplit(context); // tablette paysage : client et recherche à gauche, panier à droite
     final search = VenteProductSearch(
       key: searchKey,
       search: c.search,
@@ -81,18 +83,11 @@ class CarnetProductsStep extends StatelessWidget {
       visible: c.visibleProduct,
       addProduct: addProduct,
       enabled: !paying && !c.finished,
-      onDark: !compact,
-      padding: compact ? EdgeInsets.zero : null,
+      onDark: !compact && !split,
+      padding: compact || split ? EdgeInsets.zero : null,
     );
     final onBon = paying || c.finished ? null : c.goToBonStep;
-    return frame.scaffold(
-      title: 'Produits',
-      subtitle: '${ref.isEmpty ? (c.venteId == null ? 'Nouvelle vente' : 'Vente en cours') : ref} · $n article${n > 1 ? 's' : ''}',
-      header: [CarnetClientBanner(controller: c, dark: true, onBon: onBon), search],
-      compactHeader: [CarnetClientBanner(controller: c, dark: false, onBon: onBon), search],
-      // A : pas de barre d'étapes ici (en-tête déjà chargé) ; « ✎ Bon » permet le retour.
-      pills: false,
-      body: LayoutBuilder(
+    final cart = LayoutBuilder(
         builder: (context, box) => Column(children: [
           // Bandeaux limités à la moitié de la hauteur (petits écrans) : le panier reste visible.
           ConstrainedBox(
@@ -103,7 +98,23 @@ class CarnetProductsStep extends StatelessWidget {
             child: CarnetCart(onDone: _focus, style: frame.style, unsaved: unsaved, retrying: retrying, onRetry: onRetry, onDrop: onDrop),
           ),
         ]),
-      ),
+    );
+    return frame.scaffold(
+      title: 'Produits',
+      subtitle: '${ref.isEmpty ? (c.venteId == null ? 'Nouvelle vente' : 'Vente en cours') : ref} · $n article${n > 1 ? 's' : ''}',
+      header: split ? const [] : [CarnetClientBanner(controller: c, dark: true, onBon: onBon), search],
+      compactHeader: split ? const [] : [CarnetClientBanner(controller: c, dark: false, onBon: onBon), search],
+      // A : pas de barre d'étapes ici (en-tête déjà chargé) ; « ✎ Bon » permet le retour.
+      // Tablette paysage : barre d'étapes dans l'en-tête, carte client à gauche.
+      pills: split,
+      wide: split,
+      body: split
+          ? VenteSplitBody(
+              panelKey: const ValueKey('carnet-panneau-client'),
+              side: [CarnetClientBanner(controller: c, dark: false, onBon: onBon), search],
+              main: cart,
+            )
+          : cart,
       bottom: _CarnetFooter(frame: frame, onPrevente: onPrevente, onValider: onValider, paying: paying, unsaved: unsaved),
     );
   }

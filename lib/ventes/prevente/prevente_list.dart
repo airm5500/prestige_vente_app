@@ -13,6 +13,7 @@ import 'package:prestige_vente_app/ventes/core/vente_input.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
@@ -163,7 +164,9 @@ class _PreventeListScreenState extends State<PreventeListScreen> with Presentati
                   ]),
                 ),
               ])
-            : ListView.separated(
+            : AdaptiveCardList(
+                // Cartes (A, C) : 2 colonnes sur tablette portrait, 3 en paysage ; lignes (B) : une colonne.
+                columns: compact ? 1 : Responsive.columns(context),
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: compact ? EdgeInsets.zero : const EdgeInsets.fromLTRB(12, 10, 12, 16),
                 itemCount: list.length,
@@ -181,6 +184,7 @@ class _PreventeListScreenState extends State<PreventeListScreen> with Presentati
     final count = all.length;
     return PresentationScaffold(
       style: style,
+      wide: style != ListPresentation.compact,
       title: 'Préventes à encaisser',
       subtitle: _list == null ? null : '$count prévente${count > 1 ? 's' : ''} · ${Constants.formatNumber(total)} F',
       actions: (col) => [

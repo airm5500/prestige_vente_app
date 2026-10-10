@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/providers/article_analysis_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 
 class ArticleAnalysisScreen extends StatefulWidget {
   /// Présentation imposée (tests) ; sinon celle choisie sur l'appareil (A par défaut).
@@ -137,12 +138,14 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
             children: [_searchField()],
           ),
           Expanded(
-            child: _results((items) => ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (_, i) => _cardA(items[i]),
-                )),
+            child: ContentWidth(
+              child: _results((items) => ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (_, i) => _cardA(items[i]),
+                  )),
+            ),
           ),
         ]),
       );
@@ -186,47 +189,53 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
           bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
         ),
         body: Column(children: [
-          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8), child: _searchField(fill: Pal.page)),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-            child: Row(children: const [
-              Expanded(child: Text('PRODUIT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
-              SizedBox(width: 56, child: Text('STOCK', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
-              SizedBox(width: 72, child: Text('MOY. 3M', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
-            ]),
-          ),
-          const Divider(height: 1, color: Pal.line),
           Expanded(
-            child: _results((items) => ListView.builder(
-                  itemCount: items.length,
-                  itemBuilder: (_, i) {
-                    final item = items[i];
-                    return InkWell(
-                      onTap: () => _showDetailDialog(item),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
-                        child: Row(children: [
-                          Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
-                              Text("CIP: ${item.codeCip} · ${item.prixVente} F${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
-                                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.muted)),
-                            ]),
-                          ),
-                          SizedBox(
-                            width: 56,
-                            child: Text("${item.stock}", textAlign: TextAlign.right, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _stockColor(item.stock))),
-                          ),
-                          SizedBox(
-                            width: 72,
-                            child: Text(item.moyenne.toStringAsFixed(2), textAlign: TextAlign.right, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
-                          ),
-                        ]),
-                      ),
-                    );
-                  },
-                )),
+            child: ContentWidth(
+              child: Column(children: [
+                Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8), child: _searchField(fill: Pal.page)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                  child: Row(children: const [
+                    Expanded(child: Text('PRODUIT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
+                    SizedBox(width: 56, child: Text('STOCK', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
+                    SizedBox(width: 72, child: Text('MOY. 3M', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
+                  ]),
+                ),
+                const Divider(height: 1, color: Pal.line),
+                Expanded(
+                  child: _results((items) => ListView.builder(
+                        itemCount: items.length,
+                        itemBuilder: (_, i) {
+                          final item = items[i];
+                          return InkWell(
+                            onTap: () => _showDetailDialog(item),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+                              child: Row(children: [
+                                Expanded(
+                                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                                    Text("CIP: ${item.codeCip} · ${item.prixVente} F${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
+                                        maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                                  ]),
+                                ),
+                                SizedBox(
+                                  width: 56,
+                                  child: Text("${item.stock}", textAlign: TextAlign.right, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _stockColor(item.stock))),
+                                ),
+                                SizedBox(
+                                  width: 72,
+                                  child: Text(item.moyenne.toStringAsFixed(2), textAlign: TextAlign.right, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                                ),
+                              ]),
+                            ),
+                          );
+                        },
+                      )),
+                ),
+              ]),
+            ),
           ),
         ]),
       );
@@ -249,66 +258,72 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
               ],
             ),
           ),
-          Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 8), child: _searchField()),
           Expanded(
-            child: _results((items) => ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (_, i) {
-                    final item = items[i];
-                    if (i == 0) {
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: () => _showDetailDialog(item),
-                        child: SoftCard(
-                        band: Pal.navy,
-                        padding: const EdgeInsets.all(16),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                          Text(item.libelle, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
-                          Text("CIP: ${item.codeCip}${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
-                              style: const TextStyle(fontSize: 13, color: Pal.muted)),
-                          const SizedBox(height: 12),
-                          Row(children: [
-                            _metric("${item.stock}", 'Stock', fg: _stockColor(item.stock)),
-                            const SizedBox(width: 8),
-                            _metric("${item.prixVente} F", 'Prix de vente'),
-                            const SizedBox(width: 8),
-                            _metric(item.moyenne.toStringAsFixed(2), 'Moy. 3 mois'),
-                          ]),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            height: 48,
-                            child: ElevatedButton.icon(
-                              style: amberButton,
-                              icon: const Icon(Icons.show_chart),
-                              label: const Text('Voir l\'analyse complète'),
-                              onPressed: () => _showDetailDialog(item),
-                            ),
-                          ),
-                        ]),
-                        ),
-                      );
-                    }
-                    return SoftCard(
-                      child: Row(children: [
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Pal.ink)),
-                            Text("Stock ${item.stock} · ${item.prixVente} F · Moy. ${item.moyenne.toStringAsFixed(2)}",
-                                style: const TextStyle(fontSize: 13, color: Pal.muted)),
-                          ]),
-                        ),
-                        IconButton.filled(
-                          tooltip: 'Analyser ${item.libelle}',
-                          style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
-                          icon: const Icon(Icons.show_chart),
-                          onPressed: () => _showDetailDialog(item),
-                        ),
-                      ]),
-                    );
-                  },
-                )),
+            child: ContentWidth(
+              child: Column(children: [
+                Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 8), child: _searchField()),
+                Expanded(
+                  child: _results((items) => ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (_, i) {
+                          final item = items[i];
+                          if (i == 0) {
+                            return InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () => _showDetailDialog(item),
+                              child: SoftCard(
+                              band: Pal.navy,
+                              padding: const EdgeInsets.all(16),
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                                Text(item.libelle, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
+                                Text("CIP: ${item.codeCip}${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
+                                    style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                                const SizedBox(height: 12),
+                                Row(children: [
+                                  _metric("${item.stock}", 'Stock', fg: _stockColor(item.stock)),
+                                  const SizedBox(width: 8),
+                                  _metric("${item.prixVente} F", 'Prix de vente'),
+                                  const SizedBox(width: 8),
+                                  _metric(item.moyenne.toStringAsFixed(2), 'Moy. 3 mois'),
+                                ]),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  height: 48,
+                                  child: ElevatedButton.icon(
+                                    style: amberButton,
+                                    icon: const Icon(Icons.show_chart),
+                                    label: const Text('Voir l\'analyse complète'),
+                                    onPressed: () => _showDetailDialog(item),
+                                  ),
+                                ),
+                              ]),
+                              ),
+                            );
+                          }
+                          return SoftCard(
+                            child: Row(children: [
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Pal.ink)),
+                                  Text("Stock ${item.stock} · ${item.prixVente} F · Moy. ${item.moyenne.toStringAsFixed(2)}",
+                                      style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                                ]),
+                              ),
+                              IconButton.filled(
+                                tooltip: 'Analyser ${item.libelle}',
+                                style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
+                                icon: const Icon(Icons.show_chart),
+                                onPressed: () => _showDetailDialog(item),
+                              ),
+                            ]),
+                          );
+                        },
+                      )),
+                ),
+              ]),
+            ),
           ),
         ]),
       );

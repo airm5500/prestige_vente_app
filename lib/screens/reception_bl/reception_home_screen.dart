@@ -13,6 +13,7 @@ import 'package:prestige_vente_app/screens/reception_bl/reception_summary_screen
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
 
 class ReceptionHomeScreen extends StatefulWidget {
@@ -349,6 +350,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
         NavyHeader(
           title: 'Réception BL',
           subtitle: _longDate(_now),
+          wide: true,
           actions: _headerActions(Colors.white),
           children: [
             Row(children: [
@@ -365,34 +367,44 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
             ),
           ],
         ),
-        Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 6), child: _searchField()),
-        _grossisteChips(),
-        _status(),
+        // Tablette : contenu centré, cartes sur 2 ou 3 colonnes.
         Expanded(
-          child: TabBarView(controller: _tabs, children: [
-            RefreshIndicator(
-              onRefresh: _load,
-              child: orders.isEmpty && !_loading
-                  ? _empty(_noOrder)
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                      itemCount: orders.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (_, i) => _orderCardA(orders[i]),
-                    ),
-            ),
-            RefreshIndicator(
-              onRefresh: _load,
-              child: bls.isEmpty && !_loading
-                  ? _empty(_noBl)
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                      itemCount: bls.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (_, i) => _blCardA(bls[i]),
-                    ),
-            ),
-          ]),
+          child: ContentWidth(
+            wide: true,
+            child: Column(children: [
+              Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 6), child: _searchField()),
+              _grossisteChips(),
+              _status(),
+              Expanded(
+                child: TabBarView(controller: _tabs, children: [
+                  RefreshIndicator(
+                    onRefresh: _load,
+                    child: orders.isEmpty && !_loading
+                        ? _empty(_noOrder)
+                        : AdaptiveCardList(
+                            columns: Responsive.columns(context),
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            itemCount: orders.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 12),
+                            itemBuilder: (_, i) => _orderCardA(orders[i]),
+                          ),
+                  ),
+                  RefreshIndicator(
+                    onRefresh: _load,
+                    child: bls.isEmpty && !_loading
+                        ? _empty(_noBl)
+                        : AdaptiveCardList(
+                            columns: Responsive.columns(context),
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            itemCount: bls.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 12),
+                            itemBuilder: (_, i) => _blCardA(bls[i]),
+                          ),
+                  ),
+                ]),
+              ),
+            ]),
+          ),
         ),
       ]),
     );
@@ -507,42 +519,44 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
           tabs: [tab('Commandes', _orders.length, _tabs.index == 0), tab('BL à entrer', _bls.length, _tabs.index == 1)],
         ),
       ),
-      body: Column(children: [
-        Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8), child: _searchField(fill: Pal.page)),
-        _grossisteChips(),
-        _status(),
-        Expanded(
-          child: TabBarView(controller: _tabs, children: [
-            RefreshIndicator(
-              onRefresh: _load,
-              child: orders.isEmpty && !_loading ? _empty(_noOrder) : ListView(children: _groupedOrdersB(orders)),
-            ),
-            RefreshIndicator(
-              onRefresh: _load,
-              child: bls.isEmpty && !_loading ? _empty(_noBl) : ListView(children: [for (final b in bls) _blRowB(b)]),
-            ),
-          ]),
-        ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: const BoxDecoration(color: Color(0xFFF8FAFC), border: Border(top: BorderSide(color: Pal.line))),
-          child: SafeArea(
-            top: false,
-            child: Row(children: [
-              Expanded(
-                child: Text(
-                  _tabs.index == 0
-                      ? '${orders.length} commande(s) · ${{for (final o in orders) o.grossiste}.length} grossiste(s)'
-                      : '${bls.length} BL · $_linesToEnter ligne(s) à saisir',
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF4A5A70)),
-                ),
+      body: ContentWidth(
+        child: Column(children: [
+          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8), child: _searchField(fill: Pal.page)),
+          _grossisteChips(),
+          _status(),
+          Expanded(
+            child: TabBarView(controller: _tabs, children: [
+              RefreshIndicator(
+                onRefresh: _load,
+                child: orders.isEmpty && !_loading ? _empty(_noOrder) : ListView(children: _groupedOrdersB(orders)),
               ),
-              if (_tabs.index == 0) Text('Total ${_money.format(total)} F HT', style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
+              RefreshIndicator(
+                onRefresh: _load,
+                child: bls.isEmpty && !_loading ? _empty(_noBl) : ListView(children: [for (final b in bls) _blRowB(b)]),
+              ),
             ]),
           ),
-        ),
-      ]),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(color: Color(0xFFF8FAFC), border: Border(top: BorderSide(color: Pal.line))),
+            child: SafeArea(
+              top: false,
+              child: Row(children: [
+                Expanded(
+                  child: Text(
+                    _tabs.index == 0
+                        ? '${orders.length} commande(s) · ${{for (final o in orders) o.grossiste}.length} grossiste(s)'
+                        : '${bls.length} BL · $_linesToEnter ligne(s) à saisir',
+                    style: const TextStyle(fontSize: 13, color: Color(0xFF4A5A70)),
+                  ),
+                ),
+                if (_tabs.index == 0) Text('Total ${_money.format(total)} F HT', style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
+              ]),
+            ),
+          ),
+        ]),
+      ),
     );
   }
 
@@ -646,6 +660,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
         NavyHeader(
           title: 'Réception BL',
           rounded: false,
+          wide: true,
           actions: _headerActions(Colors.white),
           children: [
             StepsBar(active: _tabs.index, steps: [
@@ -655,34 +670,36 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
             ]),
           ],
         ),
-        _status(),
         Expanded(
-          child: TabBarView(controller: _tabs, children: [
-            RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
-                _searchField(),
-                const SizedBox(height: 10),
-                const Text('Choisissez la commande livrée, puis saisissez le n° du BL.', style: TextStyle(fontSize: 13, color: Color(0xFF4A5A70))),
-                const SizedBox(height: 12),
-                if (orders.isEmpty && !_loading) const Padding(padding: EdgeInsets.all(24), child: Text(_noOrder, textAlign: TextAlign.center)),
-                for (var i = 0; i < orders.length; i++) ...[
-                  i == 0 ? _orderFeaturedC(orders[i]) : _orderCompactC(orders[i]),
-                  const SizedBox(height: 12),
-                ],
-              ]),
-            ),
-            RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
-                if (bls.isEmpty && !_loading) const Padding(padding: EdgeInsets.all(24), child: Text(_noBl, textAlign: TextAlign.center)),
-                for (var i = 0; i < bls.length; i++) ...[
-                  i == 0 ? _blFeaturedC(bls[i]) : _blCompactC(bls[i]),
-                  const SizedBox(height: 12),
-                ],
-              ]),
-            ),
-          ]),
+          child: ContentWidth(
+            wide: true,
+            child: Column(children: [
+              _status(),
+              Expanded(
+                child: TabBarView(controller: _tabs, children: [
+                  RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
+                      _searchField(),
+                      const SizedBox(height: 10),
+                      const Text('Choisissez la commande livrée, puis saisissez le n° du BL.', style: TextStyle(fontSize: 13, color: Color(0xFF4A5A70))),
+                      const SizedBox(height: 12),
+                      if (orders.isEmpty && !_loading) const Padding(padding: EdgeInsets.all(24), child: Text(_noOrder, textAlign: TextAlign.center)),
+                      ...cardColumn([for (var i = 0; i < orders.length; i++) i == 0 ? _orderFeaturedC(orders[i]) : _orderCompactC(orders[i])],
+                          Responsive.columns(context)),
+                    ]),
+                  ),
+                  RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
+                      if (bls.isEmpty && !_loading) const Padding(padding: EdgeInsets.all(24), child: Text(_noBl, textAlign: TextAlign.center)),
+                      ...cardColumn([for (var i = 0; i < bls.length; i++) i == 0 ? _blFeaturedC(bls[i]) : _blCompactC(bls[i])], Responsive.columns(context)),
+                    ]),
+                  ),
+                ]),
+              ),
+            ]),
+          ),
         ),
       ]),
     );

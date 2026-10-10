@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/screens/reception_bl/reception_bl_screen.dart
 import 'package:prestige_vente_app/screens/retour_frs/retour_bl_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
 
 class RetourHomeScreen extends StatefulWidget {
@@ -244,6 +245,7 @@ class _RetourHomeScreenState extends State<RetourHomeScreen> {
       body: Column(children: [
         NavyHeader(
           title: 'Retour fournisseur',
+          wide: true,
           subtitle: 'Choisissez le BL dont des produits repartent',
           actions: _actions(Colors.white),
           children: [
@@ -261,21 +263,29 @@ class _RetourHomeScreenState extends State<RetourHomeScreen> {
             ),
           ],
         ),
-        Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 0), child: _search()),
-        _grossisteChips(),
-        _periodLine(),
-        _status(),
         Expanded(
-          child: RefreshIndicator(
-            onRefresh: _load,
-            child: list.isEmpty && !_loading
-                ? _empty()
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    itemCount: list.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (_, i) => _cardA(list[i]),
-                  ),
+          child: ContentWidth(
+            wide: true,
+            child: Column(children: [
+              Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 0), child: _search()),
+              _grossisteChips(),
+              _periodLine(),
+              _status(),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _load,
+                  child: list.isEmpty && !_loading
+                      ? _empty()
+                      : AdaptiveCardList(
+                          columns: Responsive.columns(context),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          itemCount: list.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 12),
+                          itemBuilder: (_, i) => _cardA(list[i]),
+                        ),
+                ),
+              ),
+            ]),
           ),
         ),
       ]),
@@ -332,44 +342,50 @@ class _RetourHomeScreenState extends State<RetourHomeScreen> {
         bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
       ),
       body: Column(children: [
-        Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8), child: _search(fill: Pal.page)),
-        _periodChips(),
-        _grossisteChips(),
-        _periodLine(),
-        _status(),
         Expanded(
-          child: RefreshIndicator(
-            onRefresh: _load,
-            child: list.isEmpty && !_loading
-                ? _empty()
-                : ListView(children: [
-                    for (final e in groups.entries) ...[
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-                        child: Row(children: [
-                          Expanded(child: Text(e.key.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
-                          Text('${e.value.length} BL', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4A5A70))),
-                        ]),
-                      ),
-                      for (final b in e.value)
-                        InkWell(
-                          onTap: () => _open(b),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
-                            child: Row(children: [
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text('BL ${b.ref}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
-                                  Text('${b.date} · ${b.lines} ligne(s) · ${b.boxes} boîte(s)', style: const TextStyle(fontSize: 13, color: Pal.muted)),
-                                ]),
+          child: ContentWidth(
+            child: Column(children: [
+              Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8), child: _search(fill: Pal.page)),
+              _periodChips(),
+              _grossisteChips(),
+              _periodLine(),
+              _status(),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _load,
+                  child: list.isEmpty && !_loading
+                      ? _empty()
+                      : ListView(children: [
+                          for (final e in groups.entries) ...[
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                              child: Row(children: [
+                                Expanded(child: Text(e.key.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
+                                Text('${e.value.length} BL', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4A5A70))),
+                              ]),
+                            ),
+                            for (final b in e.value)
+                              InkWell(
+                                onTap: () => _open(b),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+                                  child: Row(children: [
+                                    Expanded(
+                                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                        Text('BL ${b.ref}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                                        Text('${b.date} · ${b.lines} ligne(s) · ${b.boxes} boîte(s)', style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                                      ]),
+                                    ),
+                                    const Icon(Icons.chevron_right, color: Pal.muted),
+                                  ]),
+                                ),
                               ),
-                              const Icon(Icons.chevron_right, color: Pal.muted),
-                            ]),
-                          ),
-                        ),
-                    ],
-                  ]),
+                          ],
+                        ]),
+                ),
+              ),
+            ]),
           ),
         ),
       ]),
@@ -384,6 +400,7 @@ class _RetourHomeScreenState extends State<RetourHomeScreen> {
       body: Column(children: [
         NavyHeader(
           title: 'Retour fournisseur',
+          wide: true,
           rounded: false,
           actions: _actions(Colors.white),
           children: const [
@@ -394,40 +411,48 @@ class _RetourHomeScreenState extends State<RetourHomeScreen> {
             ]),
           ],
         ),
-        Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 8), child: _search()),
-        _periodChips(),
-        _grossisteChips(),
-        _periodLine(),
-        _status(),
         Expanded(
-          child: RefreshIndicator(
-            onRefresh: _load,
-            child: list.isEmpty && !_loading
-                ? _empty()
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    itemCount: list.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (_, i) {
-                      final b = list[i];
-                      return SoftCard(
-                        band: GrossisteAvatar.colorsFor(b.grossiste).$2,
-                        child: Row(children: [
-                          Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text('BL ${b.ref}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink)),
-                              Text('${b.grossiste} · ${b.lines} ligne(s) · ${b.boxes} boîte(s)', style: const TextStyle(fontSize: 13, color: Pal.muted)),
-                            ]),
-                          ),
-                          ElevatedButton(
-                            style: amberButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 44))),
-                            onPressed: () => _open(b),
-                            child: const Text('Choisir'),
-                          ),
-                        ]),
-                      );
-                    },
-                  ),
+          child: ContentWidth(
+            wide: true,
+            child: Column(children: [
+              Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 8), child: _search()),
+              _periodChips(),
+              _grossisteChips(),
+              _periodLine(),
+              _status(),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _load,
+                  child: list.isEmpty && !_loading
+                      ? _empty()
+                      : AdaptiveCardList(
+                          columns: Responsive.columns(context),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          itemCount: list.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 12),
+                          itemBuilder: (_, i) {
+                            final b = list[i];
+                            return SoftCard(
+                              band: GrossisteAvatar.colorsFor(b.grossiste).$2,
+                              child: Row(children: [
+                                Expanded(
+                                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Text('BL ${b.ref}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink)),
+                                    Text('${b.grossiste} · ${b.lines} ligne(s) · ${b.boxes} boîte(s)', style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                                  ]),
+                                ),
+                                ElevatedButton(
+                                  style: amberButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 44))),
+                                  onPressed: () => _open(b),
+                                  child: const Text('Choisir'),
+                                ),
+                              ]),
+                            );
+                          },
+                        ),
+                ),
+              ),
+            ]),
           ),
         ),
       ]),

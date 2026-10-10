@@ -23,6 +23,7 @@ import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
 
 class ParametresScreen extends StatefulWidget {
@@ -39,6 +40,9 @@ class _ParametresScreenState extends State<ParametresScreen> {
   bool _unlocked = false; // code administrateur vérifié pendant cette visite
   ListPresentation _presentation = ListPresentation.dashboard;
   PointageSettings? _pointage;
+
+  /// Tablette paysage : rubrique affichée à droite de la liste (null = aucune).
+  Rubrique? _selected;
 
   ParametresServices get _sv => widget.services;
   late final PointageRepository _pointageRepo = _sv.pointageRepository ?? LocalPointageRepository();
@@ -117,7 +121,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
     if (_sv.afterServerSaved != null) return _sv.afterServerSaved!(ctx);
     // Comme la Configuration d'origine : l'écran de démarrage recharge l'ApiService et la licence.
     final nav = Navigator.of(ctx);
-    nav.pop();
+    if (!EmbeddedPane.of(ctx)) nav.pop(); // tablette paysage : la page est dans les réglages
     nav.pushReplacement(MaterialPageRoute(builder: (_) => const SplashScreen()));
   }
 
@@ -132,7 +136,17 @@ class _ParametresScreenState extends State<ParametresScreen> {
     }
     if (r.locked && !await _adminOk()) return;
     if (!mounted) return;
-    final Widget page = switch (r) {
+    if (Responsive.isExpanded(context)) {
+      // Tablette paysage : la rubrique s'affiche à droite, la liste reste visible.
+      setState(() => _selected = r);
+      _reloadSummaries();
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => _page(r)));
+    if (mounted) _reloadSummaries();
+  }
+
+  Widget _page(Rubrique r) => switch (r) {
       Rubrique.connexion => ConnexionPage(adminVerified: _unlocked, afterSaved: _afterServerSaved),
       Rubrique.ventes => const VentesPage(),
       Rubrique.impression => ImpressionPage(printTest: _sv.printTestTicket ?? imprimerTicketEssai),
@@ -142,8 +156,23 @@ class _ParametresScreenState extends State<ParametresScreen> {
       Rubrique.securite => const SecuritePage(),
       Rubrique.licence => LicencePage(hardwareInfo: _sv.hardwareInfo ?? FingerprintService.hardwareInfo),
     };
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
-    if (mounted) _reloadSummaries();
+
+  /// Panneau de droite (tablette paysage) : rubrique choisie, sinon une invitation.
+  Widget _detail() {
+    final r = _selected;
+    if (r == null) {
+      return const ColoredBox(
+        color: Pal.page,
+        child: Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.tune, size: 48, color: Color(0xFF9AA8BC)),
+            SizedBox(height: 10),
+            Text('Choisissez une rubrique à gauche', style: TextStyle(fontSize: 15, color: Pal.muted)),
+          ]),
+        ),
+      );
+    }
+    return EmbeddedPane(child: KeyedSubtree(key: ValueKey(r), child: _page(r)));
   }
 
   Future<void> _logout() async {
@@ -155,13 +184,13 @@ class _ParametresScreenState extends State<ParametresScreen> {
     Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
   }
 
-  Widget _row(Rubrique r, String summary, String? reason) {
+  Widget _row(Rubrique r, String summary, String? reason, {bool selected = false}) {
     final enabled = reason == null;
     final unlocked = r.locked && _unlocked;
     return Opacity(
       opacity: enabled ? 1 : 0.5,
       child: Material(
-        color: Colors.white,
+        color: selected ? const Color(0xFFE3ECF7) : Colors.white,
         child: InkWell(
           key: Key('rubrique_${r.name}'),
           onTap: () => _open(r),
@@ -214,13 +243,15 @@ class _ParametresScreenState extends State<ParametresScreen> {
     final connected = auth.user != null;
     final user = auth.user;
     final query = _search.text;
+    final split = Responsive.isExpanded(context);
     final rows = <Widget>[];
     for (final r in Rubrique.values) {
       final summary = _summary(r, settings, licence);
       if (!rubriqueMatches(r, summary, query)) continue;
-      rows.add(_row(r, summary, _unavailable(r, auth)));
+      rows.add(_row(r, summary, _unavailable(r, auth), selected: split && r == _selected));
     }
     final showLogout = connected && rubriqueMatchesText('se deconnecter deconnexion quitter sortir', query);
+    final list = _list(rows, connected, showLogout, query);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -245,7 +276,14 @@ class _ParametresScreenState extends State<ParametresScreen> {
         ]),
         bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
       ),
-      body: SafeArea(
+      // Tablette : liste centrée (portrait) ; rubriques à gauche et contenu à droite (paysage).
+      body: split
+          ? ListDetail(list: list, detail: KeyedSubtree(key: const ValueKey('reglages-detail'), child: _detail()))
+          : ContentWidth(child: list),
+    );
+  }
+
+  Widget _list(List<Widget> rows, bool connected, bool showLogout, String query) => SafeArea(
         top: false,
         child: ListView(
           children: [
@@ -310,7 +348,5 @@ class _ParametresScreenState extends State<ParametresScreen> {
               ),
           ],
         ),
-      ),
-    );
-  }
+      );
 }

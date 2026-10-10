@@ -17,6 +17,7 @@ import 'package:prestige_vente_app/services/product_finder.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/product_paging.dart';
 
 typedef CodeScanner = Future<String?> Function(BuildContext context);
@@ -194,7 +195,7 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
           ),
         ]),
         if (_loading) const LinearProgressIndicator(minHeight: 2),
-        Expanded(child: _resultats()),
+        Expanded(child: ContentWidth(child: _resultats())),
       ]),
     );
   }

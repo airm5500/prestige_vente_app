@@ -4,6 +4,7 @@
 // Le choix est mémorisé sur l'appareil et partagé par les deux écrans.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum ListPresentation { dashboard, compact, guided }
@@ -216,17 +217,21 @@ class SegmentedPills extends StatelessWidget {
 }
 
 /// En-tête bleu arrondi (présentations A et C), sous la barre d'état.
+/// Tablette : fond bleu sur toute la largeur, contenu aligné sur la largeur du corps ([wide] : panneaux).
 class NavyHeader extends StatelessWidget {
   final String title;
   final String? subtitle;
   final List<Widget> actions;
   final List<Widget> children;
   final bool rounded;
-  const NavyHeader({super.key, required this.title, this.subtitle, this.actions = const [], this.children = const [], this.rounded = true});
+  final bool wide;
+  const NavyHeader(
+      {super.key, required this.title, this.subtitle, this.actions = const [], this.children = const [], this.rounded = true, this.wide = false});
 
   @override
   Widget build(BuildContext context) {
-    final canPop = Navigator.of(context).canPop();
+    final canPop = Navigator.of(context).canPop() && !EmbeddedPane.of(context);
+    final inset = Responsive.sideInset(context, wide: wide);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Container(
@@ -237,7 +242,7 @@ class NavyHeader extends StatelessWidget {
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(4, 4, 4, 16),
+            padding: EdgeInsets.fromLTRB(4 + inset, 4, 4 + inset, 16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
                 if (canPop)
@@ -412,6 +417,8 @@ mixin PresentationAware<T extends StatefulWidget> on State<T> {
 /// - A : en-tête bleu arrondi ; [header] (chiffres clés, champ de scan…) dans l'en-tête.
 /// - B : barre blanche sobre ; [header] affiché sous la barre, sur fond clair.
 /// - C : en-tête bleu droit avec les étapes [steps] ; [header] en dessous des étapes.
+/// Tablette (≥ 600 dp) : corps, contenu de l'en-tête et barre du bas centrés à la largeur maximale
+/// ([wide] : plus large, pour les grilles de cartes et les panneaux côte à côte) ; téléphone inchangé.
 class PresentationScaffold extends StatelessWidget {
   final ListPresentation style;
   final String title;
@@ -423,6 +430,7 @@ class PresentationScaffold extends StatelessWidget {
   final Widget body;
   final Widget? bottomNavigationBar;
   final Widget? floatingActionButton;
+  final bool wide;
 
   const PresentationScaffold({
     super.key,
@@ -436,14 +444,18 @@ class PresentationScaffold extends StatelessWidget {
     required this.body,
     this.bottomNavigationBar,
     this.floatingActionButton,
+    this.wide = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final bottom = bottomNavigationBar == null ? null : BottomBarWidth(wide: wide, child: bottomNavigationBar!);
     if (style == ListPresentation.compact) {
       return Scaffold(
         backgroundColor: Colors.white,
-        appBar: AppBar(
+        appBar: _InsetAppBar(
+            wide: wide,
+            appBar: AppBar(
           backgroundColor: Colors.white,
           foregroundColor: Pal.navy,
           elevation: 0,
@@ -454,33 +466,59 @@ class PresentationScaffold extends StatelessWidget {
           ]),
           actions: actions(Pal.navy),
           bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
-        ),
-        bottomNavigationBar: bottomNavigationBar,
+        )),
+        bottomNavigationBar: bottom,
         floatingActionButton: floatingActionButton,
-        body: Column(children: [
-          for (final h in compactHeader) Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 0), child: h),
-          Expanded(child: body),
-        ]),
+        body: ContentWidth(
+          wide: wide,
+          child: Column(children: [
+            for (final h in compactHeader) Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 0), child: h),
+            Expanded(child: body),
+          ]),
+        ),
       );
     }
     final dashboard = style == ListPresentation.dashboard;
     return Scaffold(
       backgroundColor: dashboard ? Pal.page : const Color(0xFFEEF2F7),
-      bottomNavigationBar: bottomNavigationBar,
+      bottomNavigationBar: bottom,
       floatingActionButton: floatingActionButton,
       body: Column(children: [
         NavyHeader(
           title: title,
           subtitle: subtitle,
           rounded: dashboard,
+          wide: wide,
           actions: actions(Colors.white),
           children: [
             if (!dashboard && steps != null) steps!,
             ...header,
           ],
         ),
-        Expanded(child: body),
+        Expanded(child: ContentWidth(wide: wide, child: body)),
       ]),
+    );
+  }
+}
+
+/// Barre blanche (B) : fond et filet sur toute la largeur, titre et actions alignés sur le corps.
+class _InsetAppBar extends StatelessWidget implements PreferredSizeWidget {
+  final PreferredSizeWidget appBar;
+  final bool wide;
+  const _InsetAppBar({required this.appBar, required this.wide});
+
+  @override
+  Size get preferredSize => appBar.preferredSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final inset = Responsive.sideInset(context, wide: wide);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: inset > 0 ? Colors.white : null,
+        border: inset > 0 ? const Border(bottom: BorderSide(color: Pal.line)) : null,
+      ),
+      child: Padding(padding: EdgeInsets.symmetric(horizontal: inset), child: appBar),
     );
   }
 }

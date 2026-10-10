@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/providers/perime_provider.dart';
 import 'package:prestige_vente_app/screens/perimes/perime_widgets.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/product_paging.dart';
 import 'package:provider/provider.dart';
 
@@ -311,7 +312,8 @@ class _SaisieEnCoursTabState extends State<SaisieEnCoursTab> with PresentationAw
                 actionLabel: 'Rechercher un produit',
                 onAction: () => _searchFocusNode.requestFocus(),
               )
-            : ListView.separated(
+            : AdaptiveCardList(
+                columns: compact ? 1 : Responsive.columns(context), // tablette : 2 ou 3 colonnes
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(compact ? 0 : 12, 8, compact ? 0 : 12, 24),
                 itemCount: provider.saisieEnCoursList.length,

@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/providers/reception_provider.dart';
 import 'package:prestige_vente_app/screens/reception_control/reception_detail_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
@@ -230,6 +231,7 @@ class _ReceptionListScreenState extends State<ReceptionListScreen> with SingleTi
       final dark = style != ListPresentation.compact;
       return PresentationScaffold(
         style: style,
+        wide: style != ListPresentation.compact,
         title: 'Contrôle Réception',
         subtitle: _periodLabel,
         actions: (col) => [
@@ -372,7 +374,8 @@ class _ReceptionListScreenState extends State<ReceptionListScreen> with SingleTi
       ]);
     }
     final compact = style == ListPresentation.compact;
-    return ListView.separated(
+    return AdaptiveCardList(
+      columns: compact ? 1 : Responsive.columns(context), // tablette : cartes sur 2 ou 3 colonnes
       padding: compact ? const EdgeInsets.only(bottom: 24) : const EdgeInsets.fromLTRB(12, 8, 12, 24),
       itemCount: bons.length,
       separatorBuilder: (_, __) => SizedBox(height: compact ? 0 : 10),

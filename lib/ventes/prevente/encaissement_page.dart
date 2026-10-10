@@ -20,6 +20,7 @@ import 'package:prestige_vente_app/ventes/core/vente_gateway.dart' show maxRegle
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
@@ -451,11 +452,20 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
     } else {
       body = _form(methods, method);
     }
+    // Tablette paysage : résumé de la vente à côté des modes de règlement.
+    final split = Responsive.isExpanded(context);
+    if (split && _methods != null && methods.isNotEmpty) {
+      body = Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: body),
+        SizedBox(width: 320, child: _resume(method, totalText)),
+      ]);
+    }
 
     return PopScope(
       canPop: !_busy,
       child: PresentationScaffold(
         style: style,
+        wide: split,
         title: 'Encaissement',
         subtitle: subtitle,
         actions: (col) => const [],
@@ -559,7 +569,8 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         else
           _label('Mode de paiement'),
         LayoutBuilder(builder: (context, box) {
-          final w = (box.maxWidth - 8) / 2;
+          final cols = Responsive.isExpanded(context) ? 4 : 2; // tablette paysage : 4 modes par rangée
+          final w = (box.maxWidth - 8 * (cols - 1)) / cols;
           return Wrap(spacing: 8, runSpacing: 8, children: [
             for (final m in methods)
               SizedBox(width: w, child: _tile(m, selected: method?.id == m.id)),
@@ -575,6 +586,43 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         const SizedBox(height: 10),
         _printRow(),
       ],
+    );
+  }
+
+  /// Résumé de la vente (tablette paysage) : référence, articles, total, mode(s) choisi(s).
+  Widget _resume(PaymentMethod? method, String totalText) {
+    final p = _multi;
+    final ref = widget.summary.reference;
+    Widget row(String label, String value, {bool strong = false}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(child: Text(label, style: const TextStyle(fontSize: 13.5, color: Pal.muted))),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(value,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(fontSize: strong ? 18 : 14, fontWeight: strong ? FontWeight.bold : FontWeight.w600, color: Pal.ink)),
+            ),
+          ]),
+        );
+    return Padding(
+      key: const ValueKey('encaissement-resume'),
+      padding: const EdgeInsets.fromLTRB(0, 12, 12, 20),
+      child: SoftCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _label('Résumé'),
+          row('Vente', ref.isEmpty ? 'En cours' : ref),
+          row('Articles', '${widget.itemCount}'),
+          const Divider(height: 16, color: Pal.line),
+          row(widget.totalLabel, totalText, strong: true),
+          const Divider(height: 16, color: Pal.line),
+          if (p != null) ...[
+            for (final l in p.lignes) row(l.method.name, _f(l.montant)),
+            row('Reste à payer', _f(p.reste)),
+          ] else
+            row('Mode de paiement', method?.name ?? '—'),
+        ]),
+      ),
     );
   }
 

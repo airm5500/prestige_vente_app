@@ -10,6 +10,7 @@ import 'package:prestige_vente_app/accueil/accueil_menus.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 
 class OrganiserAccueilScreen extends StatefulWidget {
   /// Vrai si le code administrateur vient d'être demandé par l'écran appelant
@@ -158,57 +159,62 @@ class _OrganiserAccueilScreenState extends State<OrganiserAccueilScreen> {
       body: Column(children: [
         const NavyHeader(title: 'Organiser l\'accueil', subtitle: 'Glisser pour ordonner · ★ favori · œil : masquer'),
         Expanded(
-          child: !_authorized || !_favorisCharges
-              ? const Center(child: Icon(Icons.lock_outline, size: 48, color: Pal.muted))
-              : ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
-                  _titre('Favoris (${_favoris.length}/${AccueilFavoris.max})'),
-                  if (_favoris.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text('Aucun favori : touchez l\'étoile d\'un menu.', style: TextStyle(color: Pal.muted)),
-                    )
-                  else
-                    _liste(
-                      [for (final id in _favoris) accueilMenuById[id]!],
-                      _reorderFavoris,
-                    ),
-                  for (final f in MenuFamille.values)
-                    if (_familles[f]!.any((m) => !_favoris.contains(m.id))) ...[
-                      _titre(f.label),
+          child: ContentWidth(
+            child: !_authorized || !_favorisCharges
+                ? const Center(child: Icon(Icons.lock_outline, size: 48, color: Pal.muted))
+                : ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
+                    _titre('Favoris (${_favoris.length}/${AccueilFavoris.max})'),
+                    if (_favoris.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text('Aucun favori : touchez l\'étoile d\'un menu.', style: TextStyle(color: Pal.muted)),
+                      )
+                    else
                       _liste(
-                        _familles[f]!.where((m) => !_favoris.contains(m.id)).toList(),
-                        (o, n) => _reorderFamille(f, o, n),
+                        [for (final id in _favoris) accueilMenuById[id]!],
+                        _reorderFavoris,
                       ),
-                    ],
-                ]),
+                    for (final f in MenuFamille.values)
+                      if (_familles[f]!.any((m) => !_favoris.contains(m.id))) ...[
+                        _titre(f.label),
+                        _liste(
+                          _familles[f]!.where((m) => !_favoris.contains(m.id)).toList(),
+                          (o, n) => _reorderFamille(f, o, n),
+                        ),
+                      ],
+                  ]),
+          ),
         ),
       ]),
       bottomNavigationBar: !_authorized
           ? null
-          : SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                child: Row(children: [
-                  Expanded(
-                    child: SizedBox(
-                      height: 52,
-                      child: OutlinedButton(style: outlineButton, onPressed: _busy ? null : _parDefaut, child: const Text('Par défaut')),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: SizedBox(
-                      height: 52,
-                      child: ElevatedButton(
-                        style: navyButton,
-                        onPressed: _busy || !_favorisCharges ? null : _enregistrer,
-                        child: _busy
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : const Text('Enregistrer'),
+          : BottomBarWidth(
+              color: Colors.transparent,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: Row(children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 52,
+                        child: OutlinedButton(style: outlineButton, onPressed: _busy ? null : _parDefaut, child: const Text('Par défaut')),
                       ),
                     ),
-                  ),
-                ]),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: SizedBox(
+                        height: 52,
+                        child: ElevatedButton(
+                          style: navyButton,
+                          onPressed: _busy || !_favorisCharges ? null : _enregistrer,
+                          child: _busy
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Text('Enregistrer'),
+                        ),
+                      ),
+                    ),
+                  ]),
+                ),
               ),
             ),
     );

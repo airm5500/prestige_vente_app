@@ -35,9 +35,11 @@ class AssuranceFrame {
     List<Widget>? compactHeader,
     required Widget body,
     Widget? bottom,
+    bool wide = false,
   }) =>
       PresentationScaffold(
         style: style,
+        wide: wide,
         title: title,
         subtitle: guided ? 'Étape ${step + 1} sur 4${subtitle == null ? '' : ' · $subtitle'}' : subtitle,
         actions: actions,

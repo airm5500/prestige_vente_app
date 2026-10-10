@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/services/nfc_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -154,6 +155,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> with PresentationAwar
     );
     return PresentationScaffold(
       style: style,
+      wide: style != ListPresentation.compact,
       title: 'Employés',
       subtitle: '${_employees.length} fiche(s)',
       actions: (col) => [PresentationMenuButton(value: style, onChanged: _setStyle, color: col)],
@@ -207,7 +209,8 @@ class _EmployeesScreenState extends State<EmployeesScreen> with PresentationAwar
               children: [
                 if (shown.isEmpty)
                   const Padding(padding: EdgeInsets.all(24), child: Text('Aucun employé ne correspond.', textAlign: TextAlign.center)),
-                for (final e in shown) _employeeTile(e),
+                // Tablette : fiches (A, C) sur 2 ou 3 colonnes.
+                ...cardRows([for (final e in shown) _employeeTile(e)], style == ListPresentation.compact ? 1 : Responsive.columns(context), gap: 12),
               ],
             ),
     );

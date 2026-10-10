@@ -31,6 +31,7 @@ import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 
 enum EtatServeur { verification, connecte, horsLigne }
 
@@ -592,8 +593,11 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         ),
       );
 
+  /// Marge latérale (tablette) : contenu centré à la largeur maximale ; 0 sur téléphone.
+  double get _inset => Responsive.sideInset(context);
+
   Widget _titreSection(String t, {EdgeInsets padding = const EdgeInsets.fromLTRB(20, 18, 20, 8)}) => Padding(
-        padding: padding,
+        padding: padding + EdgeInsets.symmetric(horizontal: _inset),
         child: Text(t.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.8, color: Pal.muted)),
       );
 
@@ -680,7 +684,15 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     final idsVisibles = visibles.map((m) => m.id).toSet();
     final favoris = _favoris.where(idsVisibles.contains).map((id) => accueilMenuById[id]!).toList();
     final width = MediaQuery.sizeOf(context).width;
-    final cols = width > 600 ? 6 : (width < 330 ? 3 : 4);
+    // Tablette : familles sur 6 (portrait) ou 8 colonnes (paysage), favoris sur 4, « À faire » sur 2.
+    final taille = Responsive.of(context);
+    final cols = switch (taille) {
+      WindowClass.expanded => 8,
+      WindowClass.medium => 6,
+      WindowClass.compact => width < 330 ? 3 : 4,
+    };
+    final compact = taille == WindowClass.compact;
+    final side = EdgeInsets.symmetric(horizontal: 16 + _inset);
 
     return RefreshIndicator(
       onRefresh: _actualiser,
@@ -695,17 +707,20 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
           ],
         ),
         _titreSection('À faire maintenant'),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _aFaire(taches))),
+        Padding(
+            key: const ValueKey('accueil-a-faire'),
+            padding: side,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: cardRows(_aFaire(taches), compact ? 1 : 2))),
         if (favoris.isNotEmpty) ...[
           _titreSection('Favoris'),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: side,
             child: GridView(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: width > 600 ? 4 : 2, mainAxisExtent: 68, crossAxisSpacing: 10, mainAxisSpacing: 10),
+                  crossAxisCount: compact ? 2 : 4, mainAxisExtent: 68, crossAxisSpacing: 10, mainAxisSpacing: 10),
               children: [for (final m in favoris) _tuileFavori(m)],
             ),
           ),
@@ -714,7 +729,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
           if (familles[f]!.isNotEmpty) ...[
             _titreSection(f.label),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: side,
               child: GridView(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -810,7 +825,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 4, 6),
+            padding: EdgeInsets.fromLTRB(16 + _inset, 6, 4 + _inset, 6),
             child: Row(children: [
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -833,7 +848,9 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         child: RefreshIndicator(
           onRefresh: _actualiser,
           child: ListView(padding: EdgeInsets.zero, physics: const AlwaysScrollableScrollPhysics(), children: [
-            Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: _champRecherche(visibles, dark: false, hint: 'Rechercher un menu ou un produit')),
+            Padding(
+                padding: EdgeInsets.fromLTRB(16 + _inset, 12, 16 + _inset, 4),
+                child: _champRecherche(visibles, dark: false, hint: 'Rechercher un menu ou un produit')),
             if (aFaire.isNotEmpty) ...[
               _titreSection('À faire maintenant', padding: const EdgeInsets.fromLTRB(16, 14, 16, 6)),
               for (final t in aFaire)
@@ -882,7 +899,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         onTap: onTap,
         child: Container(
           constraints: const BoxConstraints(minHeight: 56),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: EdgeInsets.symmetric(horizontal: 16 + _inset, vertical: 8),
           decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
           child: Row(children: [
             Container(
@@ -959,9 +976,16 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
           ],
         ),
         const SizedBox(height: 12),
-        for (final c in cartes) Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 12), child: c),
+        // Tablette : grandes actions sur 2 (portrait) ou 3 colonnes (paysage).
+        if (Responsive.isCompact(context))
+          for (final c in cartes) Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 12), child: c)
+        else
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16 + _inset),
+            child: Column(children: cardRows([for (final c in cartes) Padding(padding: const EdgeInsets.only(bottom: 12), child: c)], Responsive.columns(context), gap: 12)),
+          ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          padding: EdgeInsets.fromLTRB(16 + _inset, 0, 16 + _inset, 8),
           child: SizedBox(
             height: 52,
             child: OutlinedButton(
@@ -1072,7 +1096,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         child: RefreshIndicator(
           onRefresh: _actualiser,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            padding: EdgeInsets.fromLTRB(16 + _inset, 16, 16 + _inset, 24),
             physics: const AlwaysScrollableScrollPhysics(),
             children: [
               for (final t in taches) Padding(padding: const EdgeInsets.only(bottom: 12), child: _carteTache(t)),

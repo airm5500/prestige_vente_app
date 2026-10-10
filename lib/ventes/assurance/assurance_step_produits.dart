@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_controller.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_frame.dart';
+import 'package:prestige_vente_app/ventes/common/vente_layout.dart';
 import 'package:prestige_vente_app/ventes/common/vente_product_search.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_cart.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -54,6 +55,7 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
     final f = widget.frame;
     final c = context.watch<AssuranceController>();
     final locked = widget.paying || c.finished;
+    final split = venteSplit(context); // tablette paysage : client et recherche à gauche, panier à droite
     final search = VenteProductSearch(
       key: _searchKey,
       search: c.searchProducts,
@@ -61,10 +63,10 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
       visible: c.visibleProduct,
       addProduct: _add,
       enabled: !locked,
-      onDark: !f.compact,
-      padding: f.compact ? EdgeInsets.zero : null,
+      onDark: !f.compact && !split,
+      padding: f.compact || split ? EdgeInsets.zero : null,
     );
-    final card = AssuranceClientCard(controller: c, onDark: !f.compact, onCouverture: locked ? null : c.returnToCouverture);
+    final card = AssuranceClientCard(controller: c, onDark: !f.compact && !split, onCouverture: locked ? null : c.returnToCouverture);
     final ref = c.reference;
     final n = c.items.length;
     final subtitle = c.venteId == null ? 'Nouvelle vente' : '${ref.isEmpty ? 'Vente en cours' : 'Réf. $ref'} · $n article${n > 1 ? 's' : ''}';
@@ -72,9 +74,18 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
       step: 2,
       title: 'Produits',
       subtitle: subtitle,
-      header: [card, search],
-      compactHeader: [card, search],
-      body: LayoutBuilder(
+      header: split ? const [] : [card, search],
+      compactHeader: split ? const [] : [card, search],
+      wide: split,
+      body: _body(c, locked, split ? [card, search] : null),
+      bottom: _footer(c),
+    );
+  }
+
+  /// Bandeau d'état et panier ; [side] (tablette paysage) : panneau de gauche.
+  Widget _body(AssuranceController c, bool locked, List<Widget>? side) {
+    final f = widget.frame;
+    final cart = LayoutBuilder(
         builder: (context, box) => Column(children: [
           // Bandeau d'état : au plus la moitié de la hauteur (petits écrans), le panier reste visible.
           ConstrainedBox(
@@ -99,9 +110,8 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
             ),
           ),
         ]),
-      ),
-      bottom: _footer(c),
     );
+    return side == null ? cart : VenteSplitBody(panelKey: const ValueKey('assurance-panneau-client'), side: side, main: cart);
   }
 
   Widget _split(String label, String value) => Padding(

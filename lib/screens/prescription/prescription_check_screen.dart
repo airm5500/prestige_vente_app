@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:provider/provider.dart';
@@ -458,15 +459,15 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
             actions: actions,
             bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
           ),
-          bottomNavigationBar: bottom,
-          body: body,
+          bottomNavigationBar: bottom == null ? null : BottomBarWidth(child: bottom),
+          body: ContentWidth(child: body),
         );
       case ListPresentation.dashboard:
       case ListPresentation.guided:
         final dashboard = _style == ListPresentation.dashboard;
         return Scaffold(
           backgroundColor: dashboard ? Pal.page : const Color(0xFFEEF2F7),
-          bottomNavigationBar: bottom,
+          bottomNavigationBar: bottom == null ? null : BottomBarWidth(child: bottom),
           body: Column(children: [
             NavyHeader(
               title: 'Vérification ordonnance',
@@ -483,7 +484,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                 if (dashboard && _hasScanned && !_reading) _headerKpis(),
               ],
             ),
-            Expanded(child: body),
+            Expanded(child: ContentWidth(child: body)),
           ]),
         );
     }
