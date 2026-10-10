@@ -34,6 +34,7 @@ import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
 import 'package:prestige_vente_app/providers/proforma_provider.dart';
 import 'package:prestige_vente_app/providers/ajustement_provider.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
+import 'package:prestige_vente_app/horsligne/connexion_toasts.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 
 Future<void> main() async {
@@ -166,8 +167,10 @@ class MyApp extends StatelessWidget {
         theme: AppTheme.lightTheme,
         // Tablette : fenêtres de dialogue à largeur raisonnable (téléphone inchangé).
         debugShowCheckedModeBanner: false,
-        // Thème des dialogues adapté aux tablettes + bandeau hors ligne (rien tant que le serveur répond).
-        builder: (context, child) => HorsLigneScope(child: ResponsiveTheme(child: child ?? const SizedBox.shrink())),
+        // Thème des dialogues adapté aux tablettes + bandeau hors ligne (rien tant que le serveur répond)
+        // + messages « Connexion au serveur perdue » / « De nouveau en ligne » (le retour n'est pas répété dans le bandeau).
+        builder: (context, child) => HorsLigneScope(
+            bandeauRetour: false, child: ConnexionToasts(child: ResponsiveTheme(child: child ?? const SizedBox.shrink()))),
         home: const SplashScreen(),
       ),
     );

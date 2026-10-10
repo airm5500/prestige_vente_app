@@ -14,8 +14,11 @@ import 'package:provider/provider.dart';
 
 import 'package:prestige_vente_app/accueil/accueil_menus.dart';
 import 'package:prestige_vente_app/accueil/organiser_accueil_screen.dart';
+import 'package:prestige_vente_app/accueil/point_serveur.dart';
 import 'package:prestige_vente_app/accueil/recherche_globale_screen.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/server_monitor.dart' as srv;
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -127,10 +130,29 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     _licenceWatchdogTimer = Timer.periodic(const Duration(minutes: 15), (timer) {
       _performSecurityCheck();
     });
+    _monitor.addListener(_onMonitor);
+    _etatMonitor = _monitor.etat;
+  }
+
+  /// Surveillance globale du serveur (lib/horsligne) : injoignable / hors ligne → point rouge.
+  late final srv.ServerMonitor _monitor = HorsLigne.instance.monitor;
+  late srv.EtatServeur _etatMonitor;
+
+  void _onMonitor() {
+    if (!mounted) return;
+    final e = _monitor.etat;
+    setState(() {
+      // Retour en ligne constaté par la surveillance : le serveur a répondu.
+      if (e == srv.EtatServeur.enLigne && _etatMonitor != srv.EtatServeur.enLigne && _monitor.retourAt != null) {
+        _serveur = EtatServeur.connecte;
+      }
+      _etatMonitor = e;
+    });
   }
 
   @override
   void dispose() {
+    _monitor.removeListener(_onMonitor);
     WidgetsBinding.instance.removeObserver(this);
     _licenceWatchdogTimer?.cancel();
     super.dispose();
@@ -521,14 +543,27 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
             PopupMenuItem(value: 'deconnexion', child: ListTile(leading: Icon(Icons.logout), title: Text('Se déconnecter'), contentPadding: EdgeInsets.zero)),
           ],
         ),
+        // Déconnexion visible à droite de l'en-tête (même logique que l'entrée du menu ⋮).
+        IconButton(
+          key: const Key('accueil_deconnexion'),
+          tooltip: 'Se déconnecter',
+          icon: Icon(Icons.logout, color: c),
+          onPressed: _deconnexion,
+        ),
       ];
 
-  /// Pastille d'état du serveur (sur fond bleu si [dark]).
+  /// État affiché : la surveillance globale (injoignable / hors ligne) prime sur la vérification de l'accueil.
+  EtatServeur get _etatAffiche => _etatMonitor != srv.EtatServeur.enLigne ? EtatServeur.horsLigne : _serveur;
+
+  /// Pastille d'état du serveur (sur fond bleu si [dark]) : point vert clignotant si connecté, rouge sinon.
   Widget _pastilleServeur({bool dark = true, bool court = false}) {
-    final (texte, couleur) = switch (_serveur) {
+    final etat = _etatAffiche;
+    final (texte, couleur) = switch (etat) {
       EtatServeur.verification => ('Vérification…', const Color(0xFF94A3B8)),
       EtatServeur.connecte => (court ? 'En ligne' : 'Serveur connecté', const Color(0xFF22C55E)),
-      EtatServeur.horsLigne => ('Hors ligne', const Color(0xFFEF4444)),
+      EtatServeur.horsLigne => _etatMonitor == srv.EtatServeur.injoignable
+          ? (court ? 'Injoignable' : 'Serveur injoignable', const Color(0xFFEF4444))
+          : ('Hors ligne', const Color(0xFFEF4444)),
     };
     final pill = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -537,7 +572,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 9, height: 9, decoration: BoxDecoration(color: couleur, shape: BoxShape.circle)),
+        PointServeur(couleur: couleur, clignote: etat == EtatServeur.connecte),
         const SizedBox(width: 6),
         Flexible(
           child: Text(texte,
@@ -545,19 +580,25 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         ),
       ]),
     );
-    if (_serveur != EtatServeur.horsLigne) return pill;
+    if (etat != EtatServeur.horsLigne) return pill;
     return Wrap(spacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
       pill,
       SizedBox(
         height: 36,
         child: TextButton.icon(
           style: TextButton.styleFrom(foregroundColor: dark ? Colors.white : Pal.navy, minimumSize: const Size(44, 36)),
-          onPressed: _actualiser,
+          onPressed: _reessayer,
           icon: const Icon(Icons.refresh, size: 18),
           label: const Text('Réessayer'),
         ),
       ),
     ]);
+  }
+
+  /// « Réessayer » : vérification de l'accueil et, si le serveur est injoignable, de la surveillance.
+  void _reessayer() {
+    if (_etatMonitor == srv.EtatServeur.injoignable) _monitor.checkNow();
+    _actualiser();
   }
 
   /// Licence : seulement si elle expire dans moins de 30 jours (ambre, rouge à 7 jours).

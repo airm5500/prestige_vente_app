@@ -27,7 +27,11 @@ class HorsLigneScope extends StatefulWidget {
 
   /// Durée du message « Serveur de nouveau joignable ».
   final Duration retourDuree;
-  const HorsLigneScope({super.key, required this.child, this.horsLigne, this.bindApp = true, this.retourDuree = const Duration(seconds: 4)});
+
+  /// Bandeau « Serveur de nouveau joignable » (false : annoncé par ConnexionToasts).
+  final bool bandeauRetour;
+  const HorsLigneScope(
+      {super.key, required this.child, this.horsLigne, this.bindApp = true, this.retourDuree = const Duration(seconds: 4), this.bandeauRetour = true});
 
   @override
   State<HorsLigneScope> createState() => _HorsLigneScopeState();
@@ -88,7 +92,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
   void _onMonitor() {
     final m = _bound.monitor;
     final r = m.retourAt;
-    if (m.etat == EtatServeur.enLigne && r != null && r != _retourVu) {
+    if (widget.bandeauRetour && m.etat == EtatServeur.enLigne && r != null && r != _retourVu) {
       _retourVu = r;
       _retour = true;
       _retourTimer?.cancel();
