@@ -111,21 +111,19 @@ class ApiService {
   Future<List<ProductInfo>> searchProductInfoForSearch(String query) async { try { final response = await _dio.get( '/info', queryParameters: { 'search': query }, ); if (response.statusCode == 200 && response.data is List) { return (response.data as List) .map((item) => ProductInfo.fromJson(item)) .toList(); } return []; } catch (e) { print("Error in searchProductInfoForSearch: $e"); return []; } }
   Future<ProductDetails?> getProductDetailsForSearch(String codeCip) async { try { final response = await _dio.get( '/produit-search/fiche', queryParameters: { 'search_value': codeCip, 'page': 1, 'start': 0, 'limit': 1 }, ); if (response.statusCode == 200 && response.data['results'] is List) { final results = response.data['results'] as List; if (results.isNotEmpty) { return ProductDetails.fromJson(results.first); } } return null; } catch (e) { print("Error in getProductDetailsForSearch: $e"); return null; } }
 
-  Future<List<Grossiste>> getGrossistes() async {
-    try {
-      final response = await _dio.get(
-        '/common/grossiste',
-        queryParameters: {'query': '', 'page': 1, 'start': 0, 'limit': 9999},
+  // --- État de Stock : un échec de chargement lève [ApiLoadException] (≠ liste vide) ---
+  Future<List<Grossiste>> getGrossistes() => _loadList(
+        'grossistes',
+        () => _dio.get('/common/grossiste', queryParameters: {'query': '', 'page': 1, 'start': 0, 'limit': 9999}),
+        Grossiste.fromJson,
       );
-      if (response.statusCode == 200 && response.data['data'] is List) {
-        return (response.data['data'] as List).map((g) => Grossiste.fromJson(g)).toList();
-      }
-      return [];
-    } catch (e) {
-      print("Error fetching grossistes: $e");
-      return [];
-    }
-  }
+
+  /// Emplacements pour les filtres (même requête que [getRayons], mais l'échec est signalé).
+  Future<List<Rayon>> getRayonsForFilters() => _loadList(
+        'emplacements',
+        () => _dio.get('/common/rayons', queryParameters: {'query': '', 'page': 1, 'start': 0, 'limit': 9999}),
+        Rayon.fromJson,
+      );
 
   Future<Map<String, dynamic>> getStockReport({
     String query = '',
@@ -136,8 +134,10 @@ class ApiService {
     int page = 1,
     int limit = 20,
   }) async {
-    try {
-      final response = await _dio.get(
+    Response<dynamic>? raw;
+    final items = await _loadList(
+      'articles',
+      () async => raw = await _dio.get(
         '/fichearticle/comparaison',
         queryParameters: {
           'query': query,
@@ -152,22 +152,15 @@ class ApiService {
           'start': (page - 1) * limit,
           'limit': limit
         },
-      );
-
-      if (response.statusCode == 200 && response.data['data'] is List) {
-        final List<StockReportItem> items = (response.data['data'] as List)
-            .map((item) => StockReportItem.fromJson(item))
-            .toList();
-        return {
-          'data': items,
-          'total': response.data['total'] ?? 0,
-        };
-      }
-      return {'data': <StockReportItem>[], 'total': 0};
-    } catch (e) {
-      print("Error fetching stock report: $e");
-      return {'data': <StockReportItem>[], 'total': 0};
-    }
+      ),
+      StockReportItem.fromJson,
+    );
+    final body = raw?.data;
+    final total = body is Map ? body['total'] : null;
+    return {
+      'data': items,
+      'total': total is num ? total.toInt() : (int.tryParse('${total ?? ''}') ?? items.length),
+    };
   }
 
   // --- VENTE ASSURANCE / CARNET ---
