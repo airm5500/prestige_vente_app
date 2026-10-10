@@ -7,8 +7,9 @@ import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/retour/retour_models.dart';
 
 abstract class RetourGateway {
-  /// BL déjà entrés en stock (les plus récents d'abord). [query] : début du n° de BL.
-  Future<List<ReceptionBl>> bls({String query = ''});
+  /// BL entrés en stock entre [from] et [to] inclus (date d'entrée en stock), les plus récents d'abord.
+  /// [query] : début du n° de BL.
+  Future<List<ReceptionBl>> bls({String query = '', required DateTime from, required DateTime to});
 
   /// Lignes du BL. [query] : CIP, EAN ou début du nom.
   Future<List<ReceptionLine>> blLines(String blId, {String query = ''});
@@ -37,8 +38,7 @@ abstract class RetourGateway {
 
 class DioRetourGateway implements RetourGateway {
   final Dio dio;
-  final DateTime Function() clock;
-  DioRetourGateway(this.dio, {this.clock = DateTime.now});
+  DioRetourGateway(this.dio);
 
   static final _iso = DateFormat('yyyy-MM-dd');
   static const _failure = 'Opération refusée par Prestige. Vérifiez la quantité à retourner.';
@@ -60,16 +60,14 @@ class DioRetourGateway implements RetourGateway {
   }
 
   @override
-  Future<List<ReceptionBl>> bls({String query = ''}) async {
-    final now = clock();
+  Future<List<ReceptionBl>> bls({String query = '', required DateTime from, required DateTime to}) async {
     final r = await dio.get('/commande/list-bons', queryParameters: {
       'query': query,
       'start': 0,
       'limit': 200,
       'statut': 'is_Closed',
-      // Sans n° recherché : les entrées en stock des 6 derniers mois.
-      if (query.isEmpty) 'dtStart': _iso.format(now.subtract(const Duration(days: 183))),
-      if (query.isEmpty) 'dtEnd': _iso.format(now),
+      'dtStart': _iso.format(from),
+      'dtEnd': _iso.format(to),
     });
     return _list(r.data).map(ReceptionBl.fromJson).toList();
   }

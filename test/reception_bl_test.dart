@@ -361,7 +361,7 @@ void main() {
     });
   });
 
-  testWidgets('commande -> « Créer BL » (doublon refusé, puis créé et ouvert)', (tester) async {
+  testWidgets('commande -> « Créer BL » : page dédiée, doublon refusé sur place, puis onglet « BL à entrer »', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.0;
     addTearDown(tester.view.reset);
@@ -370,24 +370,28 @@ void main() {
       home: ReceptionHomeScreen(gateway: server, settings: const ReceptionSettings(), clock: () => now),
     ));
     await tester.pumpAndSettle();
-    expect(find.text('BL BL-778 — LABOREX'), findsOneWidget);
-    await tester.tap(find.text('Commandes (1)'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Créer BL'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextFormField, 'N° du BL *'), 'BL-778');
-    await tester.tap(find.text('Créer'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('déjà été utilisé'), findsOneWidget);
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
+    // Onglet « Commandes » affiché en premier.
+    expect(find.text('CMD-12 — COPHARMED'), findsOneWidget);
+    expect(find.text('BL BL-778 — LABOREX'), findsNothing);
 
     await tester.tap(find.text('Créer BL'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextFormField, 'N° du BL *'), 'BL-901');
-    await tester.tap(find.text('Créer'));
+    expect(find.text('Nouveau BL'), findsOneWidget);
+    expect(find.text('10/10/2026'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextFormField, 'N° du BL *'), 'BL-778');
+    await tester.tap(find.text('Créer le BL'));
     await tester.pumpAndSettle();
-    expect(server.created.single, 'o1|BL-901|2026-10-10|45000|0');
-    expect(find.text('BL BL-901'), findsOneWidget); // écran de saisie ouvert
+    expect(find.textContaining('déjà été utilisé'), findsOneWidget); // message sur la page, saisie gardée
+    expect(find.text('Nouveau BL'), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'N° du BL *'), 'BL-901');
+    await tester.enterText(find.widgetWithText(TextFormField, 'TVA'), '810');
+    await tester.tap(find.text('Créer le BL'));
+    await tester.pumpAndSettle();
+    expect(server.created.single, 'o1|BL-901|2026-10-10|45000|810');
+    // Retour à la liste, onglet « BL à entrer », nouveau BL mis en évidence.
+    expect(find.text('BL BL-901 — COPHARMED'), findsOneWidget);
+    expect(find.byIcon(Icons.fiber_new), findsOneWidget);
+    expect(find.textContaining('touchez-le pour commencer la saisie'), findsOneWidget);
   });
 }

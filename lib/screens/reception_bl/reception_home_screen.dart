@@ -1,6 +1,7 @@
 // lib/screens/reception_bl/reception_home_screen.dart
 // Réception BL : bons à entrer en stock, et commandes (en cours / passées) à transformer en BL.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -35,7 +36,11 @@ class ReceptionHomeScreen extends StatefulWidget {
   State<ReceptionHomeScreen> createState() => _ReceptionHomeScreenState();
 }
 
-class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> {
+class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTickerProviderStateMixin {
+  // Onglet 0 : commandes (point de départ) ; onglet 1 : BL à entrer en stock.
+  late final TabController _tabs = TabController(length: 2, vsync: this);
+  String? _justCreated;
+
   static final _money = NumberFormat.decimalPattern('fr_FR');
 
   late final ReceptionGateway _gateway =
@@ -51,6 +56,12 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> {
   void initState() {
     super.initState();
     _init();
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -99,20 +110,23 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> {
   }
 
   Future<void> _createBl(ReceptionOrder order) async {
-    final input = await showDialog<({String ref, DateTime date, int ht, int tva})>(
-      context: context,
-      builder: (_) => _CreateBlDialog(order: order, today: (widget.clock ?? DateTime.now)()),
-    );
-    if (input == null || !mounted) return;
-    setState(() => _loading = true);
-    final r = await _gateway.createBl(orderId: order.id, ref: input.ref, date: input.date, amountHt: input.ht, tva: input.tva);
-    if (!mounted) return;
-    setState(() => _loading = false);
-    if (!r.success) {
-      await _info('BL non créé', r.message, error: true);
-      return;
-    }
-    final missing = (r.data['data'] is List) ? (r.data['data'] as List).map((e) => '$e').toList() : const <String>[];
+    ReceptionResult? result;
+    String? ref;
+    final created = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => _CreateBlScreen(
+        order: order,
+        today: (widget.clock ?? DateTime.now)(),
+        onCreate: (input) async {
+          final r = await _gateway.createBl(orderId: order.id, ref: input.ref, date: input.date, amountHt: input.ht, tva: input.tva);
+          result = r;
+          ref = input.ref;
+          return r;
+        },
+      ),
+    ));
+    if (created != true || !mounted) return;
+    final data = result?.data['data'];
+    final missing = data is List ? data.map((e) => '$e').toList() : const <String>[];
     if (missing.isNotEmpty) {
       await _info(
         'BL créé avec réserves',
@@ -121,12 +135,10 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> {
     }
     await _load();
     if (!mounted) return;
-    final created = _bls.where((b) => b.ref == input.ref).firstOrNull;
-    if (created != null) {
-      await _openBl(created);
-    } else {
-      Constants.showSnackBar(context, 'BL ${input.ref} créé.');
-    }
+    // Le BL créé apparaît dans l'onglet « BL à entrer », mis en évidence.
+    setState(() => _justCreated = ref);
+    _tabs.animateTo(1);
+    Constants.showSnackBar(context, 'BL $ref créé : touchez-le pour commencer la saisie.');
   }
 
   Future<void> _info(String title, String message, {bool error = false}) => showDialog<void>(
@@ -186,19 +198,26 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> {
   Widget build(BuildContext context) {
     final bls = _bls.where((b) => _match('${b.ref} ${b.grossiste} ${b.orderRef}')).toList();
     final orders = _orders.where((o) => _match('${o.ref} ${o.grossiste}')).toList();
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
+    return Scaffold(
         appBar: AppBar(
           title: const Text('Réception BL'),
           actions: [
             IconButton(icon: const Icon(Icons.tune), tooltip: 'Réglages', onPressed: _editSettings),
             IconButton(icon: const Icon(Icons.refresh), tooltip: 'Actualiser', onPressed: _load),
           ],
-          bottom: TabBar(tabs: [
-            Tab(text: 'BL à entrer (${_bls.length})'),
-            Tab(text: 'Commandes (${_orders.length})'),
-          ]),
+          bottom: TabBar(
+            controller: _tabs,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.amber,
+            indicatorWeight: 3,
+            labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            unselectedLabelStyle: const TextStyle(fontSize: 15),
+            tabs: [
+              Tab(text: 'Commandes (${_orders.length})'),
+              Tab(text: 'BL à entrer (${_bls.length})'),
+            ],
+          ),
         ),
         body: Column(
           children: [
@@ -224,7 +243,15 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> {
                 ]),
               ),
             Expanded(
-              child: TabBarView(children: [
+              child: TabBarView(controller: _tabs, children: [
+                RefreshIndicator(
+                  onRefresh: _load,
+                  child: orders.isEmpty && !_loading
+                      ? ListView(children: const [
+                          Padding(padding: EdgeInsets.all(24), child: Text('Aucune commande en cours ou passée.', textAlign: TextAlign.center)),
+                        ])
+                      : ListView.builder(itemCount: orders.length, itemBuilder: (_, i) => _orderTile(orders[i])),
+                ),
                 RefreshIndicator(
                   onRefresh: _load,
                   child: bls.isEmpty && !_loading
@@ -236,21 +263,20 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> {
                         ])
                       : ListView.builder(itemCount: bls.length, itemBuilder: (_, i) => _blTile(bls[i])),
                 ),
-                RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView.builder(itemCount: orders.length, itemBuilder: (_, i) => _orderTile(orders[i])),
-                ),
               ]),
             ),
           ],
         ),
-      ),
     );
   }
 
   Widget _blTile(ReceptionBl b) => Card(
+        shape: b.ref == _justCreated
+            ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.green.shade600, width: 2))
+            : null,
         child: ListTile(
-          leading: const Icon(Icons.local_shipping, color: AppColors.primary),
+          leading: Icon(b.ref == _justCreated ? Icons.fiber_new : Icons.local_shipping,
+              color: b.ref == _justCreated ? Colors.green.shade700 : AppColors.primary),
           title: Text('BL ${b.ref} — ${b.grossiste}'),
           subtitle: Text('${b.date} · ${b.lines} ligne(s) · ${b.boxes} boîte(s)'
               '${b.orderRef.isEmpty ? '' : ' · Cde ${b.orderRef}'}'),
@@ -269,97 +295,187 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> {
       );
 }
 
-class _CreateBlDialog extends StatefulWidget {
+typedef _BlInput = ({String ref, DateTime date, int ht, int tva});
+
+/// Création d'un BL depuis une commande : page entière, champs espacés, date au calendrier.
+/// En cas de refus (n° déjà utilisé…), le message s'affiche ici et la saisie est conservée.
+class _CreateBlScreen extends StatefulWidget {
   final ReceptionOrder order;
   final DateTime today;
-  const _CreateBlDialog({required this.order, required this.today});
+  final Future<ReceptionResult> Function(_BlInput input) onCreate;
+  const _CreateBlScreen({required this.order, required this.today, required this.onCreate});
 
   @override
-  State<_CreateBlDialog> createState() => _CreateBlDialogState();
+  State<_CreateBlScreen> createState() => _CreateBlScreenState();
 }
 
-class _CreateBlDialogState extends State<_CreateBlDialog> {
+class _CreateBlScreenState extends State<_CreateBlScreen> {
   static final _fmt = DateFormat('dd/MM/yyyy');
+  static final _money = NumberFormat.decimalPattern('fr_FR');
   final _form = GlobalKey<FormState>();
   final _ref = TextEditingController();
-  late final _date = TextEditingController(text: _fmt.format(widget.today));
   late final _ht = TextEditingController(text: '${widget.order.amount}');
   final _tva = TextEditingController(text: '0');
+  late DateTime _date = DateTime(widget.today.year, widget.today.month, widget.today.day);
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _ht.addListener(() => setState(() {}));
+    _tva.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
-    for (final c in [_ref, _date, _ht, _tva]) {
+    for (final c in [_ref, _ht, _tva]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  DateTime? _parseDate(String v) {
-    try {
-      return _fmt.parseStrict(v.trim());
-    } catch (_) {
-      return null;
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: _date.subtract(const Duration(days: 365)),
+      lastDate: widget.today.add(const Duration(days: 1)),
+    );
+    if (picked != null) setState(() => _date = picked);
+  }
+
+  Future<void> _submit() async {
+    if (_saving || !_form.currentState!.validate()) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final r = await widget.onCreate((
+      ref: _ref.text.trim(),
+      date: _date,
+      ht: int.parse(_ht.text.trim()),
+      tva: int.parse(_tva.text.trim()),
+    ));
+    if (!mounted) return;
+    if (r.success) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() {
+        _saving = false;
+        _error = r.message;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Créer le BL — ${widget.order.grossiste}'),
-      content: Form(
+    final o = widget.order;
+    final total = (int.tryParse(_ht.text.trim()) ?? 0) + (int.tryParse(_tva.text.trim()) ?? 0);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Nouveau BL')),
+      body: Form(
         key: _form,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Commande ${widget.order.ref} (${widget.order.products} produit(s))', style: const TextStyle(fontSize: 13)),
-              TextFormField(
-                controller: _ref,
-                autofocus: true,
-                decoration: const InputDecoration(labelText: 'N° du BL *'),
-                validator: (v) {
-                  final t = (v ?? '').trim();
-                  if (t.isEmpty) return 'N° de BL obligatoire';
-                  if (t.length > 20) return '20 caractères au plus';
-                  return null;
-                },
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          children: [
+            Card(
+              margin: EdgeInsets.zero,
+              color: Colors.blueGrey.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(o.grossiste, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text('Commande ${o.ref} · ${o.statutLabel}'),
+                  Text('${o.products} produit(s) · ${_money.format(o.amount)} F'),
+                ]),
               ),
-              TextFormField(
-                controller: _date,
-                decoration: const InputDecoration(labelText: 'Date du BL (JJ/MM/AAAA)'),
-                validator: (v) => _parseDate(v ?? '') == null ? 'Date invalide' : null,
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: _ref,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              style: const TextStyle(fontSize: 18),
+              decoration: const InputDecoration(
+                labelText: 'N° du BL *',
+                helperText: 'Tel qu\'imprimé sur le bon du grossiste',
+                prefixIcon: Icon(Icons.receipt_long),
               ),
-              TextFormField(
-                controller: _ht,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Montant HT'),
-                validator: (v) => int.tryParse((v ?? '').trim()) == null ? 'Montant invalide' : null,
+              validator: (v) {
+                final t = (v ?? '').trim();
+                if (t.isEmpty) return 'N° de BL obligatoire';
+                if (t.length > 20) return '20 caractères au plus';
+                return null;
+              },
+              onFieldSubmitted: (_) => _submit(),
+            ),
+            const SizedBox(height: 16),
+            InkWell(
+              onTap: _pickDate,
+              borderRadius: BorderRadius.circular(8),
+              child: InputDecorator(
+                decoration: const InputDecoration(labelText: 'Date du BL', prefixIcon: Icon(Icons.event)),
+                child: Row(children: [
+                  Expanded(child: Text(_fmt.format(_date), style: const TextStyle(fontSize: 16))),
+                  const Text('Modifier', style: TextStyle(color: AppColors.primary)),
+                ]),
               ),
-              TextFormField(
-                controller: _tva,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'TVA'),
-                validator: (v) => int.tryParse((v ?? '').trim()) == null ? 'Montant invalide' : null,
+            ),
+            const SizedBox(height: 16),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _ht,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(labelText: 'Montant HT'),
+                  validator: (v) => int.tryParse((v ?? '').trim()) == null ? 'Montant' : null,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: _tva,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(labelText: 'TVA'),
+                  validator: (v) => int.tryParse((v ?? '').trim()) == null ? 'Montant' : null,
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text('Total TTC : ${_money.format(total)} F', style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.red.shade200)),
+                child: Row(children: [
+                  Icon(Icons.error_outline, color: Colors.red.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_error!, style: TextStyle(color: Colors.red.shade900))),
+                ]),
               ),
             ],
-          ),
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 52,
+              child: ElevatedButton.icon(
+                icon: _saving
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.check),
+                label: const Text('Créer le BL', style: TextStyle(fontSize: 17)),
+                onPressed: _saving ? null : _submit,
+              ),
+            ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-        ElevatedButton(
-          onPressed: () {
-            if (!_form.currentState!.validate()) return;
-            Navigator.of(context).pop((
-              ref: _ref.text.trim(),
-              date: _parseDate(_date.text)!,
-              ht: int.parse(_ht.text.trim()),
-              tva: int.parse(_tva.text.trim()),
-            ));
-          },
-          child: const Text('Créer'),
-        ),
-      ],
     );
   }
 }

@@ -27,8 +27,12 @@ class FakeRetourServer implements RetourGateway {
     ReceptionBl(id: 'bl2', ref: 'BL-990', grossiste: 'COPHARMED', lines: 5),
   ];
 
+  final periods = <String>[];
   @override
-  Future<List<ReceptionBl>> bls({String query = ''}) async => blList.where((b) => b.ref.startsWith(query)).toList();
+  Future<List<ReceptionBl>> bls({String query = '', required DateTime from, required DateTime to}) async {
+    periods.add('${from.toIso8601String().substring(0, 10)}..${to.toIso8601String().substring(0, 10)}');
+    return blList.where((b) => b.ref.startsWith(query)).toList();
+  }
   @override
   Future<List<ReceptionLine>> blLines(String blId, {String query = ''}) async =>
       lines.where((l) => query.isEmpty || l.code == query || l.name.toLowerCase().startsWith(query.toLowerCase())).toList();
@@ -232,11 +236,16 @@ void main() {
     });
   });
 
-  testWidgets('choix du BL : filtre par grossiste', (tester) async {
+  testWidgets('choix du BL : aujourd\'hui par défaut, période, filtre par grossiste', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final server = FakeRetourServer();
-    await tester.pumpWidget(MaterialApp(home: RetourHomeScreen(gateway: server)));
+    await tester.pumpWidget(MaterialApp(home: RetourHomeScreen(gateway: server, clock: () => DateTime(2026, 10, 10, 9))));
     await tester.pumpAndSettle();
+    expect(server.periods.single, '2026-10-10..2026-10-10');
+    expect(find.text('Entrés en stock le 10/10/2026 · 2 BL'), findsOneWidget);
+    await tester.tap(find.text('7 jours'));
+    await tester.pumpAndSettle();
+    expect(server.periods.last, '2026-10-04..2026-10-10');
     expect(find.text('BL BL-778 — LABOREX'), findsOneWidget);
     expect(find.text('BL BL-990 — COPHARMED'), findsOneWidget);
     await tester.tap(find.widgetWithText(ChoiceChip, 'LABOREX'));
