@@ -16,6 +16,17 @@ import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 
+/// Détail d'un mode de règlement sur le ticket (paiement en plusieurs modes) ; [recu]/[rendu] : espèces.
+typedef TicketReglement = ({String mode, int montant, int? recu, int? rendu});
+
+/// Lignes du ticket pour un paiement en plusieurs modes (« ESPECES: 5 000 », « reçu 10 000 / rendu 5 000 »).
+List<String> ticketReglementLines(List<TicketReglement> reglements) => [
+      for (final r in reglements) ...[
+        '${r.mode.toUpperCase()}: ${Constants.formatNumber(r.montant)}',
+        if (r.recu != null) 'reçu ${Constants.formatNumber(r.recu!)} / rendu ${Constants.formatNumber(r.rendu ?? 0)}',
+      ],
+    ];
+
 class ReceiptService {
 
   // ==========================================
@@ -28,12 +39,14 @@ class ReceiptService {
     required PaymentMethod paymentMethod, required User currentUser, required bool isTestMode, required int paperWidth,
     required bool showQrCode, required String ticketCodeType,
     int? montantVerse, int? monnaie,
+    // Optionnel (nouvelle version) : détail par mode ; null = comportement d'origine.
+    List<TicketReglement>? reglements,
   }) async {
     if (isTestMode) {
-      final ticketWidget = _buildSaleTicketWidget(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode, ticketCodeType, montantVerse: montantVerse, monnaie: monnaie);
+      final ticketWidget = _buildSaleTicketWidget(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode, ticketCodeType, montantVerse: montantVerse, monnaie: monnaie, reglements: reglements);
       await _showTestTicketDialog(context, ticketWidget, paperWidth);
     } else {
-      await _printSaleTicketSunmi(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode, ticketCodeType, montantVerse: montantVerse, monnaie: monnaie);
+      await _printSaleTicketSunmi(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode, ticketCodeType, montantVerse: montantVerse, monnaie: monnaie, reglements: reglements);
     }
   }
 
@@ -56,7 +69,7 @@ class ReceiptService {
     required bool isTestMode, required int paperWidth, required String ticketCodeType,
     bool showQrCode = true, int numberOfCopies = 1, int? montantVerse, int? monnaie,
     // Optionnels (nouvelle version des ventes) ; par défaut : comportement d'origine.
-    String? reference, bool? carnet, bool confirmEachCopy = true,
+    String? reference, bool? carnet, bool confirmEachCopy = true, List<TicketReglement>? reglements,
   }) async {
     final ref = reference ?? (items.isNotEmpty ? items.first.strREF : '');
     final title = _assuranceTitle(saleSummary, carnet, prevente: false);
@@ -74,11 +87,11 @@ class ReceiptService {
 
       if (isTestMode) {
         // APPEL DU WIDGET DÉTAILLÉ
-        final ticketWidget = _buildAssuranceSaleTicketWidget(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie, reference: ref, title: title);
+        final ticketWidget = _buildAssuranceSaleTicketWidget(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie, reference: ref, title: title, reglements: reglements);
         await _showTestTicketDialog(context, ticketWidget, paperWidth);
       } else {
         // APPEL DE L'IMPRESSION DÉTAILLÉE
-        await _printAssuranceSaleTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie, reference: ref, title: title);
+        await _printAssuranceSaleTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie, reference: ref, title: title, reglements: reglements);
       }
     }
   }
@@ -134,7 +147,7 @@ class ReceiptService {
   }
 
   // --- SUNMI VENTE COMPTANT ---
-  Future<void> _printSaleTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie}) async {
+  Future<void> _printSaleTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie, List<TicketReglement>? reglements}) async {
     if (!await _initializePrinter(context)) return;
     try {
       await SunmiPrinter.startTransactionPrint(true);
@@ -162,9 +175,13 @@ class ReceiptService {
       await SunmiPrinter.setAlignment(SunmiPrintAlign.RIGHT);
       await SunmiPrinter.printText('Total: ${Constants.formatNumber(saleSummary.montant)}');
       await SunmiPrinter.printText('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      if (reglements != null && reglements.isNotEmpty) {
+        for (final l in ticketReglementLines(reglements)) { await SunmiPrinter.printText(l); }
+      } else {
       if (montantVerse != null) await SunmiPrinter.printText('Montant Versé: ${Constants.formatNumber(montantVerse)}');
       if (monnaie != null && monnaie > 0) await SunmiPrinter.printText('Monnaie: ${Constants.formatNumber(monnaie)}', style: SunmiStyle(bold: true));
       await SunmiPrinter.printText('Mode: ${paymentMethod.name.toUpperCase()}');
+      }
       await SunmiPrinter.printText(line());
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.printText(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()));
@@ -213,7 +230,7 @@ class ReceiptService {
   }
 
   // --- SUNMI VENTE ASSURANCE / CARNET (RETOUR DE LA VERSION DÉTAILLÉE AVEC PRODUITS) ---
-  Future<void> _printAssuranceSaleTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie, required String reference, required String title}) async {
+  Future<void> _printAssuranceSaleTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie, required String reference, required String title, List<TicketReglement>? reglements}) async {
     if (!await _initializePrinter(context)) return;
     try {
       await SunmiPrinter.startTransactionPrint(true);
@@ -265,8 +282,12 @@ class ReceiptService {
 
       await SunmiPrinter.printText('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
 
+      if (reglements != null && reglements.isNotEmpty) {
+        for (final l in ticketReglementLines(reglements)) { await SunmiPrinter.printText(l); }
+      } else {
       if (montantVerse != null) await SunmiPrinter.printText('Montant Versé: ${Constants.formatNumber(montantVerse)}');
       if (monnaie != null && monnaie > 0) await SunmiPrinter.printText('Monnaie: ${Constants.formatNumber(monnaie)}', style: SunmiStyle(bold: true));
+      }
 
       await SunmiPrinter.printText(line());
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
@@ -343,7 +364,7 @@ class ReceiptService {
 
   Future<void> _showTestTicketDialog(BuildContext context, Widget ticketContent, int paperWidth) async { await showDialog( context: context, builder: (ctx) => AlertDialog( title: const Text("Aperçu du Ticket"), content: Container( width: paperWidth == 58 ? 300 : 420, child: SingleChildScrollView(child: ticketContent), ), actions: [ TextButton( child: const Text("Fermer"), onPressed: () => Navigator.of(ctx).pop(), ) ], ), ); }
 
-  Widget _buildSaleTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie}) {
+  Widget _buildSaleTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie, List<TicketReglement>? reglements}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -383,11 +404,15 @@ class ReceiptService {
         Text(line(), style: textStyle),
         Align(alignment: Alignment.centerRight, child: Text('Total: ${Constants.formatNumber(saleSummary.montant)}', style: textStyle)),
         Align(alignment: Alignment.centerRight, child: Text('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: boldStyle)),
+        if (reglements != null && reglements.isNotEmpty)
+          for (final l in ticketReglementLines(reglements)) Align(alignment: Alignment.centerRight, child: Text(l, style: textStyle))
+        else ...[
         if (montantVerse != null)
           Align(alignment: Alignment.centerRight, child: Text('Montant Versé: ${Constants.formatNumber(montantVerse)}', style: textStyle)),
         if (monnaie != null && monnaie > 0)
           Align(alignment: Alignment.centerRight, child: Text('Monnaie: ${Constants.formatNumber(monnaie)}', style: boldStyle)),
         Align(alignment: Alignment.centerRight, child: Text('Mode: ${paymentMethod.name.toUpperCase()}', style: textStyle)),
+        ],
         Text(line(), style: textStyle),
         Center(child: Text(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()), style: textStyle)),
         Center(child: Text("Vendeur: ${currentUser.fullName}", style: textStyle)),
@@ -526,7 +551,7 @@ class ReceiptService {
   }
 
   // --- WIDGET VENTE ASSURANCE (RETOUR VERSION DÉTAILLÉE AVEC PRODUITS) ---
-  Widget _buildAssuranceSaleTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie, required String reference, required String title}) {
+  Widget _buildAssuranceSaleTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie, required String reference, required String title, List<TicketReglement>? reglements}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -593,10 +618,14 @@ class ReceiptService {
 
         Align(alignment: Alignment.centerRight, child: Text('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: boldStyle.copyWith(fontSize: 14))),
 
+        if (reglements != null && reglements.isNotEmpty)
+          for (final l in ticketReglementLines(reglements)) Align(alignment: Alignment.centerRight, child: Text(l, style: textStyle))
+        else ...[
         if (montantVerse != null)
           Align(alignment: Alignment.centerRight, child: Text('Montant Versé: ${Constants.formatNumber(montantVerse)}', style: textStyle)),
         if (monnaie != null && monnaie > 0)
           Align(alignment: Alignment.centerRight, child: Text('Monnaie: ${Constants.formatNumber(monnaie)}', style: boldStyle)),
+        ],
 
         Text(line(), style: textStyle),
         Center(child: Text(DateFormat("dd/MM/yyyy HH:mm").format(DateTime.now()), style: textStyle)),

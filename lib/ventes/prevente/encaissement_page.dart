@@ -4,14 +4,19 @@
 // « Imprimer le ticket » coché. Mêmes appels serveur et même ordre que l'enchaînement précédent
 // (modes de règlement, puis VenteController.encaisser). Erreurs affichées sur la page.
 // Réutilisée par la Pré-vente Assurance via [EncaissementActions] (part client, ses propres appels).
+// « + Ajouter un mode » : paiement en 2 modes (somme = net exactement, une seule clôture) ; sans ce
+// bouton, la page reste exactement le paiement en un seul mode.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
+import 'package:prestige_vente_app/services/receipt_service.dart' show TicketReglement;
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
+import 'package:prestige_vente_app/ventes/core/paiement_multiple.dart';
+import 'package:prestige_vente_app/ventes/core/vente_gateway.dart' show maxReglements;
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -19,10 +24,26 @@ import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
 /// Encaissement confirmé par le serveur ; [copies] = 0 : pas d'impression.
-typedef EncaissementDone = ({PaymentMethod method, int? recu, int? remis, bool dejaCloturee, int copies});
+/// [reglements] : détail du paiement en plusieurs modes (vide pour un seul mode).
+typedef EncaissementDone = ({
+  PaymentMethod method,
+  int? recu,
+  int? remis,
+  bool dejaCloturee,
+  int copies,
+  List<ReglementLigne> reglements,
+});
+
+/// Détail par mode pour le ticket (null = un seul mode : ticket d'origine).
+List<TicketReglement>? ticketReglementsOf(EncaissementDone d) => d.reglements.length < 2
+    ? null
+    : [
+        for (final l in d.reglements)
+          (mode: l.method.name, montant: l.montant, recu: l.especes ? l.recu : null, rendu: l.especes ? l.monnaie : null),
+      ];
 
 /// Monnaie rendue au-delà de laquelle le montant est refusé (erreur de scan), comme avant.
-const int maxMonnaie = 500000;
+const int maxMonnaie = maxMonnaieRendue;
 const int _maxCopies = 9;
 
 /// Appels de l'encaissement fournis par un autre menu (ex. Assurance) ; mêmes règles d'affichage.
@@ -34,6 +55,9 @@ class EncaissementActions {
   /// Clôture avec le mode choisi (montants reçu / rendu pour les espèces).
   final Future<VenteResult<ClotureOk>> Function(PaymentMethod method, int? recu, int? remis) encaisser;
 
+  /// Clôture en plusieurs modes (montant reçu total / monnaie) ; null : un seul mode possible.
+  final Future<VenteResult<ClotureOk>> Function(List<ReglementLigne> lignes, int recu, int remis)? encaisserReglements;
+
   /// Échec après lequel la page se ferme (le menu affiche lui-même le message).
   final bool Function(VenteResult<ClotureOk> result)? leaveOn;
 
@@ -42,6 +66,7 @@ class EncaissementActions {
     required this.loadQrMethods,
     required this.qrFor,
     required this.encaisser,
+    this.encaisserReglements,
     this.leaveOn,
   });
 }
@@ -109,6 +134,14 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
   bool _retrying = false;
   _Failure? _failure;
 
+  /// Paiement en plusieurs modes (null = un seul mode, comportement d'origine).
+  PaiementMultiple? _multi;
+  final Map<String, TextEditingController> _parts = {};
+  final Map<String, TextEditingController> _recus = {};
+
+  /// Dernier montant corrigé (mode, message).
+  ({String id, String text})? _correction;
+
   int get _net => widget.summary.montantNet;
 
   /// Appels : ceux du menu appelant, sinon ceux de la Pré-vente.
@@ -120,6 +153,13 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         qrFor: c.qrFor,
         encaisser: (method, recu, remis) => c.encaisser(
           method: method,
+          userId: widget.userId,
+          expectedChanges: widget.expectedChanges,
+          montantRecu: recu,
+          montantRemis: remis,
+        ),
+        encaisserReglements: (lignes, recu, remis) => c.encaisserReglements(
+          lignes: lignes,
           userId: widget.userId,
           expectedChanges: widget.expectedChanges,
           montantRecu: recu,
@@ -145,6 +185,9 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
   @override
   void dispose() {
     _cash.dispose();
+    for (final c in [..._parts.values, ..._recus.values]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -214,17 +257,35 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
       recu = _recu;
       remis = (recu ?? 0) - _net;
     }
+    await _submit(
+      () => _actions.encaisser(method, recu, remis),
+      (deja) => (method: method, recu: recu, remis: remis, dejaCloturee: deja, copies: _print ? _copies : 0, reglements: const []),
+    );
+  }
+
+  /// Paiement en plusieurs modes : une seule clôture avec la liste des règlements.
+  Future<void> _validateMulti() async {
+    final p = _multi, call = _actions.encaisserReglements;
+    if (_busy || p == null || call == null || !p.valide) return;
+    final lignes = p.lignes, recu = p.montantRecu, remis = p.monnaie, principal = p.principal.method;
+    await _submit(
+      () => call(lignes, recu, remis),
+      (deja) => (method: principal, recu: recu, remis: remis, dejaCloturee: deja, copies: _print ? _copies : 0, reglements: lignes),
+    );
+  }
+
+  Future<void> _submit(Future<VenteResult<ClotureOk>> Function() call, EncaissementDone Function(bool dejaCloturee) done) async {
+    if (_busy) return;
     final retry = _failure?.panne ?? false;
     setState(() {
       _busy = true;
       _retrying = retry;
       _failure = null;
     });
-    final r = await _actions.encaisser(method, recu, remis);
+    final r = await call();
     if (!mounted) return;
     if (r case VenteOk(:final value)) {
-      final EncaissementDone done = (method: method, recu: recu, remis: remis, dejaCloturee: value.dejaCloturee, copies: _print ? _copies : 0);
-      Navigator.of(context).pop(done);
+      Navigator.of(context).pop(done(value.dejaCloturee));
       return;
     }
     if (_actions.leaveOn?.call(r) ?? false) {
@@ -249,6 +310,124 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
       await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
     }
     if (mounted) setState(() {});
+  }
+
+  // --- Plusieurs modes ----------------------------------------------------------
+  bool get _multiPossible => _actions.encaisserReglements != null;
+
+  TextEditingController _partCtl(String id) => _parts.putIfAbsent(id, TextEditingController.new);
+  TextEditingController _recuCtl(String id) => _recus.putIfAbsent(id, TextEditingController.new);
+
+  /// Recopie les parts du modèle dans les champs (sauf celui en cours de saisie).
+  void _syncParts({String? except}) {
+    final p = _multi;
+    if (p == null) return;
+    for (final l in p.lignes) {
+      if (l.method.id == except) continue;
+      final c = _partCtl(l.method.id);
+      final want = l.montant == 0 ? '' : '${l.montant}';
+      if (c.text != want) c.text = want;
+    }
+  }
+
+  /// Modes pouvant être ajoutés (activés et pas encore utilisés).
+  List<PaymentMethod> _candidates(List<PaymentMethod> methods, Set<String> used) => methods.where((m) => !used.contains(m.id)).toList();
+
+  Future<PaymentMethod?> _pickMode(List<PaymentMethod> candidates) => showModalBottomSheet<PaymentMethod>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: ListView(shrinkWrap: true, children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+              child: Text('Ajouter un mode de paiement', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink)),
+            ),
+            for (final m in candidates)
+              ListTile(
+                key: ValueKey('ajout-mode-${m.id}'),
+                leading: Icon(_iconFor(m), color: Pal.navy),
+                title: Text(m.name),
+                onTap: () => Navigator.of(ctx).pop(m),
+              ),
+          ]),
+        ),
+      );
+
+  /// « + Ajouter un mode » : passe au paiement en plusieurs modes (le nouveau mode reçoit le reste).
+  Future<void> _addMode(List<PaymentMethod> methods, PaymentMethod? current) async {
+    if (_busy) return;
+    final p = _multi;
+    final used = p == null ? {if (current != null) current.id} : {for (final l in p.lignes) l.method.id};
+    final candidates = _candidates(methods, used);
+    if (candidates.isEmpty || (p == null && current == null) || (p != null && !p.peutAjouter)) return;
+    final m = candidates.length == 1 ? candidates.first : await _pickMode(candidates);
+    if (m == null || !mounted || _busy) return;
+    setState(() {
+      final multi = p ?? PaiementMultiple(_net, current!, max: maxReglements);
+      final err = multi.ajouter(m);
+      if (err != null) {
+        _correction = (id: m.id, text: err);
+        return;
+      }
+      _multi = multi;
+      _recuCtl(m.id).clear();
+      if (p == null) _recuCtl(current!.id).clear();
+      _correction = null;
+      _syncParts();
+      if (_failure?.caisse != true) _failure = null;
+    });
+  }
+
+  /// Retour au paiement en un seul mode (comportement d'origine) avec [m].
+  void _leaveMulti(PaymentMethod m) {
+    _multi = null;
+    _selected = m;
+    _correction = null;
+    _cash.clear();
+  }
+
+  void _setPart(int i, String text) {
+    final p = _multi;
+    if (p == null || i >= p.lignes.length) return;
+    final id = p.lignes[i].method.id;
+    final msg = p.modifier(i, int.tryParse(text.trim()) ?? 0);
+    setState(() {
+      _correction = msg == null ? null : (id: id, text: msg);
+      if (msg != null) {
+        final c = _partCtl(id);
+        c.text = '${p.lignes[i].montant}';
+        c.selection = TextSelection.collapsed(offset: c.text.length);
+      }
+      _syncParts(except: id);
+    });
+  }
+
+  void _removeLine(int i) {
+    final p = _multi;
+    if (_busy || p == null) return;
+    setState(() {
+      p.retirer(i);
+      if (p.lignes.length < 2) {
+        _leaveMulti(p.lignes.first.method);
+      } else {
+        _correction = null;
+        _syncParts();
+      }
+    });
+  }
+
+  void _toutEn(PaymentMethod m) {
+    if (_busy || _multi == null) return;
+    setState(() => _leaveMulti(m));
+  }
+
+  void _moitie() {
+    final p = _multi;
+    if (_busy || p == null) return;
+    setState(() {
+      p.moitie();
+      _correction = null;
+      _syncParts();
+    });
   }
 
   // --- Affichage --------------------------------------------------------------
@@ -346,11 +525,39 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
 
   Widget _form(List<PaymentMethod> methods, PaymentMethod? method) {
     final f = _failure;
+    final p = _multi;
+    if (p != null) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+        children: [
+          if (f != null) ..._failureViews(f),
+          _label('Règlements'),
+          for (var i = 0; i < p.lignes.length; i++) ...[_line(p, i), const SizedBox(height: 8)],
+          _addButton(methods, method),
+          const SizedBox(height: 8),
+          _shortcuts(p, methods),
+          const SizedBox(height: 10),
+          _resteRow(p),
+          const SizedBox(height: 10),
+          _printRow(),
+        ],
+      );
+    }
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
       children: [
         if (f != null) ..._failureViews(f),
-        _label('Mode de paiement'),
+        if (_multiPossible && methods.length > 1)
+          // Même hauteur que le titre seul : la page d'origine ne bouge pas.
+          SizedBox(
+            height: 28,
+            child: Row(children: [
+              Expanded(child: _label('Mode de paiement')),
+              _addLink(methods, method),
+            ]),
+          )
+        else
+          _label('Mode de paiement'),
         LayoutBuilder(builder: (context, box) {
           final w = (box.maxWidth - 8) / 2;
           return Wrap(spacing: 8, runSpacing: 8, children: [
@@ -368,6 +575,256 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         const SizedBox(height: 10),
         _printRow(),
       ],
+    );
+  }
+
+  bool _canAdd(List<PaymentMethod> methods, PaymentMethod? method) {
+    final p = _multi;
+    final used = p == null ? {if (method != null) method.id} : {for (final l in p.lignes) l.method.id};
+    return !_busy && _candidates(methods, used).isNotEmpty && (p == null ? method != null : p.peutAjouter);
+  }
+
+  /// Paiement en un seul mode : lien discret « + Ajouter un mode » à côté du titre.
+  Widget _addLink(List<PaymentMethod> methods, PaymentMethod? method) => TextButton.icon(
+        key: const ValueKey('paiement-ajouter-mode'),
+        style: TextButton.styleFrom(
+          foregroundColor: Pal.navy,
+          minimumSize: const Size(0, 28),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+        ),
+        onPressed: _canAdd(methods, method) ? () => _addMode(methods, method) : null,
+        icon: const Icon(Icons.add, size: 18),
+        label: const Text('Ajouter un mode'),
+      );
+
+  Widget _addButton(List<PaymentMethod> methods, PaymentMethod? method) {
+    final can = _canAdd(methods, method);
+    return OutlinedButton.icon(
+      key: const ValueKey('paiement-ajouter-mode'),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(46),
+        foregroundColor: Pal.navy,
+        side: BorderSide(color: can ? Pal.navy : Pal.line, style: BorderStyle.solid),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      onPressed: can ? () => _addMode(methods, method) : null,
+      icon: const Icon(Icons.add),
+      label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Ajouter un mode ($maxReglements maximum)')),
+    );
+  }
+
+  String _f(int v) => '${Constants.formatNumber(v)} F';
+
+  /// Un mode du paiement multiple : part modifiable, ✕ retirer ; espèces (reçu, monnaie) ou QR + « Reçu ».
+  Widget _line(PaiementMultiple p, int i) {
+    final l = p.lignes[i];
+    final id = l.method.id;
+    final last = i == p.lignes.length - 1;
+    final corr = _correction?.id == id ? _correction?.text : null;
+    final String status;
+    if (l.montant <= 0) {
+      status = 'Saisissez la part de ce mode';
+    } else if (l.especes) {
+      status = l.erreur == null ? 'Reçu ${Constants.formatNumber(l.recu ?? 0)} · à rendre ${Constants.formatNumber(l.monnaie)}' : 'Montant reçu à saisir';
+    } else {
+      status = l.confirme ? '✓ reçu' : 'En attente du paiement…';
+    }
+    final ok = l.erreur == null;
+    return Container(
+      key: ValueKey('reglement-$id'),
+      padding: const EdgeInsets.fromLTRB(10, 8, 2, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ok ? const Color(0xFF86C79A) : Pal.line, width: 1.5),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(_iconFor(l.method), color: Pal.navy, size: 22),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(l.method.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, color: Pal.ink, fontSize: 15)),
+              Text(last ? '$status · reste auto' : status,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: ok ? const Color(0xFF14532D) : Pal.muted)),
+            ]),
+          ),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 112,
+            child: TextField(
+              key: ValueKey('reglement-montant-$id'),
+              controller: _partCtl(id),
+              enabled: !_busy,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.right,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              onChanged: (t) => _setPart(i, t),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: '0',
+                suffixText: 'F',
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+          IconButton(
+            key: ValueKey('reglement-retirer-$id'),
+            tooltip: 'Retirer ce mode',
+            onPressed: _busy ? null : () => _removeLine(i),
+            icon: const Icon(Icons.close),
+          ),
+        ]),
+        if (corr != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, right: 8),
+            child: Text('✋ $corr', key: ValueKey('reglement-correction-$id'), style: const TextStyle(color: Color(0xFF9A3412), fontSize: 13)),
+          ),
+        if (l.montant > 0) ...[
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: l.especes ? _cashPart(p, i) : _mobilePart(p, i),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  /// Espèces : montant reçu (≥ part) et monnaie calculée sur la part espèces seulement.
+  Widget _cashPart(PaiementMultiple p, int i) {
+    final l = p.lignes[i];
+    final id = l.method.id;
+    final c = _recuCtl(id);
+    final err = l.erreur;
+    final showErr = c.text.trim().isNotEmpty && err != null && err.isNotEmpty;
+    final rounded = <int>{for (final step in [1000, 5000, 10000]) ((l.montant + step - 1) ~/ step) * step}.where((v) => v > l.montant).take(2);
+    Widget chip(String label, int value) {
+      final on = l.recu == value;
+      return ChoiceChip(
+        label: Text(label),
+        selected: on,
+        showCheckmark: false,
+        labelStyle: TextStyle(fontWeight: FontWeight.w600, color: on ? Colors.white : Pal.navy),
+        selectedColor: Pal.navy,
+        backgroundColor: Colors.white,
+        side: BorderSide(color: on ? Pal.navy : const Color(0xFFC5D0DE)),
+        onSelected: _busy
+            ? null
+            : (_) => setState(() {
+                  c.text = '$value';
+                  c.selection = TextSelection.collapsed(offset: c.text.length);
+                  p.setRecu(i, value);
+                }),
+      );
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+          child: TextField(
+            key: ValueKey('reglement-recu-montant-$id'),
+            controller: c,
+            enabled: !_busy,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
+            onChanged: (t) => setState(() => p.setRecu(i, int.tryParse(t.trim()))),
+            decoration: InputDecoration(
+              isDense: true,
+              labelText: 'Montant reçu (F)',
+              errorText: showErr ? err : null,
+              errorMaxLines: 2,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          const Text('À rendre', style: TextStyle(fontSize: 12, color: Pal.muted)),
+          Text(_f(l.monnaie),
+              key: const ValueKey('reglement-monnaie'),
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: err == null ? const Color(0xFF14532D) : Pal.muted)),
+        ]),
+      ]),
+      const SizedBox(height: 4),
+      Wrap(spacing: 6, children: [
+        chip('Exact', l.montant),
+        for (final v in rounded) chip(Constants.formatNumber(v), v),
+      ]),
+    ]);
+  }
+
+  /// Autre mode : QR du mode pour SA part, case « Reçu » obligatoire.
+  Widget _mobilePart(PaiementMultiple p, int i) {
+    final l = p.lignes[i];
+    final id = l.method.id;
+    final qr = _actions.qrFor(id)?.qrCode;
+    return Column(children: [
+      if (qr != null) ...[
+        SizedBox(
+          key: ValueKey('reglement-qr-$id'),
+          width: 120,
+          height: 120,
+          child: Image.memory(qr, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Center(child: Text('QR illisible'))),
+        ),
+        const SizedBox(height: 4),
+        Text('Faites scanner · ${_f(l.montant)}', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
+      ] else
+        Text('Encaissez ${_f(l.montant)} par ${l.method.name}.', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
+      InkWell(
+        onTap: _busy ? null : () => setState(() => p.setConfirme(i, !l.confirme)),
+        child: Row(children: [
+          Checkbox(
+            key: ValueKey('reglement-recu-$id'),
+            value: l.confirme,
+            activeColor: Pal.green,
+            onChanged: _busy ? null : (v) => setState(() => p.setConfirme(i, v ?? false)),
+          ),
+          Expanded(child: Text('Reçu : ${_f(l.montant)} par ${l.method.name}', style: const TextStyle(fontSize: 14, color: Pal.ink))),
+        ]),
+      ),
+    ]);
+  }
+
+  /// Raccourcis : « Tout en espèces », « Tout en <mode> », « 50 / 50 ».
+  Widget _shortcuts(PaiementMultiple p, List<PaymentMethod> methods) {
+    final especes = methods.where(estEspeces).firstOrNull;
+    final targets = <PaymentMethod>[
+      if (especes != null) especes,
+      for (final l in p.lignes)
+        if (!l.especes) l.method,
+    ];
+    Widget chip(Key key, String label, VoidCallback onTap) => ActionChip(
+          key: key,
+          label: Text(label, overflow: TextOverflow.ellipsis),
+          labelStyle: const TextStyle(fontWeight: FontWeight.w600, color: Pal.navy),
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Color(0xFFC5D0DE)),
+          onPressed: _busy ? null : onTap,
+        );
+    return Wrap(spacing: 6, runSpacing: 4, children: [
+      for (final m in targets)
+        chip(ValueKey('raccourci-tout-${m.id}'), estEspeces(m) ? 'Tout en espèces' : 'Tout en ${m.name}', () => _toutEn(m)),
+      if (p.lignes.length == 2) chip(const ValueKey('raccourci-moitie'), '50 / 50', _moitie),
+    ]);
+  }
+
+  Widget _resteRow(PaiementMultiple p) {
+    final zero = p.reste == 0;
+    final fg = zero ? const Color(0xFF14532D) : const Color(0xFF7F1D1D);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(color: zero ? const Color(0xFFE6F4EA) : const Color(0xFFFDECEC), borderRadius: BorderRadius.circular(12)),
+      child: Row(children: [
+        Expanded(child: Text('Reste à payer', style: TextStyle(color: fg, fontSize: 14))),
+        Text('${_f(p.reste)}${zero ? ' ✓' : ''}', key: const ValueKey('paiement-reste'), style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: fg)),
+      ]),
     );
   }
 
@@ -588,18 +1045,25 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         ),
       ]);
     } else {
+      final p = _multi;
       final cash = method?.id == '1';
-      final ready = method != null && !_busy && (!cash || _cashError == null);
+      final ready = p != null ? !_busy && p.valide : method != null && !_busy && (!cash || _cashError == null);
       final panne = _failure?.panne ?? false;
       final label = _busy
           ? (_retrying ? 'VÉRIFICATION…' : 'VALIDATION…')
           : panne
               ? 'RÉESSAYER'
-              : (method == null || cash ? 'VALIDER L\'ENCAISSEMENT' : 'PAIEMENT REÇU — VALIDER');
+              : p != null
+                  ? (p.nbRecus < p.lignes.length ? 'EN ATTENTE DES PAIEMENTS (${p.nbRecus}/${p.lignes.length})' : 'VALIDER L\'ENCAISSEMENT')
+                  : (method == null || cash ? 'VALIDER L\'ENCAISSEMENT' : 'PAIEMENT REÇU — VALIDER');
       final main = ElevatedButton(
         key: const ValueKey('encaissement-valider'),
         style: guided ? amberButton : navyButton,
-        onPressed: ready ? () => _validate(method) : null,
+        onPressed: !ready
+            ? null
+            : p != null
+                ? _validateMulti
+                : () => _validate(method!),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           if (_busy) ...[
             const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.4)),

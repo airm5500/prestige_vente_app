@@ -20,6 +20,27 @@ import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 /// Tiers payant d'une vente (forme attendue par le serveur).
 typedef VenteTp = ({String compteTp, String numBon, int taux});
 
+/// Règlement d'un paiement en plusieurs modes : part du mode ; [montantVerse] = reçu (espèces).
+typedef VenteReglement = ({String typeReglementId, int montant, int? montantVerse});
+
+/// Modes de règlement acceptés par le serveur dans une même clôture.
+const int maxReglements = 2;
+
+/// Contrôle d'une liste de règlements (null = correcte) : le serveur ne vérifie pas la somme.
+String? reglementsInvalides(List<VenteReglement> reglements, int net) {
+  if (reglements.isEmpty) return 'Aucun mode de règlement.';
+  if (reglements.length > maxReglements) return '$maxReglements modes de règlement au maximum.';
+  if (reglements.map((r) => r.typeReglementId).toSet().length != reglements.length) return 'Un même mode ne peut être utilisé qu\'une fois.';
+  if (reglements.any((r) => r.montant <= 0)) return 'Chaque mode doit avoir un montant supérieur à 0.';
+  final total = reglements.fold<int>(0, (s, r) => s + r.montant);
+  if (total != net) return 'La somme des règlements ($total) doit être égale au net à payer ($net).';
+  return null;
+}
+
+/// Mode principal (plus gros montant ; le premier en cas d'égalité) : typeRegleId de la clôture.
+VenteReglement reglementPrincipal(List<VenteReglement> reglements) =>
+    reglements.reduce((a, b) => b.montant > a.montant ? b : a);
+
 abstract class VenteGateway {
   // --- Produits / panier (commun) ---
   Future<VenteResult<List<ProductSearchResult>>> searchProducts(String query);
@@ -44,6 +65,18 @@ abstract class VenteGateway {
     required String userVendeurId,
     int? montantRecu,
     int? montantRemis,
+  });
+
+  /// Clôture comptant en plusieurs modes : une seule requête avec la liste des règlements
+  /// (typeRegleId = mode principal). Liste contrôlée avant l'envoi.
+  Future<VenteResult<Map<String, dynamic>>> cloturerVnoReglements({
+    required String venteId,
+    required SaleSummary summary,
+    required List<VenteReglement> reglements,
+    required String clientId,
+    required String userVendeurId,
+    required int montantRecu,
+    required int montantRemis,
   });
   Future<VenteResult<List<PaymentMethod>>> paymentMethods();
   Future<VenteResult<List<PaymentMethodQr>>> paymentMethodsWithQr();
@@ -99,6 +132,21 @@ abstract class VenteGateway {
     required List<VenteTp> tierspayants,
     int? montantRecu,
     int? montantRemis,
+  });
+
+  /// Clôture assurance (part client) en plusieurs modes, comme [cloturerVnoReglements].
+  Future<VenteResult<Map<String, dynamic>>> cloturerAssuranceReglements({
+    required String venteId,
+    required String clientId,
+    required String ayantDroitId,
+    required String natureVenteId,
+    required String typeVenteId,
+    required String? userVendeurId,
+    required AssuranceSaleSummary summary,
+    required List<VenteReglement> reglements,
+    required List<VenteTp> tierspayants,
+    required int montantRecu,
+    required int montantRemis,
   });
 }
 
@@ -327,7 +375,37 @@ class DioVenteGateway implements VenteGateway {
     int? montantRemis,
   }) async {
     final r = await _call(
-      () => _dio.post('/vente/cloturer/vno', data: {
+      () => _dio.post('/vente/cloturer/vno',
+          data: _vnoBody(
+            venteId: venteId,
+            summary: summary,
+            reglements: [
+              {"montant": summary.montantNet, "montantAttentu": summary.montantNet, "typeReglement": typeReglementId}
+            ],
+            typeRegleId: typeReglementId,
+            clientId: clientId,
+            userVendeurId: userVendeurId,
+            montantRecu: montantRecu,
+            montantRemis: montantRemis,
+          )),
+      what: 'encaisser la vente',
+      write: true,
+    );
+    return _closeResult(r);
+  }
+
+  /// Corps de la clôture comptant (même forme qu'avant ; seule la liste des règlements varie).
+  static Map<String, dynamic> _vnoBody({
+    required String venteId,
+    required SaleSummary summary,
+    required List<Map<String, dynamic>> reglements,
+    required String typeRegleId,
+    required String clientId,
+    required String userVendeurId,
+    int? montantRecu,
+    int? montantRemis,
+  }) =>
+      {
         "banque": "",
         "clientId": clientId,
         "commentaire": "",
@@ -342,16 +420,50 @@ class DioVenteGateway implements VenteGateway {
         "natureVenteId": "1",
         "nom": "",
         "partTP": 0,
-        "reglements": [
-          {"montant": summary.montantNet, "montantAttentu": summary.montantNet, "typeReglement": typeReglementId}
-        ],
+        "reglements": reglements,
         "remiseId": null,
         "totalRecap": summary.montantNet,
-        "typeRegleId": typeReglementId,
+        "typeRegleId": typeRegleId,
         "typeVenteId": "1",
         "userVendeurId": userVendeurId,
         "venteId": venteId,
-      }),
+      };
+
+  /// Règlements envoyés : part du mode (montant = montantAttentu) ; montantVerse seulement pour les espèces.
+  static List<Map<String, dynamic>> _reglementsJson(List<VenteReglement> reglements) => [
+        for (final r in reglements)
+          {
+            "montant": r.montant,
+            "montantAttentu": r.montant,
+            "typeReglement": r.typeReglementId,
+            if (r.montantVerse != null) "montantVerse": r.montantVerse,
+          }
+      ];
+
+  @override
+  Future<VenteResult<Map<String, dynamic>>> cloturerVnoReglements({
+    required String venteId,
+    required SaleSummary summary,
+    required List<VenteReglement> reglements,
+    required String clientId,
+    required String userVendeurId,
+    required int montantRecu,
+    required int montantRemis,
+  }) async {
+    final invalid = reglementsInvalides(reglements, summary.montantNet);
+    if (invalid != null) return VenteRefused(invalid);
+    final r = await _call(
+      () => _dio.post('/vente/cloturer/vno',
+          data: _vnoBody(
+            venteId: venteId,
+            summary: summary,
+            reglements: _reglementsJson(reglements),
+            typeRegleId: reglementPrincipal(reglements).typeReglementId,
+            clientId: clientId,
+            userVendeurId: userVendeurId,
+            montantRecu: montantRecu,
+            montantRemis: montantRemis,
+          )),
       what: 'encaisser la vente',
       write: true,
     );
@@ -670,7 +782,45 @@ class DioVenteGateway implements VenteGateway {
     int? montantRemis,
   }) async {
     final r = await _call(
-      () => _dio.post('/vente/cloturer/assurance', data: {
+      () => _dio.post('/vente/cloturer/assurance',
+          data: _assuranceBody(
+            venteId: venteId,
+            clientId: clientId,
+            ayantDroitId: ayantDroitId,
+            natureVenteId: natureVenteId,
+            typeVenteId: typeVenteId,
+            userVendeurId: userVendeurId,
+            summary: summary,
+            reglements: [
+              {"montant": summary.montantNet, "montantAttentu": summary.montantNet, "typeReglement": typeReglementId}
+            ],
+            typeRegleId: typeReglementId,
+            tierspayants: tierspayants,
+            montantRecu: montantRecu,
+            montantRemis: montantRemis,
+          )),
+      what: 'valider la vente',
+      write: true,
+    );
+    return _closeResult(r);
+  }
+
+  /// Corps de la clôture assurance (même forme qu'avant ; seule la liste des règlements varie).
+  static Map<String, dynamic> _assuranceBody({
+    required String venteId,
+    required String clientId,
+    required String ayantDroitId,
+    required String natureVenteId,
+    required String typeVenteId,
+    required String? userVendeurId,
+    required AssuranceSaleSummary summary,
+    required List<Map<String, dynamic>> reglements,
+    required String typeRegleId,
+    required List<VenteTp> tierspayants,
+    int? montantRecu,
+    int? montantRemis,
+  }) =>
+      {
         "ayantDroitId": ayantDroitId,
         "banque": "",
         "clientId": clientId,
@@ -686,9 +836,7 @@ class DioVenteGateway implements VenteGateway {
         "natureVenteId": natureVenteId,
         "nom": "",
         "partTP": summary.montantTp.toString(),
-        "reglements": [
-          {"montant": summary.montantNet, "montantAttentu": summary.montantNet, "typeReglement": typeReglementId}
-        ],
+        "reglements": reglements,
         "remiseId": null,
         "sansBon": false,
         "tierspayants": [
@@ -714,11 +862,44 @@ class DioVenteGateway implements VenteGateway {
             }
         ],
         "totalRecap": summary.montant,
-        "typeRegleId": typeReglementId,
+        "typeRegleId": typeRegleId,
         "typeVenteId": typeVenteId,
         "userVendeurId": userVendeurId,
         "venteId": venteId,
-      }),
+      };
+
+  @override
+  Future<VenteResult<Map<String, dynamic>>> cloturerAssuranceReglements({
+    required String venteId,
+    required String clientId,
+    required String ayantDroitId,
+    required String natureVenteId,
+    required String typeVenteId,
+    required String? userVendeurId,
+    required AssuranceSaleSummary summary,
+    required List<VenteReglement> reglements,
+    required List<VenteTp> tierspayants,
+    required int montantRecu,
+    required int montantRemis,
+  }) async {
+    final invalid = reglementsInvalides(reglements, summary.montantNet);
+    if (invalid != null) return VenteRefused(invalid);
+    final r = await _call(
+      () => _dio.post('/vente/cloturer/assurance',
+          data: _assuranceBody(
+            venteId: venteId,
+            clientId: clientId,
+            ayantDroitId: ayantDroitId,
+            natureVenteId: natureVenteId,
+            typeVenteId: typeVenteId,
+            userVendeurId: userVendeurId,
+            summary: summary,
+            reglements: _reglementsJson(reglements),
+            typeRegleId: reglementPrincipal(reglements).typeReglementId,
+            tierspayants: tierspayants,
+            montantRecu: montantRecu,
+            montantRemis: montantRemis,
+          )),
       what: 'valider la vente',
       write: true,
     );

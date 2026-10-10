@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/ventes/core/paiement_multiple.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/core/sale_op_queue.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -327,16 +328,10 @@ class VenteController extends ChangeNotifier {
     int? montantRecu,
     int? montantRemis,
   }) =>
-      _run(() async {
-        final id = _venteId;
-        if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
-        if (_finished) return const VenteOk((dejaCloturee: true));
-        if (expectedChanges != _changes) return const VenteRefused('Le panier a changé : vérifiez le total puis encaissez à nouveau.');
-        if (_cartError != null || !netUpToDate) return const VenteRefused('Net à payer non à jour : touchez « Réessayer » puis encaissez.');
-        final clientId = method.name.toLowerCase().replaceAll(' ', '').replaceAll('é', 'e');
-        // Comme l'original : le résultat de l'association du client n'est pas bloquant.
-        await gateway.updateClient(id, clientId);
-        final r = await gateway.cloturerVno(
+      _cloturer(
+        principal: method,
+        expectedChanges: expectedChanges,
+        close: (id, clientId) => gateway.cloturerVno(
           venteId: id,
           summary: _summary,
           typeReglementId: method.id,
@@ -344,7 +339,53 @@ class VenteController extends ChangeNotifier {
           userVendeurId: userId,
           montantRecu: montantRecu,
           montantRemis: montantRemis,
-        );
+        ),
+      );
+
+  /// « Encaisser » en plusieurs modes (2 maximum) : une seule clôture avec la liste des règlements.
+  /// La somme doit être exactement le net (contrôlé ici et par la passerelle avant l'envoi).
+  Future<VenteResult<ClotureOk>> encaisserReglements({
+    required List<ReglementLigne> lignes,
+    required String userId,
+    required int expectedChanges,
+    required int montantRecu,
+    required int montantRemis,
+  }) {
+    final reglements = reglementsDe(lignes);
+    final invalid = reglementsInvalides(reglements, _summary.montantNet);
+    if (invalid != null) return Future.value(VenteRefused(invalid));
+    final principal = lignes.reduce((a, b) => b.montant > a.montant ? b : a).method;
+    return _cloturer(
+      principal: principal,
+      expectedChanges: expectedChanges,
+      close: (id, clientId) => gateway.cloturerVnoReglements(
+        venteId: id,
+        summary: _summary,
+        reglements: reglements,
+        clientId: clientId,
+        userVendeurId: userId,
+        montantRecu: montantRecu,
+        montantRemis: montantRemis,
+      ),
+    );
+  }
+
+  /// Clôture (un ou plusieurs modes) : client = mode principal, puis clôture ; réponse perdue → relecture.
+  Future<VenteResult<ClotureOk>> _cloturer({
+    required PaymentMethod principal,
+    required int expectedChanges,
+    required Future<VenteResult<Map<String, dynamic>>> Function(String venteId, String clientId) close,
+  }) =>
+      _run(() async {
+        final id = _venteId;
+        if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
+        if (_finished) return const VenteOk((dejaCloturee: true));
+        if (expectedChanges != _changes) return const VenteRefused('Le panier a changé : vérifiez le total puis encaissez à nouveau.');
+        if (_cartError != null || !netUpToDate) return const VenteRefused('Net à payer non à jour : touchez « Réessayer » puis encaissez.');
+        final clientId = principal.name.toLowerCase().replaceAll(' ', '').replaceAll('é', 'e');
+        // Comme l'original : le résultat de l'association du client n'est pas bloquant.
+        await gateway.updateClient(id, clientId);
+        final r = await close(id, clientId);
         if (r.isOk) {
           await _finish();
           return const VenteOk((dejaCloturee: false));

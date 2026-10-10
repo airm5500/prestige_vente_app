@@ -17,6 +17,7 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/services/receipt_service.dart' show TicketReglement;
 import 'package:prestige_vente_app/ventes/assurance/assurance_controller.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_frame.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_history.dart';
@@ -333,6 +334,8 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
             loadQrMethods: c.loadQrMethods,
             qrFor: c.qrFor,
             encaisser: (method, recu, remis) => c.cloturer(method: method, expectedChanges: changes, montantRecu: recu, montantRemis: remis),
+            encaisserReglements: (lignes, recu, remis) =>
+                c.cloturerReglements(lignes: lignes, expectedChanges: changes, montantRecu: recu, montantRemis: remis),
             // Bon déjà utilisé : retour à l'étape Couverture, où le message du serveur est affiché.
             leaveOn: (_) => c.step != AssuranceStep.productSearch,
           ),
@@ -347,7 +350,8 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
       ));
       if (done == null || !mounted) return;
       await _afterValidation(snap,
-          copies: done.copies, dejaCloturee: done.dejaCloturee, method: done.method, montantVerse: done.recu, monnaie: done.remis);
+          copies: done.copies, dejaCloturee: done.dejaCloturee, method: done.method, montantVerse: done.recu, monnaie: done.remis,
+          reglements: ticketReglementsOf(done));
     } finally {
       if (mounted) setState(() => _paying = false);
     }
@@ -361,6 +365,7 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
     PaymentMethod? method,
     int? montantVerse,
     int? monnaie,
+    List<TicketReglement>? reglements,
   }) async {
     final ref = s.reference.isEmpty ? '' : ' (${s.reference})';
     showVenteSnack(
@@ -381,6 +386,7 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
         method: method,
         montantVerse: montantVerse,
         monnaie: monnaie,
+        reglements: reglements,
       );
     }
     if (!mounted) return;

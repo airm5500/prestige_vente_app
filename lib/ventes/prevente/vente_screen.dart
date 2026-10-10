@@ -314,6 +314,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
             ticketCodeType: settings.ticketCodeType,
             montantVerse: done.recu,
             monnaie: done.remis,
+            reglements: ticketReglementsOf(done),
           );
         }
       }

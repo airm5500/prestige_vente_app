@@ -164,6 +164,7 @@ Future<void> printAssuranceTicket(
   PaymentMethod? method,
   int? montantVerse,
   int? monnaie,
+  List<TicketReglement>? reglements,
 }) async {
   if (copies < 1) return;
   final auth = Provider.of<AuthProvider>(context, listen: false);
@@ -210,6 +211,7 @@ Future<void> printAssuranceTicket(
       reference: reference,
       carnet: false,
       confirmEachCopy: false,
+      reglements: reglements,
     );
   }
 }

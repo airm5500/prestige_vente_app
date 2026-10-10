@@ -15,6 +15,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
+import 'package:prestige_vente_app/ventes/core/paiement_multiple.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/core/sale_op_queue.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -664,15 +665,9 @@ class AssuranceController extends ChangeNotifier {
     int? montantRecu,
     int? montantRemis,
   }) =>
-      _run(() async {
-        final id = _venteId, c = _client, ad = _ayantDroit, s = _summary;
-        if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
-        if (_finished) return const VenteOk((dejaCloturee: true));
-        if (c == null || ad == null) return const VenteRefused('Données de vente incomplètes.');
-        if (expectedChanges != _changes) return const VenteRefused('La vente a changé : vérifiez le net puis validez à nouveau.');
-        if (s == null || _cartError != null || !netUpToDate) return const VenteRefused('Net à payer non à jour : touchez « Réessayer » puis validez.');
-        final m = method ?? PaymentMethod(id: '1', name: 'ESPECES');
-        final r = await gateway.cloturerAssurance(
+      _cloturer(
+        expectedChanges: expectedChanges,
+        close: (id, c, ad, s) => gateway.cloturerAssurance(
           venteId: id,
           clientId: c.lgCLIENTID,
           ayantDroitId: ad.lgAYANTSDROITSID,
@@ -680,11 +675,56 @@ class AssuranceController extends ChangeNotifier {
           typeVenteId: typeVenteId,
           userVendeurId: userId,
           summary: s,
-          typeReglementId: m.id,
+          typeReglementId: (method ?? PaymentMethod(id: '1', name: 'ESPECES')).id,
           tierspayants: _tpPayload,
           montantRecu: montantRecu,
           montantRemis: montantRemis,
-        );
+        ),
+      );
+
+  /// Part client en plusieurs modes (2 maximum) : une seule clôture avec la liste des règlements ;
+  /// la somme doit être exactement la part client.
+  Future<VenteResult<AssuranceClotureOk>> cloturerReglements({
+    required List<ReglementLigne> lignes,
+    required int expectedChanges,
+    required int montantRecu,
+    required int montantRemis,
+  }) {
+    final reglements = reglementsDe(lignes);
+    final net = _summary?.montantNet;
+    final invalid = net == null ? null : reglementsInvalides(reglements, net);
+    if (invalid != null) return Future.value(VenteRefused(invalid));
+    return _cloturer(
+      expectedChanges: expectedChanges,
+      close: (id, c, ad, s) => gateway.cloturerAssuranceReglements(
+        venteId: id,
+        clientId: c.lgCLIENTID,
+        ayantDroitId: ad.lgAYANTSDROITSID,
+        natureVenteId: natureVenteId,
+        typeVenteId: typeVenteId,
+        userVendeurId: userId,
+        summary: s,
+        reglements: reglements,
+        tierspayants: _tpPayload,
+        montantRecu: montantRecu,
+        montantRemis: montantRemis,
+      ),
+    );
+  }
+
+  /// Clôture (un ou plusieurs modes) ; réponse perdue → relecture de la vente.
+  Future<VenteResult<AssuranceClotureOk>> _cloturer({
+    required int expectedChanges,
+    required Future<VenteResult<Map<String, dynamic>>> Function(String id, ClientAssurance c, AyantDroit ad, AssuranceSaleSummary s) close,
+  }) =>
+      _run(() async {
+        final id = _venteId, c = _client, ad = _ayantDroit, s = _summary;
+        if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
+        if (_finished) return const VenteOk((dejaCloturee: true));
+        if (c == null || ad == null) return const VenteRefused('Données de vente incomplètes.');
+        if (expectedChanges != _changes) return const VenteRefused('La vente a changé : vérifiez le net puis validez à nouveau.');
+        if (s == null || _cartError != null || !netUpToDate) return const VenteRefused('Net à payer non à jour : touchez « Réessayer » puis validez.');
+        final r = await close(id, c, ad, s);
         if (r.isOk) {
           await _finish();
           return const VenteOk((dejaCloturee: false));

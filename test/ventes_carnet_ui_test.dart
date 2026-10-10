@@ -50,6 +50,35 @@ AyantDroit _ad(String id, String nom, String prenom) => AyantDroit(
 enum _Mode { ok, failed, lostOnCreate, appliedButFailed }
 
 class _Gw implements VenteGateway {
+  // Paiement en plusieurs modes : non utilisé par ces tests.
+  @override
+  Future<VenteResult<Map<String, dynamic>>> cloturerVnoReglements({
+    required String venteId,
+    required SaleSummary summary,
+    required List<VenteReglement> reglements,
+    required String clientId,
+    required String userVendeurId,
+    required int montantRecu,
+    required int montantRemis,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<VenteResult<Map<String, dynamic>>> cloturerAssuranceReglements({
+    required String venteId,
+    required String clientId,
+    required String ayantDroitId,
+    required String natureVenteId,
+    required String typeVenteId,
+    required String? userVendeurId,
+    required AssuranceSaleSummary summary,
+    required List<VenteReglement> reglements,
+    required List<VenteTp> tierspayants,
+    required int montantRecu,
+    required int montantRemis,
+  }) =>
+      throw UnimplementedError();
+
   Duration delay = const Duration(milliseconds: 30);
   final Map<String, List<SaleItemDetail>> sales = {};
   final Map<String, String> statut = {};

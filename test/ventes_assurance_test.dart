@@ -60,6 +60,35 @@ ClientAssurance _client({List<AyantDroit>? ads, List<ClientTiersPayant>? tps}) =
 enum _Mode { ok, failed, lost, lostNotApplied, refused, caisse, bonUtilise }
 
 class _FakeGateway implements VenteGateway {
+  // Paiement en plusieurs modes : non utilisé par ces tests.
+  @override
+  Future<VenteResult<Map<String, dynamic>>> cloturerVnoReglements({
+    required String venteId,
+    required SaleSummary summary,
+    required List<VenteReglement> reglements,
+    required String clientId,
+    required String userVendeurId,
+    required int montantRecu,
+    required int montantRemis,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<VenteResult<Map<String, dynamic>>> cloturerAssuranceReglements({
+    required String venteId,
+    required String clientId,
+    required String ayantDroitId,
+    required String natureVenteId,
+    required String typeVenteId,
+    required String? userVendeurId,
+    required AssuranceSaleSummary summary,
+    required List<VenteReglement> reglements,
+    required List<VenteTp> tierspayants,
+    required int montantRecu,
+    required int montantRemis,
+  }) =>
+      throw UnimplementedError();
+
   // Recherche par pages : même catalogue que searchProducts (une seule page).
   @override
   Future<VenteResult<ProductPage>> searchProductsPage(String query, int start, int limit) async {
