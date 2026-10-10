@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
+import 'package:prestige_vente_app/screens/common/guided_capture_screen.dart';
 import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 import 'package:prestige_vente_app/services/label_text_parser.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
@@ -237,52 +238,62 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     await _onScan(scan);
   }
 
+  /// Photo de l'étiquette : capture guidée (cadre, netteté, lumière, recadrage) puis confirmation.
+  /// « Reprendre la photo » relance la capture.
   Future<void> _photoLabel() async {
-    List<String>? lines;
-    setState(() => _readingLabel = true);
-    try {
-      lines = await (widget.labelReader ?? OcrService.captureAndRead)(ImageSource.camera);
-    } catch (e) {
-      if (mounted) {
+    while (true) {
+      if (!mounted) return;
+      List<String>? lines;
+      setState(() => _readingLabel = true);
+      try {
+        lines = await (widget.labelReader != null
+            ? widget.labelReader!(ImageSource.camera)
+            : GuidedCaptureScreen.open(context));
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(OcrService.friendlyError(e)),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 6),
+          ));
+        }
+      }
+      if (!mounted) return;
+      setState(() => _readingLabel = false);
+      if (lines == null) return;
+
+      final label = LabelTextParser.parse(lines);
+      if (label.lotCandidates.isEmpty && label.expiryCandidates.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(OcrService.friendlyError(e)),
+          content: const Text('Ni lot ni date lisibles. Cadrez uniquement LOT et EXP, à plat et bien éclairés.'),
           backgroundColor: AppColors.error,
           duration: const Duration(seconds: 6),
+          action: SnackBarAction(label: 'Reprendre', textColor: Colors.white, onPressed: _photoLabel),
         ));
+        return;
       }
-    }
-    if (!mounted) return;
-    setState(() => _readingLabel = false);
-    if (lines == null) return;
 
-    final label = LabelTextParser.parse(lines);
-    if (label.lotCandidates.isEmpty && label.expiryCandidates.isEmpty) {
-      Constants.showSnackBar(
-        context,
-        'Ni lot ni date lisibles sur la photo. Rapprochez-vous, photo à plat et bien éclairée.',
-        isError: true,
+      final confirmed = await showDialog<({String lot, DateTime? expiry, bool retake})>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _LabelConfirmDialog(label: label),
       );
+      if (confirmed == null || !mounted) return;
+      if (confirmed.retake) continue;
+
+      // Valeurs confirmées par l'opérateur : traitées comme un scan fiable.
+      final data = DataMatrixData(
+        raw: lines.join('\n'),
+        format: DataMatrixFormat.ocrLabel,
+        gtin: label.gtin,
+        lotCandidates: confirmed.lot.isEmpty ? const [] : [confirmed.lot],
+        lotCertain: confirmed.lot.isNotEmpty,
+        expiryCandidates: confirmed.expiry == null ? const [] : [confirmed.expiry!],
+        expiryCertain: confirmed.expiry != null,
+      );
+      await _onScan(data);
       return;
     }
-
-    final confirmed = await showDialog<({String lot, DateTime? expiry})>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _LabelConfirmDialog(label: label),
-    );
-    if (confirmed == null || !mounted) return;
-
-    // Valeurs confirmées par l'opérateur : traitées comme un scan fiable.
-    final data = DataMatrixData(
-      raw: lines.join('\n'),
-      format: DataMatrixFormat.ocrLabel,
-      gtin: label.gtin,
-      lotCandidates: confirmed.lot.isEmpty ? const [] : [confirmed.lot],
-      lotCertain: confirmed.lot.isNotEmpty,
-      expiryCandidates: confirmed.expiry == null ? const [] : [confirmed.expiry!],
-      expiryCertain: confirmed.expiry != null,
-    );
-    await _onScan(data);
   }
 
   /// Aide à la saisie du lot et de la date (dans le formulaire du produit affiché).
@@ -826,7 +837,7 @@ class _LabelConfirmDialogState extends State<_LabelConfirmDialog> {
         return;
       }
     }
-    Navigator.of(context).pop((lot: _lot.text.trim().toUpperCase(), expiry: expiry));
+    Navigator.of(context).pop((lot: _lot.text.trim().toUpperCase(), expiry: expiry, retake: false));
   }
 
   Widget _chips<T>(List<T> values, String Function(T) format, void Function(T) onTap) {
@@ -885,6 +896,10 @@ class _LabelConfirmDialogState extends State<_LabelConfirmDialog> {
       ),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop((lot: '', expiry: null, retake: true)),
+          child: const Text('Reprendre la photo'),
+        ),
         ElevatedButton(onPressed: _confirm, child: const Text('Valider')),
       ],
     );

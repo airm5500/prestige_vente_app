@@ -54,14 +54,15 @@ void main() {
 
   late _FakeApi api;
 
-  Future<void> pumpScreen(WidgetTester tester, {String? cameraCode, List<String>? labelLines}) async {
+  Future<void> pumpScreen(WidgetTester tester, {String? cameraCode, List<String>? labelLines, List<List<String>>? labelSequence}) async {
+    var shot = 0;
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) => ExpirationUpdateProvider(api),
         child: MaterialApp(
           home: ExpirationUpdateScreen(
             codeScanner: (_) async => cameraCode,
-            labelReader: (_) async => labelLines,
+            labelReader: (_) async => labelSequence != null ? labelSequence[shot++] : labelLines,
           ),
         ),
       ),
@@ -326,5 +327,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Étiquette lue'), findsNothing);
     expect(text(tester, 'N° de Lot'), '');
+  });
+
+  testWidgets('Photo étiquette : « Reprendre la photo » relance la capture', (tester) async {
+    await pumpScreen(tester, labelSequence: [
+      ['LOT: A1Z3', 'EXP: 10/2027'], // photo floue : lot mal lu
+      ['LOT: A123', 'EXP: 10/2027'],
+    ]);
+    await selectDoliprane(tester);
+    await tester.tap(find.text('Photo étiquette'));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(AlertDialog), matching: find.text('A1Z3')), findsOneWidget);
+    await tester.tap(find.text('Reprendre la photo'));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(AlertDialog), matching: find.text('A123')), findsOneWidget);
+    await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Valider')));
+    await tester.pumpAndSettle();
+    expect(text(tester, 'N° de Lot'), 'A123');
+  });
+
+  testWidgets('Photo étiquette illisible : message avec « Reprendre »', (tester) async {
+    await pumpScreen(tester, labelLines: ['DOLIPRANE', 'boîte de 8']);
+    await selectDoliprane(tester);
+    await tester.tap(find.text('Photo étiquette'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Ni lot ni date lisibles'), findsOneWidget);
+    expect(find.widgetWithText(SnackBarAction, 'Reprendre'), findsOneWidget);
   });
 }

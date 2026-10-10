@@ -46,6 +46,12 @@ dependencies:
   mobile_scanner: 7.0.1 # Version figée : CameraX 1.4 (minSdk 21, compileSdk 35), rendu compatible Impeller
   google_mlkit_text_recognition: ^0.15.0
   image_picker: ^1.1.2
+  # Capture guidée (cadre, netteté, luminosité, lampe, capture auto) : implémentation Camera2,
+  # version figée sans CameraX pour ne pas toucher au scanner (mobile_scanner / CameraX 1.4).
+  camera_android: 0.10.10+3
+  camera_platform_interface: ^2.9.0
+  # Recadrage de la photo sur le cadre avant la lecture du texte.
+  image: ^4.5.4
   file_picker: 8.3.7 # Version figée (minSdk 21) : import PDF d'ordonnance
 dev_dependencies:
   flutter_test:
