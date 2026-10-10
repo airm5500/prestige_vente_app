@@ -15,11 +15,12 @@ import 'package:provider/provider.dart';
 const int _maxCopies = 9;
 
 /// « Imprimer le ticket ? » avec le nombre de copies. Renvoie le nombre de copies (0 = ne pas imprimer).
-Future<int> showPrintCopiesDialog(BuildContext context, {required String title, String? message, required int initialCopies}) async {
+/// [singleCopy] : un seul ticket, sans choix du nombre (tickets de prévente).
+Future<int> showPrintCopiesDialog(BuildContext context, {required String title, String? message, required int initialCopies, bool singleCopy = false}) async {
   final n = await showDialog<int>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _CopiesDialog(title: title, message: message, initial: initialCopies.clamp(1, _maxCopies)),
+    builder: (_) => _CopiesDialog(title: title, message: message, initial: singleCopy ? 1 : initialCopies.clamp(1, _maxCopies), singleCopy: singleCopy),
   );
   return n ?? 0;
 }
@@ -28,7 +29,8 @@ class _CopiesDialog extends StatefulWidget {
   final String title;
   final String? message;
   final int initial;
-  const _CopiesDialog({required this.title, this.message, required this.initial});
+  final bool singleCopy;
+  const _CopiesDialog({required this.title, this.message, required this.initial, this.singleCopy = false});
 
   @override
   State<_CopiesDialog> createState() => _CopiesDialogState();
@@ -42,28 +44,29 @@ class _CopiesDialogState extends State<_CopiesDialog> {
         title: Text(widget.title),
         content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           if (widget.message != null) ...[Text(widget.message!), const SizedBox(height: 12)],
-          const Text('Imprimer le ticket :'),
+          Text(widget.singleCopy ? 'Imprimer le ticket ?' : 'Imprimer le ticket :'),
           const SizedBox(height: 6),
-          Row(children: [
-            IconButton.outlined(
-              tooltip: 'Moins de copies',
-              onPressed: _n > 1 ? () => setState(() => _n--) : null,
-              icon: const Icon(Icons.remove),
-            ),
-            Expanded(
-              child: Text(
-                '$_n copie${_n > 1 ? 's' : ''}',
-                key: const ValueKey('assurance-copies'),
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          if (!widget.singleCopy)
+            Row(children: [
+              IconButton.outlined(
+                tooltip: 'Moins de copies',
+                onPressed: _n > 1 ? () => setState(() => _n--) : null,
+                icon: const Icon(Icons.remove),
               ),
-            ),
-            IconButton.outlined(
-              tooltip: 'Plus de copies',
-              onPressed: _n < _maxCopies ? () => setState(() => _n++) : null,
-              icon: const Icon(Icons.add),
-            ),
-          ]),
+              Expanded(
+                child: Text(
+                  '$_n copie${_n > 1 ? 's' : ''}',
+                  key: const ValueKey('assurance-copies'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              IconButton.outlined(
+                tooltip: 'Plus de copies',
+                onPressed: _n < _maxCopies ? () => setState(() => _n++) : null,
+                icon: const Icon(Icons.add),
+              ),
+            ]),
         ]),
         actions: [
           TextButton(
@@ -182,7 +185,7 @@ Future<void> printAssuranceTicket(
       isTestMode: settings.isTestPrintMode,
       paperWidth: settings.paperWidth,
       ticketCodeType: settings.ticketCodeType,
-      numberOfCopies: copies,
+      numberOfCopies: 1, // prévente : un seul ticket
       reference: reference,
       carnet: false,
       confirmEachCopy: false,

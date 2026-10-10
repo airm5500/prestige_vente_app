@@ -174,9 +174,8 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
       showVenteSnack(context, 'Client introuvable dans cette vente : réimpression impossible.', error: true);
       return;
     }
-    final settings = Provider.of<SettingsProvider>(context, listen: false);
     final copies = await showPrintCopiesDialog(context,
-        title: 'Réimprimer ${data.reference}', initialCopies: settings.numberOfTicketsAssurance);
+        title: 'Réimprimer ${data.reference}', initialCopies: 1, singleCopy: true);
     if (copies < 1 || !mounted) return;
     await printAssuranceTicket(
       context,
@@ -393,12 +392,12 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
 
   /// Prévente enregistrée : un seul dialogue (résultat + impression avec le nombre de copies, défaut n°21).
   Future<void> _afterPrevente(_Snapshot s) async {
-    final settings = Provider.of<SettingsProvider>(context, listen: false);
     final copies = await showPrintCopiesDialog(
       context,
       title: 'Prévente enregistrée',
       message: s.reference.isEmpty ? null : 'Réf. ${s.reference}',
-      initialCopies: settings.numberOfTicketsAssurance,
+      initialCopies: 1,
+      singleCopy: true,
     );
     if (!mounted) return;
     if (copies > 0) {

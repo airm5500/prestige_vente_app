@@ -122,7 +122,7 @@ class _CarnetHistoryDialogState extends State<_CarnetHistoryDialog> {
         isTestMode: settings.isTestPrintMode,
         paperWidth: settings.paperWidth,
         ticketCodeType: settings.ticketCodeType,
-        numberOfCopies: settings.numberOfTicketsAssurance,
+        numberOfCopies: 1, // ticket de prévente : un seul
       );
     } finally {
       if (mounted) setState(() => _printing = null);

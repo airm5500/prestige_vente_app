@@ -389,7 +389,7 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
           isTestMode: settings.isTestPrintMode,
           paperWidth: settings.paperWidth,
           ticketCodeType: settings.ticketCodeType,
-          numberOfCopies: settings.numberOfTicketsAssurance,
+          numberOfCopies: 1, // prévente : un seul ticket
         );
       } else {
         await ReceiptService().printAssuranceSaleTicket(

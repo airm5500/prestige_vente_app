@@ -1006,7 +1006,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('historique : Réimprimer charge la vente (vraie référence, copies sans confirmation par copie) ; Reprendre ; vente clôturée', (tester) async {
+  testWidgets('historique : Réimprimer charge la vente (vraie référence, un seul ticket de prévente) ; Reprendre ; vente clôturée', (tester) async {
     _phone(tester);
     final gw = _FakeGateway();
     gw.sales['V5'] = [gw._line('V5', _effer, 2, 1000)];
@@ -1026,9 +1026,8 @@ void main() {
     await tester.tap(find.text('Réimprimer').first);
     await tester.pumpAndSettle();
     expect(find.text('Réimprimer AS-V5'), findsOneWidget);
-    await tester.tap(find.byTooltip('Plus de copies'));
-    await tester.pump();
-    expect(find.text('2 copies'), findsOneWidget);
+    // Ticket de prévente : un seul exemplaire, pas de choix du nombre de copies.
+    expect(find.byTooltip('Plus de copies'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('Imprimer'));
     await tester.pumpAndSettle();
@@ -1038,10 +1037,7 @@ void main() {
     expect(find.text('AS-V5'), findsOneWidget);
     await tester.tap(find.text('Fermer'));
     await tester.pumpAndSettle();
-    expect(find.text('Réimpression'), findsNothing); // 2ᵉ copie sans dialogue de confirmation
-    expect(find.text('Aperçu du Ticket'), findsOneWidget);
-    await tester.tap(find.text('Fermer'));
-    await tester.pumpAndSettle();
+    expect(find.text('Aperçu du Ticket'), findsNothing); // un seul ticket
 
     // Vente clôturée : reprise refusée avec un message clair.
     await tester.tap(find.byKey(const ValueKey('assurance-historique')));
