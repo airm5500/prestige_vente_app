@@ -401,7 +401,9 @@ Finder get _field => find.byKey(const ValueKey('vente-recherche'));
 Finder get _valider => find.byKey(const ValueKey('carnet-valider'));
 Finder get _prevente => find.byKey(const ValueKey('carnet-prevente'));
 Finder get _bonField => find.byKey(const ValueKey('carnet-bon-CT1'));
-String _net(int v) => 'Part client (net) : ${Constants.formatNumber(v)}';
+/// Part client (net) affichée dans le pied (texte exact du montant).
+Finder _net(int v) => _netText('${Constants.formatNumber(v)} F');
+Finder _netText(String t) => find.byWidgetPredicate((w) => w is Text && w.key == const ValueKey('carnet-net') && w.data == t);
 
 bool _enabled(WidgetTester tester, Finder f) => (tester.widget(f) as ButtonStyleButton).onPressed != null;
 
@@ -413,6 +415,7 @@ Future<void> _toProducts(WidgetTester tester, {String bon = 'B-123'}) async {
   await tester.tap(find.text('KOUASSI Awa'));
   await tester.pumpAndSettle();
   await tester.enterText(_bonField, bon);
+  await tester.pump(); // bouton activé après la saisie du bon
   await tester.tap(find.byKey(const ValueKey('carnet-continuer')));
   await tester.pumpAndSettle();
 }
@@ -451,17 +454,19 @@ void main() {
     expect(find.text('Le client lui-même'), findsOneWidget);
     // Bon obligatoire.
     await tester.enterText(_bonField, '   ');
+    await tester.pump(); // bouton activé après la saisie du bon
     await tester.tap(find.byKey(const ValueKey('carnet-continuer')));
     await tester.pumpAndSettle();
     expect(find.text('Le N° de bon pour CARNET MUGEF est requis.'), findsOneWidget);
     await tester.enterText(_bonField, '  B-123 ');
+    await tester.pump(); // bouton activé après la saisie du bon
     await tester.tap(find.byKey(const ValueKey('carnet-continuer')));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Calculer'), findsNothing);
     await _addManual(tester, 'doli', qty: '2');
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
-    expect(find.text(_net(600)), findsOneWidget); // 3 000 - 80 %
+    expect((_net(600)), findsOneWidget); // 3 000 - 80 %
     expect(gw.adds.single.typeVenteId, '3');
     expect(gw.adds.single.natureVenteId, '1');
     expect(gw.adds.single.ayantDroitId, 'C1');
@@ -479,7 +484,7 @@ void main() {
     await tester.enterText(fields.first, '3');
     await tester.tap(find.text('Valider'));
     await tester.pumpAndSettle();
-    expect(find.text(_net(900)), findsOneWidget);
+    expect((_net(900)), findsOneWidget);
 
     await tester.tap(_valider);
     await tester.pumpAndSettle();
@@ -554,7 +559,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('ajouté'), findsNothing);
     expect(find.textContaining('injoignable'), findsOneWidget);
-    expect(find.text('Le panier est vide'), findsOneWidget);
+    // Rien d'enregistré : la ligne est affichée « non enregistrée », la validation est bloquée.
+    expect(gw.sales, isEmpty);
+    expect(find.textContaining('non enregistrée'), findsWidgets);
+    expect(_enabled(tester, _valider), isFalse);
     expect(tester.takeException(), isNull);
   });
 
@@ -569,7 +577,7 @@ void main() {
     expect(gw.adds.length, 2);
     expect(gw.sales['V1']!.length, 2);
     expect(find.text('EFFERALGAN 500MG'), findsOneWidget);
-    expect(find.text(_net(540)), findsOneWidget); // 2 700 - 80 %
+    expect((_net(540)), findsOneWidget); // 2 700 - 80 %
 
     gw.addMode = _Mode.lostNotApplied;
     await _addManual(tester, 'effer');
@@ -619,6 +627,7 @@ void main() {
     await tester.pump(const Duration(seconds: 5)); // fin du bandeau d'erreur
     await tester.pumpAndSettle();
     await tester.enterText(_bonField, 'B-124');
+    await tester.pump(); // bouton activé après la saisie du bon
     await tester.tap(find.byKey(const ValueKey('carnet-continuer')));
     await tester.pumpAndSettle();
     expect(gw.netTps.last.single.numBon, 'B-124'); // net recalculé avec le nouveau bon
@@ -640,13 +649,13 @@ void main() {
     expect(find.textContaining('Net à payer non calculé'), findsWidgets);
     expect(_enabled(tester, _valider), isFalse);
     expect(_enabled(tester, _prevente), isFalse);
-    expect(find.text('Part client (net) : —'), findsOneWidget);
+    expect(_netText('—'), findsOneWidget);
 
     gw.netFails = false;
     await tester.tap(find.text('Réessayer').first);
     await tester.pumpAndSettle();
     expect(_enabled(tester, _valider), isTrue);
-    expect(find.text(_net(540)), findsOneWidget);
+    expect((_net(540)), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -692,14 +701,14 @@ void main() {
     await _toProducts(tester);
     await _addManual(tester, 'doli');
 
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('Retour'));
     await tester.pumpAndSettle();
     expect(find.text('Quitter la vente en cours ?'), findsOneWidget);
     await tester.tap(find.text('Rester'));
     await tester.pumpAndSettle();
     expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
 
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('Retour'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Quitter'));
     await tester.pumpAndSettle();
@@ -729,8 +738,6 @@ void main() {
     await tester.tap(find.text('KOUASSI Awa'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Changer'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('KOUASSI Junior'));
     await tester.pumpAndSettle();
     expect(find.text('KOUASSI Junior'), findsOneWidget);
@@ -750,6 +757,7 @@ void main() {
     expect(find.text('KOUASSI Ange'), findsOneWidget);
 
     await tester.enterText(_bonField, 'B-1');
+    await tester.pump(); // bouton activé après la saisie du bon
     await tester.tap(find.byKey(const ValueKey('carnet-continuer')));
     await tester.pumpAndSettle();
     await _addManual(tester, 'doli');
@@ -768,13 +776,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     expect(find.textContaining('Aucun client carnet'), findsOneWidget);
-    await tester.tap(find.text('Créer un nouveau client carnet'));
+    await tester.tap(find.text('+ NOUVEAU CLIENT'));
     await tester.pumpAndSettle();
 
-    final f = find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextFormField));
-    expect(tester.widget<TextFormField>(f.at(0)).controller?.text, 'DIABATE');
-    await tester.enterText(f.at(1), 'Moussa');
-    await tester.enterText(f.at(2), 'M-777');
+    expect(tester.widget<TextFormField>(find.byKey(const ValueKey('carnet-nc-nom'))).controller?.text, 'DIABATE');
+    await tester.enterText(find.byKey(const ValueKey('carnet-nc-prenom')), 'Moussa');
+    await tester.enterText(find.byKey(const ValueKey('carnet-nc-matricule')), 'M-777');
     await tester.enterText(find.byKey(const ValueKey('carnet-recherche')), 'sod');
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
@@ -783,7 +790,7 @@ void main() {
     // Choisir le carnet ne crée pas le client : il est affiché pour relecture.
     expect(find.byKey(const ValueKey('carnet-choisi')), findsOneWidget);
     expect(gw.createdClients, isEmpty);
-    await tester.tap(find.text('Créer le client'));
+    await tester.tap(find.text('CRÉER LE CLIENT'));
     await tester.pumpAndSettle();
     expect(gw.createdClients.single, (first: 'DIABATE', last: 'Moussa', numSecu: 'M-777'));
     expect(find.byKey(const ValueKey('carnet-bon-CT9')), findsOneWidget);
@@ -798,7 +805,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     expect(find.textContaining('Recherche impossible'), findsOneWidget);
-    expect(find.text('Créer un nouveau client carnet'), findsNothing);
+    expect(find.text('+ NOUVEAU CLIENT'), findsNothing);
     expect(find.textContaining('Aucun client'), findsNothing);
     gw.clientSearchFails = false;
     await tester.tap(find.text('Réessayer'));
@@ -843,17 +850,17 @@ void main() {
     expect(find.textContaining('03/09/2026 09:41'), findsOneWidget);
     expect(find.text('Réimprimer'), findsNWidgets(2));
 
-    await tester.tap(find.text('Reprendre la prévente').first); // V8 : clôturée
+    await tester.tap(find.text('Reprendre').first); // V8 : clôturée
     await tester.pumpAndSettle();
     expect(find.textContaining('déjà clôturée'), findsOneWidget);
     expect(_clientField, findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('carnet-historique')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Reprendre la prévente').last);
+    await tester.tap(find.text('Reprendre').last);
     await tester.pumpAndSettle();
     expect(find.text('EFFERALGAN 500MG'), findsOneWidget);
-    expect(find.text(_net(480)), findsOneWidget);
+    expect((_net(480)), findsOneWidget);
     expect(gw.netTps.last.single.numBon, 'B-77');
 
     await _addManual(tester, 'doli');

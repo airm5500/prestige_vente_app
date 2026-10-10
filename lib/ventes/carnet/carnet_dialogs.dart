@@ -1,37 +1,46 @@
 // lib/ventes/carnet/carnet_dialogs.dart
-// Création d'un client carnet (le carnet choisi est affiché pour relecture, validation par
-// « Créer le client ») et d'un ayant droit. Nom → strFIRSTNAME, Prénom → strLASTNAME.
+// Création d'un client carnet en page (A / B / C) : le carnet choisi est affiché pour relecture,
+// validation par « CRÉER LE CLIENT » ; création d'un ayant droit (dialogue).
+// Nom → strFIRSTNAME, Prénom → strLASTNAME.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_controller.dart';
+import 'package:prestige_vente_app/ventes/carnet/carnet_frame.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 const Size _btn = Size(88, 44);
 
 String? _required(String? v) => VenteInput.cleanName(v).isEmpty ? 'Requis' : null;
 
-/// Création d'un client carnet ; renvoie le client créé (déjà sélectionné dans le contrôleur) ou null.
-Future<ClientAssurance?> showCreateClientCarnetDialog(BuildContext context, CarnetController c, {String initialName = ''}) => showDialog<ClientAssurance>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _CreateClientDialog(controller: c, initialName: initialName),
-    );
+/// Création d'un client carnet (page) ; renvoie le client créé (déjà sélectionné dans le contrôleur) ou null.
+Future<ClientAssurance?> showCreateClientCarnetPage(BuildContext context, CarnetController c,
+        {String initialName = '', ListPresentation? presentation}) =>
+    Navigator.of(context).push<ClientAssurance>(MaterialPageRoute(
+      builder: (_) => CarnetNewClientPage(controller: c, initialName: initialName, presentation: presentation),
+    ));
 
-class _CreateClientDialog extends StatefulWidget {
+class CarnetNewClientPage extends StatefulWidget {
   final CarnetController controller;
   final String initialName;
-  const _CreateClientDialog({required this.controller, required this.initialName});
+
+  /// Présentation transmise par l'écran Vente Carnet (celle de l'appareil si non précisée).
+  final ListPresentation? presentation;
+  const CarnetNewClientPage({super.key, required this.controller, this.initialName = '', this.presentation});
 
   @override
-  State<_CreateClientDialog> createState() => _CreateClientDialogState();
+  State<CarnetNewClientPage> createState() => _CarnetNewClientPageState();
 }
 
-class _CreateClientDialogState extends State<_CreateClientDialog> {
+class _CarnetNewClientPageState extends State<CarnetNewClientPage> with PresentationAware {
+  @override
+  ListPresentation? get forcedPresentation => widget.presentation;
+
   final _form = GlobalKey<FormState>();
   late final _nom = TextEditingController(text: VenteInput.cleanName(widget.initialName));
   final _prenom = TextEditingController();
@@ -45,6 +54,12 @@ class _CreateClientDialogState extends State<_CreateClientDialog> {
   bool _submitting = false;
   String? _error;
   int _searchSeq = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    loadPresentation();
+  }
 
   @override
   void dispose() {
@@ -110,28 +125,59 @@ class _CreateClientDialogState extends State<_CreateClientDialog> {
     });
   }
 
+  InputDecoration _deco(String label, {Widget? suffix}) => InputDecoration(
+        labelText: label,
+        suffixIcon: suffix,
+        filled: true,
+        fillColor: Colors.white,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFC5D0DE))),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Pal.navy, width: 2)),
+      );
+
+  Widget _label(String t) => Padding(
+        padding: const EdgeInsets.only(top: 14, bottom: 6),
+        child: Text(t.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Pal.muted, letterSpacing: 0.5)),
+      );
+
   Widget _carnetSection() {
     final chosen = _carnet;
     if (chosen != null) {
-      return Card(
+      final guided = style == ListPresentation.guided;
+      return Container(
         key: const ValueKey('carnet-choisi'),
-        color: Colors.blue.shade50,
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-          child: Row(children: [
-            const Icon(Icons.menu_book, color: Colors.blue),
-            const SizedBox(width: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: guided ? Pal.line : const Color(0xFFB7DCC3)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(width: 5, color: Pal.green),
             Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Carnet choisi', style: TextStyle(fontSize: 12, color: Colors.black54)),
-                Text(chosen.strFULLNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-              ]),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
-              onPressed: _submitting ? null : () => setState(() => _carnet = null),
-              child: const Text('Changer'),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                child: Row(children: [
+                  const Icon(Icons.menu_book, color: Pal.green),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(chosen.strFULLNAME,
+                          maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: Pal.ink)),
+                      if (chosen.strNAME.isNotEmpty && chosen.strNAME != chosen.strFULLNAME)
+                        Text(chosen.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
+                    ]),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(minimumSize: const Size(0, 44), foregroundColor: Pal.navy),
+                    onPressed: _submitting ? null : () => setState(() => _carnet = null),
+                    child: const Text('Changer'),
+                  ),
+                ]),
+              ),
             ),
           ]),
         ),
@@ -143,11 +189,11 @@ class _CreateClientDialogState extends State<_CreateClientDialog> {
         key: const ValueKey('carnet-recherche'),
         controller: _carnetQuery,
         inputFormatters: VenteInput.queryFormatters,
-        decoration: InputDecoration(
-          labelText: 'Rechercher le carnet * (3 car. min.)',
-          suffixIcon: _searching
+        decoration: _deco(
+          'Rechercher le carnet * (3 car. min.)',
+          suffix: _searching
               ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))
-              : null,
+              : const Icon(Icons.search),
         ),
         onChanged: _onCarnetChanged,
         onSubmitted: _searchCarnet,
@@ -156,89 +202,128 @@ class _CreateClientDialogState extends State<_CreateClientDialog> {
         Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Row(children: [
-            Expanded(child: Text('Recherche impossible : $_searchError', style: TextStyle(color: Colors.red.shade700, fontSize: 12))),
+            Expanded(child: Text('Recherche impossible : $_searchError', style: TextStyle(color: Colors.red.shade700, fontSize: 12.5))),
             TextButton(onPressed: () => _searchCarnet(_carnetQuery.text), child: const Text('Réessayer')),
           ]),
         ),
       if (results != null && results.isEmpty)
-        const Padding(padding: EdgeInsets.only(top: 6), child: Text('Aucun carnet trouvé.', style: TextStyle(fontSize: 12))),
+        const Padding(padding: EdgeInsets.only(top: 6), child: Text('Aucun carnet trouvé.', style: TextStyle(fontSize: 12.5, color: Pal.muted))),
       if (results != null && results.isNotEmpty)
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 180),
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              for (final tp in results)
-                ListTile(
-                  minTileHeight: 44,
-                  dense: true,
-                  title: Text(tp.strFULLNAME),
-                  onTap: () => setState(() {
-                    _carnet = tp;
-                    _error = null;
-                  }),
-                ),
-            ],
-          ),
+        Container(
+          margin: const EdgeInsets.only(top: 6),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Pal.line)),
+          child: Column(children: [
+            for (final tp in results)
+              ListTile(
+                minTileHeight: 46,
+                dense: true,
+                leading: const Icon(Icons.menu_book_outlined, color: Pal.navy),
+                title: Text(tp.strFULLNAME, maxLines: 2, overflow: TextOverflow.ellipsis),
+                trailing: const StatusBadge('Choisir', fg: Pal.navy, bg: Color(0xFFE3ECF7)),
+                onTap: () => setState(() {
+                  _carnet = tp;
+                  _error = null;
+                }),
+              ),
+          ]),
         ),
     ]);
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Nouveau client carnet'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: Form(
-            key: _form,
-            child: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                TextFormField(
-                  controller: _nom,
-                  autofocus: true,
-                  inputFormatters: VenteInput.nameFormatters,
-                  decoration: const InputDecoration(labelText: 'Nom *'),
-                  validator: _required,
-                  textInputAction: TextInputAction.next,
+  Widget build(BuildContext context) {
+    final guided = style == ListPresentation.guided;
+    final ready = !_submitting && _carnet != null;
+    return PopScope(
+      canPop: !_submitting,
+      child: PresentationScaffold(
+        style: style,
+        title: 'Nouveau client carnet',
+        subtitle: 'Fiche créée sur le serveur',
+        actions: (_) => const [],
+        body: Form(
+          key: _form,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: [
+              TextFormField(
+                key: const ValueKey('carnet-nc-nom'),
+                controller: _nom,
+                autofocus: true,
+                inputFormatters: VenteInput.nameFormatters,
+                decoration: _deco('Nom *'),
+                validator: _required,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                key: const ValueKey('carnet-nc-prenom'),
+                controller: _prenom,
+                inputFormatters: VenteInput.nameFormatters,
+                decoration: _deco('Prénom(s) *'),
+                validator: _required,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                key: const ValueKey('carnet-nc-matricule'),
+                controller: _matricule,
+                inputFormatters: VenteInput.nameFormatters,
+                decoration: _deco('Matricule *'),
+                validator: _required,
+                textInputAction: TextInputAction.next,
+              ),
+              _label('Carnet choisi'),
+              _carnetSection(),
+              const SizedBox(height: 12),
+              const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.info_outline, size: 18, color: Pal.muted),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text('Vérifiez avant d\'enregistrer : la fiche est créée sur le serveur.', style: TextStyle(fontSize: 12.5, color: Pal.muted)),
                 ),
-                TextFormField(
-                  controller: _prenom,
-                  inputFormatters: VenteInput.nameFormatters,
-                  decoration: const InputDecoration(labelText: 'Prénom(s) *'),
-                  validator: _required,
-                  textInputAction: TextInputAction.next,
-                ),
-                TextFormField(
-                  controller: _matricule,
-                  inputFormatters: VenteInput.nameFormatters,
-                  decoration: const InputDecoration(labelText: 'Matricule *'),
-                  validator: _required,
-                  textInputAction: TextInputAction.next,
-                ),
-                const SizedBox(height: 12),
-                _carnetSection(),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(_error!, style: TextStyle(color: Colors.red.shade700)),
-                  ),
               ]),
-            ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(_error!, style: TextStyle(color: Colors.red.shade700)),
+                ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(minimumSize: _btn),
-            onPressed: _submitting ? null : () => Navigator.of(context).pop(),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(minimumSize: _btn),
-            onPressed: _submitting || _carnet == null ? null : _submit,
-            child: _submitting ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Créer le client'),
-          ),
-        ],
-      );
+        bottomNavigationBar: CarnetBottomBar(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (_carnet == null && !_submitting)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 6),
+                child: Text('Choisissez le carnet pour créer le client.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, color: Pal.muted)),
+              ),
+            Row(children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: outlineButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 50))),
+                  onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+                  child: const FittedBox(fit: BoxFit.scaleDown, child: Text('ANNULER')),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton(
+                  key: const ValueKey('carnet-nc-creer'),
+                  style: (guided ? amberButton : navyButton).copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 50))),
+                  onPressed: ready ? _submit : null,
+                  child: _submitting
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const FittedBox(fit: BoxFit.scaleDown, child: Text('CRÉER LE CLIENT')),
+                ),
+              ),
+            ]),
+          ]),
+        ),
+      ),
+    );
+  }
 }
 
 /// Création d'un ayant droit pour le client du contrôleur (sélectionné ensuite). true = créé.
@@ -291,11 +376,14 @@ class _CreateAyantDroitDialogState extends State<_CreateAyantDroitDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: const Text('Nouvel ayant droit'),
         content: Form(
           key: _form,
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text('Patient rattaché à ${carnetName(widget.controller.client?.fullName ?? '', '', '')}',
+                  style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
               TextFormField(
                 controller: _nom,
                 autofocus: true,
@@ -333,7 +421,7 @@ class _CreateAyantDroitDialogState extends State<_CreateAyantDroitDialog> {
             child: const Text('Annuler'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(minimumSize: _btn),
+            style: navyButton.copyWith(minimumSize: const WidgetStatePropertyAll(_btn)),
             onPressed: _submitting ? null : _submit,
             child: _submitting ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Créer'),
           ),

@@ -1,5 +1,5 @@
 // lib/ventes/carnet/carnet_history.dart
-// Historique des ventes carnet : vraie date, « Reprendre la prévente » et « Réimprimer »
+// Historique des ventes carnet : vraie date, « Reprendre » (la prévente) et « Réimprimer »
 // (ticket avec la vraie référence, nombre de copies du réglage). Panne ≠ « aucune vente ».
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/ventes/carnet/carnet_controller.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart' show preventeDateLabel;
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 
@@ -134,20 +135,22 @@ class _CarnetHistoryDialogState extends State<_CarnetHistoryDialog> {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Expanded(child: Text(item.strREF, style: const TextStyle(fontWeight: FontWeight.bold))),
-          Text('${Constants.formatNumber(item.intPRICE)} F', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
+          Expanded(
+            child: Text(item.strREF, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, color: Pal.ink)),
+          ),
+          Text('${Constants.formatNumber(item.intPRICE)} F', style: const TextStyle(fontWeight: FontWeight.bold, color: Pal.navy)),
         ]),
         Text('${preventeDateLabel(item)}${item.userFullName.isEmpty ? '' : ' · ${item.userFullName}'}',
-            style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
         Wrap(spacing: 8, children: [
           TextButton.icon(
-            style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 44), foregroundColor: Pal.navy),
             onPressed: () => Navigator.of(context).pop(item),
             icon: const Icon(Icons.play_arrow, size: 20),
-            label: const Text('Reprendre la prévente'),
+            label: const Text('Reprendre', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           TextButton.icon(
-            style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 44), foregroundColor: Pal.navy),
             onPressed: _printing != null ? null : () => _reprint(item),
             icon: printing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.print, size: 20),
             label: const Text('Réimprimer'),
@@ -166,15 +169,16 @@ class _CarnetHistoryDialogState extends State<_CarnetHistoryDialog> {
     } else if (list == null) {
       body = const Center(child: CircularProgressIndicator());
     } else if (list.isEmpty) {
-      body = const Center(child: Text('Aucune vente carnet récente'));
+      body = const Center(child: Text('Aucune vente carnet récente', style: TextStyle(color: Pal.muted)));
     } else {
       body = ListView.separated(
         itemCount: list.length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
+        separatorBuilder: (_, __) => const Divider(height: 1, color: Pal.line),
         itemBuilder: (_, i) => _row(list[i]),
       );
     }
     return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       title: const Text('Historique carnet'),
       contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       content: SizedBox(

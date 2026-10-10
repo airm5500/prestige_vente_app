@@ -457,9 +457,12 @@ class CarnetController extends ChangeNotifier {
           return VenteFailed('${r.message ?? ''} Produit non ajouté : vérifiez le panier puis réessayez.'.trim());
         }
         if (r.uncertain) {
-          return VenteFailed('${r.message ?? ''} La vente a peut-être été créée sans réponse du serveur : '
-                  'vérifiez l\'historique du client avant de recommencer.'
-              .trim());
+          // maybeApplied : l'écran ne propose pas « Réessayer » (risque de seconde vente).
+          return VenteFailed(
+              '${r.message ?? ''} La vente a peut-être été créée sans réponse du serveur : '
+                      'vérifiez l\'historique du client avant de recommencer.'
+                  .trim(),
+              maybeApplied: true);
         }
         return r.map((_) {});
       });
