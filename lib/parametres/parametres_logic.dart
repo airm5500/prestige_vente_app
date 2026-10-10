@@ -75,7 +75,7 @@ extension RubriqueInfo on Rubrique {
   String get keywords => switch (this) {
         Rubrique.connexion => 'serveur ip adresse locale distante port application nom test ping connexion réseau wifi',
         Rubrique.ventes => 'version ventes nouvelle ancienne paiement modes qr code wave orange mtn moov carte '
-            'tiers payants assurance rv masquer produits',
+            'tiers payants assurance rv masquer produits ordonnance banc essai lecture',
         Rubrique.impression => 'ticket imprimante largeur 58 80 mm mode test aperçu qr code-barres code barres '
             'nombre tickets assurance essai sunmi',
         Rubrique.stock => 'contrôle livraison pointage bl comparaison stock théorique machine réception '

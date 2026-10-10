@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/interface_version.dart';
+import 'package:prestige_vente_app/ordonnances/banc_essai/banc_essai_screen.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
@@ -266,6 +267,14 @@ class _VentesPageState extends State<VentesPage> {
           onChanged: s.setMaxTiersPayants,
         ),
         SwitchCard(title: 'Masquer les produits « RV »', value: s.hideRvProducts, onChanged: s.setHideRvProducts),
+        const SectionLabel('Ordonnances'),
+        LinkCard(
+          key: const Key('banc_essai_ordonnances'),
+          icon: Icons.science_outlined,
+          title: 'Banc d\'essai ordonnances',
+          subtitle: 'Mesure de la lecture sur vos images (rien n\'est envoyé)',
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BancEssaiScreen())),
+        ),
         ResetDefaultsButton(
           rubrique: 'Ventes',
           detail: '2 tiers payants max, produits « RV » masqués (la version des ventes et les modes de paiement ne changent pas).',

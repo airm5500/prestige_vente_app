@@ -1,0 +1,287 @@
+{
+ "version": 1,
+ "description": "Vérité terrain du banc d'essai des ordonnances (étape O1) : produits saisis par le pharmacien, posologie et quantité. Aucune donnée patient ni médecin. Indexée par nom de fichier d'image.",
+ "ordonnances": {
+  "ordonnance (1).jpeg": {
+   "produits": [
+    {
+     "nom": "Débridat SP (suspension)"
+    },
+    {
+     "nom": "Efferalgan pédiatrique"
+    }
+   ],
+   "remarque": "Posologie non rattachée ligne à ligne : 1 dose 3kg * 3/jour sur 6 jours (01 boite)"
+  },
+  "ordonnance (2).jpeg": {
+   "produits": [
+    {
+     "nom": "Dontomycine 3m cp",
+     "posologie": "1cp * 2/jour pendant 5 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Flagyl cp",
+     "posologie": "1cp * 2/jour pendant 5 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Brustan cp",
+     "posologie": "1cp * 3/jour pendant 5 jours",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (3).jpeg": {
+   "produits": [
+    {
+     "nom": "Clavam 1g cp",
+     "posologie": "1cp * 2/jour pendant 6 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Propofan gel",
+     "posologie": "1cp * 2/jour pendant 3 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Eludril Pro",
+     "posologie": "10ml + eau 2/jour"
+    }
+   ]
+  },
+  "ordonnance (4).jpeg": {
+   "produits": [
+    {
+     "nom": "Lufar 80/480",
+     "posologie": "1cp * 2/jour sur 3 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Novalgin 500",
+     "posologie": "2cp * 2/jour sur 3 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Bio-Ritmo AB (ampoule buvale)",
+     "posologie": "1amp * 2/jour sur 4 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Gaspral 20",
+     "posologie": "1cp * 2/jour",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (5).jpeg": {
+   "produits": [
+    {
+     "nom": "Verorab injectable",
+     "quantite": 3
+    }
+   ]
+  },
+  "ordonnance (6).jpeg": {
+   "produits": [
+    {
+     "nom": "Spasmo-Apotel suppo",
+     "posologie": "1 *3/jour pendant 5 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Amoxicilline 1 g",
+     "posologie": "1cp * 2/jour pendant 10 jours",
+     "quantite": 2
+    },
+    {
+     "nom": "arphos Ab",
+     "posologie": "1 * 2/jour pendant 10 jours",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (7).jpeg": {
+   "produits": [
+    {
+     "nom": "Antalgex gélules",
+     "posologie": "1gelule * 3/jour",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (8).jpeg": {
+   "produits": [
+    {
+     "nom": "Dicloced 0,1 %"
+    },
+    {
+     "nom": "Diamox 250 mg cp"
+    },
+    {
+     "nom": "Kaleorid LP 1000 mg ou 600 mg"
+    },
+    {
+     "nom": "Monoprost collyre"
+    },
+    {
+     "nom": "Carteol 2 % LP"
+    }
+   ],
+   "remarque": "Posologie non rattachée ligne à ligne : 1goutte * 3/jour pendant 5 jours | 1cp * 3/jour pendant le repas | 1cp *1/jour au repas | 1goutte * 1/jour le matin"
+  },
+  "ordonnance (9).jpeg": {
+   "produits": [
+    {
+     "nom": "Ziomycin 500 mg cp",
+     "posologie": "1cp * 1/jour pendant 6 jours",
+     "quantite": 2
+    },
+    {
+     "nom": "Predni 20 cp effervescent",
+     "posologie": "3cp * 1/jour pendant 6 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Actisoufre spray",
+     "posologie": "1 * 2/jour pendant 7 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Asmocet MTS cp",
+     "posologie": "1cp * 1/jour pendant 20 jours",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (10).jpeg": {
+   "produits": [
+    {
+     "nom": "Respimer kit lavage nasal",
+     "posologie": "1sachet * 2/jour",
+     "quantite": 1
+    },
+    {
+     "nom": "Alerbix cp",
+     "posologie": "1cp * 1/jour",
+     "quantite": 1
+    },
+    {
+     "nom": "Rhinocort spray",
+     "posologie": "1pulverisation * 2/jour",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (11).jpeg": {
+   "produits": [
+    {
+     "nom": "Bispirazole cp",
+     "posologie": "1cp * 2/jour pendant 6 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Brustan 400 mg",
+     "posologie": "1cp * 3/jour pendant 5 jours",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (12).jpeg": {
+   "produits": [
+    {
+     "nom": "Curam 1 g",
+     "posologie": "1cp * 1/jour pendant 3 jours",
+     "quantite": 2
+    },
+    {
+     "nom": "Brustan B/20",
+     "posologie": "2cp * 2/jour pendant 5 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Tramadol Denk 50 mg",
+     "posologie": "1cp * 1/jour pendant 5 jours",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (13).jpeg": {
+   "produits": [
+    {
+     "nom": "Baneocin pommade 20 g",
+     "posologie": "1cp * 2/jour",
+     "quantite": 1
+    },
+    {
+     "nom": "Nifluril 250 gélules",
+     "posologie": "1cp * 3/jour",
+     "quantite": 1
+    },
+    {
+     "nom": "Oxagram 500 gélules",
+     "posologie": "2cp * 2/jour pendant 12 jours",
+     "quantite": 2
+    },
+    {
+     "nom": "Antalgex T gélules",
+     "posologie": "1cp * 3/jour",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (14).jpeg": {
+   "produits": [],
+   "doublonDe": "ordonnance (3).jpeg",
+   "remarque": "Doublon de l'ordonnance 3 (autre photo de la même ordonnance) : exclue du banc."
+  },
+  "ordonnance (15).jpeg": {
+   "produits": [],
+   "doublonDe": "ordonnance (2).jpeg",
+   "remarque": "Doublon de l'ordonnance 2 (autre photo de la même ordonnance) : exclue du banc."
+  },
+  "ordonnance (16).jpeg": {
+   "produits": [
+    {
+     "nom": "Alfamox 1g sachet",
+     "posologie": "1cp * 2/jour",
+     "quantite": 1
+    },
+    {
+     "nom": "Predni 20 mg cp",
+     "posologie": "3cp * 1/jour pendant 3 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Dolowin Plus cp",
+     "posologie": "1cp * 2/jour",
+     "quantite": 1
+    },
+    {
+     "nom": "Eludril Pro solution",
+     "posologie": "1bain * 3/jour",
+     "quantite": 1
+    }
+   ]
+  },
+  "ordonnance (17).jpeg": {
+   "produits": [
+    {
+     "nom": "Spirex Plus",
+     "posologie": "1cp * 2/jour pendant 6 jours",
+     "quantite": 1
+    },
+    {
+     "nom": "Brustan 400 mg",
+     "posologie": "2cp * 3/jour",
+     "quantite": 1
+    },
+    {
+     "nom": "Eludril Pro",
+     "posologie": "1 * 2/jour",
+     "quantite": 1
+    }
+   ]
+  }
+ }
+}

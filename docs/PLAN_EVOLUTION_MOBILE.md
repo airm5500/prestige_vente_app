@@ -261,11 +261,76 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 ### 4.4 Étapes
 | Étape | Contenu |
 |---|---|
-| O1 | Banc d'essai des 17 ordonnances + mesure de la lecture actuelle (référence) |
+| O1 | Banc d'essai des 17 ordonnances + mesure de la lecture actuelle (référence) — **réalisé** (§4.5) |
 | O2 | Capture guidée page + découpage par lignes numérotées |
 | O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) |
 | O4 | Apprentissage par correction |
 | O5 | (option) Lecture avancée en ligne, avec consentement |
+
+### 4.5 O1 — Banc d'essai des ordonnances : réalisé
+
+**Code** : `lib/ordonnances/banc_essai/` (nouveau dossier) ; la correspondance catalogue du scan est sortie, **à
+l'identique**, de l'écran Ordonnance vers `lib/services/prescription_matcher.dart` (l'écran l'appelle, le banc aussi :
+une seule logique, aucune différence de comportement). Tests : `test/ordonnances_banc_test.dart` (CI).
+
+- **Moteur de score** (pur Dart, `normalisation_produit.dart`, `score_banc.dart`) : compare les produits proposés à la
+  vérité. Normalisation : casse, accents, ponctuation, traits d'union (« Bio-Ritmo » = « BIO RITMO »), formes et
+  conditionnements ignorés (cp, gél, sp, susp, amp, suppo, collyre, sachet, B/20…), « (?) » et remarques entre
+  parenthèses ignorés (la ligne est marquée « incertaine »). Dosage comparé seulement s'il est connu des deux côtés
+  (1 g = 1000 mg, « 80/480 », « 1000 mg ou 600 mg »). Marque : écart de lettres toléré (0 jusqu'à 3 lettres, 1 de 4 à 6,
+  2 au-delà) ou préfixe ≥ 5 lettres (« Predni » → PREDNISOLONE). Qualificatifs qui changent le produit (Plus, Pro,
+  Forte, T, AB, MTS, Denk…) : doivent concorder (« Antalgex » ≠ « Antalgex T », « Doliprane » ≠ « Doliprane Plus »).
+  Par ordonnance : **trouvés / manqués / en trop** ; global : **rappel**, **précision**, **ordonnances entièrement
+  correctes** (« 9/15 »). Une ordonnance sans vérité (fichier inconnu, doublon ou « vérité à compléter ») est exclue du score.
+- **Vérité terrain** : `assets/ordonnances/verite_terrain.json`, indexée par nom de fichier « ordonnance (N).jpeg » :
+  **uniquement** noms de produits (colonne D du pharmacien), posologie et quantité. Aucune image, aucun texte lu, aucune
+  donnée patient/médecin dans le dépôt (vérifié par un test).
+- **Pipelines** (`pipeline_ordonnance.dart`) : interface `PipelineOrdonnance.analyser(image) → produits proposés` (jamais
+  le texte lu). `PipelineTexteCatalogue` est découpé en étapes remplaçables (préparation de l'image, lecture, découpage
+  en lignes, correspondance catalogue) ; la **référence** = scan actuel inchangé (ML Kit → `PrescriptionParser.extract`
+  → `PrescriptionMatcher.match`). Les candidats O2–O4 s'ajoutent dans `pipelines_disponibles.dart`.
+- **Écran caché** : Réglages › Ventes (code administrateur) › Ordonnances › **Banc d'essai ordonnances**.
+  Choisir des images (ou un dossier), choisir la référence et un candidat, « Lancer la mesure » → score global de chaque
+  pipeline, verdict (« Candidat MOINS BON : ne pas l'activer »), détail par ordonnance. **Historique** local (date,
+  version de l'appli, pipeline, scores). **Export** : « Copier le rapport » (texte) / « Enregistrer en CSV » —
+  seulement fichiers, produits attendus/proposés et scores, **jamais le texte lu**. Rien n'est envoyé au serveur
+  (seule la recherche catalogue habituelle du scan est utilisée).
+
+**Mesurer la référence sur le téléphone** : copier les 17 images dans le téléphone **sans les renommer**
+(« ordonnance (1).jpeg »…), être connecté (catalogue réel, ou copie locale hors ligne), ouvrir le banc, « Choisir des
+images » (tout sélectionner), Référence = « Référence (scan actuel) », Candidat = Aucun, « Lancer la mesure ». Noter le
+score (il est aussi gardé dans l'historique) : c'est la base que chaque étape O2–O4 devra dépasser. Pour ajouter des
+ordonnances, compléter le JSON de vérité (même format) et nommer les images pareil.
+
+**Mesure indicative hors téléphone (référence)** : ML Kit ne tourne pas sous Linux ; mesure faite avec **tesseract 5
+(fra)** à la place de ML Kit, sur un **catalogue indicatif** (≈ 150 produits : les 45 attendus au format catalogue +
+voisins trompeurs : DOLAREN, SPIRAMYCINE, DOLIPRANE PLUS…), avec exactement le découpage et la correspondance actuels.
+Texte lu gardé hors dépôt.
+
+| Lecture | Ordonnances correctes | Rappel | Précision |
+|---|---|---|---|
+| tesseract, page auto (psm 3) | 0/15 | 0 % (0/45) | — (rien proposé) |
+| tesseract, bloc unique (psm 6) | 0/15 | 9 % (4/45) | 57 % (3 en trop) |
+
+Seule l'ordonnance imprimée n° 8 est lue (4/5 : DICLOCED, DIAMOX, MONOPROST, CARTEOL ; KALEORID manqué, lu « K. ALEORID »).
+Les 14 manuscrites : rien d'utile — tesseract ne lit pas la cursive. ML Kit fait mieux sur le téléphone : **seule la
+mesure sur le téléphone fait foi**.
+
+**Remarques sur la vérité terrain** (fichier Excel du pharmacien) :
+- **Ordonnances 14 et 15 : doublons** (précision du client ; aucune ligne saisie pour elles). Comparaison visuelle :
+  **14 = autre photo de l'ordonnance 3** (Clavam / Propofan / Eludril Pro, même date, même écriture), **15 = autre
+  photo de l'ordonnance 2** (Dontomycine / Flagyl / Brustan). Le hash perceptuel simple (dHash) ne les rapproche pas
+  (cadrages différents : l'image 3 contient en plus une seconde feuille, surlignages) ; l'identification est visuelle.
+  Marquées `doublonDe` dans le JSON, affichées « Doublon de … », **exclues du score** : 15 ordonnances, 45 produits.
+- Lignes incomplètes / abrégées : « Novalgin 500 », « Gaspral 20 » (sans forme), « Lufar 80/480 » (produit LUFART ?),
+  « arphos Ab » (minuscule, début de mot douteux), « Brustan B/20 » (conditionnement au lieu du dosage),
+  « Kaleorid LP 1000 mg ou 600 mg » (deux dosages acceptés), « Respimer kit lavage nasal » (seule la marque compte).
+- Posologie non rattachable ligne à ligne : ordonnance 1 (une seule remarque pour 2 produits), ordonnance 8 (4 posologies
+  pour 5 produits) → gardée en remarque d'ordonnance.
+- Divergences avec la proposition précédente de Claude (colonne E) : n° 2 « Dontomycine 3m » (E : Spiramycine 3 MUI),
+  n° 16 « Dolowin Plus » (E : Dolaren Plus), n° 4 « Lufar » (E : Lufart), n° 6 « arphos Ab » (E : 3ᵉ ligne illisible
+  « …phos AB »), n° 12 « Brustan B/20 » (E : Brustan (?)), n° 3 « Propofan gel » (E : Propofan (?)). Les autres lignes
+  concordent (au « (?) » près). La colonne D fait foi.
 
 ---
 

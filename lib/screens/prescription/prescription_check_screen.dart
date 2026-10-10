@@ -9,12 +9,12 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
+import 'package:prestige_vente_app/services/prescription_matcher.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
-import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:provider/provider.dart';
 
 /// Source de l'ordonnance.
@@ -137,77 +137,22 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     );
   }
 
-  /// Rapprochement d'une ligne avec le stock :
-  /// 1) CIP lu -> uniquement le produit ayant exactement ce CIP ;
-  /// 2) sinon nom identique -> ce produit ;
-  /// 3) sinon meilleur candidat, marqué "à vérifier" (les autres restent accessibles via "Changer").
-  /// Nombre maximal de produits examinés pour un nom (pages de 50).
-  static const int _maxNameResults = 200;
-
+  /// Rapprochement d'une ligne avec le stock : voir [PrescriptionMatcher.match]
+  /// (logique partagée avec le banc d'essai des ordonnances).
   Future<void> _search(_RxLine rx, int generation) async {
     final api = Provider.of<ApiService>(context, listen: false);
     setState(() => rx.searching = true);
 
-    ProductSearchResult? chosen;
-    var match = _Match.none;
-    var alternatives = <ProductSearchResult>[];
-
-    final search = apiPageSearch(api);
-    String? failure; // panne (≠ produit introuvable)
-
-    final cip = rx.line.cip;
-    if (cip != null) {
-      // Code exact, quel que soit le nombre de produits qui commencent pareil
-      // (avec les variantes : EAN-13 34009… → CIP7). Seul un produit portant l'un de ces codes est retenu.
-      final r = await ProductLookup.byCode(cip, search);
-      final found = r.valueOrNull;
-      if (found == null) failure = r.message;
-      final exact = found?.exact;
-      if (exact != null && found!.tried.contains(exact.intCIP.trim())) {
-        chosen = exact;
-        match = _Match.exactCip;
-      }
-    }
-
-    if (chosen == null) {
-      List<ProductSearchResult> results = [];
-      for (final q in PrescriptionParser.searchQueries(rx.line)) {
-        // Plusieurs pages (jusqu'à _maxNameResults produits) au lieu des 30 premiers seulement.
-        // Toujours « commence par », texte envoyé tel quel (pas de réglage « Contient ») : la
-        // correspondance (1ʳᵉ requête non vide, score, limite) suppose cette recherche.
-        final pager = ProductPager(search, q);
-        while (pager.items.length < _maxNameResults && (pager.total == 0 || pager.hasMore)) {
-          if (!await pager.loadMore()) {
-            failure = pager.error;
-            break;
-          }
-          if (pager.total == 0) break;
-        }
-        results = List.of(pager.items);
-        if (results.isNotEmpty) break;
-      }
-      final wanted = PrescriptionParser.comparableName(rx.line.text);
-      final sameName = results.where((p) => PrescriptionParser.comparableName(p.strNAME) == wanted).toList();
-      if (sameName.length == 1) {
-        chosen = sameName.first;
-        match = _Match.exactName;
-      } else {
-        final scored = [for (final p in results) MapEntry(p, PrescriptionParser.score(rx.line, p.strNAME))]
-          ..sort((a, b) {
-            final byScore = b.value.compareTo(a.value);
-            return byScore != 0 ? byScore : b.key.intNUMBERAVAILABLE.compareTo(a.key.intNUMBERAVAILABLE);
-          });
-        final relevant = scored.where((e) => e.value > 0).map((e) => e.key).toList();
-        if (relevant.isNotEmpty) {
-          chosen = relevant.first;
-          match = _Match.toVerify;
-          alternatives = relevant.skip(1).take(15).toList();
-        }
-      }
-      if (chosen != null && alternatives.isEmpty) {
-        alternatives = results.where((p) => p.lgFAMILLEID != chosen!.lgFAMILLEID).take(15).toList();
-      }
-    }
+    final r = await PrescriptionMatcher.match(rx.line, apiPageSearch(api));
+    final chosen = r.chosen;
+    final failure = r.failure;
+    final alternatives = r.alternatives;
+    final match = switch (r.kind) {
+      PrescriptionMatchKind.exactCip => _Match.exactCip,
+      PrescriptionMatchKind.exactName => _Match.exactName,
+      PrescriptionMatchKind.toVerify => _Match.toVerify,
+      PrescriptionMatchKind.none => _Match.none,
+    };
     if (!mounted || generation != _generation) return;
     if (chosen == null && failure != null) {
       _showError('Recherche impossible pour « ${rx.line.text} » : $failure');
