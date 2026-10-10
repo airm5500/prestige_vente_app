@@ -110,6 +110,9 @@ class ReceptionLine {
   final int stock;
   final String location;
 
+  /// Quantité reçue (UG comprises) une fois le BL entré en stock ; 0 si inconnue.
+  final int received;
+
   const ReceptionLine({
     required this.detailId,
     required this.produitId,
@@ -123,6 +126,7 @@ class ReceptionLine {
     this.blRef = '',
     this.stock = 0,
     this.location = '',
+    this.received = 0,
   });
 
   /// Même règle que Prestige : la somme des lots (UG comprises) est comparée à la quantité commandée.
@@ -149,6 +153,7 @@ class ReceptionLine {
         blRef: _str(j['str_REF_LIVRAISON']),
         stock: _int(j['lg_FAMILLE_QTE_STOCK']),
         location: _str(j['lg_ZONE_GEO_NAME']),
+        received: _int(j['int_QTE_RECUE_BIS']) >= 0 ? _int(j['int_QTE_RECUE_BIS']) + _int(j['freeQty']) : _int(j['int_QTE_CMDE']),
       );
 
   static DateTime? _tryParse(String d) {

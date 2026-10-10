@@ -1,5 +1,6 @@
 // lib/screens/home/home_screen.dart
 import 'dart:async';
+import 'package:prestige_vente_app/screens/retour_frs/retour_home_screen.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -163,6 +164,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'ajustement': MenuItem(id: 'ajustement', label: 'Ajustement Stock', icon: Icons.inventory_2, color: Colors.orange.shade700, onTap: () => _secureNavigate(const AjustementScreen())),
       'ordonnance': MenuItem(id: 'ordonnance', label: 'Vérification Ordonnance', icon: Icons.receipt_long, color: Colors.teal.shade600, onTap: () => navigate(const PrescriptionCheckScreen())),
       'reception_bl': MenuItem(id: 'reception_bl', label: 'Réception BL', icon: Icons.local_shipping, color: Colors.teal.shade700, onTap: () => navigate(const ReceptionHomeScreen())),
+      'retour_frs': MenuItem(id: 'retour_frs', label: 'Retour Fournisseur', icon: Icons.assignment_return, color: Colors.red.shade400, onTap: () => navigate(const RetourHomeScreen())),
       'empreinte': MenuItem(id: 'empreinte', label: 'Pointage', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, onTap: () => navigate(const PointageHomeScreen())),
     };
 
