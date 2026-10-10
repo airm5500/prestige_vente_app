@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquettes ventes</title>
+<style>
+:root{--navy:#003366;--amber:#F59E0B;--onAmber:#1F1300;--page:#F2F4F8;--ink:#14213D;--muted:#5B6B82;--line:#E3E8EF;--hm:#C9D6E8;--green:#16A34A;--blue:#2563EB;--red:#DC2626;--bg:#E9EDF3;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+header.top{padding:24px 16px 8px;max-width:1240px;margin:auto}
+h1{font-size:24px;margin:0 0 6px}
+.lead{color:var(--muted);margin:0 0 6px;max-width:900px}
+h2{max-width:1240px;margin:28px auto 4px;padding:0 16px;font-size:19px}
+.sub{max-width:1240px;margin:0 auto 12px;padding:0 16px;color:var(--muted);font-size:14px}
+.row{display:flex;flex-wrap:wrap;gap:22px;max-width:1240px;margin:auto;padding:0 16px 8px}
+figure{margin:0;display:flex;flex-direction:column;gap:8px;width:330px;max-width:100%}
+figcaption{font-size:13px;color:var(--muted)}
+figcaption b{color:var(--ink)}
+.phone{width:330px;max-width:100%;height:640px;border-radius:30px;border:8px solid #1b2433;background:var(--page);overflow:hidden;display:flex;flex-direction:column;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+.phone.white{background:#fff}
+.navy{background:var(--navy);color:#fff;padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px}
+.navy.round{border-radius:0 0 22px 22px}
+.bar{display:flex;align-items:center;gap:8px}
+.bar .t{flex:1;min-width:0}
+.bar .t b{display:block;font-size:17px}
+.bar .t span{font-size:12px;color:var(--hm)}
+.ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px}
+.wbar{background:#fff;border-bottom:1px solid var(--line);padding:12px 14px;display:flex;align-items:center;gap:8px;color:var(--navy)}
+.wbar .t{flex:1}.wbar .t b{display:block;font-size:17px}.wbar .t span{font-size:12px;color:var(--muted)}
+.search{background:#fff;border-radius:12px;padding:11px 12px;color:var(--muted);font-size:14px;display:flex;gap:8px;align-items:center}
+.search.out{border:1px solid #C5D0DE}
+.kpis{display:flex;gap:8px}
+.kpi{flex:1;background:rgba(255,255,255,.12);border-radius:12px;padding:8px 10px}
+.kpi b{display:block;font-size:17px}.kpi span{font-size:11px;color:var(--hm)}
+.kpi.hl{background:var(--amber);color:var(--onAmber)}.kpi.hl span{color:var(--onAmber)}
+.steps{display:flex;gap:4px}
+.st{flex:1;font-size:10.5px;text-align:center;padding:6px 2px;border-radius:8px;background:rgba(255,255,255,.12);color:var(--hm)}
+.st.on{background:var(--amber);color:var(--onAmber);font-weight:700}
+.st.done{background:rgba(22,163,74,.35);color:#fff}
+.body{flex:1;overflow:hidden;padding:12px;display:flex;flex-direction:column;gap:9px}
+.body.flat{padding:0;gap:0}
+.card{background:#fff;border-radius:14px;padding:11px 12px;box-shadow:0 1px 2px rgba(20,33,61,.06);position:relative;overflow:hidden}
+.card.band{padding-left:16px}
+.card.band::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--bandc,var(--navy))}
+.pn{font-weight:600;font-size:14px}
+.pm{font-size:12px;color:var(--muted)}
+.lr{display:flex;align-items:center;gap:8px}
+.lr .g{flex:1;min-width:0}
+.amt{font-weight:700;font-size:15px;white-space:nowrap}
+.mini{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:13px;background:#fff}
+.flatrow{background:#fff;border-bottom:1px solid #EEF1F5;padding:9px 14px}
+.foot{background:#fff;border-top:1px solid var(--line);padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.tot{display:flex;justify-content:space-between;align-items:baseline}
+.tot span{color:var(--muted);font-size:13px}.tot b{font-size:20px}
+.split{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.split b{color:var(--ink)}
+.btn{border-radius:12px;padding:12px;text-align:center;font-weight:700;font-size:14px}
+.btn.navy{background:var(--navy);color:#fff;padding:12px}
+.btn.amber{background:var(--amber);color:var(--onAmber)}
+.btn.out{border:1.5px solid var(--navy);color:var(--navy);background:#fff}
+.btn.dis{background:#DDE3EA;color:#8A99AD}
+.two{display:flex;gap:8px}.two>*{flex:1}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center;font-size:13px;font-weight:600}
+.tile .e{font-size:20px;display:block;margin-bottom:3px}
+.tile.on{border-color:var(--navy);background:#E3ECF7;color:var(--navy)}
+.field{background:#fff;border:1.5px solid var(--navy);border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.field b{font-size:18px;color:var(--ink)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid #C5D0DE;border-radius:20px;padding:6px 11px;font-size:12px;font-weight:600;color:var(--navy);background:#fff}
+.chip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.b-green{background:#E6F4EA;color:#166534}.b-amber{background:#FFF4E0;color:#9A3412}.b-blue{background:#E3ECF7;color:var(--navy)}.b-red{background:#FDECEC;color:#991B1B}
+.client{background:#fff;border-radius:14px;padding:10px 12px;border:1px solid var(--line)}
+.client .n{font-weight:700}
+.tp{display:flex;justify-content:space-between;font-size:12.5px;padding-top:5px}
+.check{display:flex;gap:6px;align-items:center;font-size:13px}
+.box{width:18px;height:18px;border-radius:5px;background:var(--navy);color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center}
+.warn{background:#FFF4E0;border:1px solid #F5D08A;color:#7C2D12;border-radius:12px;padding:9px 11px;font-size:12.5px;display:flex;gap:8px;align-items:center}
+.err{background:#FDECEC;border:1px solid #F5C2C2;color:#7F1D1D;border-radius:12px;padding:9px 11px;font-size:12.5px;display:flex;gap:8px;align-items:center}
+.err .r,.warn .r{margin-left:auto;font-weight:700;color:var(--navy);white-space:nowrap}
+.ok{background:#E6F4EA;color:#14532D;border-radius:12px;padding:8px 11px;font-size:12.5px}
+.lbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.dlg{position:absolute;inset:0;background:rgba(10,20,40,.45);display:flex;align-items:center;justify-content:center;padding:18px}
+.dlg .in{background:#fff;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:10px;width:100%}
+.dlg h4{margin:0;font-size:16px}
+.note{max-width:1240px;margin:8px auto 40px;padding:0 16px;color:var(--muted);font-size:13px}
+@media (max-width:420px){figure,.phone{width:100%}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Ventes : propositions de présentation</h1>
+  <p class="lead">Maquettes des écrans proposés pour Pré-vente / Vente, Pré-vente Assurance et Vente Carnet. Couleurs et composants identiques aux menus déjà refaits (Réception BL, Pointage…). Montants fictifs.</p>
+</header>
+
+<h2>1. Pré-vente / Vente — les 3 présentations</h2>
+<p class="sub">Un seul panier ; le choix « prévente » ou « vente » se fait à la fin (bouton du bas).</p>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Vente</b><span>Réf. PV-000123 · non encaissée</span></div><div class="ic">⚡</div><div class="ic">⋮</div></div>
+        <div class="kpis"><div class="kpi"><b>3</b><span>articles</span></div><div class="kpi"><b>5</b><span>boîtes</span></div><div class="kpi hl"><b>5 400 F</b><span>total</span></div></div>
+        <div class="search">🔍 Scanner ou rechercher (nom, CIP)</div>
+      </div>
+      <div class="body">
+        <div class="card"><div class="lr"><div class="g"><div class="pn">DOLIPRANE 1000MG CP B/8</div><div class="pm">CIP 3595583 · stock 42</div></div><div class="amt">3 000 F</div></div>
+          <div class="lr" style="margin-top:8px"><div class="pm" style="flex:1">2 × 1 500 F</div><div class="mini">✎</div><div class="mini">🗑</div></div></div>
+        <div class="card"><div class="lr"><div class="g"><div class="pn">EFFERALGAN 500MG CP</div><div class="pm">CIP 3400000 · stock 8</div></div><div class="amt">1 200 F</div></div>
+          <div class="lr" style="margin-top:8px"><div class="pm" style="flex:1">1 × 1 200 F</div><div class="mini">✎</div><div class="mini">🗑</div></div></div>
+        <div class="card"><div class="lr"><div class="g"><div class="pn">SMECTA SACHETS B/30</div><div class="pm">CIP 3411111 · stock 3</div></div><div class="amt">1 200 F</div></div>
+          <div class="lr" style="margin-top:8px"><div class="pm" style="flex:1">2 × 600 F</div><div class="mini">✎</div><div class="mini">🗑</div></div></div>
+      </div>
+      <div class="foot">
+        <div class="tot"><span>Total à payer</span><b>5 400 F</b></div>
+        <div class="two"><div class="btn out">PRÉVENTE</div><div class="btn navy">ENCAISSER</div></div>
+      </div>
+    </div>
+    <figcaption><b>A — Tableau de bord</b> (défaut). Chiffres de la vente en en-tête, cartes, deux boutons libellés en bas.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone white">
+      <div class="wbar"><div>←</div><div class="t"><b>Vente</b><span>PV-000123 · 3 articles</span></div><div>⚡ ⋮</div></div>
+      <div style="padding:8px 12px"><div class="search out">🔍 Scanner ou rechercher</div></div>
+      <div class="body flat">
+        <div class="flatrow lr"><div class="g"><div class="pn">DOLIPRANE 1000MG CP B/8</div><div class="pm">2 × 1 500</div></div><div class="amt">3 000</div></div>
+        <div class="flatrow lr"><div class="g"><div class="pn">EFFERALGAN 500MG CP</div><div class="pm">1 × 1 200</div></div><div class="amt">1 200</div></div>
+        <div class="flatrow lr"><div class="g"><div class="pn">SMECTA SACHETS B/30</div><div class="pm">2 × 600</div></div><div class="amt">1 200</div></div>
+        <div class="flatrow lr"><div class="g"><div class="pn">SPASFON LYOC 80MG</div><div class="pm">1 × 2 100</div></div><div class="amt">2 100</div></div>
+        <div class="flatrow lr"><div class="g"><div class="pn">VOLTARENE EMULGEL 1%</div><div class="pm">1 × 3 400</div></div><div class="amt">3 400</div></div>
+        <div class="flatrow pm" style="text-align:center">Toucher une ligne : modifier · glisser : supprimer</div>
+      </div>
+      <div class="foot">
+        <div class="tot"><span>Total · 7 boîtes</span><b>10 900 F</b></div>
+        <div class="two"><div class="btn out">PRÉVENTE</div><div class="btn navy">ENCAISSER</div></div>
+      </div>
+    </div>
+    <figcaption><b>B — Compact</b>. Lignes denses : plus d'articles visibles (grosses ordonnances, petits écrans).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Vente</b><span>PV-000123</span></div><div class="ic">⋮</div></div>
+        <div class="steps"><div class="st done">1 Panier</div><div class="st on">2 Vérifier</div><div class="st">3 Encaisser</div></div>
+        <div class="search">🔍 Scanner ou rechercher</div>
+      </div>
+      <div class="body">
+        <div class="ok">✓ 3 articles enregistrés sur le serveur</div>
+        <div class="card band" style="--bandc:var(--green)"><div class="lr"><div class="g"><div class="pn">DOLIPRANE 1000MG CP B/8</div><div class="pm">2 × 1 500 F</div></div><div class="amt">3 000 F</div></div></div>
+        <div class="card band" style="--bandc:var(--green)"><div class="lr"><div class="g"><div class="pn">EFFERALGAN 500MG CP</div><div class="pm">1 × 1 200 F</div></div><div class="amt">1 200 F</div></div></div>
+        <div class="card band" style="--bandc:var(--amber)"><div class="lr"><div class="g"><div class="pn">SMECTA SACHETS B/30</div><div class="pm">2 × 600 F · stock 1 ⚠ forcé</div></div><div class="amt">1 200 F</div></div></div>
+      </div>
+      <div class="foot">
+        <div class="tot"><span>Total à payer</span><b>5 400 F</b></div>
+        <div class="two"><div class="btn out">PRÉVENTE</div><div class="btn amber">ENCAISSER</div></div>
+      </div>
+    </div>
+    <figcaption><b>C — Guidé</b>. Étapes visibles, bandes de couleur (vert = normal, ambre = stock forcé), bouton ambre.</figcaption>
+  </figure>
+</div>
+
+<h2>2. Encaissement sur une seule page</h2>
+<p class="sub">Remplace la suite de dialogues (mode → espèces → confirmation → impression).</p>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Encaissement</b><span>PV-000123 · 3 articles</span></div></div>
+        <div style="text-align:center;padding:4px 0 2px"><div style="font-size:12px;color:var(--hm)">Total à payer</div><div style="font-size:30px;font-weight:800">5 400 F</div></div>
+      </div>
+      <div class="body">
+        <div class="lbl">Mode de paiement</div>
+        <div class="tiles"><div class="tile on"><span class="e">💵</span>Espèces</div><div class="tile"><span class="e">📱</span>Wave</div><div class="tile"><span class="e">📱</span>Orange Money</div><div class="tile"><span class="e">💳</span>Carte</div></div>
+        <div class="field"><span>Montant reçu</span><b>10 000</b></div>
+        <div class="chips"><div class="chip">Exact</div><div class="chip">6 000</div><div class="chip on">10 000</div><div class="chip">20 000</div></div>
+        <div class="tot" style="background:#E6F4EA;border-radius:12px;padding:10px 12px"><span style="color:#14532D">Monnaie à rendre</span><b style="color:#14532D">4 600 F</b></div>
+        <div class="check"><div class="box">✓</div>Imprimer le ticket</div>
+      </div>
+      <div class="foot"><div class="btn navy">VALIDER L'ENCAISSEMENT</div></div>
+    </div>
+    <figcaption><b>Espèces</b>. Touches rapides, monnaie calculée, impression cochée par défaut.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Encaissement</b><span>PV-000123</span></div></div>
+        <div style="text-align:center;padding:4px 0 2px"><div style="font-size:12px;color:var(--hm)">Total à payer</div><div style="font-size:30px;font-weight:800">5 400 F</div></div>
+      </div>
+      <div class="body">
+        <div class="tiles"><div class="tile"><span class="e">💵</span>Espèces</div><div class="tile on"><span class="e">📱</span>Wave</div><div class="tile"><span class="e">📱</span>Orange Money</div><div class="tile"><span class="e">💳</span>Carte</div></div>
+        <div class="card" style="text-align:center">
+          <div style="width:150px;height:150px;margin:4px auto 8px;background:repeating-linear-gradient(45deg,#14213D 0 6px,#fff 6px 12px),#fff;border:8px solid #fff;outline:1px solid var(--line);border-radius:8px"></div>
+          <div class="pn">Faites scanner ce QR au client</div><div class="pm">Wave · 5 400 F</div>
+        </div>
+        <div class="check"><div class="box">✓</div>Imprimer le ticket</div>
+      </div>
+      <div class="foot"><div class="btn navy">PAIEMENT REÇU — VALIDER</div></div>
+    </div>
+    <figcaption><b>Mobile money</b>. QR affiché sur la même page.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Encaissement</b><span>PV-000123</span></div></div>
+        <div style="text-align:center;padding:4px 0 2px"><div style="font-size:12px;color:var(--hm)">Total à payer</div><div style="font-size:30px;font-weight:800">5 400 F</div></div>
+      </div>
+      <div class="body">
+        <div class="err">⚠ Caisse fermée : ouvrez-la avant de valider.<span class="r">Ouvrir</span></div>
+        <div class="warn">⏳ Pas de réponse du serveur. Vérification de la vente…</div>
+        <div class="card"><div class="pn">Vente non encaissée</div><div class="pm">Rien n'a été validé. Le panier est conservé : vous pouvez réessayer sans risque de double encaissement.</div></div>
+      </div>
+      <div class="foot"><div class="two"><div class="btn out">RETOUR</div><div class="btn navy">RÉESSAYER</div></div></div>
+    </div>
+    <figcaption><b>Erreurs prévenues</b>. Message réel du serveur, vérification avant de réessayer (idempotence).</figcaption>
+  </figure>
+</div>
+
+<h2>3. Pré-vente Assurance</h2>
+<p class="sub">Étapes Client → Couverture → Produits → Encaissement ; carte client toujours visible ; net recalculé automatiquement.</p>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Vente assurance</b><span>Étape 1 sur 4</span></div><div class="ic">⋮</div></div>
+        <div class="steps"><div class="st on">Client</div><div class="st">Couverture</div><div class="st">Produits</div><div class="st">Encaisser</div></div>
+        <div class="search">🔍 Nom ou matricule du client</div>
+      </div>
+      <div class="body">
+        <div class="card band" style="--bandc:var(--navy)"><div class="lr"><div class="g"><div class="pn">KOUASSI Awa</div><div class="pm">Mat. 12345 · MCI 80 % · ASCOMA 20 %</div></div><span class="badge b-blue">Choisir</span></div>
+          <div class="pm" style="margin-top:6px">Dernière prévente : PA-000887 · 08/10 <b style="color:var(--navy)">Reprendre</b> · <b style="color:var(--navy)">Réimprimer</b></div></div>
+        <div class="card band" style="--bandc:var(--line)"><div class="lr"><div class="g"><div class="pn">KOUASSI Jean-Marc</div><div class="pm">Mat. 99871 · SUNU 70 %</div></div><span class="badge b-blue">Choisir</span></div></div>
+        <div class="err">📡 Serveur injoignable : recherche impossible.<span class="r">Réessayer</span></div>
+        <div class="pm" style="text-align:center">Le bouton « Nouveau client » n'apparaît que si le serveur a bien répondu « aucun client ».</div>
+      </div>
+      <div class="foot"><div class="btn out">+ NOUVEAU CLIENT</div></div>
+    </div>
+    <figcaption><b>Étape Client</b> (C). Historique du client : Reprendre / Réimprimer. Une panne n'est jamais affichée « client introuvable ».</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Couverture</b><span>KOUASSI Awa · Mat. 12345</span></div></div>
+      </div>
+      <div class="body">
+        <div class="lbl">Ayant droit</div>
+        <div class="card lr"><div class="g"><div class="pn">KOUASSI Junior</div><div class="pm">Mat. 12345-02</div></div><span class="badge b-blue">Changer</span></div>
+        <div class="lbl">Tiers payants</div>
+        <div class="card"><div class="lr"><div class="box">✓</div><div class="g"><div class="pn">MCI CARE CI</div><div class="pm">Taux 80 % · ✎</div></div></div>
+          <div class="field" style="margin-top:8px;border-width:1px"><span>N° de bon</span><b style="font-size:15px">45879</b></div></div>
+        <div class="card"><div class="lr"><div class="box">✓</div><div class="g"><div class="pn">ASCOMA</div><div class="pm">Taux 20 % · ✎</div></div></div>
+          <div class="field" style="margin-top:8px;border-width:1px;border-color:var(--red)"><span style="color:var(--red)">N° de bon — obligatoire</span><b></b></div></div>
+      </div>
+      <div class="foot"><div class="btn dis">CONTINUER VERS LES PRODUITS</div><div class="pm" style="text-align:center">Saisissez le n° de bon ASCOMA</div></div>
+    </div>
+    <figcaption><b>Étape Couverture</b> (A). Ayant droit, TP, taux, bons ; le bouton dit précisément ce qui manque.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Produits</b><span>PA-000912</span></div><div class="ic">⚡</div></div>
+        <div class="client" style="background:rgba(255,255,255,.1);border:0;color:#fff">
+          <div class="lr"><div class="g"><div class="n">KOUASSI Awa → Junior</div></div><span style="font-size:12px;color:var(--hm)">✎ Couverture</span></div>
+          <div class="tp" style="color:var(--hm)"><span>MCI 80 % · bon 45879</span><span>ASCOMA 20 % · bon 1122</span></div>
+        </div>
+        <div class="search">🔍 Scanner ou rechercher</div>
+      </div>
+      <div class="body">
+        <div class="card"><div class="lr"><div class="g"><div class="pn">AUGMENTIN 1G CP B/8</div><div class="pm">1 × 6 500 F</div></div><div class="amt">6 500 F</div></div></div>
+        <div class="card"><div class="lr"><div class="g"><div class="pn">DOLIPRANE 1000MG CP</div><div class="pm">2 × 1 500 F</div></div><div class="amt">3 000 F</div></div></div>
+        <div class="card"><div class="lr"><div class="g"><div class="pn">SMECTA SACHETS B/30</div><div class="pm">1 × 500 F</div></div><div class="amt">500 F</div></div></div>
+      </div>
+      <div class="foot">
+        <div class="split"><span>Total</span><b>10 000 F</b></div>
+        <div class="split"><span>MCI 80 %</span><b>8 000 F</b></div>
+        <div class="split"><span>ASCOMA 20 %</span><b>2 000 F</b></div>
+        <div class="tot"><span>Part client</span><b>0 F</b></div>
+        <div class="two"><div class="btn out">PRÉVENTE</div><div class="btn navy">VALIDER (0 F)</div></div>
+      </div>
+    </div>
+    <figcaption><b>Étape Produits</b> (A). Répartition toujours à jour ; le bouton s'adapte (« Encaisser 2 000 F » ou « Valider (0 F) »).</figcaption>
+  </figure>
+</div>
+
+<h2>4. Vente Carnet</h2>
+<p class="sub">Le client est son propre ayant droit par défaut ; on peut en choisir un autre ou en créer un.</p>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Vente carnet</b><span>Étape 2 sur 4</span></div></div>
+        <div class="steps"><div class="st done">Client</div><div class="st on">Bon</div><div class="st">Produits</div><div class="st">Valider</div></div>
+      </div>
+      <div class="body">
+        <div class="client"><div class="n">SODECI — Carnet agents</div><div class="pm">Client : TRAORE Moussa · Mat. 7781</div></div>
+        <div class="lbl">Ayant droit</div>
+        <div class="card band" style="--bandc:var(--navy)"><div class="lr"><div class="g"><div class="pn">TRAORE Moussa (le client)</div><div class="pm">Par défaut</div></div><span class="badge b-green">✓</span></div></div>
+        <div class="card lr"><div class="g"><div class="pn">TRAORE Aminata</div><div class="pm">Mat. 7781-01</div></div><span class="badge b-blue">Choisir</span></div>
+        <div class="btn out" style="padding:9px">+ Nouvel ayant droit</div>
+        <div class="field"><span>N° de bon</span><b>C-2026-5581</b></div>
+      </div>
+      <div class="foot"><div class="btn amber">CONTINUER VERS LES PRODUITS</div></div>
+    </div>
+    <figcaption><b>Bon et ayant droit</b> (C).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Nouveau client carnet</b></div></div>
+      </div>
+      <div class="body">
+        <div class="field" style="border-width:1px"><span>Nom *</span><b style="font-size:15px">TRAORE</b></div>
+        <div class="field" style="border-width:1px"><span>Prénom(s)</span><b style="font-size:15px">Moussa</b></div>
+        <div class="field" style="border-width:1px"><span>Matricule *</span><b style="font-size:15px">7781</b></div>
+        <div class="lbl">Carnet choisi</div>
+        <div class="card band" style="--bandc:var(--green)"><div class="lr"><div class="g"><div class="pn">SODECI — Carnet agents</div><div class="pm">Couverture 100 %</div></div><span class="badge b-blue">Changer</span></div></div>
+        <div class="pm">Vérifiez avant d'enregistrer : la fiche est créée sur le serveur.</div>
+      </div>
+      <div class="foot"><div class="two"><div class="btn out">ANNULER</div><div class="btn navy">CRÉER LE CLIENT</div></div></div>
+    </div>
+    <figcaption><b>Création client</b> : le carnet est relu avant validation (plus de validation au choix).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Produits</b><span>PC-000415 · TRAORE Moussa</span></div></div>
+        <div class="search">🔍 Scanner ou rechercher</div>
+      </div>
+      <div class="body">
+        <div class="warn">⟳ 1 ligne non enregistrée sur le serveur.<span class="r">Réessayer</span></div>
+        <div class="card"><div class="lr"><div class="g"><div class="pn">AMOXICILLINE 500MG GEL</div><div class="pm">2 × 1 800 F</div></div><div class="amt">3 600 F</div></div></div>
+        <div class="card band" style="--bandc:var(--amber)"><div class="lr"><div class="g"><div class="pn">PARACETAMOL 500MG CP</div><div class="pm">1 × 400 F · ⟳ non enregistrée</div></div><div class="amt">400 F</div></div></div>
+      </div>
+      <div class="foot">
+        <div class="split"><span>Total</span><b>4 000 F</b></div>
+        <div class="split"><span>Part carnet 100 %</span><b>4 000 F</b></div>
+        <div class="tot"><span>Part client</span><b>0 F</b></div>
+        <div class="two"><div class="btn out">PRÉVENTE</div><div class="btn dis">VALIDER</div></div>
+      </div>
+    </div>
+    <figcaption><b>Produits</b> : une ligne non enregistrée bloque la validation jusqu'à « Réessayer ».</figcaption>
+  </figure>
+</div>
+
+<h2>5. Liste des préventes et sécurités</h2>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Préventes à encaisser</b><span>Aujourd'hui · 12</span></div></div>
+        <div class="search">🔍 Référence ou client</div>
+      </div>
+      <div class="body">
+        <div class="card lr"><div class="g"><div class="pn">PV-000121 · 4 200 F</div><div class="pm">10/10 09:41 · Awa (vendeuse) · 3 art.</div></div><span class="badge b-amber">À encaisser</span></div>
+        <div class="card lr"><div class="g"><div class="pn">PV-000118 · 12 750 F</div><div class="pm">10/10 09:12 · Koffi · 7 art.</div></div><span class="badge b-amber">À encaisser</span></div>
+        <div class="card lr"><div class="g"><div class="pn">PV-000117 · 900 F</div><div class="pm">10/10 08:55 · Awa · 1 art.</div></div><span class="badge b-amber">À encaisser</span></div>
+      </div>
+    </div>
+    <figcaption><b>Liste</b> : vraie date et heure, recherche par client.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="ic">←</div><div class="t"><b>Vente</b><span>PV-000123</span></div></div></div>
+      <div class="body"></div>
+      <div class="dlg"><div class="in">
+        <h4>Un panier est en cours</h4>
+        <div class="pm">PV-000123 (3 articles, 5 400 F) n'est pas terminée. Que faire avant d'ouvrir PV-000118 ?</div>
+        <div class="btn navy">L'ENREGISTRER EN PRÉVENTE</div>
+        <div class="btn out">LA GARDER ET REVENIR</div>
+      </div></div>
+    </div>
+    <figcaption><b>Plus de panier écrasé</b> en ouvrant une prévente.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="ic">←</div><div class="t"><b>Prestige Mobile</b></div></div></div>
+      <div class="body"></div>
+      <div class="dlg"><div class="in">
+        <h4>Reprendre la vente ?</h4>
+        <div class="pm">La vente PV-000123 (3 articles, 5 400 F) n'a pas été terminée lors de la dernière utilisation.</div>
+        <div class="btn navy">REPRENDRE</div>
+        <div class="btn out">PLUS TARD (reste dans la liste)</div>
+      </div></div>
+    </div>
+    <figcaption><b>Aucune vente perdue</b> après fermeture de l'appli ou perte de session.</figcaption>
+  </figure>
+</div>
+<p class="note">Tous les écrans existent en A (tableau de bord), B (compact) et C (guidé), au choix dans le menu « Présentation », comme les autres menus.</p>
+</body>
+</html>
