@@ -23,11 +23,21 @@ class StockReportProvider with ChangeNotifier {
   StockFilterType? _selectedStockFilter;
   String _stockValue = '';
 
+  // Échecs de chargement (≠ « aucun article ») : articles, puis listes des filtres.
+  String? _loadError;
+  String? _filtersError;
+  bool _loadingFilters = false;
+  // N° de la dernière recherche : une réponse plus ancienne est ignorée.
+  int _searchSeq = 0;
+  String? _inFlightKey;
+
   bool get isLoading => _isLoading;
   List<StockReportItem> get reportItems => _reportItems;
   int get totalItems => _totalItems;
   List<Rayon> get rayons => _rayons;
   List<Grossiste> get grossistes => _grossistes;
+  String? get loadError => _loadError;
+  String? get filtersError => _filtersError;
 
   String get searchQuery => _searchQuery;
   String get selectedRayonId => _selectedRayonId;
@@ -37,12 +47,21 @@ class StockReportProvider with ChangeNotifier {
 
   Future<void> loadFiltersData() async {
     if (_rayons.isNotEmpty && _grossistes.isNotEmpty) return;
-    final results = await Future.wait([
-      _apiService.getRayons(),
-      _apiService.getGrossistes(),
-    ]);
-    _rayons = results[0] as List<Rayon>;
-    _grossistes = results[1] as List<Grossiste>;
+    if (_loadingFilters) return;
+    _loadingFilters = true;
+    _filtersError = null;
+    try {
+      final results = await Future.wait([
+        _apiService.getRayonsForFilters(),
+        _apiService.getGrossistes(),
+      ]);
+      _rayons = results[0] as List<Rayon>;
+      _grossistes = results[1] as List<Grossiste>;
+    } catch (e) {
+      _filtersError = e is ApiLoadException ? e.message : 'Impossible de charger les emplacements : $e';
+    } finally {
+      _loadingFilters = false;
+    }
     notifyListeners();
   }
 
@@ -52,15 +71,14 @@ class StockReportProvider with ChangeNotifier {
         _selectedRayonId.isEmpty &&
         _selectedGrossisteId.isEmpty &&
         _selectedStockFilter == null) {
+      _searchSeq++;
+      _inFlightKey = null;
+      _isLoading = false;
+      _loadError = null;
       _reportItems = [];
       _totalItems = 0;
       notifyListeners();
       return;
-    }
-
-    if (isRefresh) {
-      _reportItems = [];
-      _setLoading(true);
     }
 
     // MODIFICATION (Point 2) : Construction intelligente du filtre stock
@@ -74,18 +92,40 @@ class StockReportProvider with ChangeNotifier {
     }
     // FIN MODIFICATION
 
-    final result = await _apiService.getStockReport(
-      query: _searchQuery,
-      codeRayon: _selectedRayonId,
-      codeGrossiste: _selectedGrossisteId,
-      filtreStock: filterStr,
-      stockValue: stockValToSend,
-      page: 1,
-      limit: 20,
-    );
+    // Même recherche déjà en cours : pas de double requête.
+    final key = [_searchQuery, _selectedRayonId, _selectedGrossisteId, filterStr, stockValToSend].join('|');
+    if (_isLoading && key == _inFlightKey) return;
+    _inFlightKey = key;
+    final seq = ++_searchSeq;
+    _loadError = null;
 
-    _reportItems = result['data'];
-    _totalItems = result['total'];
+    if (isRefresh) {
+      _reportItems = [];
+      _setLoading(true);
+    }
+
+    try {
+      final result = await _apiService.getStockReport(
+        query: _searchQuery,
+        codeRayon: _selectedRayonId,
+        codeGrossiste: _selectedGrossisteId,
+        filtreStock: filterStr,
+        stockValue: stockValToSend,
+        page: 1,
+        limit: 20,
+      );
+      if (seq != _searchSeq) return;
+      final data = result['data'];
+      _reportItems = data is List<StockReportItem> ? data : <StockReportItem>[];
+      final total = result['total'];
+      _totalItems = total is int ? total : _reportItems.length;
+    } catch (e) {
+      if (seq != _searchSeq) return;
+      _reportItems = [];
+      _totalItems = 0;
+      _loadError = e is ApiLoadException ? e.message : 'Impossible de charger les articles : $e';
+    }
+    _inFlightKey = null;
     _setLoading(false);
   }
 
@@ -138,6 +178,11 @@ class StockReportProvider with ChangeNotifier {
 
     _reportItems = [];
     _totalItems = 0;
+    // Une recherche encore en cours ne doit plus remplir la liste.
+    _searchSeq++;
+    _inFlightKey = null;
+    _isLoading = false;
+    _loadError = null;
 
     notifyListeners();
   }

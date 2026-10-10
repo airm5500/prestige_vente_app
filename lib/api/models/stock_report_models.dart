@@ -1,6 +1,10 @@
 // lib/api/models/stock_report_models.dart
 // 12/11/2025 09:00
 
+// Lecture défensive des champs serveur (null, nombre en texte, décimal…).
+String _str(dynamic v) => v == null ? '' : v.toString();
+int _int(dynamic v) => v is num ? v.toInt() : (num.tryParse(_str(v).trim())?.toInt() ?? 0);
+
 class Grossiste {
   final String id;
   final String libelle;
@@ -9,8 +13,8 @@ class Grossiste {
 
   factory Grossiste.fromJson(Map<String, dynamic> json) {
     return Grossiste(
-      id: json['id'] ?? '',
-      libelle: (json['libelle'] ?? '').trim(),
+      id: _str(json['id']),
+      libelle: _str(json['libelle']).trim(),
     );
   }
 }
@@ -56,23 +60,23 @@ class StockReportItem {
 
   factory StockReportItem.fromJson(Map<String, dynamic> json) {
     return StockReportItem(
-      id: json['id'] ?? '',
-      code: json['code'] ?? '',
-      codeEan: json['codeEan'] ?? '',
-      libelle: json['libelle'] ?? '',
-      prixVente: json['prixVente'] ?? 0,
-      prixAchat: json['prixAchat'] ?? 0,
-      stock: json['stock'] ?? 0,
-      stockDetail: json['stockDetail'] ?? 0,
-      rayonLibelle: json['rayonLibelle'] ?? '',
-      familleLibelle: json['familleLibelle'] ?? '',
-      grossisteId: json['grossisteId'] ?? '',
-      dateInventaire: json['dateInventaire'] ?? '',
-      dateEntree: json['dateEntree'] ?? '',
-      lastDateVente: json['lastDateVente'] ?? '',
-      seuiRappro: json['seuiRappro'] ?? 0,
-      qteReappro: json['qteReappro'] ?? 0,
-      tva: json['tva'] ?? '',
+      id: _str(json['id']),
+      code: _str(json['code']),
+      codeEan: _str(json['codeEan']),
+      libelle: _str(json['libelle']),
+      prixVente: _int(json['prixVente']),
+      prixAchat: _int(json['prixAchat']),
+      stock: _int(json['stock']),
+      stockDetail: _int(json['stockDetail']),
+      rayonLibelle: _str(json['rayonLibelle']),
+      familleLibelle: _str(json['familleLibelle']),
+      grossisteId: _str(json['grossisteId']),
+      dateInventaire: _str(json['dateInventaire']),
+      dateEntree: _str(json['dateEntree']),
+      lastDateVente: _str(json['lastDateVente']),
+      seuiRappro: _int(json['seuiRappro']),
+      qteReappro: _int(json['qteReappro']),
+      tva: _str(json['tva']),
     );
   }
 }
