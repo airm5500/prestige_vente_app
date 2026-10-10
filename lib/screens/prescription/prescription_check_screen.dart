@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/ordonnances/o2/decoupage_ordonnance.dart';
+import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
@@ -76,6 +78,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   @override
   void initState() {
     super.initState();
+    LectureO2.charger(); // nouvelle lecture O2 (désactivée par défaut)
     if (widget.presentation == null) {
       PresentationPrefs.load().then((p) {
         if (mounted) setState(() => _style = p);
@@ -92,6 +95,10 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   // Lecture de l'ordonnance
   // ---------------------------------------------------------------------------
   Future<List<String>?> _defaultReader(PrescriptionSource source) {
+    // Nouvelle lecture O2 (Réglages, désactivée par défaut) : capture guidée de la page, zone des médicaments.
+    if (LectureO2.actif.value && source != PrescriptionSource.pdf) {
+      return LectureO2.lire(context, camera: source == PrescriptionSource.camera);
+    }
     switch (source) {
       case PrescriptionSource.camera:
         return OcrService.captureAndRead(ImageSource.camera);
@@ -115,7 +122,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     if (lines == null) return;
 
     final generation = ++_generation;
-    final candidates = PrescriptionParser.extract(lines);
+    // O2 actif : découpage par lignes numérotées (posologie et quantité rattachées) ; sinon découpage d'origine.
+    final candidates = LectureO2.actif.value ? DecoupageOrdonnance.extraire(lines) : PrescriptionParser.extract(lines);
     setState(() {
       _hasScanned = true;
       _ocrLines = lines!.map((l) => l.trim()).where((l) => l.isNotEmpty).toList();

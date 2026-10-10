@@ -262,7 +262,7 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 | Étape | Contenu |
 |---|---|
 | O1 | Banc d'essai des 17 ordonnances + mesure de la lecture actuelle (référence) — **réalisé** (§4.5) |
-| O2 | Capture guidée page + découpage par lignes numérotées |
+| O2 | Capture guidée page + découpage par lignes numérotées — **réalisé** (§4.6) |
 | O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) |
 | O4 | Apprentissage par correction |
 | O5 | (option) Lecture avancée en ligne, avec consentement |
@@ -331,6 +331,48 @@ mesure sur le téléphone fait foi**.
   n° 16 « Dolowin Plus » (E : Dolaren Plus), n° 4 « Lufar » (E : Lufart), n° 6 « arphos Ab » (E : 3ᵉ ligne illisible
   « …phos AB »), n° 12 « Brustan B/20 » (E : Brustan (?)), n° 3 « Propofan gel » (E : Propofan (?)). Les autres lignes
   concordent (au « (?) » près). La colonne D fait foi.
+
+### 4.6 O2 — Capture guidée de la page + découpage par lignes numérotées : réalisé
+
+**Code** : `lib/ordonnances/o2/` ; points d'accroche : `GuidedCaptureScreen` (mode `page`, cadre A5/A4),
+`CaptureGeometry.pageFrameInView`, écran Ordonnance (lecteur et découpage choisis selon l'interrupteur),
+Réglages › Ventes › Ordonnances, `pipelines_disponibles.dart`. Tests : `test/ordonnances_o2_test.dart` (CI), textes
+OCR **synthétiques** uniquement.
+
+- **Capture guidée de la page** (réutilise la capture des étiquettes : lumière, netteté relative, stabilité, lampe,
+  photo automatique) avec un cadre portrait A5/A4 ; la photo est recadrée sur le cadre, sans lecture immédiate.
+- **Refus des photos floues** (galerie comme caméra) : netteté = force moyenne du 1 % des bords les plus francs
+  (|laplacien|, image réduite à 800 px), indépendante de la quantité de texte. Seuil **25** calibré sur les 17 photos
+  (les nettes vont de 36 à 232 ; flou de rayon 4 : 7 à 30). Message « Photo floue » : Reprendre / Lire quand même / Annuler.
+- **Zone des médicaments** : l'utilisateur encadre la partie utile (4 poignées, déplacement) ou garde la page entière ;
+  seule la zone est lue (sans en-tête, tampon ni nom du patient).
+- **Contraste / ombres** (option) : division par le fond estimé (image réduite + flou), puis étirement des niveaux
+  1 %–99 %. **Redressement de perspective : non fait** (détection fiable des coins de la page nécessaire) ; la capture
+  guidée demande la page de face, à plat.
+- **Découpage** (`DecoupageOrdonnance`) : marqueurs 1. / 1) / 1- / (1) / ① / 01 / - / • / = ; posologie rattachée
+  (ligne suivante ou fin de ligne : « 1cp x 2/j pdt 5 jrs », « Une goutte trois fois par jour… », « 10ml + eau ») ;
+  quantité (« 01 bte », « → 02 bts », « (1 fl) ») ; en-têtes, adresses, téléphones, e-mails, dates, médecin,
+  tampons, « Nom : … » ignorés ; « 1 comprimé… », « 26 BP… », dates ne sont pas pris pour des numéros ; lettre isolée en
+  tête (tiret mal lu : « L KALEORID ») retirée. **Sans aucune ligne numérotée : découpage d'origine à l'identique.**
+- **Production** : Réglages › Ventes › Ordonnances › « Nouvelle lecture des ordonnances (O2) » — **désactivée par
+  défaut** ; option « Améliorer l'image (contraste, ombres) », désactivée aussi. Désactivée = scan d'origine inchangé
+  (même lecteur, même découpage, même correspondance). Le PDF garde sa lecture d'origine (découpage O2 si activé).
+- **Banc d'essai** : candidats « O2 lignes numérotées » et « O2 lignes numérotées + image améliorée » (la zone
+  manuelle n'est pas rejouée : page entière). **À activer seulement si le banc sur le téléphone (ML Kit) donne un
+  meilleur score que la référence.**
+
+**Mesure indicative (tesseract au lieu de ML Kit, catalogue indicatif, 15 ordonnances / 45 produits)** :
+
+| Pipeline | Correctes | Rappel | Précision |
+|---|---|---|---|
+| Référence (photo brute, psm 6) | 0/15 | 9 % (4/45) | 57 % (3 en trop) |
+| O2 lignes numérotées (photo brute, psm 6) | 0/15 | 11 % (5/45) | 63 % (3 en trop) |
+| O2 + image améliorée (psm 6) | **1/15** | **11 %** (5/45) | **100 %** (0 en trop) |
+| O2 + image améliorée (psm 3) | 1/15 | 11 % (5/45) | 100 % |
+
+Gains : CURAM (n° 12, ligne « 1. » sans forme ni dosage lisible), ordonnance imprimée n° 8 entièrement lue (KALEORID
+retrouvé), plus aucun faux positif avec l'image améliorée. Les ordonnances cursives restent illisibles pour tesseract :
+**le verdict d'activation se fait au banc sur le téléphone**.
 
 ---
 

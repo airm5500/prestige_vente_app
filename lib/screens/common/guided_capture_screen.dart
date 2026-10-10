@@ -3,6 +3,8 @@
 // cadre fixe, contrôle de la luminosité, de la netteté et de la stabilité, lampe proposée si trop sombre,
 // photo prise automatiquement quand l'image est bonne, puis recadrage sur le cadre avant la lecture du texte.
 // Renvoie les lignes de texte lues (comme OcrService.captureAndRead), null si annulé.
+// Mode « page » (ordonnance, étape O2) : cadre A5/A4 portrait, renvoie le chemin de la photo recadrée
+// (sans lecture : la zone des médicaments est choisie ensuite).
 import 'dart:async';
 import 'dart:io';
 
@@ -19,11 +21,27 @@ class GuidedCaptureScreen extends StatefulWidget {
   final String title;
   final String hint;
 
+  /// Mode page (ordonnance) : cadre A5/A4 et retour du chemin de la photo recadrée.
+  final bool page;
+
   const GuidedCaptureScreen({
     super.key,
     this.title = 'Photo étiquette',
     this.hint = 'Placez LOT et EXP dans le cadre',
+    this.page = false,
   });
+
+  /// Capture guidée d'une page d'ordonnance : chemin de la photo recadrée sur la page, null si annulé.
+  /// Le fichier est temporaire : à supprimer par l'appelant après lecture.
+  static Future<String?> openPage(BuildContext context) {
+    return Navigator.of(context).push<String>(MaterialPageRoute(
+      builder: (_) => const GuidedCaptureScreen(
+        title: 'Photo ordonnance',
+        hint: 'Placez toute la page dans le cadre, bien à plat',
+        page: true,
+      ),
+    ));
+  }
 
   static Future<List<String>?> open(BuildContext context, {String? title, String? hint}) {
     return Navigator.of(context).push<List<String>>(MaterialPageRoute(
@@ -83,6 +101,8 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> with WidgetsB
       _start();
     }
   }
+
+  Rect _frameOf(Size view) => widget.page ? CaptureGeometry.pageFrameInView(view) : CaptureGeometry.frameInView(view);
 
   Future<void> _start() async {
     if (_starting) return;
@@ -166,7 +186,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> with WidgetsB
     final inUpright = CaptureGeometry.frameInImage(
       image: upright,
       view: view,
-      frame: CaptureGeometry.frameInView(view),
+      frame: _frameOf(view),
       margin: 0,
     );
     final region = CaptureGeometry.uprightToSensor(
@@ -219,7 +239,11 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> with WidgetsB
       HapticFeedback.mediumImpact();
       final photo = await _cam.takePicture(id);
       temp.add(photo.path);
-      final cropped = await ImageCrop.cropToFrame(path: photo.path, view: view, frame: CaptureGeometry.frameInView(view));
+      final cropped = await ImageCrop.cropToFrame(path: photo.path, view: view, frame: _frameOf(view));
+      if (widget.page) {
+        if (mounted) Navigator.of(context).pop(cropped);
+        return;
+      }
       temp.add(cropped);
       final lines = await OcrService.readImageFile(cropped);
       if (mounted) Navigator.of(context).pop(lines);
@@ -243,6 +267,15 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> with WidgetsB
 
   /// Repli : photo classique (sans cadre) si la caméra guidée ne démarre pas sur cet appareil.
   Future<void> _classicPhoto() async {
+    if (widget.page) {
+      try {
+        final f = await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 2400, maxHeight: 2400, imageQuality: 95);
+        if (mounted && f != null) Navigator.of(context).pop(f.path);
+      } catch (e) {
+        if (mounted) setState(() => _error = OcrService.friendlyError(e));
+      }
+      return;
+    }
     try {
       final lines = await OcrService.captureAndRead(ImageSource.camera);
       if (mounted && lines != null) Navigator.of(context).pop(lines);
@@ -301,7 +334,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> with WidgetsB
     _view = view;
     final id = _cameraId;
     final preview = _previewSize;
-    final frame = CaptureGeometry.frameInView(view);
+    final frame = _frameOf(view);
     final ready = _advice.hint == CaptureHint.ready;
     final warn = _advice.hint == CaptureHint.blurry || _advice.hint == CaptureHint.moving || _advice.hint == CaptureHint.starting;
     final color = ready ? Colors.greenAccent : (warn ? Colors.orangeAccent : Colors.white);
@@ -336,7 +369,9 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> with WidgetsB
               Text(widget.hint, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
               const SizedBox(height: 4),
               Text(
-                _capturing ? 'Lecture en cours...' : _advice.message,
+                _capturing
+                    ? (widget.page ? 'Photo en cours...' : 'Lecture en cours...')
+                    : (widget.page && _advice.hint == CaptureHint.noText ? 'Page non détectée dans le cadre' : _advice.message),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: color, fontSize: 15),
               ),

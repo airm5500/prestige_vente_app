@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/banc_essai_screen.dart';
+import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
@@ -268,6 +269,7 @@ class _VentesPageState extends State<VentesPage> {
         ),
         SwitchCard(title: 'Masquer les produits « RV »', value: s.hideRvProducts, onChanged: s.setHideRvProducts),
         const SectionLabel('Ordonnances'),
+        const LectureO2Reglages(),
         LinkCard(
           key: const Key('banc_essai_ordonnances'),
           icon: Icons.science_outlined,
@@ -286,6 +288,48 @@ class _VentesPageState extends State<VentesPage> {
       ],
     );
   }
+}
+
+/// Interrupteurs de la nouvelle lecture des ordonnances (O2), désactivés par défaut.
+class LectureO2Reglages extends StatefulWidget {
+  const LectureO2Reglages({super.key});
+
+  @override
+  State<LectureO2Reglages> createState() => _LectureO2ReglagesState();
+}
+
+class _LectureO2ReglagesState extends State<LectureO2Reglages> {
+  @override
+  void initState() {
+    super.initState();
+    LectureO2.charger();
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+        valueListenable: LectureO2.actif,
+        builder: (context, actif, _) => ValueListenableBuilder<bool>(
+          valueListenable: LectureO2.ameliorerImage,
+          builder: (context, image, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            SwitchCard(
+              key: const Key('lecture_o2'),
+              title: 'Nouvelle lecture des ordonnances (O2)',
+              subtitle: 'Photo guidée de la page, zone des médicaments, lignes numérotées. '
+                  'À activer seulement si le banc d\'essai donne un meilleur score.',
+              value: actif,
+              onChanged: LectureO2.definirActif,
+            ),
+            if (actif)
+              SwitchCard(
+                key: const Key('lecture_o2_image'),
+                title: 'Améliorer l\'image (contraste, ombres)',
+                subtitle: 'Mesurez-le aussi au banc d\'essai avant de l\'activer.',
+                value: image,
+                onChanged: LectureO2.definirAmeliorerImage,
+              ),
+          ]),
+        ),
+      );
 }
 
 // ---------------------------------------------------------------------------

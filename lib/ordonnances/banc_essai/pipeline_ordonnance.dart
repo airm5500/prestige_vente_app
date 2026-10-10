@@ -4,6 +4,8 @@
 //
 // Un pipeline ne renvoie que les noms de produits proposés (et le nombre de lignes lues) :
 // jamais le texte reconnu, qui peut contenir des noms de patient ou de médecin.
+import 'dart:io';
+
 import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:prestige_vente_app/services/prescription_matcher.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
@@ -40,6 +42,9 @@ abstract class PipelineOrdonnance {
 /// Lit le texte d'une image (lignes regroupées). Par défaut : ML Kit ([OcrService.readImageFile]).
 typedef LecteurTexte = Future<List<String>> Function(String cheminImage);
 
+/// Prépare l'image avant lecture (renvoie le chemin d'un fichier TEMPORAIRE, supprimé après lecture).
+typedef PreparationImage = Future<String> Function(String chemin);
+
 /// Découpe le texte lu en lignes « médicament ». Par défaut : [PrescriptionParser.extract].
 typedef DecoupageLignes = List<PrescriptionLine> Function(List<String> lignes);
 
@@ -56,8 +61,8 @@ class PipelineTexteCatalogue implements PipelineOrdonnance {
   /// Recherche par pages dans le catalogue (en ligne : serveur ; hors ligne : copie locale).
   final ProductPageSearch recherche;
 
-  /// Préparation de l'image avant lecture (ex. contraste, O2) ; renvoie le chemin à lire.
-  final Future<String> Function(String chemin)? preparation;
+  /// Préparation de l'image avant lecture (ex. contraste, O2) ; renvoie le chemin d'un fichier temporaire.
+  final PreparationImage? preparation;
 
   const PipelineTexteCatalogue({
     required this.id,
@@ -81,11 +86,19 @@ class PipelineTexteCatalogue implements PipelineOrdonnance {
   @override
   Future<ResultatPipeline> analyser(String cheminImage) async {
     List<String> texte;
+    String? temporaire;
     try {
-      final chemin = preparation == null ? cheminImage : await preparation!(cheminImage);
-      texte = await lecteur(chemin);
+      if (preparation != null) temporaire = await preparation!(cheminImage);
+      texte = await lecteur(temporaire ?? cheminImage);
     } catch (e) {
       return ResultatPipeline(produits: const [], erreur: 'Lecture impossible : ${e.runtimeType}');
+    } finally {
+      if (temporaire != null && temporaire != cheminImage) {
+        try {
+          final f = File(temporaire);
+          if (f.existsSync()) f.deleteSync();
+        } catch (_) {}
+      }
     }
     final lignes = decoupage(texte);
     final produits = <String>[];
