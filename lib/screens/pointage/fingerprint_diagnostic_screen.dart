@@ -6,19 +6,25 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 enum _Step { hardware, service, connect, sensor, enroll, identify }
 
 enum _State { todo, running, ok, failed }
 
 class FingerprintDiagnosticScreen extends StatefulWidget {
-  const FingerprintDiagnosticScreen({super.key});
+  /// Présentation (A, B, C) ; celle de l'appareil si non précisée.
+  final ListPresentation? presentation;
+  const FingerprintDiagnosticScreen({super.key, this.presentation});
 
   @override
   State<FingerprintDiagnosticScreen> createState() => _FingerprintDiagnosticScreenState();
 }
 
-class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScreen> {
+class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScreen> with PresentationAware {
+  @override
+  ListPresentation? get forcedPresentation => widget.presentation;
+
   final Map<_Step, _State> _states = {for (final s in _Step.values) s: _State.todo};
   final Map<_Step, String> _details = {};
   final List<Uint8List> _testTemplates = [];
@@ -45,6 +51,7 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
   @override
   void initState() {
     super.initState();
+    loadPresentation();
     try {
       _hintSub = FingerprintService.hints.listen((h) {
         if (!mounted) return;
@@ -166,19 +173,20 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
                 'empreinte enregistrée dans les Paramètres de l\'appareil.'
             : 'Lecteur présent mais aucune empreinte enregistrée dans les Paramètres de l\'appareil : '
                 'enregistrez-en une pour pointer par empreinte, sinon le pointage se fait par nom + code PIN.';
-    return Card(
-      color: Colors.blue.shade50,
+    return _card(
+      band: Pal.blue,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('Pointage sur cet appareil', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Pointage sur cet appareil', style: TextStyle(fontWeight: FontWeight.bold, color: Pal.ink)),
             const SizedBox(height: 4),
             Text(text),
             if (ready) ...[
               const SizedBox(height: 8),
               ElevatedButton.icon(
+                style: style == ListPresentation.guided ? amberButton : navyButton,
                 icon: const Icon(Icons.fingerprint),
                 label: const Text('Tester la confirmation par empreinte'),
                 onPressed: _busy ? null : _testAndroidFingerprint,
@@ -235,62 +243,116 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
         for (final s in _Step.values) '${_labels[s]} : ${_states[s]!.name}${_details[s] == null || _details[s]!.isEmpty ? '' : ' — ${_details[s]}'}',
       ].join('\n');
 
+  /// Carte (A, C) ou bloc séparé par un filet (B).
+  Widget _card({required Widget child, Color? band}) => style == ListPresentation.compact
+      ? Container(
+          decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+          child: child,
+        )
+      : Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: SoftCard(padding: EdgeInsets.zero, band: style == ListPresentation.guided ? band : null, child: child),
+        );
+
   @override
   Widget build(BuildContext context) {
     final ready = _states[_Step.sensor] == _State.ok;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Lecteur : diagnostic'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.copy),
-            tooltip: 'Copier le rapport',
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: _report()));
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rapport copié')));
-            },
-          ),
-        ],
-      ),
+    final shown = [for (final s in _Step.values) if (s == _Step.hardware || _sunmiRelevant || !_checked) s];
+    final ok = shown.where((s) => _states[s] == _State.ok).length;
+    final failed = shown.where((s) => _states[s] == _State.failed).length;
+    final compact = style == ListPresentation.compact;
+    return PresentationScaffold(
+      style: style,
+      title: 'Lecteur : diagnostic',
+      subtitle: compact ? null : 'Empreintes de test en mémoire uniquement',
+      actions: (col) => [
+        IconButton(
+          icon: Icon(Icons.copy, color: col),
+          tooltip: 'Copier le rapport',
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: _report()));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rapport copié')));
+          },
+        ),
+      ],
+      steps: StepsBar(active: !_checked ? 0 : (_testTemplates.isEmpty ? 1 : 2), steps: const [
+        (title: 'Vérifier', detail: 'lecteur, service', onTap: null),
+        (title: 'Enregistrer', detail: 'doigt de test', onTap: null),
+        (title: 'Reconnaître', detail: 'comparaison', onTap: null),
+      ]),
+      header: [
+        if (style == ListPresentation.dashboard)
+          Row(children: [
+            Expanded(child: KpiTile('$ok/${shown.length}', 'contrôle(s) OK', highlight: true)),
+            const SizedBox(width: 8),
+            Expanded(child: KpiTile('$failed', 'échec(s)')),
+            const SizedBox(width: 8),
+            Expanded(child: KpiTile('${_testTemplates.length}', 'empreinte(s) test')),
+          ]),
+      ],
+      compactHeader: [
+        LightFigures([
+          ('$ok/${shown.length}', 'Contrôles OK', Pal.green),
+          ('$failed', 'Échecs', failed > 0 ? Colors.red.shade700 : Pal.navy),
+          ('${_testTemplates.length}', 'Empreintes test', Pal.navy),
+        ]),
+      ],
       body: ListView(
-        padding: const EdgeInsets.all(12),
+        padding: compact ? const EdgeInsets.fromLTRB(0, 8, 0, 16) : const EdgeInsets.all(16),
         children: [
-          const Text(
-            'Ce test vérifie le lecteur d\'empreinte du terminal. Les empreintes de test restent en mémoire '
-            'et sont effacées à la fermeture de l\'écran.',
-            style: TextStyle(fontSize: 13),
+          Padding(
+            padding: EdgeInsets.fromLTRB(compact ? 16 : 0, 0, compact ? 16 : 0, 12),
+            child: const Text(
+              'Ce test vérifie le lecteur d\'empreinte du terminal. Les empreintes de test restent en mémoire '
+              'et sont effacées à la fermeture de l\'écran.',
+              style: TextStyle(fontSize: 13, color: Pal.muted),
+            ),
           ),
-          const SizedBox(height: 12),
-          for (final s in _Step.values)
-            if (s == _Step.hardware || _sunmiRelevant || !_checked) _tile(s),
+          for (final s in shown) _tile(s),
           if (_checked && !_sunmiRelevant) _androidModeCard(),
           if (_hint != null)
-            Card(
-              color: Colors.blue.shade50,
-              child: ListTile(
-                leading: const Icon(Icons.fingerprint, size: 36, color: Colors.blue),
-                title: Text(_hint!, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: const Color(0xFFE3ECF7), borderRadius: BorderRadius.circular(16)),
+              child: Row(children: [
+                const Icon(Icons.fingerprint, size: 40, color: Pal.navy),
+                const SizedBox(width: 12),
+                Expanded(child: Text(_hint!, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.navy))),
+              ]),
+            ),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: compact ? 16 : 0),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              if (_sunmiRelevant || !_checked) ...[
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 50,
+                  child: ElevatedButton.icon(
+                    style: style == ListPresentation.guided ? amberButton : navyButton,
+                    icon: const Icon(Icons.fingerprint),
+                    label: Text(_testTemplates.isEmpty ? 'Tester l\'enregistrement' : 'Enregistrer une autre empreinte'),
+                    onPressed: ready && !_busy ? _testEnroll : null,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    style: outlineButton,
+                    icon: const Icon(Icons.how_to_reg),
+                    label: const Text('Tester la reconnaissance'),
+                    onPressed: ready && !_busy && _testTemplates.isNotEmpty ? _testIdentify : null,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              TextButton.icon(
+                icon: const Icon(Icons.refresh),
+                label: const Text('Relancer le diagnostic'),
+                onPressed: _busy ? null : _runChecks,
               ),
-            ),
-          if (_sunmiRelevant || !_checked) ...[
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.fingerprint),
-              label: Text(_testTemplates.isEmpty ? 'Tester l\'enregistrement' : 'Enregistrer une autre empreinte'),
-              onPressed: ready && !_busy ? _testEnroll : null,
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.how_to_reg),
-              label: const Text('Tester la reconnaissance'),
-              onPressed: ready && !_busy && _testTemplates.isNotEmpty ? _testIdentify : null,
-            ),
-          ],
-          const SizedBox(height: 8),
-          TextButton.icon(
-            icon: const Icon(Icons.refresh),
-            label: const Text('Relancer le diagnostic'),
-            onPressed: _busy ? null : _runChecks,
+            ]),
           ),
         ],
       ),
@@ -301,18 +363,27 @@ class _FingerprintDiagnosticScreenState extends State<FingerprintDiagnosticScree
     final st = _states[s]!;
     final (IconData icon, Color color) = switch (st) {
       _State.todo => (Icons.radio_button_unchecked, Colors.grey),
-      _State.running => (Icons.hourglass_top, Colors.blue),
+      _State.running => (Icons.hourglass_top, Pal.blue),
       _State.ok => (Icons.check_circle, Colors.green.shade700),
       _State.failed => (Icons.error, Colors.red.shade700),
     };
     final detail = _details[s];
-    return Card(
-      child: ListTile(
-        leading: st == _State.running
-            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-            : Icon(icon, color: color),
-        title: Text(_labels[s]!),
-        subtitle: detail == null || detail.isEmpty ? null : Text(detail),
+    return _card(
+      band: color,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          st == _State.running
+              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+              : Icon(icon, color: color),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_labels[s]!, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+              if (detail != null && detail.isNotEmpty) Text(detail, style: const TextStyle(fontSize: 13, color: Pal.muted)),
+            ]),
+          ),
+        ]),
       ),
     );
   }

@@ -13,6 +13,7 @@ import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 import 'package:prestige_vente_app/services/label_text_parser.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 
 class ExpirationUpdateScreen extends StatefulWidget {
@@ -20,13 +21,19 @@ class ExpirationUpdateScreen extends StatefulWidget {
   final Future<String?> Function(BuildContext context)? codeScanner;
   final Future<List<String>?> Function(ImageSource source)? labelReader;
 
-  const ExpirationUpdateScreen({super.key, this.codeScanner, this.labelReader});
+  /// Présentation (A, B, C) ; celle de l'appareil si non précisée.
+  final ListPresentation? presentation;
+
+  const ExpirationUpdateScreen({super.key, this.codeScanner, this.labelReader, this.presentation});
 
   @override
   State<ExpirationUpdateScreen> createState() => _ExpirationUpdateScreenState();
 }
 
-class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
+class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with PresentationAware {
+  @override
+  ListPresentation? get forcedPresentation => widget.presentation;
+
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
   Timer? _debounce;
@@ -72,6 +79,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
   @override
   void initState() {
     super.initState();
+    loadPresentation();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_searchFocusNode);
     });
@@ -303,20 +311,28 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
       child: Row(
         children: [
           Expanded(
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Scanner lot / date'),
-              onPressed: _readingLabel ? null : _scanLotDateWithCamera,
+            child: SizedBox(
+              height: 48,
+              child: OutlinedButton.icon(
+                style: outlineButton,
+                icon: const Icon(Icons.qr_code_scanner),
+                label: const Text('Scanner lot / date'),
+                onPressed: _readingLabel ? null : _scanLotDateWithCamera,
+              ),
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: OutlinedButton.icon(
+            child: SizedBox(
+              height: 48,
+              child: OutlinedButton.icon(
+              style: outlineButton,
               icon: _readingLabel
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.document_scanner_outlined),
               label: const Text('Photo étiquette'),
               onPressed: _readingLabel ? null : _photoLabel,
+            ),
             ),
           ),
         ],
@@ -471,60 +487,96 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Mise à jour Péremption')),
-      body: Consumer<ExpirationUpdateProvider>(
-        builder: (context, provider, child) {
-          return Column(
+    return Consumer<ExpirationUpdateProvider>(
+      builder: (context, provider, child) {
+        final selected = provider.selectedProduct != null;
+        return PresentationScaffold(
+          style: style,
+          title: 'Mise à jour Péremption',
+          subtitle: style == ListPresentation.dashboard ? 'Scannez la boîte : produit, lot et date' : null,
+          actions: (c) => [PresentationMenuButton(value: style, onChanged: _setStyle, color: c)],
+          steps: StepsBar(active: selected ? 1 : 0, steps: const [
+            (title: 'Produit', detail: 'scan ou recherche', onTap: null),
+            (title: 'Lot et date', detail: 'DataMatrix, photo', onTap: null),
+            (title: 'Valider', detail: 'quantité', onTap: null),
+          ]),
+          header: [_buildSearchBar(provider, dark: true)],
+          compactHeader: [_buildSearchBar(provider, dark: false)],
+          body: Column(
             children: [
-              _buildSearchBar(provider),
-              if (provider.isLoading) const LinearProgressIndicator(),
+              if (provider.isLoading) const LinearProgressIndicator(minHeight: 2),
               if (_scanData != null) _buildScanBanner(_scanData!, provider),
               Expanded(
-                child: provider.selectedProduct == null
-                    ? _buildSearchResults(provider)
-                    : _buildUpdateForm(provider),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildSearchBar(ExpirationUpdateProvider provider) {
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: TextField(
-        controller: _searchController,
-        focusNode: _searchFocusNode,
-        decoration: InputDecoration(
-          labelText: 'Rechercher par CIP, Nom ou Scan (DataMatrix)',
-          prefixIcon: const Icon(Icons.search),
-          suffixIcon: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Scan du code-barres avec la caméra : même effet que la douchette Sunmi.
-              IconButton(
-                icon: const Icon(Icons.photo_camera),
-                tooltip: 'Scanner le produit (caméra)',
-                onPressed: _scanProductWithCamera,
-              ),
-              IconButton(
-                icon: const Icon(Icons.clear),
-                onPressed: () {
-                  _searchController.clear();
-                  provider.clearSearch();
-                  // MODIFICATION : Maintien du focus
-                  _searchFocusNode.requestFocus();
-                },
+                child: provider.selectedProduct == null ? _buildSearchResults(provider) : _buildUpdateForm(provider),
               ),
             ],
           ),
+          // « Valider » toujours visible pendant la saisie d'un produit.
+          bottomNavigationBar: selected
+              ? SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    child: SizedBox(
+                      height: 52,
+                      child: provider.isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : ElevatedButton(
+                              style: style == ListPresentation.guided ? amberButton : navyButton,
+                              onPressed: _submitForm,
+                              child: const Text('Valider', style: TextStyle(fontSize: 17)),
+                            ),
+                    ),
+                  ),
+                )
+              : null,
+        );
+      },
+    );
+  }
+
+  void _setStyle(ListPresentation p) {
+    setState(() => style = p);
+    if (widget.presentation == null) PresentationPrefs.save(p);
+  }
+
+  Widget _buildSearchBar(ExpirationUpdateProvider provider, {required bool dark}) {
+    return TextField(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      decoration: InputDecoration(
+        labelText: 'Rechercher par CIP, Nom ou Scan (DataMatrix)',
+        floatingLabelBehavior: FloatingLabelBehavior.never,
+        prefixIcon: const Icon(Icons.search),
+        filled: true,
+        fillColor: dark ? Colors.white : Pal.page,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        suffixIcon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Scan du code-barres avec la caméra : même effet que la douchette Sunmi.
+            IconButton(
+              icon: const Icon(Icons.photo_camera),
+              tooltip: 'Scanner le produit (caméra)',
+              onPressed: _scanProductWithCamera,
+            ),
+            IconButton(
+              icon: const Icon(Icons.clear),
+              tooltip: 'Effacer',
+              onPressed: () {
+                _searchController.clear();
+                provider.clearSearch();
+                // MODIFICATION : Maintien du focus
+                _searchFocusNode.requestFocus();
+              },
+            ),
+          ],
         ),
-        onSubmitted: (_) => _onSearchChanged(),
-        textInputAction: TextInputAction.search,
       ),
+      onSubmitted: (_) => _onSearchChanged(),
+      textInputAction: TextInputAction.search,
     );
   }
 
@@ -553,12 +605,12 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 8.0),
-      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blue.shade200),
+        color: const Color(0xFFEAF2FC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFB9D0EE)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -620,20 +672,56 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     if (provider.searchResults.isEmpty && _searchController.text.isNotEmpty) {
       return const Center(child: Text('Aucun produit trouvé.'));
     }
-    return ListView.builder(
+    if (provider.searchResults.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.qr_code_scanner, size: 56, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            const Text('Scannez le DataMatrix de la boîte (scanner ou caméra), ou recherchez le produit.', textAlign: TextAlign.center),
+          ]),
+        ),
+      );
+    }
+    final compact = style == ListPresentation.compact;
+    return ListView.separated(
+      padding: EdgeInsets.fromLTRB(compact ? 0 : 12, 10, compact ? 0 : 12, 16),
       itemCount: provider.searchResults.length,
+      separatorBuilder: (_, __) => SizedBox(height: compact ? 0 : 8),
       itemBuilder: (context, index) {
         final product = provider.searchResults[index];
-        return Card(
-          child: ListTile(
-            title: Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('CIP: ${product.intCIP} | Prix: ${Constants.formatNumber(product.intPRICE)} | Stock: ${product.intNUMBERAVAILABLE}'),
-            onTap: () {
-              _searchFocusNode.unfocus();
-              _selectProduct(product);
-              _searchController.clear(); // Nettoyage manuel si clic
-            },
+        void open() {
+          _searchFocusNode.unfocus();
+          _selectProduct(product);
+          _searchController.clear(); // Nettoyage manuel si clic
+        }
+
+        final stock = product.intNUMBERAVAILABLE;
+        final row = Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(product.strNAME, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Pal.ink)),
+              Text('CIP: ${product.intCIP} | Prix: ${Constants.formatNumber(product.intPRICE)} | Stock: $stock',
+                  style: const TextStyle(fontSize: 13, color: Pal.muted)),
+            ]),
           ),
+          const Icon(Icons.chevron_right, color: Pal.muted),
+        ]);
+        if (compact) {
+          return InkWell(
+            onTap: open,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+              child: row,
+            ),
+          );
+        }
+        return InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: open,
+          child: SoftCard(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), child: row),
         );
       },
     );
@@ -663,6 +751,14 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     );
   }
 
+  InputDecoration _fieldDeco(String label) => InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFC5D0DE))),
+      );
+
   Widget _buildUpdateForm(ExpirationUpdateProvider provider) {
     final product = provider.selectedProduct!;
 
@@ -677,10 +773,11 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
     }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Card(
+      padding: const EdgeInsets.all(12.0),
+      child: SoftCard(
+        band: style == ListPresentation.guided ? Pal.navy : null,
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(4.0),
           child: Form(
             key: _formKey,
             child: Column(
@@ -689,18 +786,18 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(child: Text(product.strNAME, style: Theme.of(context).textTheme.titleLarge)),
-                    IconButton(icon: const Icon(Icons.close), onPressed: _resetForm),
+                    Expanded(child: Text(product.strNAME, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink))),
+                    IconButton(icon: const Icon(Icons.close), tooltip: 'Fermer', onPressed: _resetForm),
                   ],
                 ),
-                Text('CIP: ${product.intCIP}'),
-                const Divider(height: 30),
+                Text('CIP: ${product.intCIP}', style: const TextStyle(color: Pal.muted)),
+                const SizedBox(height: 14),
                 _buildAssistButtons(),
                 TextFormField(
                   key: _dateFieldKey,
                   controller: _dateController,
                   focusNode: _dateFocusNode,
-                  decoration: const InputDecoration(labelText: 'Date de Péremption (JJMMYY)'),
+                  decoration: _fieldDeco('Date de Péremption (JJMMYY)'),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.next,
                   validator: (value) {
@@ -733,7 +830,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                   key: _lotFieldKey,
                   controller: _lotController,
                   focusNode: _lotFocusNode,
-                  decoration: const InputDecoration(labelText: 'N° de Lot'),
+                  decoration: _fieldDeco('N° de Lot'),
                   textInputAction: TextInputAction.next,
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -764,7 +861,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                 TextFormField(
                   controller: _quantityController,
                   focusNode: _quantityFocusNode,
-                  decoration: const InputDecoration(labelText: 'Quantité'),
+                  decoration: _fieldDeco('Quantité'),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.done,
                   validator: (value) {
@@ -780,17 +877,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> {
                     _submitForm();
                   },
                 ),
-                const SizedBox(height: 24),
-                if(provider.isLoading)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _submitForm,
-                      child: const Text('Valider'),
-                    ),
-                  ),
+                const SizedBox(height: 8),
               ],
             ),
           ),

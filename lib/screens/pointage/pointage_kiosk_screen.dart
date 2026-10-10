@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/services/nfc_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:uuid/uuid.dart';
 
 /// Vérifications remplaçables pour les tests.
@@ -63,6 +64,9 @@ class PointageKioskScreen extends StatefulWidget {
   /// Lecteur de badges NFC (remplaçable pour les tests).
   final NfcReader nfc;
 
+  /// Présentation (A, B, C) ; celle de l'appareil si non précisée.
+  final ListPresentation? presentation;
+
   const PointageKioskScreen({
     super.key,
     required this.repository,
@@ -72,13 +76,17 @@ class PointageKioskScreen extends StatefulWidget {
     this.clock,
     this.badgeCamera,
     this.nfc = const DeviceNfcReader(),
+    this.presentation,
   });
 
   @override
   State<PointageKioskScreen> createState() => _PointageKioskScreenState();
 }
 
-class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsBindingObserver {
+class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsBindingObserver, PresentationAware {
+  @override
+  ListPresentation? get forcedPresentation => widget.presentation;
+
   List<Employee> _employees = [];
   List<PointageRecord> _today = [];
   String _filter = '';
@@ -105,6 +113,7 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
   @override
   void initState() {
     super.initState();
+    loadPresentation();
     _reload();
     if (widget.settings.badgeEnabled) {
       WidgetsBinding.instance.addObserver(this);
@@ -363,13 +372,34 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
   @override
   Widget build(BuildContext context) {
     final byId = {for (final e in _employees) e.id: e};
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Pointage · ${widget.settings.badgeMode == BadgeMode.only ? 'Badge' : widget.capability.modeLabel}'),
-      ),
+    final present = _employees.where((e) {
+      final mine = _todayOf(e);
+      return mine.isNotEmpty && mine.last.type != PointageType.depart;
+    }).length;
+    return PresentationScaffold(
+      style: style,
+      title: 'Pointage',
+      subtitle: widget.settings.badgeMode == BadgeMode.only ? 'Badge' : widget.capability.modeLabel,
+      actions: (_) => const [],
+      steps: StepsBar(active: 0, steps: const [
+        (title: 'S\'identifier', detail: 'badge, doigt, nom', onTap: null),
+        (title: 'Choisir', detail: 'arrivée, pause...', onTap: null),
+        (title: 'Enregistré', detail: 'heure exacte', onTap: null),
+      ]),
+      header: [
+        if (style == ListPresentation.dashboard)
+          Row(children: [
+            Expanded(child: KpiTile('$present', 'présent(s)')),
+            const SizedBox(width: 8),
+            Expanded(child: KpiTile('${_today.length}', 'pointage(s) du jour')),
+            const SizedBox(width: 8),
+            Expanded(child: KpiTile('${_employees.length}', 'employé(s)', highlight: true)),
+          ]),
+      ],
+      compactHeader: const [],
       body: Column(
         children: [
-          if (_busy) const LinearProgressIndicator(),
+          if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (widget.settings.badgeMode == BadgeMode.both) _buildBadgeZone(compact: true),
           Expanded(
             child: switch (widget.settings.badgeMode) {
@@ -380,14 +410,25 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
           if (_today.isNotEmpty)
             Container(
               width: double.infinity,
-              color: Colors.blueGrey.shade50,
-              padding: const EdgeInsets.all(8),
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Pal.line),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Derniers pointages', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Row(children: [
+                    Icon(Icons.history, size: 18, color: Pal.navy),
+                    SizedBox(width: 6),
+                    Text('Derniers pointages', style: TextStyle(fontWeight: FontWeight.bold, color: Pal.ink)),
+                  ]),
+                  const SizedBox(height: 4),
                   for (final r in _today.reversed.take(4))
-                    Text('${_hm.format(r.time)}  ${byId[r.employeeId]?.name ?? '?'} — ${r.type.label}'),
+                    Text('${_hm.format(r.time)}  ${byId[r.employeeId]?.name ?? '?'} — ${r.type.label}',
+                        style: const TextStyle(color: Pal.muted)),
                 ],
               ),
             ),
@@ -396,6 +437,23 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
     );
   }
 
+  InputDecoration _fieldDeco(String label, IconData icon, {Widget? suffix}) => InputDecoration(
+        prefixIcon: Icon(icon),
+        labelText: label,
+        suffixIcon: suffix,
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFC5D0DE))),
+      );
+
+  Widget _bigIcon(IconData icon) => Container(
+        width: 120,
+        height: 120,
+        decoration: const BoxDecoration(color: Color(0xFFE3ECF7), shape: BoxShape.circle),
+        child: Icon(icon, size: 64, color: Pal.navy),
+      );
+
   Widget _buildBadgeZone({required bool compact}) {
     final field = TextField(
       controller: _badgeController,
@@ -403,10 +461,10 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
       autofocus: true,
       // Sans clavier à l'écran : le scanner Sunmi saisit le code directement.
       keyboardType: _badgeKeyboard ? TextInputType.text : TextInputType.none,
-      decoration: InputDecoration(
-        prefixIcon: const Icon(Icons.badge),
-        labelText: 'Scannez votre badge',
-        suffixIcon: Row(
+      decoration: _fieldDeco(
+        'Scannez votre badge',
+        Icons.badge,
+        suffix: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
@@ -432,7 +490,7 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
     final nfcLine = _nfcLine();
     if (compact) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
         child: Column(mainAxisSize: MainAxisSize.min, children: [field, if (nfcLine != null) nfcLine]),
       );
     }
@@ -442,16 +500,16 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.badge, size: 120, color: AppColors.primary),
+            _bigIcon(Icons.badge),
             const SizedBox(height: 16),
             const Text('Présentez votre badge au scanner\nou touchez l\'appareil photo',
-                style: TextStyle(fontSize: 20), textAlign: TextAlign.center),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Pal.ink), textAlign: TextAlign.center),
             const SizedBox(height: 24),
             field,
             if (nfcLine != null) nfcLine,
             if (_lastMessage != null) ...[
               const SizedBox(height: 16),
-              Text(_lastMessage!, textAlign: TextAlign.center),
+              Text(_lastMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted)),
             ],
           ],
         ),
@@ -489,23 +547,29 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
 
   Widget _buildSunmi() {
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.fingerprint, size: 120, color: AppColors.primary),
+            _bigIcon(Icons.fingerprint),
             const SizedBox(height: 16),
-            const Text('Posez votre doigt sur le lecteur', style: TextStyle(fontSize: 20), textAlign: TextAlign.center),
+            const Text('Posez votre doigt sur le lecteur',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Pal.ink), textAlign: TextAlign.center),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.touch_app),
-              label: const Text('Pointer'),
-              onPressed: _busy ? null : _identifyBySunmi,
+            SizedBox(
+              width: double.infinity,
+              height: 60,
+              child: ElevatedButton.icon(
+                style: style == ListPresentation.guided ? amberButton : navyButton,
+                icon: const Icon(Icons.touch_app, size: 28),
+                label: const Text('Pointer', style: TextStyle(fontSize: 20)),
+                onPressed: _busy ? null : _identifyBySunmi,
+              ),
             ),
             if (_lastMessage != null) ...[
               const SizedBox(height: 16),
-              Text(_lastMessage!, textAlign: TextAlign.center),
+              Text(_lastMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted)),
             ],
           ],
         ),
@@ -524,34 +588,66 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
     }
     final f = _filter.toLowerCase();
     final list = _employees.where((e) => f.isEmpty || e.name.toLowerCase().contains(f) || e.matricule.toLowerCase().contains(f)).toList();
+    final compact = style == ListPresentation.compact;
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
           child: TextField(
-            decoration: const InputDecoration(prefixIcon: Icon(Icons.search), labelText: 'Votre nom ou matricule'),
+            decoration: _fieldDeco('Votre nom ou matricule', Icons.search),
             onChanged: (v) => setState(() => _filter = v),
           ),
         ),
         Expanded(
-          child: ListView.builder(
+          child: ListView.separated(
+            padding: EdgeInsets.fromLTRB(compact ? 0 : 12, 6, compact ? 0 : 12, 12),
             itemCount: list.length,
+            separatorBuilder: (_, __) => SizedBox(height: compact ? 0 : 8),
             itemBuilder: (_, i) {
               final e = list[i];
               final mine = _todayOf(e);
               final status = mine.isEmpty ? 'Pas encore pointé' : '${mine.last.type.label} à ${_hm.format(mine.last.time)}';
               final inside = mine.isNotEmpty && mine.last.type != PointageType.depart;
-              return Card(
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: inside ? Colors.green.shade100 : Colors.grey.shade200,
-                    child: Text(e.name.isEmpty ? '?' : e.name[0].toUpperCase()),
+              final row = Row(children: [
+                Stack(clipBehavior: Clip.none, children: [
+                  GrossisteAvatar(e.name.isEmpty ? '?' : e.name),
+                  Positioned(
+                    right: -2,
+                    bottom: -2,
+                    child: Container(
+                      width: 14,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: inside ? Pal.green : const Color(0xFFB8C2D0),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                    ),
                   ),
-                  title: Text(e.name, style: const TextStyle(fontSize: 18)),
-                  subtitle: Text(status),
-                  trailing: Icon(widget.capability.mode == PointageMode.androidBiometric ? Icons.fingerprint : Icons.pin),
-                  onTap: _busy ? null : () => _onEmployeeTap(e),
+                ]),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(e.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: Pal.ink)),
+                    Text(status, style: TextStyle(fontSize: 13, color: inside ? Colors.green.shade800 : Pal.muted)),
+                  ]),
                 ),
+                Icon(widget.capability.mode == PointageMode.androidBiometric ? Icons.fingerprint : Icons.pin, color: Pal.navy),
+              ]);
+              if (compact) {
+                return InkWell(
+                  onTap: _busy ? null : () => _onEmployeeTap(e),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+                    child: row,
+                  ),
+                );
+              }
+              return InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: _busy ? null : () => _onEmployeeTap(e),
+                child: SoftCard(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), child: row),
               );
             },
           ),
