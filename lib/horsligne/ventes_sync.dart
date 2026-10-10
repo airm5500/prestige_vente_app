@@ -10,6 +10,10 @@
 //   ajout, le panier du serveur est relu et seuls les articles manquants sont envoyés ; une réponse
 //   perdue est suivie d'une relecture (panier ou statut de la vente) : jamais de 2ᵉ vente, de 2ᵉ ligne
 //   ni de 2ᵉ clôture.
+// - H4 (serveur avec le patch docs/serveur/H4_client_ref.patch) : la création porte la clé client
+//   `X-Client-Ref` (HL2-<id local>) ; le serveur ne crée jamais deux fois pour la même clé et une réponse
+//   perdue (ou l'appli fermée pendant l'appel) est suivie d'une relecture par la clé : reprise sans anomalie.
+//   Serveur sans H4 : fonctionnement ci-dessus inchangé (anomalie « vérifiez dans les préventes »).
 // - Écarts (prix, stock, produit introuvable, net ≠ montant encaissé) et refus du serveur (bon,
 //   plafond, caisse fermée) : la vente passe « à vérifier » avec un motif clair. Rien n'est supprimé.
 import 'dart:math';
@@ -17,6 +21,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/horsligne/client_ref.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -309,6 +314,29 @@ class FileVentesHL extends ChangeNotifier {
     }
 
     // 1. Création de la vente (1ʳᵉ ligne) — l'identifiant est enregistré dès la réponse.
+    // H4 : si le serveur gère la clé client, la création porte `X-Client-Ref` (jamais créée deux fois) et une
+    // réponse perdue est suivie d'une relecture par la clé ; sinon, fonctionnement d'origine (anomalie).
+    final h4 = gw is ClientRefGateway ? gw as ClientRefGateway : null;
+    final cle = cleClientVente(v.id);
+    // Vente relue par sa clé : true = trouvée (identifiant enregistré), false = jamais créée ; panne = arrêt.
+    Future<bool> relire() async {
+      final lu = await h4!.lireClientRef(cle);
+      if (lu is! VenteOk<ClientRefInfo?>) _stop(lu);
+      final info = lu.value;
+      if (info == null) return false;
+      v = await _save(v.copyWith(venteId: info.id, reference: info.reference ?? v.reference, etape: EtapeHL.articles));
+      return true;
+    }
+
+    if (v.venteId == null && v.etape == EtapeHL.creationEnvoyeeRef) {
+      if (h4 != null && await h4.clientRefSupporte()) {
+        // Réponse de la création jamais reçue (appli fermée, panne) : relire au lieu de deviner.
+        if (!await relire()) v = await _save(v.copyWith(etape: EtapeHL.creation));
+      } else {
+        // Le serveur ne gère plus la clé : prudence d'origine.
+        v = await _save(v.copyWith(etape: EtapeHL.creationEnvoyee));
+      }
+    }
     if (v.venteId == null) {
       final interrompu = 'Envoi interrompu pendant la création de la vente ${v.numeroLabel} (${_f(v.totalEstime)} F) : '
           'vérifiez dans les préventes du serveur qu\'elle n\'existe pas, puis « Renvoyer ».';
@@ -317,8 +345,9 @@ class FileVentesHL extends ChangeNotifier {
       if (first == null) return verifier('Vente sans article : rien à envoyer.');
       final conflit = await _controle(gw, v, first, first.qte);
       if (conflit != null) return verifier(conflit);
-      v = await _save(v.copyWith(etape: EtapeHL.creationEnvoyee));
-      final r = await _addItem(gw, v, first.produitId, first.qte, first.prix, null);
+      final ref = h4 != null && await h4.clientRefSupporte() ? cle : null;
+      v = await _save(v.copyWith(etape: ref != null ? EtapeHL.creationEnvoyeeRef : EtapeHL.creationEnvoyee));
+      final r = await _addItem(ref != null ? h4!.avecClientRef(ref) : gw, v, first.produitId, first.qte, first.prix, null);
       switch (r) {
         case VenteOk(:final value):
           v = await _save(v.copyWith(venteId: value, etape: EtapeHL.articles));
@@ -326,16 +355,28 @@ class FileVentesHL extends ChangeNotifier {
           v = await _save(v.copyWith(etape: EtapeHL.creation));
           return verifier(_motifRefus(r, produit: first.nom));
         case VenteFailed(:final maybeApplied):
-          if (maybeApplied) {
-            return verifier('Réponse perdue pendant la création de la vente ${v.numeroLabel} (${_f(v.totalEstime)} F) : '
-                'vérifiez dans les préventes du serveur qu\'elle n\'existe pas, puis « Renvoyer ».');
+          if (maybeApplied && ref != null) {
+            // H4 : réponse perdue → la vente est relue par sa clé (reprise sans doublon). Relecture impossible :
+            // l'envoi s'arrête, l'étape reste « envoyée avec clé » et la relecture est refaite au prochain envoi.
+            if (!await relire()) {
+              // Clé inconnue du serveur : la vente n'a pas été créée, elle sera renvoyée (même clé).
+              v = await _save(v.copyWith(etape: EtapeHL.creation, statut: StatutVenteHL.enAttente));
+              _stop(r);
+            }
+          } else {
+            if (maybeApplied) {
+              return verifier('Réponse perdue pendant la création de la vente ${v.numeroLabel} (${_f(v.totalEstime)} F) : '
+                  'vérifiez dans les préventes du serveur qu\'elle n\'existe pas, puis « Renvoyer ».');
+            }
+            v = await _save(v.copyWith(etape: EtapeHL.creation, statut: StatutVenteHL.enAttente));
+            _stop(r);
           }
-          v = await _save(v.copyWith(etape: EtapeHL.creation, statut: StatutVenteHL.enAttente));
-          _stop(r);
       }
     }
     final venteId = v.venteId!;
-    if (v.etape == EtapeHL.creation || v.etape == EtapeHL.creationEnvoyee) v = await _save(v.copyWith(etape: EtapeHL.articles));
+    if (v.etape == EtapeHL.creation || v.etape == EtapeHL.creationEnvoyee || v.etape == EtapeHL.creationEnvoyeeRef) {
+      v = await _save(v.copyWith(etape: EtapeHL.articles));
+    }
 
     // 2. Articles : relire le panier du serveur, n'envoyer que ce qui manque.
     if (v.etape == EtapeHL.articles) {

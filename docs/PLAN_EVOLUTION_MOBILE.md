@@ -64,7 +64,7 @@
 | H1 | Base locale (produits, clients, modes) + recherche/scan hors ligne + bandeau d'état |
 | H2 | Préventes hors ligne + file d'envoi + écran « Ventes à vérifier » |
 | H3 | (option) Encaissement espèces hors ligne avec ticket provisoire |
-| H4 | (serveur) `clientRef` anti-doublon |
+| H4 | (serveur) `clientRef` anti-doublon — **fait côté app ; patch serveur à appliquer** (§1.6) |
 
 ### 1.5 H3 — Stock hors ligne (réception BL, pointages, péremptions, retours) : réalisé
 
@@ -144,11 +144,38 @@ Mesuré sur le serveur de test (catalogue 1 793 produits + clients + modes + cop
 **Limites** : pas de création de BL ni d'entrée en stock hors ligne ; BL entrés en stock limités aux 30 derniers jours ;
 saisie des périmés en cours : copie du jour seulement ; un pointage fait EN LIGNE après la dernière mise à jour de la copie
 puis modifié hors ligne est signalé en anomalie (prudence) ; détection « retour déjà créé » impossible côté serveur
-(voir ci-dessus — évolution serveur souhaitable : clé client sur `/retourfournisseur/new`, comme `clientRef` H4).
+(voir ci-dessus — **levée par H4** dès que le serveur a le patch, voir §1.6).
 
 **API pour l'écran commun d'anomalies** : `Anomalie` {id, source, date, type, reference, motif, traitee, operationId,
 details} et `AnomalieSource` {`anomalies()`, `setTraitee(id, bool)`} (`stock_models.dart`) ; `StockQueue` les implémente ;
 `lignesAnomaliesGeneriques()` pour ticket / PDF.
+
+### 1.6 H4 — Clé client anti-doublon (`X-Client-Ref`) : fait côté app, patch serveur à appliquer
+
+**Serveur** (on ne pousse pas sur `airm5500/prestige`) : patch `docs/serveur/H4_client_ref.patch` + notice
+`docs/serveur/H4_CLIENT_REF.md` (quoi, pourquoi, script SQL, application, tests, rétrocompatibilité). En-tête HTTP
+facultatif `X-Client-Ref` sur `/vente/add/vno`, `/vente/add/assurance` (assurance et carnet), `/vente/add/depot` et
+`/retourfournisseur/new` : même clé = même vente / même retour (réponse initiale renvoyée), y compris pour des envois
+simultanés (clé primaire de la table dédiée `mobile_client_ref`, posée dans la même transaction que la création ;
+création refusée = clé non gardée). Relecture `GET /mobile/client-ref/{ref}` → `{type, id, reference, statut}` ou 404 ;
+capacité `GET /mobile/capacites` → `{clientRef: true}`. Sans en-tête : code d'origine, inchangé.
+
+**Application** (`lib/horsligne/client_ref.dart`, `ventes_sync.dart`, `stock/stock_sender.dart`, `DioVenteGateway`) :
+- capacité lue avant la création, en cache par adresse de serveur (oui 30 min, non 5 min, réponse indéterminée jamais
+  gardée) : un changement de serveur (Réglages) entraîne une nouvelle vérification ;
+- serveur avec H4 : la création porte `X-Client-Ref` (`HL2-<id local>` pour une vente, clé `HL3-…` de l'opération pour
+  un retour) ; l'étape « création envoyée avec clé » est enregistrée avant l'appel. Réponse perdue (ou appli fermée
+  pendant l'appel) → relecture par la clé : trouvée = reprise (articles, net, fin ; produits suivants du retour) sans
+  anomalie ; clé inconnue = jamais créée, renvoi avec la même clé ; relecture impossible = envoi arrêté, rien de perdu ;
+- serveur sans H4 (ancien serveur : 401 « expire » ou 404 sur `/mobile/capacites`) : **aucun en-tête**, fonctionnement
+  d'origine exact (anomalies « vérifiez dans les préventes » / « vérifiez sur Prestige ») ;
+- vente en ligne : aucun changement (la passerelle en ligne n'envoie jamais l'en-tête).
+
+**Tests** : `test/horsligne_h4_test.dart` (faux serveurs avec et sans H4, HTTP local pour l'en-tête et la capacité,
+intégration réelle contre le serveur de test, sautée s'il est injoignable ou sans le patch).
+**Vérifié sur le serveur de test** (patch déployé) : double envoi / 6 envois simultanés même clé → 1 vente ; 5 envois
+même clé d'un retour → 1 retour ; sans clé → inchangé ; vente « envoyée avec clé » sans réponse → relue et terminée par
+l'application, aucune anomalie. Données de test supprimées.
 
 ---
 
@@ -274,7 +301,7 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 2. **Ordonnances O1 → O4** — banc d'essai d'abord, puis améliorations mesurées.
 3. **Hors ligne H1 → H2** (+ onduleur conseillé tout de suite).
 4. **Borne B1 → B2**, puis **agrégateur B3** (qui sert aussi au paiement multiple et au comptoir).
-5. Évolutions serveur à prévoir (étape D, côté développeur Prestige) : 3 modes de paiement, `clientRef` anti-doublon, images produits, module agrégateur + notifications.
+5. Évolutions serveur à prévoir (étape D, côté développeur Prestige) : 3 modes de paiement, `clientRef` anti-doublon (H4 : patch prêt, `docs/serveur/H4_client_ref.patch`), images produits, module agrégateur + notifications.
 
 ## 6. Questions pour valider
 1. **Hors ligne** : préventes seulement, ou aussi **encaissement espèces** avec ticket provisoire ?
