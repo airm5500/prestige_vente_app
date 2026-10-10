@@ -5,10 +5,12 @@
 // - un CODE (CIP, EAN-13, GTIN, DataMatrix) cherche le produit EXACT avec ses variantes
 //   (EAN-13 34009… → CIP7), quel que soit le nombre de produits qui commencent pareil ;
 // - un TEXTE donne une liste par pages : « 50 sur 120 », la suite se charge à la demande ;
-// - une panne (réseau, session, serveur) n'est jamais annoncée comme « produit introuvable ».
+// - une panne (réseau, session, serveur) n'est jamais annoncée comme « produit introuvable » ;
+// - le texte suit le réglage « Commence par » / « Contient » (lib/services/search_mode.dart), jamais un code.
 import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
@@ -98,7 +100,7 @@ class PagedProductSearch {
       if (_items.isEmpty) notFound = codeIntrouvableMessage(q, found.tried);
       return true;
     }
-    final pager = ProductPager(search, q);
+    final pager = ProductPager(search, q, mode: modeFor(q));
     final ok = await pager.loadMore();
     if (seq != _seq) return false;
     if (!ok) {

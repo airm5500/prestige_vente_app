@@ -172,6 +172,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       List<ProductSearchResult> results = [];
       for (final q in PrescriptionParser.searchQueries(rx.line)) {
         // Plusieurs pages (jusqu'à _maxNameResults produits) au lieu des 30 premiers seulement.
+        // Toujours « commence par », texte envoyé tel quel (pas de réglage « Contient ») : la
+        // correspondance (1ʳᵉ requête non vide, score, limite) suppose cette recherche.
         final pager = ProductPager(search, q);
         while (pager.items.length < _maxNameResults && (pager.total == 0 || pager.hasMore)) {
           if (!await pager.loadMore()) {

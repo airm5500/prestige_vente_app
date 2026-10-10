@@ -2,6 +2,7 @@
 // Réglages : contrôles de saisie (serveur), résumés des rubriques et recherche.
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 class ParametresChecks {
@@ -79,7 +80,7 @@ extension RubriqueInfo on Rubrique {
         Rubrique.stock => 'contrôle livraison pointage bl comparaison stock théorique machine réception '
             'péremption courte validation entrée',
         Rubrique.apparence => 'présentation tableau de bord compact guidé a b c accueil organiser menu interface '
-            'nouvel accueil version',
+            'nouvel accueil version recherche commence par contient début milieu nom',
         Rubrique.equipe => 'pointage employés badge nfc empreinte pin rapport diagnostic lecteur',
         Rubrique.securite => 'code pin administrateur admin mot de passe sécurité',
         Rubrique.licence => 'licence expiration jours appareil modèle android identifiant support',
@@ -144,7 +145,10 @@ class ParametresSummary {
       'Comparaison ${s.blStockComparisonMode == 'machine' ? 'machine' : 'théorique'}'
       '${!s.canEditDeliveryControl || !s.canEditBlControl ? ' · modification limitée' : ''}';
 
-  static String apparence(ListPresentation p) => 'Présentation ${presentationShort(p)} · organiser l\'accueil';
+  /// La recherche n'est mentionnée que si elle n'est plus « commence par » (réglage par défaut).
+  static String apparence(ListPresentation p, {SearchMode search = SearchMode.commencePar}) =>
+      'Présentation ${presentationShort(p)} · organiser l\'accueil'
+      '${search == SearchMode.contient ? ' · recherche « contient »' : ''}';
 
   static String licence(LicenceProvider l) {
     switch (l.status) {

@@ -2,6 +2,7 @@
 // Liste de choix produit commune (plusieurs résultats) avec filtre local.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 
@@ -125,7 +126,9 @@ class _ProductListModalState extends State<ProductListModal> {
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: Text(
-              'Faites défiler pour charger la suite, ou précisez le début du nom (ex. « DOLIPRANE 1000 »).',
+              SearchModePrefs.current == SearchMode.contient
+                  ? 'Faites défiler pour charger la suite, ou ajoutez un mot (ex. « DOLI 1000 »).'
+                  : 'Faites défiler pour charger la suite, ou précisez le début du nom (ex. « DOLIPRANE 1000 »).',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
             ),
           ),

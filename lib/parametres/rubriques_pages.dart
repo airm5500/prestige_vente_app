@@ -23,6 +23,7 @@ import 'package:prestige_vente_app/screens/pointage/employees_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/pointage_report_screen.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -432,7 +433,39 @@ class _ApparencePageState extends State<ApparencePage> {
             onTap: () => widget.openOrganiser(context),
           ),
           const SettingCard(padding: EdgeInsets.symmetric(vertical: 4), child: InterfaceVersionTile()),
+          const SectionLabel('Recherche'),
+          const SearchModeSetting(),
         ],
+      );
+}
+
+/// Recherche texte des produits, clients et tiers payants : « Commence par » / « Contient ».
+class SearchModeSetting extends StatelessWidget {
+  const SearchModeSetting({super.key});
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<SearchMode>(
+        valueListenable: SearchModePrefs.mode,
+        builder: (context, mode, _) => SettingCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const SettingText('Recherche des produits, clients et tiers payants',
+                subtitle: 'Les codes scannés ou tapés (CIP, EAN) cherchent toujours le produit exact.'),
+            const SizedBox(height: 10),
+            Segmented<SearchMode>(
+              key: const Key('recherche_mode'),
+              options: [for (final m in SearchMode.values) (m, m.label)],
+              value: mode,
+              onChanged: SearchModePrefs.save,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              mode == SearchMode.contient
+                  ? 'Le nom contient le texte tapé, mots dans l\'ordre (dès 3 caractères) : « doli 1000 » trouve « DOLIPRANE 1000MG ».'
+                  : 'Le nom commence par le texte tapé : « doli » trouve « DOLIPRANE… », « 1000 » ne le trouve pas.',
+              style: const TextStyle(fontSize: 12.5, color: Pal.muted),
+            ),
+          ]),
+        ),
       );
 }
 

@@ -32,12 +32,14 @@ import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
 import 'package:prestige_vente_app/providers/proforma_provider.dart';
 import 'package:prestige_vente_app/providers/ajustement_provider.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('fr_FR', null);
   await VentesVersion.load();
   await InterfaceVersion.load();
+  await SearchModePrefs.load();
   runApp(const MyApp());
 }
 

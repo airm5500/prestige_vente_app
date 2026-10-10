@@ -3,6 +3,7 @@
 // compteur « 50 sur 120 », ligne « Charger la suite » / « Réessayer », chargement en défilant.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 
 /// Compteur « Résultats : 50 sur 120 » (affiché seulement si la liste dépasse une page).
 class ProductPagingCount extends StatelessWidget {
@@ -19,7 +20,8 @@ class ProductPagingCount extends StatelessWidget {
       padding: padding,
       child: Text(
         search.hasMore
-            ? 'Résultats : ${search.countLabel} — faites défiler pour la suite, ou précisez le début du nom.'
+            ? 'Résultats : ${search.countLabel} — faites défiler pour la suite, ou '
+                '${SearchModePrefs.current == SearchMode.contient ? 'ajoutez un mot' : 'précisez le début du nom'}.'
             : 'Résultats : ${search.countLabel}',
         style: TextStyle(fontSize: 12, color: c),
       ),

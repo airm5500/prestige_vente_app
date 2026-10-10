@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/core/sale_op_queue.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -236,9 +237,18 @@ class AssuranceController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   /// Recherche client (≥ 2 caractères, comme avant). Une panne reste une panne (jamais « introuvable »).
-  Future<VenteResult<List<ClientAssurance>>> searchClients(String query) => gateway.searchClients(query, typeClientId: '1');
+  /// Le texte suit le réglage « Commence par » / « Contient ».
+  Future<VenteResult<List<ClientAssurance>>> searchClients(String query) {
+    final q = serverQuery(query, modeFor(query));
+    if (q.isEmpty) return Future.value(const VenteOk([]));
+    return gateway.searchClients(q, typeClientId: '1');
+  }
 
-  Future<VenteResult<List<TiersPayantAssurance>>> searchTiersPayants(String query) => gateway.searchTiersPayants(query, carnet: false);
+  Future<VenteResult<List<TiersPayantAssurance>>> searchTiersPayants(String query) {
+    final q = serverQuery(query, modeFor(query));
+    if (q.isEmpty) return Future.value(const VenteOk([]));
+    return gateway.searchTiersPayants(q, carnet: false);
+  }
 
   /// Client choisi : tous ses TP actifs, bons vides, ayant droit = le client s'il figure dans la liste.
   Future<void> selectClient(ClientAssurance client) async {

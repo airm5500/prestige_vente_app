@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/core/sale_op_queue.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -169,14 +170,19 @@ class CarnetController extends ChangeNotifier {
   Future<VenteResult<List<ClientAssurance>>> searchClients(String query) {
     final q = VenteInput.cleanQuery(query);
     if (q.length < 2) return Future.value(const VenteOk([]));
-    return gateway.searchClients(q, typeClientId: typeClientId);
+    // Texte selon le réglage « Commence par » / « Contient ».
+    final sent = serverQuery(q, modeFor(q));
+    if (sent.isEmpty) return Future.value(const VenteOk([]));
+    return gateway.searchClients(sent, typeClientId: typeClientId);
   }
 
   /// Recherche de carnet (tiers payant) pour la création d'un client (≥ 3 caractères).
   Future<VenteResult<List<TiersPayantAssurance>>> searchCarnets(String query) {
     final q = VenteInput.cleanQuery(query);
     if (q.length < 3) return Future.value(const VenteOk([]));
-    return gateway.searchTiersPayants(q, carnet: true);
+    final sent = serverQuery(q, modeFor(q));
+    if (sent.isEmpty) return Future.value(const VenteOk([]));
+    return gateway.searchTiersPayants(sent, carnet: true);
   }
 
   /// L'ayant droit « client lui-même » (identifiant du client), comme l'original.

@@ -1,13 +1,15 @@
 // lib/ventes/common/vente_product_search.dart
 // Recherche / scan produit commun aux ventes : douchette (clavier) ou saisie, délai de frappe,
 // mode scan rapide mémorisé, recherche à partir de 3 caractères (indiqué), panne ≠ introuvable,
-// scans à la suite mis en file (aucun scan perdu), « scan répété » → fenêtre de quantité.
+// scans à la suite mis en file (aucun scan perdu), « scan répété » → fenêtre de quantité,
+// puce « Début / Contient » (réglage de recherche texte partagé, jamais appliqué aux codes).
 import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/common/product_list_modal.dart';
 import 'package:prestige_vente_app/ventes/common/quantity_dialog.dart';
 import 'package:prestige_vente_app/ventes/common/vente_dialogs.dart';
@@ -104,11 +106,13 @@ class VenteProductSearchState extends State<VenteProductSearch> {
     QuickScanPrefs.load().then((v) {
       if (mounted) setState(() => _quick = v);
     });
+    SearchModePrefs.mode.addListener(_onModeChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => requestFocus());
   }
 
   @override
   void dispose() {
+    SearchModePrefs.mode.removeListener(_onModeChanged);
     _debounce?.cancel();
     _ctrl.dispose();
     _fieldFocus.dispose();
@@ -127,6 +131,18 @@ class VenteProductSearchState extends State<VenteProductSearch> {
       _hint = null;
     });
     await QuickScanPrefs.save(_quick);
+    requestFocus();
+  }
+
+  void _onModeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Bascule « Commence par » / « Contient » et relance la recherche en cours.
+  Future<void> _toggleMode() async {
+    await SearchModePrefs.toggle();
+    if (!mounted) return;
+    if (_ctrl.text.trim().isNotEmpty && !_quick) _onChanged(_ctrl.text);
     requestFocus();
   }
 
@@ -274,7 +290,8 @@ class VenteProductSearchState extends State<VenteProductSearch> {
       await _handleResults(q, candidates, scan: false);
       return;
     }
-    final pager = ProductPager(search, q);
+    final mode = modeFor(q);
+    final pager = ProductPager(search, q, mode: mode);
     final ok = await pager.loadMore();
     if (!mounted) return;
     setState(() => _loading = false);
@@ -284,7 +301,7 @@ class VenteProductSearchState extends State<VenteProductSearch> {
     }
     final shown = pager.items.where(_visible).toList();
     if (shown.isEmpty && !pager.hasMore) {
-      setState(() => _hint = 'Aucun produit dont le nom ou le code commence par « $q ».');
+      setState(() => _hint = 'Aucun produit dont le nom ou le code ${mode.verbe} « $q ».');
       return;
     }
     if (shown.length == 1 && !pager.hasMore) {
@@ -417,7 +434,7 @@ class VenteProductSearchState extends State<VenteProductSearch> {
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                   prefixIcon: _prefix(active),
-                  suffixIcon: _clearButton(),
+                  suffixIcon: _suffix(),
                   border: const OutlineInputBorder(),
                   enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: active ? Colors.green : Colors.grey, width: active ? 2.5 : 1)),
                   focusedBorder: OutlineInputBorder(
@@ -459,6 +476,11 @@ class VenteProductSearchState extends State<VenteProductSearch> {
       ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
       : Icon(active ? Icons.bolt : Icons.search, color: active ? Colors.green : null);
 
+  Widget _suffix() => Row(mainAxisSize: MainAxisSize.min, children: [
+        SearchModeChip(onToggle: _toggleMode),
+        _clearButton(),
+      ]);
+
   Widget _clearButton() => IconButton(
         icon: const Icon(Icons.clear),
         tooltip: 'Effacer',
@@ -497,7 +519,7 @@ class VenteProductSearchState extends State<VenteProductSearch> {
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                   prefixIcon: _prefix(active),
-                  suffixIcon: _clearButton(),
+                  suffixIcon: _suffix(),
                   filled: true,
                   fillColor: active ? const Color(0xFFE6F4EA) : Colors.white,
                   border: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide.none),

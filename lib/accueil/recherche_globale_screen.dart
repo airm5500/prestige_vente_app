@@ -1,6 +1,7 @@
 // lib/accueil/recherche_globale_screen.dart
 // Recherche de l'accueil : menus (par nom) + produits (même recherche fiable que les menus :
 // code exact avec variantes ou liste texte par pages). Un code scanné ouvre la fiche produit.
+// Puce « Début / Contient » : mode de la recherche texte des produits (réglage partagé).
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/screens/product_search/product_search_widgets.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/product_paging.dart';
@@ -137,6 +139,15 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
     if (mounted) setState(() {});
   }
 
+  /// Bascule « Commence par » / « Contient » et relance la recherche produit.
+  Future<void> _basculerMode() async {
+    await SearchModePrefs.toggle();
+    if (!mounted) return;
+    _debounce?.cancel();
+    _lastSent = '';
+    if (!_search.byCode) await _lancer();
+  }
+
   void _effacer() {
     _debounce?.cancel();
     _controller.clear();
@@ -170,6 +181,7 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
               hintText: 'Menu, nom du produit ou code CIP',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+                SearchModeChip(onToggle: _basculerMode),
                 if (_controller.text.isNotEmpty) IconButton(icon: const Icon(Icons.clear), tooltip: 'Effacer', onPressed: _effacer),
                 IconButton(icon: const Icon(Icons.qr_code_scanner), tooltip: 'Scanner un code', onPressed: _scanner),
               ]),

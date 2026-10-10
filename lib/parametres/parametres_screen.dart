@@ -19,6 +19,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/splash_screen.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -57,6 +58,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
 
   Future<void> _reloadSummaries() async {
     final p = await PresentationPrefs.load();
+    await SearchModePrefs.load();
     PointageSettings? ps;
     try {
       ps = await _pointageRepo.loadSettings();
@@ -89,7 +91,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
         Rubrique.ventes => ParametresSummary.ventes(s, newSales: VentesVersion.useNew.value),
         Rubrique.impression => ParametresSummary.impression(s),
         Rubrique.stock => ParametresSummary.stock(s),
-        Rubrique.apparence => ParametresSummary.apparence(_presentation),
+        Rubrique.apparence => ParametresSummary.apparence(_presentation, search: SearchModePrefs.current),
         Rubrique.equipe => _pointage == null ? 'Méthode, employés, rapport' : pointageSummary(_pointage!),
         Rubrique.securite => 'Code PIN administrateur',
         Rubrique.licence => ParametresSummary.licence(l),

@@ -6,6 +6,7 @@
 //   au lieu de couper la liste en silence.
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/services/datamatrix_parser.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
 /// Une page de résultats du serveur (`total` = nombre total de produits correspondants).
@@ -96,12 +97,18 @@ class ProductLookup {
 class ProductPager {
   final ProductPageSearch _search;
   final String query;
+
+  /// « Commence par » / « Contient » (voir [serverQuery]) ; null : [query] envoyé tel quel.
+  final SearchMode? mode;
   final List<ProductSearchResult> items = [];
   int total = 0;
   bool _loading = false;
   String? error;
 
-  ProductPager(this._search, this.query);
+  ProductPager(this._search, this.query, {this.mode});
+
+  /// Texte réellement envoyé au serveur.
+  String get sentQuery => mode == null ? query : serverQuery(query, mode!);
 
   bool get hasMore => items.length < total;
   bool get loading => _loading;
@@ -109,10 +116,13 @@ class ProductPager {
   /// Charge la page suivante ; renvoie false en cas d'échec (message dans [error]).
   Future<bool> loadMore() async {
     if (_loading || (total > 0 && !hasMore)) return true;
+    final sent = sentQuery;
+    // Que des jokers tapés (ex. « %%% ») : rien à chercher (et non tout le catalogue).
+    if (sent.isEmpty && mode != null) return true;
     _loading = true;
     error = null;
     try {
-      final r = await _search(query, items.length, ProductLookup.pageSize);
+      final r = await _search(sent, items.length, ProductLookup.pageSize);
       if (r is VenteOk<ProductPage>) {
         final known = {for (final p in items) p.lgFAMILLEID};
         items.addAll(r.value.items.where((p) => known.add(p.lgFAMILLEID)));
