@@ -108,7 +108,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
 
   Future<void> _openOrganiser(BuildContext ctx) async {
     if (!await _adminOk() || !ctx.mounted) return;
-    await Navigator.of(ctx).push(MaterialPageRoute(builder: (_) => (_sv.organiserAccueil ?? () => const OrganiserAccueilScreen())()));
+    await Navigator.of(ctx).push(MaterialPageRoute(builder: (_) => (_sv.organiserAccueil ?? () => const OrganiserAccueilScreen(alreadyAuthorized: true))()));
   }
 
   void _afterServerSaved(BuildContext ctx) {
