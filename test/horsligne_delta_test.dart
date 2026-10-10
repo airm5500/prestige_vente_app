@@ -283,7 +283,16 @@ void main() {
       for (var i = 1; i <= 12; i++) {
         e.srv.maj('p$i', _prod('p$i', 'PRODUIT ${i.toString().padLeft(3, '0')}', stock: 50 + i));
       }
+      // Progression affichée comme pour la copie complète (étape 1/1, pages).
+      final vus = <String>{};
+      void ecoute() {
+        if (e.sync.running && e.sync.progressionLabel != null) vus.add('${e.sync.etapeNum}/${e.sync.etapesTotal} ${e.sync.progressionLabel}');
+      }
+
+      e.sync.addListener(ecoute);
       expect(await e.sync.syncChangements(), isTrue, reason: e.sync.error);
+      e.sync.removeListener(ecoute);
+      expect(vus, containsAll(['1/1 Produits (changements) : page 1/3 (5 / 12)', '1/1 Produits (changements) : page 3/3 (12 / 12)']));
       expect(e.srv.requetes.length, 3, reason: '12 changements, pages de 5');
       expect(e.srv.requetes.first.containsKey('jusqua'), isFalse);
       expect(e.srv.requetes.skip(1).map((q) => q['jusqua']).toSet(), {'2026-10-10 14:05:00'});

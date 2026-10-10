@@ -37,6 +37,8 @@ import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/horsligne/connexion_toasts.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
+import 'package:prestige_vente_app/services/fingerprint_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +46,10 @@ Future<void> main() async {
   await VentesVersion.load();
   await InterfaceVersion.load();
   await SearchModePrefs.load();
+  // Journal du terminal (SQLite, fichier du catalogue) : durée de conservation et identité du terminal.
+  JournalTerminal.instance = JournalTerminal.app(HorsLigne.instance.store);
+  await JournalTerminal.chargerReglages();
+  await JournalTerminal.instance.chargerIdentite(materiel: FingerprintService.hardwareInfo);
   runApp(const MyApp());
 }
 
