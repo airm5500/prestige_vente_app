@@ -3,9 +3,9 @@
 // connexion si > 12 h, toutes les 30 min en ligne, bouton « Mettre à jour maintenant ») et les MÊMES
 // routes que les écrans :
 //   BL à entrer  : /commande/list-bons statut=enable          (Réception BL)
-//   BL entrés    : /commande/list-bons statut=is_Closed, 30 j (Pointage BL, Retours fournisseurs)
+//   BL entrés    : /commande/list-bons statut=is_Closed, 3 j  (Pointage BL, Retours fournisseurs)
 //   lignes de BL : /commande/bon/items/{id}                    (les deux listes ci-dessus)
-//   contrôle     : /etat-control-bon/list, 30 j                (Contrôle réception, lignes incluses)
+//   contrôle     : /etat-control-bon/list, 3 j                 (Contrôle réception, lignes incluses)
 //   commandes    : /commande/list + /commande/list/passees     (Réception, Contrôle livraison)
 //   lignes cmde  : /commande/commande-en-cours-items           (Contrôle livraison)
 //   référentiels : /common/grossiste, /common/motifs-retour, /common/rayons, /gestionperime/saisie-encours
@@ -22,8 +22,9 @@ class StockRefSync extends ChangeNotifier implements CatalogueExtension {
   final StockStore store;
   final DateTime Function() _clock;
 
-  /// Profondeur de la copie des BL entrés en stock et du contrôle réception.
-  static const int jours = 30;
+  /// Profondeur de la copie des BL entrés en stock et du contrôle réception : les 3 DERNIERS JOURS
+  /// (aujourd'hui compris). Les écrans hors ligne affichent par défaut le jour même.
+  static const int jours = 3;
 
   /// Téléchargements de lignes en parallèle.
   final int parallel;
@@ -100,12 +101,11 @@ class StockRefSync extends ChangeNotifier implements CatalogueExtension {
           'dtStart': d(days),
           'dtEnd': d(0),
         });
-    // Trois lectures (jour / 7 j / 30 j) : le serveur filtre sur la date d'entrée en stock, absente
+    // Deux lectures (3 jours / jour) : le serveur filtre sur la date d'entrée en stock, absente
     // de la réponse ; on note la tranche pour reproduire hors ligne les périodes des écrans.
     final mois = await closed(jours - 1);
-    final semaine = {for (final r in await closed(6)) StockRef.blsClotures.idOf(r)};
     final jour = {for (final r in await closed(0)) StockRef.blsClotures.idOf(r)};
-    int tranche(String id) => jour.contains(id) ? 0 : semaine.contains(id) ? 6 : jours - 1;
+    int tranche(String id) => jour.contains(id) ? 0 : jours - 1;
     for (final r in mois) {
       r['_hl_jours'] = tranche(StockRef.blsClotures.idOf(r));
     }

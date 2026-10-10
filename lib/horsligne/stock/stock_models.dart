@@ -30,9 +30,9 @@ enum StockRef {
 extension StockRefInfo on StockRef {
   String get label => switch (this) {
         StockRef.blsAEntrer => 'BL à entrer en stock',
-        StockRef.blsClotures => 'BL entrés en stock (30 j)',
+        StockRef.blsClotures => 'BL entrés en stock (3 j)',
         StockRef.lignesBl => 'Lignes de BL',
-        StockRef.controleReception => 'Contrôle réception (30 j)',
+        StockRef.controleReception => 'Contrôle réception (3 j)',
         StockRef.commandes => 'Commandes en cours / passées',
         StockRef.lignesCommandes => 'Lignes de commandes',
         StockRef.grossistes => 'Grossistes',

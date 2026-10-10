@@ -17,6 +17,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -113,6 +114,7 @@ class FileVentesHL extends ChangeNotifier {
     await store.put(v);
     _replace(v);
     _notify();
+    journalVenteHL(v, v.fin == FinVenteHL.especes ? 'Vente hors ligne enregistrée (encaissée en espèces)' : 'Vente hors ligne enregistrée (prévente)', encaissement: true);
     return v;
   }
 
@@ -146,6 +148,7 @@ class FileVentesHL extends ChangeNotifier {
       final v = byId(id);
       if (v == null || !v.aFaire) continue;
       await _save(v.copyWith(statut: StatutVenteHL.ressaisie));
+      journalVenteHL(v, 'Non envoyée : ressaisie sur le serveur (décochée à la confirmation)');
     }
   }
 
@@ -185,6 +188,7 @@ class FileVentesHL extends ChangeNotifier {
       statut: v.venteId == null ? StatutVenteHL.enAttente : StatutVenteHL.envoiEnCours,
       acceptes: [...v.acceptes, if (m != null && !v.acceptes.contains(m)) m],
     ));
+    journalVenteHL(v, 'Renvoi demandé (écart accepté)', motif: m ?? '');
     await envoyer(ids: [id]);
   }
 
@@ -193,6 +197,7 @@ class FileVentesHL extends ChangeNotifier {
     final v = byId(id);
     if (v == null || v.statut == StatutVenteHL.envoyee) return;
     await _save(v.copyWith(statut: StatutVenteHL.traitee));
+    journalVenteHL(v, 'Marquée comme traitée (régularisée sur le serveur)');
     for (final a in _anomalies.where((a) => a.venteLocaleId == id && !a.traitee).toList()) {
       await marquerAnomalie(a.id, true);
     }
@@ -205,7 +210,26 @@ class FileVentesHL extends ChangeNotifier {
     await store.remove(id);
     _ventes = _ventes.where((x) => x.id != id).toList();
     _notify();
+    journalVenteHL(v, 'Vente hors ligne supprimée (jamais envoyée)');
     return true;
+  }
+
+  /// Purge de l'historique : ventes TERMINÉES (envoyées, traitées, ressaisies) antérieures à [avant].
+  /// Les ventes en attente ou en anomalie ne sont jamais effacées.
+  Future<int> purger(DateTime avant) async {
+    await ensureLoaded();
+    var n = 0;
+    for (final v in List.of(_ventes)) {
+      final fini = v.statut == StatutVenteHL.envoyee || v.statut == StatutVenteHL.traitee || v.statut == StatutVenteHL.ressaisie;
+      if (!fini || !(v.envoyeeAt ?? v.updatedAt).isBefore(avant)) continue;
+      try {
+        await store.remove(v.id);
+        _ventes = _ventes.where((x) => x.id != v.id).toList();
+        n++;
+      } catch (_) {}
+    }
+    if (n > 0) _notify();
+    return n;
   }
 
   // ---------------------------------------------------------------------------
@@ -265,6 +289,7 @@ class FileVentesHL extends ChangeNotifier {
           try {
             await _envoyerUne(gw, v);
           } on _Panne catch (e) {
+            journalVenteHL(byId(id) ?? v, 'Envoi interrompu', resultat: ResultatJournal.echecReseau, motif: e.message, source: SourceJournal.fileHL);
             _panne = e.message;
             _again = false;
             break;
@@ -304,6 +329,7 @@ class FileVentesHL extends ChangeNotifier {
     Future<_Issue> verifier(String motif) async {
       v = await _save(v.copyWith(statut: StatutVenteHL.aVerifier, motif: motif));
       await _ajouterAnomalie(v, motif);
+      journalVenteHL(v, 'Anomalie à l\'envoi', resultat: ResultatJournal.refus, motif: motif, source: SourceJournal.fileHL);
       _notify();
       return _Issue.verifier;
     }
@@ -452,6 +478,7 @@ class FileVentesHL extends ChangeNotifier {
 
   Future<_Issue> _envoyee(VenteHorsLigne v, void Function(VenteHorsLigne) set) async {
     final u = await _save(v.copyWith(statut: StatutVenteHL.envoyee, etape: null, motif: null, envoyeeAt: _clock()));
+    journalVenteHL(u, 'Vente hors ligne envoyée au serveur', source: SourceJournal.fileHL);
     set(u);
     return _Issue.envoyee;
   }

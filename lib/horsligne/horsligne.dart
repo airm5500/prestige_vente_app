@@ -11,6 +11,8 @@ import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/activite_app.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_interceptor.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
@@ -54,7 +56,31 @@ class HorsLigne {
   void _onMonitor() {
     final avant = _etat;
     _etat = monitor.etat;
+    if (_etat != avant) _journalEtat(avant);
     if (_etat == EtatServeur.enLigne && avant != EtatServeur.enLigne) ventes.demanderConfirmation();
+  }
+
+  /// Passage en / hors ligne noté dans le journal du terminal.
+  void _journalEtat(EtatServeur avant) {
+    final action = switch (_etat) {
+      EtatServeur.enLigne => 'Retour en ligne (serveur joignable)',
+      EtatServeur.injoignable => 'Serveur injoignable',
+      EtatServeur.horsLigne => monitor.raison == RaisonHorsLigne.manuel ? 'Passage hors ligne (choisi)' : 'Passage hors ligne (serveur injoignable)',
+    };
+    JournalTerminal.instance.noter(
+      type: TypeJournal.reseau,
+      action: action,
+      resultat: ResultatJournal.info,
+      source: _etat == EtatServeur.enLigne ? SourceJournal.enLigne : SourceJournal.horsLigne,
+    );
+  }
+
+  /// Purge de l'historique au-delà de la durée de conservation (90 jours par défaut, réglable) :
+  /// journal du terminal et ventes hors ligne terminées (jamais celles en attente ou en anomalie).
+  Future<void> purgerHistorique() async {
+    final j = JournalTerminal.instance;
+    await j.purger();
+    await ventes.purger(j.limiteConservation);
   }
 
   /// Ventes hors ligne : file chargée, puis confirmation si le serveur répond (après la connexion).
@@ -108,6 +134,11 @@ class HorsLigne {
     }
     // Requêtes de l'utilisateur en cours : la mise à jour automatique de la copie se met en pause.
     if (!dio.interceptors.any((i) => i is ActiviteInterceptor)) dio.interceptors.add(ActiviteInterceptor());
+    // Journal du terminal : écritures connues (vente, encaissement, stock…) et anti-doublon.
+    if (!dio.interceptors.any((i) => i is JournalInterceptor)) {
+      dio.interceptors.add(JournalInterceptor(fileEnCours: () => HorsLigne.instance.ventes.running));
+    }
+    JournalTerminal.instance.horsLigne = () => HorsLigne.instance.offline;
     monitor.ping ??= _ping;
     sync.fetch ??= _fetch;
     // Mêmes appels que la vente en ligne (session de l'appli).
