@@ -10,6 +10,7 @@ import 'package:prestige_vente_app/providers/proforma_provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/screens/proforma/proforma_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 // Imports PDF & Printing
 import 'package:pdf/pdf.dart';
@@ -17,7 +18,9 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 class ProformaListScreen extends StatefulWidget {
-  const ProformaListScreen({Key? key}) : super(key: key);
+  /// Présentation imposée (tests) ; sinon celle choisie sur l'appareil (A par défaut).
+  final ListPresentation? presentation;
+  const ProformaListScreen({Key? key, this.presentation}) : super(key: key);
 
   @override
   State<ProformaListScreen> createState() => _ProformaListScreenState();
@@ -28,10 +31,22 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
   bool _isLoading = true;
   final String _today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
+  late ListPresentation _style = widget.presentation ?? ListPresentation.dashboard;
+
   @override
   void initState() {
     super.initState();
+    if (widget.presentation == null) {
+      PresentationPrefs.load().then((p) {
+        if (mounted) setState(() => _style = p);
+      });
+    }
     _loadProformas();
+  }
+
+  void _setStyle(ListPresentation p) {
+    setState(() => _style = p);
+    if (widget.presentation == null) PresentationPrefs.save(p);
   }
 
   Future<void> _loadProformas() async {
@@ -275,78 +290,257 @@ class _ProformaListScreenState extends State<ProformaListScreen> {
     return amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]} ');
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Liste Proformas / Devis")),
-      floatingActionButton: FloatingActionButton.extended(
+  // ---------------------------------------------------------------------------
+  // Affichage : A · Tableau de bord, B · Liste groupée, C · Parcours guidé
+  // ---------------------------------------------------------------------------
+  bool _isOpen(ProformaListItem item) => item.strSTATUT == 'is_Process' || item.strSTATUT == 'devis';
+  int get _total => _proformas.fold(0, (s, p) => s + p.intPRICE);
+
+  StatusBadge _statusBadge(ProformaListItem item) => _isOpen(item)
+      ? StatusBadge(item.strSTATUT, fg: const Color(0xFF0B6B45), bg: const Color(0xFFDCF5E7))
+      : StatusBadge(item.strSTATUT, fg: const Color(0xFF3D4B60), bg: const Color(0xFFE6EBF2));
+
+  Widget get _fab => FloatingActionButton.extended(
         onPressed: () => _openProforma(null),
         label: const Text("Nouveau Devis"),
         icon: const Icon(Icons.add),
         backgroundColor: AppColors.primary,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _proformas.isEmpty
-          ? const Center(child: Text("Aucun devis trouvé pour aujourd'hui"))
-          : RefreshIndicator(
-        onRefresh: _loadProformas,
-        child: ListView.builder(
-          itemCount: _proformas.length,
-          itemBuilder: (context, index) {
-            final item = _proformas[index];
-            final bool isGreen = item.strSTATUT == 'is_Process' || item.strSTATUT == 'devis';
+        foregroundColor: Colors.white,
+      );
 
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                leading: CircleAvatar(
-                  backgroundColor: Colors.purple.shade100,
-                  child: const Icon(Icons.description, color: Colors.purple),
-                ),
-                title: Text(item.strClientFullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Réf: ${item.strREF} - ${item.heure}"),
-                    if (item.userFullName.isNotEmpty)
-                      Text("Vendeur: ${item.userFullName}", style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
-                  ],
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text("${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primary)),
-                        Text(
-                          item.strSTATUT,
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: isGreen ? Colors.green : Colors.grey,
-                              fontWeight: FontWeight.bold
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 8),
-                    // BOUTON IMPRIMER A4
-                    IconButton(
-                      icon: const Icon(Icons.print, color: Colors.blueGrey),
-                      tooltip: "Imprimer A4",
-                      onPressed: () => _handlePrint(item),
-                    ),
-                  ],
-                ),
-                onTap: () => _openProforma(item),
-              ),
-            );
-          },
-        ),
-      ),
-    );
+  /// Liste ou état vide / chargement (même comportement pour les trois présentations).
+  Widget _list(Widget Function() builder) {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_proformas.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadProformas,
+        child: ListView(children: const [
+          Padding(padding: EdgeInsets.all(32), child: Text("Aucun devis trouvé pour aujourd'hui", textAlign: TextAlign.center)),
+        ]),
+      );
+    }
+    return RefreshIndicator(onRefresh: _loadProformas, child: builder());
   }
+
+  @override
+  Widget build(BuildContext context) => switch (_style) {
+        ListPresentation.dashboard => _buildDashboard(),
+        ListPresentation.compact => _buildCompact(),
+        ListPresentation.guided => _buildGuided(),
+      };
+
+  // --- A ---
+  Widget _buildDashboard() => Scaffold(
+        backgroundColor: Pal.page,
+        floatingActionButton: _fab,
+        body: Column(children: [
+          NavyHeader(
+            title: 'Proformas / Devis',
+            subtitle: "Devis du jour · ${DateFormat('dd/MM/yyyy').format(DateTime.now())}",
+            actions: [
+              PresentationMenuButton(value: _style, onChanged: _setStyle),
+              IconButton(icon: const Icon(Icons.refresh, color: Colors.white), tooltip: 'Actualiser', onPressed: _loadProformas),
+            ],
+            children: [
+              Row(children: [
+                Expanded(child: KpiTile('${_proformas.length}', 'devis du jour')),
+                const SizedBox(width: 8),
+                Expanded(child: KpiTile('${_proformas.where(_isOpen).length}', 'en cours')),
+                const SizedBox(width: 8),
+                Expanded(flex: 2, child: KpiTile('${_formatCurrency(_total)} F', 'montant total', highlight: true)),
+              ]),
+            ],
+          ),
+          Expanded(
+            child: _list(() => ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 96),
+                  itemCount: _proformas.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (_, i) => _cardA(_proformas[i]),
+                )),
+          ),
+        ]),
+      );
+
+  Widget _cardA(ProformaListItem item) => SoftCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            GrossisteAvatar(item.strClientFullName),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(item.strClientFullName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Pal.ink)),
+                Text("Réf: ${item.strREF} - ${item.heure}", style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                if (item.userFullName.isNotEmpty)
+                  Text("Vendeur: ${item.userFullName}", style: const TextStyle(fontSize: 12, color: Pal.muted)),
+              ]),
+            ),
+            _statusBadge(item),
+          ]),
+          const SizedBox(height: 10),
+          Text("${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Pal.navy)),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(
+              child: SizedBox(
+                height: 44,
+                child: OutlinedButton.icon(
+                  style: outlineButton,
+                  icon: const Icon(Icons.print, size: 18),
+                  label: const Text('Imprimer A4'),
+                  onPressed: () => _handlePrint(item),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SizedBox(height: 44, child: ElevatedButton(style: navyButton, onPressed: () => _openProforma(item), child: const Text('Ouvrir'))),
+            ),
+          ]),
+        ]),
+      );
+
+  // --- B ---
+  Widget _buildCompact() => Scaffold(
+        backgroundColor: Colors.white,
+        floatingActionButton: _fab,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          foregroundColor: Pal.navy,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          title: const Text("Liste Proformas / Devis", style: TextStyle(fontWeight: FontWeight.bold, color: Pal.navy)),
+          actions: [
+            PresentationMenuButton(value: _style, onChanged: _setStyle, color: Pal.navy),
+            IconButton(icon: const Icon(Icons.refresh, color: Pal.navy), tooltip: 'Actualiser', onPressed: _loadProformas),
+          ],
+          bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
+        ),
+        body: Column(children: [
+          Expanded(
+            child: _list(() => ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 88),
+                  itemCount: _proformas.length,
+                  itemBuilder: (_, i) {
+                    final item = _proformas[i];
+                    return InkWell(
+                      onTap: () => _openProforma(item),
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
+                        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+                        child: Row(children: [
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(item.strClientFullName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                              Text.rich(TextSpan(style: const TextStyle(fontSize: 13, color: Pal.muted), children: [
+                                TextSpan(text: "${item.strREF} · ${item.heure}${item.userFullName.isNotEmpty ? ' · ${item.userFullName}' : ''} · "),
+                                TextSpan(
+                                  text: item.strSTATUT,
+                                  style: TextStyle(fontWeight: FontWeight.w600, color: _isOpen(item) ? const Color(0xFF0B6B45) : Pal.muted),
+                                ),
+                              ])),
+                            ]),
+                          ),
+                          Text("${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Pal.navy)),
+                          IconButton(
+                            icon: const Icon(Icons.print, color: Colors.blueGrey),
+                            tooltip: "Imprimer A4",
+                            onPressed: () => _handlePrint(item),
+                          ),
+                        ]),
+                      ),
+                    );
+                  },
+                )),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(color: Color(0xFFF8FAFC), border: Border(top: BorderSide(color: Pal.line))),
+            child: SafeArea(
+              top: false,
+              child: Row(children: [
+                Expanded(child: Text("${_proformas.length} devis aujourd'hui", style: const TextStyle(fontSize: 13, color: Color(0xFF4A5A70)))),
+                Text("Total ${_formatCurrency(_total)} F", style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
+              ]),
+            ),
+          ),
+        ]),
+      );
+
+  // --- C ---
+  Widget _buildGuided() => Scaffold(
+        backgroundColor: const Color(0xFFEEF2F7),
+        body: Column(children: [
+          NavyHeader(
+            title: 'Proformas / Devis',
+            rounded: false,
+            actions: [
+              PresentationMenuButton(value: _style, onChanged: _setStyle),
+              IconButton(icon: const Icon(Icons.refresh, color: Colors.white), tooltip: 'Actualiser', onPressed: _loadProformas),
+            ],
+            children: const [
+              StepsBar(active: 0, steps: [
+                (title: 'Devis', detail: 'nouveau ou existant', onTap: null),
+                (title: 'Produits', detail: 'quantités, remises', onTap: null),
+                (title: 'Imprimer', detail: 'proforma A4', onTap: null),
+              ]),
+            ],
+          ),
+          Expanded(
+            child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
+              SoftCard(
+                band: Pal.amber,
+                padding: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  const Text('Nouveau devis', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
+                  const Text('Choisissez le client, ajoutez les produits, puis imprimez la proforma.',
+                      style: TextStyle(fontSize: 13, color: Pal.muted)),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      style: amberButton,
+                      icon: const Icon(Icons.add),
+                      label: const Text("Nouveau Devis"),
+                      onPressed: () => _openProforma(null),
+                    ),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 16),
+              Text("DEVIS DU JOUR · ${_proformas.length} · ${_formatCurrency(_total)} F",
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70))),
+              const SizedBox(height: 8),
+              if (_isLoading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+              if (!_isLoading && _proformas.isEmpty)
+                const Padding(padding: EdgeInsets.all(24), child: Text("Aucun devis trouvé pour aujourd'hui", textAlign: TextAlign.center)),
+              if (!_isLoading)
+                for (final item in _proformas) ...[
+                  SoftCard(
+                    child: Row(children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => _openProforma(item),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(item.strClientFullName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Pal.ink)),
+                            Text("${item.strREF} · ${item.heure} · ${_formatCurrency(item.intPRICE)} F", style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                          ]),
+                        ),
+                      ),
+                      IconButton(icon: const Icon(Icons.print, color: Colors.blueGrey), tooltip: "Imprimer A4", onPressed: () => _handlePrint(item)),
+                      IconButton.filled(
+                        tooltip: 'Ouvrir ${item.strREF}',
+                        style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
+                        icon: const Icon(Icons.arrow_forward),
+                        onPressed: () => _openProforma(item),
+                      ),
+                    ]),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+            ]),
+          ),
+        ]),
+      );
 }

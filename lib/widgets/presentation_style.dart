@@ -394,3 +394,117 @@ class Figure extends StatelessWidget {
         TextSpan(text: ' $label', style: const TextStyle(fontSize: 13, color: Pal.muted)),
       ]));
 }
+
+/// Charge la présentation choisie sur l'appareil (si elle n'est pas imposée) pour un écran intérieur.
+mixin PresentationAware<T extends StatefulWidget> on State<T> {
+  ListPresentation? get forcedPresentation;
+  late ListPresentation style = forcedPresentation ?? ListPresentation.dashboard;
+
+  void loadPresentation() {
+    if (forcedPresentation != null) return;
+    PresentationPrefs.load().then((p) {
+      if (mounted && p != style) setState(() => style = p);
+    });
+  }
+}
+
+/// Cadre d'écran commun aux trois présentations.
+/// - A : en-tête bleu arrondi ; [header] (chiffres clés, champ de scan…) dans l'en-tête.
+/// - B : barre blanche sobre ; [header] affiché sous la barre, sur fond clair.
+/// - C : en-tête bleu droit avec les étapes [steps] ; [header] en dessous des étapes.
+class PresentationScaffold extends StatelessWidget {
+  final ListPresentation style;
+  final String title;
+  final String? subtitle;
+  final List<Widget> Function(Color iconColor) actions;
+  final List<Widget> header;
+  final List<Widget> compactHeader;
+  final StepsBar? steps;
+  final Widget body;
+  final Widget? bottomNavigationBar;
+  final Widget? floatingActionButton;
+
+  const PresentationScaffold({
+    super.key,
+    required this.style,
+    required this.title,
+    this.subtitle,
+    required this.actions,
+    this.header = const [],
+    this.compactHeader = const [],
+    this.steps,
+    required this.body,
+    this.bottomNavigationBar,
+    this.floatingActionButton,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (style == ListPresentation.compact) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          foregroundColor: Pal.navy,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Pal.navy, fontSize: 18)),
+            if (subtitle != null) Text(subtitle!, style: const TextStyle(fontSize: 12, color: Pal.muted)),
+          ]),
+          actions: actions(Pal.navy),
+          bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
+        ),
+        bottomNavigationBar: bottomNavigationBar,
+        floatingActionButton: floatingActionButton,
+        body: Column(children: [
+          for (final h in compactHeader) Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 0), child: h),
+          Expanded(child: body),
+        ]),
+      );
+    }
+    final dashboard = style == ListPresentation.dashboard;
+    return Scaffold(
+      backgroundColor: dashboard ? Pal.page : const Color(0xFFEEF2F7),
+      bottomNavigationBar: bottomNavigationBar,
+      floatingActionButton: floatingActionButton,
+      body: Column(children: [
+        NavyHeader(
+          title: title,
+          subtitle: subtitle,
+          rounded: dashboard,
+          actions: actions(Colors.white),
+          children: [
+            if (!dashboard && steps != null) steps!,
+            ...header,
+          ],
+        ),
+        Expanded(child: body),
+      ]),
+    );
+  }
+}
+
+/// Bandeau de chiffres clairs (présentation B) : chiffres en couleur sur fond très clair.
+class LightFigures extends StatelessWidget {
+  final List<(String value, String label, Color color)> items;
+  const LightFigures(this.items, {super.key});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: Pal.line)),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+          for (final (v, l, c) in items)
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Column(children: [
+                  Text(v, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: c)),
+                  Text(l, style: const TextStyle(fontSize: 11, color: Color(0xFF4A5A70))),
+                ]),
+              ),
+            ),
+        ]),
+      );
+}

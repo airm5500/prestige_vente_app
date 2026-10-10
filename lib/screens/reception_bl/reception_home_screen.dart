@@ -137,6 +137,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
         codeCamera: widget.codeCamera,
         labelCamera: widget.labelCamera,
         clock: widget.clock,
+        presentation: _style,
       ),
     ));
     if (mounted) _load();
@@ -147,6 +148,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
     String? ref;
     final created = await Navigator.of(context).push<bool>(MaterialPageRoute(
       builder: (_) => _CreateBlScreen(
+        style: _style,
         order: order,
         today: (widget.clock ?? DateTime.now)(),
         onCreate: (input) async {
@@ -231,7 +233,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
     final lines = _blLines[bl.id];
     if (lines == null) return _openBl(bl);
     await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ReceptionSummaryScreen(bl: bl, gateway: _gateway, settings: _settings, lines: lines, clock: widget.clock),
+      builder: (_) => ReceptionSummaryScreen(bl: bl, gateway: _gateway, settings: _settings, lines: lines, clock: widget.clock, presentation: _style),
     ));
     if (mounted) _load();
   }
@@ -411,9 +413,9 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
           ]),
           const SizedBox(height: 12),
           Row(children: [
-            Figure('${o.products}', o.products > 1 ? 'produits' : 'produit'),
+            Flexible(child: Figure('${o.products}', o.products > 1 ? 'produits' : 'produit')),
             const SizedBox(width: 18),
-            Figure(_money.format(o.amount), 'F HT'),
+            Flexible(child: Figure(_money.format(o.amount), 'F HT')),
           ]),
           const SizedBox(height: 12),
           SizedBox(
@@ -477,7 +479,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
     final total = orders.fold<int>(0, (s, o) => s + o.amount);
     Widget tab(String label, int count, bool on) => Tab(
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text(label),
+            Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
             const SizedBox(width: 6),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
@@ -827,7 +829,8 @@ class _CreateBlScreen extends StatefulWidget {
   final ReceptionOrder order;
   final DateTime today;
   final Future<ReceptionResult> Function(_BlInput input) onCreate;
-  const _CreateBlScreen({required this.order, required this.today, required this.onCreate});
+  final ListPresentation style;
+  const _CreateBlScreen({required this.order, required this.today, required this.onCreate, required this.style});
 
   @override
   State<_CreateBlScreen> createState() => _CreateBlScreenState();
@@ -892,93 +895,135 @@ class _CreateBlScreenState extends State<_CreateBlScreen> {
     }
   }
 
+  InputDecoration _deco(String label, {String? helper, IconData? icon}) => InputDecoration(
+        labelText: label,
+        helperText: helper,
+        prefixIcon: icon == null ? null : Icon(icon),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFC5D0DE))),
+      );
+
   @override
   Widget build(BuildContext context) {
     final o = widget.order;
     final total = (int.tryParse(_ht.text.trim()) ?? 0) + (int.tryParse(_tva.text.trim()) ?? 0);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Nouveau BL')),
+    final style = widget.style;
+    return PresentationScaffold(
+      style: style,
+      title: 'Nouveau BL',
+      subtitle: '${o.grossiste} · Commande ${o.ref}',
+      actions: (_) => const [],
+      steps: StepsBar(active: 0, steps: const [
+        (title: 'Commande', detail: 'n° du BL', onTap: null),
+        (title: 'Saisie BL', detail: 'lots, quantités', onTap: null),
+        (title: 'Stock', detail: 'validation', onTap: null),
+      ]),
+      header: [
+        if (style == ListPresentation.dashboard)
+          Row(children: [
+            Expanded(child: KpiTile('${o.products}', 'produit(s)')),
+            const SizedBox(width: 8),
+            Expanded(flex: 2, child: KpiTile('${_money.format(o.amount)} F', 'montant de la commande')),
+            const SizedBox(width: 8),
+            Expanded(child: KpiTile(o.statutLabel, 'statut')),
+          ]),
+      ],
+      compactHeader: [
+        LightFigures([
+          ('${o.products}', 'Produits', Pal.navy),
+          ('${_money.format(o.amount)} F', 'Montant', Pal.navy),
+          (o.statutLabel, 'Statut', Pal.navy),
+        ]),
+      ],
       body: Form(
         key: _form,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           children: [
-            Card(
-              margin: EdgeInsets.zero,
-              color: Colors.blueGrey.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(o.grossiste, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  Text('Commande ${o.ref} · ${o.statutLabel}'),
-                  Text('${o.products} produit(s) · ${_money.format(o.amount)} F'),
-                ]),
+            if (style == ListPresentation.guided)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text('${o.grossiste} — ${o.products} produit(s), ${_money.format(o.amount)} F',
+                    style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
               ),
-            ),
-            const SizedBox(height: 20),
-            TextFormField(
-              controller: _ref,
-              autofocus: true,
-              textInputAction: TextInputAction.done,
-              style: const TextStyle(fontSize: 18),
-              decoration: const InputDecoration(
-                labelText: 'N° du BL *',
-                helperText: 'Tel qu\'imprimé sur le bon du grossiste',
-                prefixIcon: Icon(Icons.receipt_long),
-              ),
-              validator: (v) {
-                final t = (v ?? '').trim();
-                if (t.isEmpty) return 'N° de BL obligatoire';
-                if (t.length > 20) return '20 caractères au plus';
-                return null;
-              },
-              onFieldSubmitted: (_) => _submit(),
-            ),
-            const SizedBox(height: 16),
-            InkWell(
-              onTap: _pickDate,
-              borderRadius: BorderRadius.circular(8),
-              child: InputDecorator(
-                decoration: const InputDecoration(labelText: 'Date du BL', prefixIcon: Icon(Icons.event)),
-                child: Row(children: [
-                  Expanded(child: Text(_fmt.format(_date), style: const TextStyle(fontSize: 16))),
-                  const Text('Modifier', style: TextStyle(color: AppColors.primary)),
-                ]),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _ht,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(labelText: 'Montant HT'),
-                  validator: (v) => int.tryParse((v ?? '').trim()) == null ? 'Montant' : null,
+            SoftCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                const Text('Bon de livraison', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink)),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _ref,
+                  autofocus: true,
+                  textInputAction: TextInputAction.done,
+                  style: const TextStyle(fontSize: 18),
+                  decoration: _deco('N° du BL *', helper: 'Tel qu\'imprimé sur le bon du grossiste', icon: Icons.receipt_long),
+                  validator: (v) {
+                    final t = (v ?? '').trim();
+                    if (t.isEmpty) return 'N° de BL obligatoire';
+                    if (t.length > 20) return '20 caractères au plus';
+                    return null;
+                  },
+                  onFieldSubmitted: (_) => _submit(),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  controller: _tva,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(labelText: 'TVA'),
-                  validator: (v) => int.tryParse((v ?? '').trim()) == null ? 'Montant' : null,
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: _pickDate,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InputDecorator(
+                    decoration: _deco('Date du BL', icon: Icons.event),
+                    child: Row(children: [
+                      Expanded(child: Text(_fmt.format(_date), style: const TextStyle(fontSize: 16))),
+                      const Text('Modifier', style: TextStyle(color: Pal.navy, fontWeight: FontWeight.w600)),
+                    ]),
+                  ),
                 ),
-              ),
-            ]),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text('Total TTC : ${_money.format(total)} F', style: const TextStyle(fontWeight: FontWeight.w600)),
+              ]),
+            ),
+            const SizedBox(height: 12),
+            SoftCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                const Text('Montants du BL', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink)),
+                const SizedBox(height: 14),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _ht,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: _deco('Montant HT'),
+                      validator: (v) => int.tryParse((v ?? '').trim()) == null ? 'Montant' : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _tva,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: _deco('TVA'),
+                      validator: (v) => int.tryParse((v ?? '').trim()) == null ? 'Montant' : null,
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(color: Pal.page, borderRadius: BorderRadius.circular(10)),
+                  child: Row(children: [
+                    const Expanded(child: Text('Total TTC', style: TextStyle(color: Color(0xFF4A5A70)))),
+                    Text('${_money.format(total)} F', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Pal.ink)),
+                  ]),
+                ),
+              ]),
             ),
             if (_error != null) ...[
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.red.shade200)),
+                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.red.shade200)),
                 child: Row(children: [
                   Icon(Icons.error_outline, color: Colors.red.shade700),
                   const SizedBox(width: 8),
@@ -986,10 +1031,11 @@ class _CreateBlScreenState extends State<_CreateBlScreen> {
                 ]),
               ),
             ],
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             SizedBox(
-              height: 52,
+              height: 54,
               child: ElevatedButton.icon(
+                style: style == ListPresentation.guided ? amberButton : navyButton,
                 icon: _saving
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.check),

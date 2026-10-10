@@ -6,9 +6,12 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/providers/article_analysis_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 class ArticleAnalysisScreen extends StatefulWidget {
-  const ArticleAnalysisScreen({Key? key}) : super(key: key);
+  /// Présentation imposée (tests) ; sinon celle choisie sur l'appareil (A par défaut).
+  final ListPresentation? presentation;
+  const ArticleAnalysisScreen({Key? key, this.presentation}) : super(key: key);
 
   @override
   State<ArticleAnalysisScreen> createState() => _ArticleAnalysisScreenState();
@@ -17,6 +20,22 @@ class ArticleAnalysisScreen extends StatefulWidget {
 class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _debounce;
+  late ListPresentation _style = widget.presentation ?? ListPresentation.dashboard;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.presentation == null) {
+      PresentationPrefs.load().then((p) {
+        if (mounted) setState(() => _style = p);
+      });
+    }
+  }
+
+  void _setStyle(ListPresentation p) {
+    setState(() => _style = p);
+    if (widget.presentation == null) PresentationPrefs.save(p);
+  }
 
   @override
   void dispose() {
@@ -42,108 +61,257 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Affichage : A · Tableau de bord, B · Liste groupée, C · Parcours guidé
+  // ---------------------------------------------------------------------------
+  void _clear() {
+    _searchCtrl.clear();
+    Provider.of<ArticleAnalysisProvider>(context, listen: false).clear();
+  }
+
+  Widget _searchField({Color fill = Colors.white}) => TextField(
+        controller: _searchCtrl,
+        autofocus: true,
+        onChanged: _onSearchChanged,
+        decoration: InputDecoration(
+          hintText: "Rechercher un Article (Nom, CIP)",
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: IconButton(icon: const Icon(Icons.clear), tooltip: 'Effacer', onPressed: _clear),
+          filled: true,
+          fillColor: fill,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        ),
+      );
+
+  Widget _emptyState() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.analytics_outlined, size: 60, color: Colors.grey.shade400),
+            const SizedBox(height: 10),
+            const Text("Saisissez le nom ou le code CIP du produit", textAlign: TextAlign.center),
+          ]),
+        ),
+      );
+
+  /// Résultats (même source de données pour les trois présentations).
+  Widget _results(Widget Function(List<ArticleAnalysis> items) builder) => Consumer<ArticleAnalysisProvider>(
+        builder: (context, provider, child) {
+          if (provider.isLoading) return const Center(child: CircularProgressIndicator());
+          if (provider.results.isEmpty) return _emptyState();
+          return builder(provider.results);
+        },
+      );
+
+  Color _stockColor(int stock) => stock <= 0 ? const Color(0xFFB91C1C) : Pal.ink;
+
+  Widget _metric(String value, String label, {Color fg = Pal.ink}) => Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(color: Pal.page, borderRadius: BorderRadius.circular(10)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: fg)),
+            Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF4A5A70))),
+          ]),
+        ),
+      );
+
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Analyse Article")),
-      body: Column(
-        children: [
-          // Barre de recherche
-          Container(
-            padding: const EdgeInsets.all(12),
-            color: Colors.white,
-            child: TextField(
-              controller: _searchCtrl,
-              autofocus: true,
-              onChanged: _onSearchChanged,
-              decoration: InputDecoration(
-                hintText: "Rechercher un Article (Nom, CIP)",
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      _searchCtrl.clear();
-                      Provider.of<ArticleAnalysisProvider>(context, listen: false).clear();
-                    }
-                ),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                filled: true,
-                fillColor: Colors.grey.shade50,
-              ),
-            ),
+  Widget build(BuildContext context) => switch (_style) {
+        ListPresentation.dashboard => _buildDashboard(),
+        ListPresentation.compact => _buildCompact(),
+        ListPresentation.guided => _buildGuided(),
+      };
+
+  // --- A ---
+  Widget _buildDashboard() => Scaffold(
+        backgroundColor: Pal.page,
+        body: Column(children: [
+          NavyHeader(
+            title: 'Analyse article',
+            subtitle: 'Ventes, stock et prix d\'un produit',
+            actions: [PresentationMenuButton(value: _style, onChanged: _setStyle)],
+            children: [_searchField()],
           ),
-
-          // Liste des résultats
           Expanded(
-            child: Consumer<ArticleAnalysisProvider>(
-              builder: (context, provider, child) {
-                if (provider.isLoading) return const Center(child: CircularProgressIndicator());
+            child: _results((items) => ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (_, i) => _cardA(items[i]),
+                )),
+          ),
+        ]),
+      );
 
-                if (provider.results.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.analytics_outlined, size: 60, color: Colors.grey.shade300),
-                        const SizedBox(height: 10),
-                        const Text("Saisissez le nom ou le code CIP du produit"),
-                      ],
-                    ),
-                  );
-                }
+  Widget _cardA(ArticleAnalysis item) => InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _showDetailDialog(item),
+        child: SoftCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              Expanded(child: Text(item.libelle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Pal.ink))),
+              const Icon(Icons.chevron_right, color: Pal.muted),
+            ]),
+            const SizedBox(height: 2),
+            Text(
+              "CIP: ${item.codeCip}${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
+              style: const TextStyle(fontSize: 13, color: Pal.muted),
+            ),
+            const SizedBox(height: 12),
+            Row(children: [
+              _metric("${item.stock}", 'Stock', fg: _stockColor(item.stock)),
+              const SizedBox(width: 8),
+              _metric("${item.prixVente} F", 'Prix de vente'),
+              const SizedBox(width: 8),
+              _metric(item.moyenne.toStringAsFixed(2), 'Moy. 3 mois'),
+            ]),
+          ]),
+        ),
+      );
 
-                return ListView.separated(
-                  padding: const EdgeInsets.all(10),
-                  itemCount: provider.results.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final item = provider.results[index];
-                    return Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      child: InkWell(
-                        onTap: () => _showDetailDialog(item),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.all(15),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(item.libelle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text("CIP: ${item.codeCip}", style: TextStyle(color: Colors.grey.shade600)),
-                                  if (item.emplacement.isNotEmpty)
-                                    Flexible(child: Text("(${item.emplacement})", overflow: TextOverflow.ellipsis, style: const TextStyle(fontStyle: FontStyle.italic))),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Text("Prix: ${item.prixVente} F", style: const TextStyle(fontWeight: FontWeight.w600)),
-                                  const SizedBox(width: 15),
-                                  Text("Stock: ${item.stock}", style: const TextStyle(fontWeight: FontWeight.w600)),
-                                  const Spacer(),
-                                  Text("Moy 3Mois: ", style: TextStyle(color: Colors.grey.shade700)),
-                                  Text("${item.moyenne.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                ],
-                              )
-                            ],
+  // --- B ---
+  Widget _buildCompact() => Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          foregroundColor: Pal.navy,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          title: const Text("Analyse Article", style: TextStyle(fontWeight: FontWeight.bold, color: Pal.navy)),
+          actions: [PresentationMenuButton(value: _style, onChanged: _setStyle, color: Pal.navy)],
+          bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
+        ),
+        body: Column(children: [
+          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8), child: _searchField(fill: Pal.page)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+            child: Row(children: const [
+              Expanded(child: Text('PRODUIT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
+              SizedBox(width: 56, child: Text('STOCK', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
+              SizedBox(width: 72, child: Text('MOY. 3M', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
+            ]),
+          ),
+          const Divider(height: 1, color: Pal.line),
+          Expanded(
+            child: _results((items) => ListView.builder(
+                  itemCount: items.length,
+                  itemBuilder: (_, i) {
+                    final item = items[i];
+                    return InkWell(
+                      onTap: () => _showDetailDialog(item),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+                        child: Row(children: [
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                              Text("CIP: ${item.codeCip} · ${item.prixVente} F${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
+                                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                            ]),
                           ),
-                        ),
+                          SizedBox(
+                            width: 56,
+                            child: Text("${item.stock}", textAlign: TextAlign.right, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _stockColor(item.stock))),
+                          ),
+                          SizedBox(
+                            width: 72,
+                            child: Text(item.moyenne.toStringAsFixed(2), textAlign: TextAlign.right, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                          ),
+                        ]),
                       ),
                     );
                   },
-                );
-              },
+                )),
+          ),
+        ]),
+      );
+
+  // --- C ---
+  Widget _buildGuided() => Scaffold(
+        backgroundColor: const Color(0xFFEEF2F7),
+        body: Column(children: [
+          Consumer<ArticleAnalysisProvider>(
+            builder: (context, provider, _) => NavyHeader(
+              title: 'Analyse article',
+              rounded: false,
+              actions: [PresentationMenuButton(value: _style, onChanged: _setStyle)],
+              children: [
+                StepsBar(active: provider.results.isEmpty ? 0 : 1, steps: [
+                  (title: 'Rechercher', detail: 'nom ou CIP', onTap: null),
+                  (title: 'Choisir', detail: provider.results.isEmpty ? 'le produit' : '${provider.results.length} résultat(s)', onTap: null),
+                  (title: 'Analyser', detail: 'ventes, stock', onTap: null),
+                ]),
+              ],
             ),
           ),
-        ],
-      ),
-    );
-  }
+          Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 8), child: _searchField()),
+          Expanded(
+            child: _results((items) => ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (_, i) {
+                    final item = items[i];
+                    if (i == 0) {
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () => _showDetailDialog(item),
+                        child: SoftCard(
+                        band: Pal.navy,
+                        padding: const EdgeInsets.all(16),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          Text(item.libelle, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
+                          Text("CIP: ${item.codeCip}${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
+                              style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                          const SizedBox(height: 12),
+                          Row(children: [
+                            _metric("${item.stock}", 'Stock', fg: _stockColor(item.stock)),
+                            const SizedBox(width: 8),
+                            _metric("${item.prixVente} F", 'Prix de vente'),
+                            const SizedBox(width: 8),
+                            _metric(item.moyenne.toStringAsFixed(2), 'Moy. 3 mois'),
+                          ]),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 48,
+                            child: ElevatedButton.icon(
+                              style: amberButton,
+                              icon: const Icon(Icons.show_chart),
+                              label: const Text('Voir l\'analyse complète'),
+                              onPressed: () => _showDetailDialog(item),
+                            ),
+                          ),
+                        ]),
+                        ),
+                      );
+                    }
+                    return SoftCard(
+                      child: Row(children: [
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Pal.ink)),
+                            Text("Stock ${item.stock} · ${item.prixVente} F · Moy. ${item.moyenne.toStringAsFixed(2)}",
+                                style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                          ]),
+                        ),
+                        IconButton.filled(
+                          tooltip: 'Analyser ${item.libelle}',
+                          style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
+                          icon: const Icon(Icons.show_chart),
+                          onPressed: () => _showDetailDialog(item),
+                        ),
+                      ]),
+                    );
+                  },
+                )),
+          ),
+        ]),
+      );
 }
 
 class _ArticleDetailDialog extends StatelessWidget {
@@ -221,7 +389,7 @@ class _ArticleDetailDialog extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("Détails de l'Article", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                  const Expanded(child: Text("Détails de l'Article", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary))),
                   IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
                 ],
               ),

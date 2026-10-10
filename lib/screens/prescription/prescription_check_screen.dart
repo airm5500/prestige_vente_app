@@ -11,6 +11,7 @@ import 'package:prestige_vente_app/screens/pre_vente/pre_vente_screen.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 
 /// Source de l'ordonnance.
@@ -26,7 +27,10 @@ class PrescriptionCheckScreen extends StatefulWidget {
   /// Ouverture de l'écran Pré/Vente après création (remplaçable pour les tests).
   final Future<void> Function(BuildContext context)? openPrevente;
 
-  const PrescriptionCheckScreen({super.key, this.textReader, this.openPrevente});
+  /// Présentation imposée (tests) ; sinon celle choisie sur l'appareil (A par défaut).
+  final ListPresentation? presentation;
+
+  const PrescriptionCheckScreen({super.key, this.textReader, this.openPrevente, this.presentation});
 
   @override
   State<PrescriptionCheckScreen> createState() => _PrescriptionCheckScreenState();
@@ -64,6 +68,22 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   bool _hasScanned = false;
   bool _creating = false;
   int _generation = 0; // Ignore les recherches d'une ordonnance précédente
+  late ListPresentation _style = widget.presentation ?? ListPresentation.dashboard;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.presentation == null) {
+      PresentationPrefs.load().then((p) {
+        if (mounted) setState(() => _style = p);
+      });
+    }
+  }
+
+  void _setStyle(ListPresentation p) {
+    setState(() => _style = p);
+    if (widget.presentation == null) PresentationPrefs.save(p);
+  }
 
   // ---------------------------------------------------------------------------
   // Lecture de l'ordonnance
@@ -361,101 +381,222 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   @override
   Widget build(BuildContext context) {
     final sellable = _lines.where((l) => l.canBeSold).length;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Vérification Ordonnance'),
-        actions: [
-          if (_hasScanned)
-            IconButton(icon: const Icon(Icons.refresh), tooltip: 'Nouvelle ordonnance', onPressed: _reset),
-        ],
-      ),
-      bottomNavigationBar: _hasScanned && !_reading
-          ? SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                  icon: _creating
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.point_of_sale),
-                  label: Text('Créer la pré-vente ($sellable produit${sellable > 1 ? 's' : ''})'),
-                  onPressed: sellable == 0 || _creating || _lines.any((l) => l.searching) ? null : _createPrevente,
-                ),
+    final bottom = _hasScanned && !_reading
+        ? SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: ElevatedButton.icon(
+                style: navyButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size.fromHeight(50))),
+                icon: _creating
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.point_of_sale),
+                label: Text('Créer la pré-vente ($sellable produit${sellable > 1 ? 's' : ''})'),
+                onPressed: sellable == 0 || _creating || _lines.any((l) => l.searching) ? null : _createPrevente,
               ),
-            )
-          : null,
-      body: _reading
-          ? const Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Lecture de l\'ordonnance...'),
-              ]),
-            )
-          : _hasScanned
-              ? _buildResults()
-              : _buildStart(),
-    );
+            ),
+          )
+        : null;
+    final body = _reading
+        ? const Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Lecture de l\'ordonnance...'),
+            ]),
+          )
+        : _hasScanned
+            ? _buildResults()
+            : _buildStart();
+    final actions = [
+      PresentationMenuButton(value: _style, onChanged: _setStyle, color: _style == ListPresentation.compact ? Pal.navy : Colors.white),
+      if (_hasScanned)
+        IconButton(
+          icon: Icon(Icons.refresh, color: _style == ListPresentation.compact ? Pal.navy : Colors.white),
+          tooltip: 'Nouvelle ordonnance',
+          onPressed: _reset,
+        ),
+    ];
+
+    switch (_style) {
+      case ListPresentation.compact:
+        return Scaffold(
+          backgroundColor: Colors.white,
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            foregroundColor: Pal.navy,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            title: const Text('Vérification Ordonnance', style: TextStyle(fontWeight: FontWeight.bold, color: Pal.navy)),
+            actions: actions,
+            bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
+          ),
+          bottomNavigationBar: bottom,
+          body: body,
+        );
+      case ListPresentation.dashboard:
+      case ListPresentation.guided:
+        final dashboard = _style == ListPresentation.dashboard;
+        return Scaffold(
+          backgroundColor: dashboard ? Pal.page : const Color(0xFFEEF2F7),
+          bottomNavigationBar: bottom,
+          body: Column(children: [
+            NavyHeader(
+              title: 'Vérification ordonnance',
+              subtitle: dashboard ? 'Ordonnance -> stock -> pré-vente' : null,
+              rounded: dashboard,
+              actions: actions,
+              children: [
+                if (!dashboard)
+                  StepsBar(active: _hasScanned ? 1 : 0, steps: [
+                    (title: 'Ordonnance', detail: 'photo ou PDF', onTap: null),
+                    (title: 'Vérification', detail: _hasScanned ? '${_lines.length} produit(s)' : 'stock, CIP', onTap: null),
+                    (title: 'Pré-vente', detail: 'en caisse', onTap: null),
+                  ]),
+                if (dashboard && _hasScanned && !_reading) _headerKpis(),
+              ],
+            ),
+            Expanded(child: body),
+          ]),
+        );
+    }
   }
 
-  Widget _buildStart() {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.receipt_long, size: 72, color: AppColors.primary),
-            const SizedBox(height: 16),
-            const Text(
-              'Photographiez ou importez l\'ordonnance : chaque produit est rapproché du stock '
-              '(par CIP quand il est présent), puis l\'ordonnance peut devenir une pré-vente.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.photo_camera),
-                label: const Text('Photographier l\'ordonnance'),
-                onPressed: () => _scan(PrescriptionSource.camera),
+  Widget _headerKpis() {
+    int count(_LineStatus st) => _lines.where((l) => l.status == st).length;
+    return Row(children: [
+      Expanded(child: KpiTile('${_lines.length}', 'produits')),
+      const SizedBox(width: 6),
+      Expanded(child: KpiTile('${count(_LineStatus.available)}', 'disponibles')),
+      const SizedBox(width: 6),
+      Expanded(child: KpiTile('${count(_LineStatus.outOfStock)}', 'en rupture')),
+      const SizedBox(width: 6),
+      Expanded(child: KpiTile('${count(_LineStatus.notFound)}', 'non trouvés', highlight: count(_LineStatus.notFound) > 0)),
+    ]);
+  }
+
+  /// Les quatre façons de commencer (mêmes actions dans toutes les présentations).
+  List<({IconData icon, String label, String hint, VoidCallback onTap})> get _startOptions => [
+        (icon: Icons.photo_camera, label: 'Photographier l\'ordonnance', hint: 'À plat, bien éclairée', onTap: () => _scan(PrescriptionSource.camera)),
+        (icon: Icons.picture_as_pdf, label: 'Importer un PDF (recommandé)', hint: 'Lecture la plus fiable', onTap: () => _scan(PrescriptionSource.pdf)),
+        (icon: Icons.photo_library, label: 'Choisir une photo (galerie)', hint: 'Photo déjà prise', onTap: () => _scan(PrescriptionSource.gallery)),
+        (icon: Icons.edit, label: 'Saisir les produits manuellement', hint: 'Sans document', onTap: _addManual),
+      ];
+
+  static const _startHelp = 'PDF : lecture la plus fiable. Photo : à plat, bien éclairée, sans reflet. '
+      'Les ordonnances manuscrites sont moins bien lues : corrigez ou ajoutez les produits si besoin.';
+
+  Widget _buildStart() => switch (_style) {
+        ListPresentation.dashboard => _startDashboard(),
+        ListPresentation.compact => _startCompact(),
+        ListPresentation.guided => _startGuided(),
+      };
+
+  Widget _startDashboard() {
+    final o = _startOptions;
+    Widget tile(int i) => Expanded(
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            elevation: 1,
+            shadowColor: const Color(0x3314213D),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: o[i].onTap,
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 120),
+                padding: const EdgeInsets.all(14),
+                decoration: i == 1 ? BoxDecoration(borderRadius: BorderRadius.circular(16), border: Border.all(color: Pal.amber, width: 2)) : null,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(color: const Color(0xFFE3ECF7), borderRadius: BorderRadius.circular(10)),
+                    child: Icon(o[i].icon, color: Pal.navy),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(o[i].label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Pal.ink)),
+                  Text(o[i].hint, style: const TextStyle(fontSize: 12, color: Pal.muted)),
+                ]),
               ),
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.picture_as_pdf),
-                label: const Text('Importer un PDF (recommandé)'),
-                onPressed: () => _scan(PrescriptionSource.pdf),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.photo_library),
-                label: const Text('Choisir une photo (galerie)'),
-                onPressed: () => _scan(PrescriptionSource.gallery),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextButton.icon(
-              icon: const Icon(Icons.edit),
-              label: const Text('Saisir les produits manuellement'),
-              onPressed: _addManual,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'PDF : lecture la plus fiable. Photo : à plat, bien éclairée, sans reflet. '
-              'Les ordonnances manuscrites sont moins bien lues : corrigez ou ajoutez les produits si besoin.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
-            ),
-          ],
-        ),
+          ),
+        );
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      const Text(
+        'Photographiez ou importez l\'ordonnance : chaque produit est rapproché du stock '
+        '(par CIP quand il est présent), puis l\'ordonnance peut devenir une pré-vente.',
+        style: TextStyle(fontSize: 13, color: Color(0xFF4A5A70)),
       ),
-    );
+      const SizedBox(height: 14),
+      IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [tile(0), const SizedBox(width: 12), tile(1)])),
+      const SizedBox(height: 12),
+      IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [tile(2), const SizedBox(width: 12), tile(3)])),
+      const SizedBox(height: 16),
+      Text(_startHelp, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+    ]);
+  }
+
+  Widget _startCompact() => ListView(children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Text(
+            'Photographiez ou importez l\'ordonnance : chaque produit est rapproché du stock '
+            '(par CIP quand il est présent), puis l\'ordonnance peut devenir une pré-vente.',
+            style: TextStyle(fontSize: 13, color: Color(0xFF4A5A70)),
+          ),
+        ),
+        for (final o in _startOptions)
+          InkWell(
+            onTap: o.onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+              child: Row(children: [
+                Icon(o.icon, color: Pal.navy),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(o.label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                    Text(o.hint, style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                  ]),
+                ),
+                const Icon(Icons.chevron_right, color: Pal.muted),
+              ]),
+            ),
+          ),
+        Padding(padding: const EdgeInsets.all(16), child: Text(_startHelp, style: TextStyle(color: Colors.grey.shade700, fontSize: 12))),
+      ]);
+
+  Widget _startGuided() {
+    final o = _startOptions;
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      SoftCard(
+        band: Pal.amber,
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Text('Commencez par l\'ordonnance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
+          const Text('Le PDF donne la lecture la plus fiable ; la photo convient aussi.', style: TextStyle(fontSize: 13, color: Pal.muted)),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 50,
+            child: ElevatedButton.icon(style: amberButton, icon: Icon(o[1].icon), label: Text(o[1].label), onPressed: o[1].onTap),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 48,
+            child: ElevatedButton.icon(style: navyButton, icon: Icon(o[0].icon), label: Text(o[0].label), onPressed: o[0].onTap),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 12),
+      Row(children: [
+        Expanded(child: OutlinedButton.icon(style: outlineButton, icon: Icon(o[2].icon, size: 18), label: const Text('Galerie'), onPressed: o[2].onTap)),
+        const SizedBox(width: 8),
+        Expanded(child: OutlinedButton.icon(style: outlineButton, icon: Icon(o[3].icon, size: 18), label: const Text('Saisie manuelle'), onPressed: o[3].onTap)),
+      ]),
+      const SizedBox(height: 16),
+      Text(_startHelp, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+    ]);
   }
 
   Widget _buildResults() {
@@ -471,21 +612,28 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     return ListView(
       padding: const EdgeInsets.all(8.0),
       children: [
-        Card(
-          color: Colors.blueGrey.shade50,
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _summary('Produits', _lines.length, AppColors.primary),
-                _summary('Disponibles', available, Colors.green.shade700),
-                _summary('Rupture', out, Colors.red.shade700),
-                _summary('Non trouvés', notFound, Colors.orange.shade800),
-              ],
+        // En présentation A, ces chiffres sont dans l'en-tête bleu.
+        if (_style != ListPresentation.dashboard)
+          Card(
+            color: _style == ListPresentation.compact ? const Color(0xFFF8FAFC) : Colors.white,
+            elevation: _style == ListPresentation.compact ? 0 : 1,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  for (final w in [
+                    _summary('Produits', _lines.length, AppColors.primary),
+                    _summary('Disponibles', available, Colors.green.shade700),
+                    _summary('Rupture', out, Colors.red.shade700),
+                    _summary('Non trouvés', notFound, Colors.orange.shade800),
+                  ])
+                    Expanded(child: FittedBox(fit: BoxFit.scaleDown, child: w)),
+                ],
+              ),
             ),
           ),
-        ),
         for (final rx in _lines) _buildLineCard(rx),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -577,6 +725,11 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     final p = rx.selected;
 
     return Card(
+      elevation: _style == ListPresentation.compact ? 0 : 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_style == ListPresentation.compact ? 8 : 14),
+        side: _style == ListPresentation.compact ? const BorderSide(color: Pal.line) : BorderSide.none,
+      ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
         child: Column(
@@ -632,8 +785,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                           value: rx.include,
                           onChanged: (v) => setState(() => rx.include = v ?? false),
                         ),
-                        const Text('Pré-vente'),
-                        const Spacer(),
+                        const Expanded(child: Text('Pré-vente', overflow: TextOverflow.ellipsis)),
                         IconButton(
                           icon: const Icon(Icons.remove_circle_outline),
                           onPressed: rx.quantity > 1 ? () => setState(() => rx.quantity--) : null,

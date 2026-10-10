@@ -134,7 +134,7 @@ class _RetourHomeScreenState extends State<RetourHomeScreen> {
 
   Future<void> _open(ReceptionBl bl) async {
     final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
-      builder: (_) => RetourBlScreen(bl: bl, gateway: _gateway, codeCamera: widget.codeCamera),
+      builder: (_) => RetourBlScreen(bl: bl, gateway: _gateway, codeCamera: widget.codeCamera, presentation: _style),
     ));
     if (done == true && mounted) Constants.showSnackBar(context, 'Retour enregistré en préparation.');
   }

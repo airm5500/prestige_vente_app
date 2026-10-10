@@ -121,7 +121,7 @@ void main() {
       server = FakeRetourServer();
     });
 
-    Future<void> pump(WidgetTester tester) async {
+    Future<void> pump(WidgetTester tester, {ListPresentation style = ListPresentation.dashboard}) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.reset);
@@ -131,7 +131,7 @@ void main() {
             body: Center(
               child: ElevatedButton(
                 onPressed: () => Navigator.of(ctx).push(MaterialPageRoute(
-                  builder: (_) => RetourBlScreen(bl: server.blList.first, gateway: server),
+                  builder: (_) => RetourBlScreen(bl: server.blList.first, gateway: server, presentation: style),
                 )),
                 child: const Text('ouvrir'),
               ),
@@ -179,6 +179,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('ouvrir'), findsOneWidget);
     });
+
+    for (final style in [ListPresentation.compact, ListPresentation.guided]) {
+      testWidgets('présentation ${style.label} : scan -> motif -> ajout -> terminer', (tester) async {
+        await pump(tester, style: style);
+        await scan(tester, '3595583');
+        await tester.tap(find.text('Périmé'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Ajouter au retour'));
+        await tester.pumpAndSettle();
+        expect(server.created.single['produit'], 'p1');
+        expect(find.text('Retour K7Q2M9XA — BL BL-778'), findsOneWidget);
+        await tester.tap(find.text('Terminer : retour en préparation (1)'));
+        await tester.pumpAndSettle();
+        expect(find.text('Retour en préparation'), findsOneWidget);
+      });
+    }
 
     testWidgets('produit absent du BL, stock insuffisant, motif manquant : refusés', (tester) async {
       await pump(tester);

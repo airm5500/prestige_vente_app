@@ -203,6 +203,7 @@ void main() {
       List<String>? labelLines,
       String? cameraValue,
       bool peremptionOptional = true,
+      ListPresentation style = ListPresentation.dashboard,
     }) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.0;
@@ -215,6 +216,7 @@ void main() {
           clock: () => now,
           labelCamera: (_) async => labelLines,
           codeCamera: (BuildContext _, {bool dataMatrixOnly = false}) async => cameraValue,
+          presentation: style,
         ),
       ));
       await tester.pumpAndSettle();
@@ -244,6 +246,23 @@ void main() {
       expect(find.text('1/2 lignes · 28/34 boîtes'), findsOneWidget);
       expect(find.text('Scannez un produit du BL'), findsOneWidget); // retour au scan
     });
+
+    for (final style in [ListPresentation.compact, ListPresentation.guided]) {
+      testWidgets('présentation ${style.label} : DataMatrix -> confirmer -> bilan', (tester) async {
+        await pump(tester, style: style, settings: const ReceptionSettings(terminalValidation: true));
+        expect(find.text('0/2 lignes · 4/34 boîtes'), findsOneWidget);
+        await scan(tester, dm(dolipraneGtin, '271031', 'A123$gs'));
+        expect(field(tester, 'N° de lot'), 'A123');
+        await tester.tap(find.text('Confirmer 24'));
+        await tester.pumpAndSettle();
+        expect(server.addLotCalls.single['qty'], 24);
+        expect(find.text('1/2 lignes · 28/34 boîtes'), findsOneWidget);
+        await tester.tap(find.text('Terminer et vérifier'));
+        await tester.pumpAndSettle();
+        expect(find.text('Bilan BL BL-778'), findsOneWidget);
+        expect(find.textContaining('Prestige refusera'), findsOneWidget);
+      });
+    }
 
     testWidgets('produit absent du BL : bloqué', (tester) async {
       await pump(tester);

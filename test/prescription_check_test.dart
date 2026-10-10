@@ -5,6 +5,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/screens/prescription/prescription_check_screen.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -137,7 +138,7 @@ void main() {
     late SaleProvider sale;
     var preventeOpened = 0;
 
-    Future<void> pump(WidgetTester tester, List<String>? ocr) async {
+    Future<void> pump(WidgetTester tester, List<String>? ocr, {ListPresentation? style}) async {
       sale = SaleProvider(api);
       await tester.pumpWidget(
         MultiProvider(
@@ -149,6 +150,7 @@ void main() {
             home: PrescriptionCheckScreen(
               textReader: (_) async => ocr,
               openPrevente: (_) async => preventeOpened++,
+              presentation: style,
             ),
           ),
         ),
@@ -180,6 +182,26 @@ void main() {
       expect(find.text('Stock 35'), findsOneWidget);
       expect(find.textContaining('Créer la pré-vente (1 produit)'), findsOneWidget);
     });
+
+    for (final style in ListPresentation.values) {
+      testWidgets('présentation ${style.label} : lecture, rapprochement et pré-vente identiques', (tester) async {
+        tester.view.physicalSize = const Size(1080, 2400);
+        tester.view.devicePixelRatio = 2.0;
+        addTearDown(tester.view.reset);
+        await pump(tester, _ordonnancePrestige, style: style);
+        expect(find.text('Importer un PDF (recommandé)'), findsOneWidget);
+        await tester.tap(find.text('Photographier l\'ordonnance'));
+        await tester.pumpAndSettle();
+        expect(find.text('CIP identique'), findsOneWidget);
+        expect(find.text('Stock 35'), findsOneWidget);
+        await tester.tap(find.textContaining('Créer la pré-vente (1 produit)'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Créer'));
+        await tester.pumpAndSettle();
+        expect(api.added.single['produitId'], 'E1');
+        expect(preventeOpened, 1);
+      });
+    }
 
     testWidgets('création de la pré-vente : même circuit que l\'écran Pré/Vente', (tester) async {
       await pump(tester, _ordonnancePrestige);

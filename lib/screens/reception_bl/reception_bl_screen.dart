@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/screens/reception_bl/reception_summary_screen
 import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 import 'package:prestige_vente_app/services/label_text_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 /// Lecture d'un code par la caméra (remplaçable pour les tests).
 typedef CodeCamera = Future<String?> Function(BuildContext context, {bool dataMatrixOnly});
@@ -33,6 +34,9 @@ class ReceptionBlScreen extends StatefulWidget {
   final LabelCamera? labelCamera;
   final DateTime Function()? clock;
 
+  /// Présentation (A, B, C) ; celle de l'appareil si non précisée.
+  final ListPresentation? presentation;
+
   const ReceptionBlScreen({
     super.key,
     required this.bl,
@@ -41,13 +45,17 @@ class ReceptionBlScreen extends StatefulWidget {
     this.codeCamera,
     this.labelCamera,
     this.clock,
+    this.presentation,
   });
 
   @override
   State<ReceptionBlScreen> createState() => _ReceptionBlScreenState();
 }
 
-class _ReceptionBlScreenState extends State<ReceptionBlScreen> {
+class _ReceptionBlScreenState extends State<ReceptionBlScreen> with PresentationAware {
+  @override
+  ListPresentation? get forcedPresentation => widget.presentation;
+
   static final _fmt = DateFormat('dd/MM/yyyy');
 
   List<ReceptionLine> _lines = [];
@@ -81,6 +89,7 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> {
   @override
   void initState() {
     super.initState();
+    loadPresentation();
     _load();
   }
 
@@ -467,6 +476,7 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> {
         settings: widget.settings,
         lines: _lines,
         clock: widget.clock,
+        presentation: style,
       ),
     ));
     if (!mounted) return;
@@ -483,95 +493,122 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> {
   @override
   Widget build(BuildContext context) {
     final summary = ReceptionSummary.of(_lines, now: _now(), shortExpiryMonths: widget.settings.shortExpiryMonths);
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('BL ${widget.bl.ref}'),
-            Text(widget.bl.grossiste, style: const TextStyle(fontSize: 12)),
-          ],
-        ),
-        actions: [IconButton(icon: const Icon(Icons.refresh), tooltip: 'Actualiser', onPressed: _load)],
-      ),
-      body: Column(
-        children: [
-          if (_loading || _busy) const LinearProgressIndicator(),
-          _buildProgress(summary),
-          _buildScanBar(),
-          Expanded(child: _current != null ? _buildEntry(_current!) : _buildLines()),
-        ],
-      ),
+    return PresentationScaffold(
+      style: style,
+      title: 'BL ${widget.bl.ref}',
+      subtitle: widget.bl.grossiste,
+      actions: (c) => [IconButton(icon: Icon(Icons.refresh, color: c), tooltip: 'Actualiser', onPressed: _load)],
+      steps: StepsBar(active: 1, steps: const [
+        (title: 'Commande', detail: 'BL créé', onTap: null),
+        (title: 'Saisie BL', detail: 'lots, quantités', onTap: null),
+        (title: 'Stock', detail: 'validation', onTap: null),
+      ]),
+      header: [
+        // Ligne ouverte : en-tête allégé pour laisser la place à la saisie.
+        if (style == ListPresentation.dashboard && _current == null) _headerFigures(summary),
+        _buildProgress(summary, dark: true),
+        _buildScanBar(dark: true),
+      ],
+      compactHeader: [_buildProgress(summary, dark: false), _buildScanBar(dark: false)],
+      body: Column(children: [
+        if (_loading || _busy) const LinearProgressIndicator(minHeight: 2),
+        Expanded(child: _current != null ? _buildEntry(_current!) : _buildLines()),
+      ]),
+      // Action principale toujours visible : « Confirmer » pendant la saisie d'une ligne, sinon « Terminer ».
       bottomNavigationBar: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: ElevatedButton.icon(
-            icon: const Icon(Icons.fact_check),
-            label: const Text('Terminer et vérifier'),
-            onPressed: _loading || _lines.isEmpty ? null : _finish,
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: SizedBox(
+            height: 54,
+            child: _current != null && !_current!.isComplete
+                ? ElevatedButton.icon(
+                    style: style == ListPresentation.guided ? amberButton : navyButton,
+                    icon: const Icon(Icons.check),
+                    label: Text(
+                      (int.tryParse(_qty.text) ?? 0) > 0 ? 'Confirmer ${int.tryParse(_qty.text)}' : 'Confirmer',
+                      style: const TextStyle(fontSize: 18),
+                    ),
+                    onPressed: _busy ? null : _submit,
+                  )
+                : ElevatedButton.icon(
+                    style: navyButton,
+                    icon: const Icon(Icons.fact_check),
+                    label: const Text('Terminer et vérifier'),
+                    onPressed: _loading || _lines.isEmpty ? null : _finish,
+                  ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildProgress(ReceptionSummary s) {
+  Widget _headerFigures(ReceptionSummary s) => Row(children: [
+        Expanded(child: KpiTile('${s.complete.length}/${_lines.length}', 'lignes complètes')),
+        const SizedBox(width: 8),
+        Expanded(child: KpiTile('${s.enteredBoxes}/${s.orderedBoxes}', 'boîtes saisies')),
+        const SizedBox(width: 8),
+        Expanded(child: KpiTile('${_lines.length - s.complete.length}', 'lignes à saisir', highlight: true)),
+      ]);
+
+  Widget _buildProgress(ReceptionSummary s, {required bool dark}) {
     final total = _lines.length;
     final done = s.complete.length;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: Row(
-        children: [
-          Expanded(
-            child: LinearProgressIndicator(
-              value: total == 0 ? 0 : done / total,
-              minHeight: 8,
-              backgroundColor: Colors.grey.shade300,
-              color: Colors.green.shade600,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text('$done/$total lignes · ${s.enteredBoxes}/${s.orderedBoxes} boîtes', style: const TextStyle(fontSize: 12)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildScanBar() {
-    return Padding(
-      padding: const EdgeInsets.all(8),
-      child: TextField(
-        controller: _scan,
-        focusNode: _scanFocus,
-        autofocus: true,
-        keyboardType: _scanKeyboard ? TextInputType.text : TextInputType.none,
-        decoration: InputDecoration(
-          labelText: _current == null ? 'Scannez un produit du BL' : 'Scannez le DataMatrix ou un autre produit',
-          prefixIcon: const Icon(Icons.qr_code_scanner),
-          border: const OutlineInputBorder(),
-          suffixIcon: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.photo_camera),
-                tooltip: 'Scanner (caméra)',
-                onPressed: _busy ? null : () => _cameraScan(),
-              ),
-              IconButton(
-                icon: Icon(_scanKeyboard ? Icons.keyboard_hide : Icons.keyboard),
-                tooltip: 'Saisir un code ou un nom',
-                onPressed: () {
-                  setState(() => _scanKeyboard = !_scanKeyboard);
-                  _scanFocus.unfocus();
-                  Future.microtask(_scanFocus.requestFocus);
-                },
-              ),
-            ],
+    return Row(children: [
+      Expanded(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: total == 0 ? 0 : done / total,
+            minHeight: 8,
+            backgroundColor: dark ? Colors.white.withValues(alpha: 0.2) : const Color(0xFFE6EBF2),
+            color: dark ? Pal.amber : Pal.green,
           ),
         ),
-        onChanged: _onScanChanged,
-        onSubmitted: _submitScan,
       ),
+      const SizedBox(width: 10),
+      Text('$done/$total lignes · ${s.enteredBoxes}/${s.orderedBoxes} boîtes',
+          style: TextStyle(fontSize: 12, color: dark ? Colors.white : Pal.ink, fontWeight: FontWeight.w500)),
+    ]);
+  }
+
+  Widget _buildScanBar({required bool dark}) {
+    return TextField(
+      controller: _scan,
+      focusNode: _scanFocus,
+      autofocus: true,
+      keyboardType: _scanKeyboard ? TextInputType.text : TextInputType.none,
+      decoration: InputDecoration(
+        labelText: _current == null ? 'Scannez un produit du BL' : 'Scannez le DataMatrix ou un autre produit',
+        floatingLabelBehavior: FloatingLabelBehavior.never,
+        prefixIcon: const Icon(Icons.qr_code_scanner),
+        filled: true,
+        fillColor: dark ? Colors.white : Pal.page,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        suffixIcon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.photo_camera),
+              tooltip: 'Scanner (caméra)',
+              onPressed: _busy ? null : () => _cameraScan(),
+            ),
+            IconButton(
+              icon: Icon(_scanKeyboard ? Icons.keyboard_hide : Icons.keyboard),
+              tooltip: 'Saisir un code ou un nom',
+              onPressed: () {
+                setState(() => _scanKeyboard = !_scanKeyboard);
+                _scanFocus.unfocus();
+                Future.microtask(_scanFocus.requestFocus);
+              },
+            ),
+          ],
+        ),
+      ),
+      onChanged: _onScanChanged,
+      onSubmitted: _submitScan,
     );
   }
 
@@ -600,7 +637,7 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> {
       children: [
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
           child: Row(children: [
             for (final f in _Filter.values)
               Padding(
@@ -612,10 +649,16 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> {
         Expanded(
           child: RefreshIndicator(
             onRefresh: _load,
-            child: ListView.builder(
-              itemCount: list.length,
-              itemBuilder: (_, i) => _lineTile(list[i]),
-            ),
+            child: list.isEmpty
+                ? ListView(children: const [
+                    Padding(padding: EdgeInsets.all(32), child: Text('Aucune ligne dans ce filtre.', textAlign: TextAlign.center)),
+                  ])
+                : ListView.separated(
+                    padding: EdgeInsets.fromLTRB(style == ListPresentation.compact ? 0 : 12, 6, style == ListPresentation.compact ? 0 : 12, 16),
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => SizedBox(height: style == ListPresentation.compact ? 0 : 8),
+                    itemBuilder: (_, i) => _lineTile(list[i]),
+                  ),
           ),
         ),
       ],
@@ -623,124 +666,169 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> {
   }
 
   Widget _lineTile(ReceptionLine l) {
-    final color = l.isComplete ? Colors.green.shade700 : (l.isPartial ? Colors.orange.shade800 : Colors.grey.shade600);
-    return Card(
-      child: ListTile(
-        leading: Icon(l.isComplete ? Icons.check_circle : (l.isPartial ? Icons.timelapse : Icons.radio_button_unchecked), color: color),
-        title: Text(l.name),
-        subtitle: Text([
-          l.code,
-          if (l.lots.isNotEmpty) 'Lot ${l.lots.join(', ')}',
-          if (l.expiries.isNotEmpty) 'exp. ${l.expiries.map(_fmt.format).join(', ')}',
-        ].join(' · ')),
-        trailing: Text('${l.entered}/${l.ordered}', style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 16)),
-        onTap: _busy ? null : () => _openLine(l),
+    final color = l.isComplete ? Pal.green : (l.isPartial ? const Color(0xFFB45309) : const Color(0xFF6B7A90));
+    final row = Row(children: [
+      Icon(l.isComplete ? Icons.check_circle : (l.isPartial ? Icons.timelapse : Icons.radio_button_unchecked), color: color),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(l.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+          Text(
+            [
+              l.code,
+              if (l.lots.isNotEmpty) 'Lot ${l.lots.join(', ')}',
+              if (l.expiries.isNotEmpty) 'exp. ${l.expiries.map(_fmt.format).join(', ')}',
+            ].join(' · '),
+            style: const TextStyle(fontSize: 13, color: Pal.muted),
+          ),
+        ]),
       ),
+      const SizedBox(width: 8),
+      Text('${l.entered}/${l.ordered}', style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 16)),
+    ]);
+    if (style == ListPresentation.compact) {
+      return InkWell(
+        onTap: _busy ? null : () => _openLine(l),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+          child: row,
+        ),
+      );
+    }
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: _busy ? null : () => _openLine(l),
+      child: SoftCard(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), child: row),
     );
   }
 
+  InputDecoration _field(String label) => InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFC5D0DE))),
+      );
+
   Widget _buildEntry(ReceptionLine l) {
-    final qtyValue = int.tryParse(_qty.text) ?? 0;
+    final remainingColor = l.remaining == 0 ? Pal.green : const Color(0xFFB45309);
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
-        Card(
-          color: Colors.blueGrey.shade50,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Expanded(child: Text(l.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
-                  IconButton(icon: const Icon(Icons.close), tooltip: 'Fermer', onPressed: _closeLine),
-                ]),
-                Text('${l.code}${l.location.isEmpty ? '' : ' · ${l.location}'}'),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _figure('BL', '${l.ordered}'),
-                    _figure('Saisi', '${l.entered}'),
-                    _figure('Reste', '${l.remaining}', color: l.remaining == 0 ? Colors.green.shade700 : Colors.orange.shade800),
-                  ],
-                ),
-                if (l.lots.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text('Déjà saisi : lot ${l.lots.join(', ')}'
-                      '${l.expiries.isEmpty ? '' : ' (exp. ${l.expiries.map(_fmt.format).join(', ')})'}'),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      icon: const Icon(Icons.delete_outline),
-                      label: const Text('Effacer les lots de la ligne'),
-                      onPressed: _busy ? null : () => _clearLots(l),
-                    ),
+        SoftCard(
+          band: style == ListPresentation.guided ? Pal.navy : null,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                Expanded(child: Text(l.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Pal.ink))),
+                IconButton(icon: const Icon(Icons.close), tooltip: 'Fermer', onPressed: _closeLine),
+              ]),
+              Text('${l.code}${l.location.isEmpty ? '' : ' · ${l.location}'}', style: const TextStyle(color: Pal.muted)),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(child: _figure('BL', '${l.ordered}')),
+                const SizedBox(width: 8),
+                Expanded(child: _figure('Saisi', '${l.entered}')),
+                const SizedBox(width: 8),
+                Expanded(child: _figure('Reste', '${l.remaining}', color: remainingColor)),
+              ]),
+              if (l.lots.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text('Déjà saisi : lot ${l.lots.join(', ')}'
+                    '${l.expiries.isEmpty ? '' : ' (exp. ${l.expiries.map(_fmt.format).join(', ')})'}',
+                    style: const TextStyle(color: Pal.ink)),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(foregroundColor: const Color(0xFFB91C1C)),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Effacer les lots de la ligne'),
+                    onPressed: _busy ? null : () => _clearLots(l),
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
         ),
         if (l.isComplete)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('Ligne complète. Scannez le produit suivant.',
-                style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.w600)),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Row(children: [
+              const Icon(Icons.check_circle, color: Pal.green),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Ligne complète. Scannez le produit suivant.',
+                    style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.w600)),
+              ),
+            ]),
           )
         else ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Row(children: [
             Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.qr_code_2),
-                label: const Text('DataMatrix'),
-                onPressed: _busy ? null : () => _cameraScan(dataMatrixOnly: true),
+              child: SizedBox(
+                height: 48,
+                child: OutlinedButton.icon(
+                  style: outlineButton,
+                  icon: const Icon(Icons.qr_code_2),
+                  label: const Text('DataMatrix'),
+                  onPressed: _busy ? null : () => _cameraScan(dataMatrixOnly: true),
+                ),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.document_scanner_outlined),
-                label: const Text('Photo LOT/EXP'),
-                onPressed: _busy ? null : _photoLabel,
+              child: SizedBox(
+                height: 48,
+                child: OutlinedButton.icon(
+                  style: outlineButton,
+                  icon: const Icon(Icons.document_scanner_outlined),
+                  label: const Text('Photo LOT/EXP'),
+                  onPressed: _busy ? null : _photoLabel,
+                ),
               ),
             ),
           ]),
           if (_source != null)
             Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text('Lot et date : $_source',
-                  style: TextStyle(color: _source!.startsWith('Photo') ? Colors.orange.shade900 : Colors.green.shade800, fontSize: 12)),
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(children: [
+                Icon(_source!.startsWith('Photo') ? Icons.visibility : Icons.verified,
+                    size: 16, color: _source!.startsWith('Photo') ? Colors.orange.shade900 : Colors.green.shade800),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text('Lot et date : $_source',
+                      style: TextStyle(color: _source!.startsWith('Photo') ? Colors.orange.shade900 : Colors.green.shade800, fontSize: 12)),
+                ),
+              ]),
             ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           TextField(
             controller: _lot,
             focusNode: _lotFocus,
             textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(labelText: 'N° de lot', border: OutlineInputBorder()),
+            decoration: _field('N° de lot'),
             onChanged: (v) => _interceptFieldScan(_lot, v),
           ),
           if (_lotChoices.isNotEmpty)
             Wrap(spacing: 6, children: [
               for (final c in _lotChoices) ActionChip(label: Text(c), onPressed: () => setState(() => _lot.text = c)),
             ]),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           TextField(
             controller: _date,
             focusNode: _dateFocus,
             keyboardType: TextInputType.datetime,
-            decoration: InputDecoration(
-              labelText: 'Péremption (JJ/MM/AAAA ou MM/AAAA)${_peremptionRequired ? ' *' : ''}',
-              border: const OutlineInputBorder(),
-            ),
+            decoration: _field('Péremption (JJ/MM/AAAA ou MM/AAAA)${_peremptionRequired ? ' *' : ''}'),
             onChanged: (v) => _interceptFieldScan(_date, v),
           ),
           if (_dateChoices.isNotEmpty)
             Wrap(spacing: 6, children: [
               for (final d in _dateChoices) ActionChip(label: Text(_fmt.format(d)), onPressed: () => setState(() => _date.text = _fmt.format(d))),
             ]),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Row(children: [
             Expanded(
               flex: 2,
@@ -749,7 +837,7 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> {
                 focusNode: _qtyFocus,
                 keyboardType: TextInputType.number,
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                decoration: const InputDecoration(labelText: 'Quantité (boîtes)', border: OutlineInputBorder()),
+                decoration: _field('Quantité (boîtes)'),
                 onChanged: (_) => setState(() {}),
                 onSubmitted: (_) => _submit(),
               ),
@@ -759,26 +847,22 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> {
               child: TextField(
                 controller: _ug,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'UG', border: OutlineInputBorder()),
+                decoration: _field('UG'),
               ),
             ),
           ]),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 56,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.check),
-              label: Text(qtyValue > 0 ? 'Confirmer $qtyValue' : 'Confirmer', style: const TextStyle(fontSize: 18)),
-              onPressed: _busy ? null : _submit,
-            ),
-          ),
+          const SizedBox(height: 8),
         ],
       ],
     );
   }
 
-  Widget _figure(String label, String value, {Color? color}) => Column(children: [
-        Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
-        Text(label, style: const TextStyle(fontSize: 12)),
-      ]);
+  Widget _figure(String label, String value, {Color? color}) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(color: Pal.page, borderRadius: BorderRadius.circular(10)),
+        child: Column(children: [
+          Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color ?? Pal.ink)),
+          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF4A5A70))),
+        ]),
+      );
 }
