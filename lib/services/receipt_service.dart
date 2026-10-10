@@ -55,9 +55,13 @@ class ReceiptService {
     required ClientAssurance client, required AyantDroit ayantDroit, required PaymentMethod paymentMethod, required User currentUser,
     required bool isTestMode, required int paperWidth, required String ticketCodeType,
     bool showQrCode = true, int numberOfCopies = 1, int? montantVerse, int? monnaie,
+    // Optionnels (nouvelle version des ventes) ; par défaut : comportement d'origine.
+    String? reference, bool? carnet, bool confirmEachCopy = true,
   }) async {
+    final ref = reference ?? (items.isNotEmpty ? items.first.strREF : '');
+    final title = _assuranceTitle(saleSummary, carnet, prevente: false);
     for (int i = 0; i < numberOfCopies; i++) {
-      if (i > 0) {
+      if (i > 0 && confirmEachCopy) {
         final bool? rePrint = await showDialog<bool>(
           context: context, barrierDismissible: false,
           builder: (ctx) => AlertDialog(
@@ -70,11 +74,11 @@ class ReceiptService {
 
       if (isTestMode) {
         // APPEL DU WIDGET DÉTAILLÉ
-        final ticketWidget = _buildAssuranceSaleTicketWidget(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie);
+        final ticketWidget = _buildAssuranceSaleTicketWidget(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie, reference: ref, title: title);
         await _showTestTicketDialog(context, ticketWidget, paperWidth);
       } else {
         // APPEL DE L'IMPRESSION DÉTAILLÉE
-        await _printAssuranceSaleTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie);
+        await _printAssuranceSaleTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie, reference: ref, title: title);
       }
     }
   }
@@ -84,9 +88,13 @@ class ReceiptService {
     required BuildContext context, required Officine officine, required AssuranceSaleSummary saleSummary, required List<SaleItemDetail> items,
     required ClientAssurance client, required AyantDroit ayantDroit, required User currentUser, required bool isTestMode,
     required int paperWidth, required String ticketCodeType, int numberOfCopies = 1,
+    // Optionnels (nouvelle version des ventes) ; par défaut : comportement d'origine.
+    String? reference, bool? carnet, bool confirmEachCopy = true,
   }) async {
+    final ref = reference ?? (items.isNotEmpty ? items.first.strREF : '');
+    final title = _assuranceTitle(saleSummary, carnet, prevente: true);
     for (int i = 0; i < numberOfCopies; i++) {
-      if (i > 0) {
+      if (i > 0 && confirmEachCopy) {
         final bool? rePrint = await showDialog<bool>(
           context: context, barrierDismissible: false,
           builder: (ctx) => AlertDialog(
@@ -98,13 +106,19 @@ class ReceiptService {
       }
       if (isTestMode) {
         // APPEL DU WIDGET MINIMALISTE
-        final ticketWidget = _buildAssurancePreventeTicketWidget(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType);
+        final ticketWidget = _buildAssurancePreventeTicketWidget(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title);
         await _showTestTicketDialog(context, ticketWidget, paperWidth);
       } else {
         // APPEL DE L'IMPRESSION MINIMALISTE
-        await _printAssurancePreventeTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType);
+        await _printAssurancePreventeTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title);
       }
     }
+  }
+
+  /// Titre du ticket assurance / carnet. [carnet] null : règle d'origine (tous les TP à 100 % → CARNET).
+  static String _assuranceTitle(AssuranceSaleSummary s, bool? carnet, {required bool prevente}) {
+    final isCarnet = carnet ?? !s.tierspayants.any((tp) => tp.taux < 100);
+    return '${prevente ? 'PRE-VENTE ' : 'VENTE '}${isCarnet ? 'CARNET' : 'ASSURANCE'}';
   }
 
   // ==========================================
@@ -199,11 +213,9 @@ class ReceiptService {
   }
 
   // --- SUNMI VENTE ASSURANCE / CARNET (RETOUR DE LA VERSION DÉTAILLÉE AVEC PRODUITS) ---
-  Future<void> _printAssuranceSaleTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie}) async {
+  Future<void> _printAssuranceSaleTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie, required String reference, required String title}) async {
     if (!await _initializePrinter(context)) return;
     try {
-      final String reference = items.isNotEmpty ? items.first.strREF : '';
-
       await SunmiPrinter.startTransactionPrint(true);
       final int cols = paperWidth == 58 ? 32 : 48;
       final int articleWidth = paperWidth == 58 ? 14 : 26;
@@ -218,7 +230,6 @@ class ReceiptService {
       await SunmiPrinter.printText(officine.fullName);
 
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
-      final title = saleSummary.tierspayants.any((tp) => tp.taux < 100) ? 'VENTE ASSURANCE' : 'VENTE CARNET';
       await SunmiPrinter.printText(title, style: SunmiStyle(bold: true));
 
       await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
@@ -280,10 +291,9 @@ class ReceiptService {
   }
 
   // --- SUNMI PRÉVENTE ASSURANCE (RESTE MINIMALISTE) ---
-  Future<void> _printAssurancePreventeTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType) async {
+  Future<void> _printAssurancePreventeTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title}) async {
     if (!await _initializePrinter(context)) return;
     try {
-      final String reference = items.isNotEmpty ? items.first.strREF : '';
       await SunmiPrinter.startTransactionPrint(true);
       final int cols = paperWidth == 58 ? 32 : 48;
       String line([String ch = '-']) => List.filled(cols, ch).join();
@@ -295,7 +305,6 @@ class ReceiptService {
       await SunmiPrinter.printText(officine.fullName, style: defaultStyle);
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.printText(line());
-      final title = saleSummary.tierspayants.any((tp) => tp.taux < 100) ? 'PRE-VENTE ASSURANCE' : 'PRE-VENTE CARNET';
       await SunmiPrinter.printText(title, style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
       await SunmiPrinter.printText(DateFormat("dd/MM/yyyy HH:mm:ss").format(DateTime.now()));
       await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
@@ -455,7 +464,7 @@ class ReceiptService {
   }
 
   // --- WIDGET PRÉVENTE ASSURANCE (MINIMALISTE) ---
-  Widget _buildAssurancePreventeTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType) {
+  Widget _buildAssurancePreventeTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -463,8 +472,6 @@ class ReceiptService {
     String fit(String s, int len) { final t = s.replaceAll("\n", " "); if (t.runes.length <= len) return t.padRight(len); return String.fromCharCodes(t.runes.take(len)); }
     final headerCrossAlign = paperWidth == 58 ? CrossAxisAlignment.start : CrossAxisAlignment.center;
 
-    final String reference = items.isNotEmpty ? items.first.strREF : '';
-    final title = saleSummary.tierspayants.any((tp) => tp.taux < 100) ? 'PRE-VENTE ASSURANCE' : 'PRE-VENTE CARNET';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -519,7 +526,7 @@ class ReceiptService {
   }
 
   // --- WIDGET VENTE ASSURANCE (RETOUR VERSION DÉTAILLÉE AVEC PRODUITS) ---
-  Widget _buildAssuranceSaleTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie}) {
+  Widget _buildAssuranceSaleTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, PaymentMethod paymentMethod, User currentUser, int paperWidth, String ticketCodeType, bool showQrCode, {int? montantVerse, int? monnaie, required String reference, required String title}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -527,8 +534,6 @@ class ReceiptService {
     String fit(String s, int len) { final t = s.replaceAll("\n", " "); if (t.runes.length <= len) return t.padRight(len); return String.fromCharCodes(t.runes.take(len)); }
     final headerCrossAlign = paperWidth == 58 ? CrossAxisAlignment.start : CrossAxisAlignment.center;
 
-    final title = saleSummary.tierspayants.any((tp) => tp.taux < 100) ? 'VENTE ASSURANCE' : 'VENTE CARNET';
-    final String reference = items.isNotEmpty ? items.first.strREF : '';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
