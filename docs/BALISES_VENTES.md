@@ -10,6 +10,7 @@ Les identifiants ci-dessous sont des commits de la branche `pres-/tender-thompso
 | `ventes-v1-socle` | `ca2c7dd5c2c2092641a71de495a10960c97e6ef7` | Étape 1 : socle commun, Pré-vente / Assurance / Carnet fiabilisées (nouvelle version), recherche produit par pages et code exact. |
 | `ventes-v2-prevente` | `f28de2c54e926e2dfe51d96664c2b657c121afe1` | Étape 2 : Pré-vente / Vente en présentations A/B/C, encaissement sur une page, liste des préventes. |
 | `ventes-v3-assurance` | `d494f4efdafe860fffd32011d2fbeab7d992528e` | Étape 3 : Pré-vente Assurance en A/B/C (étapes, carte client permanente, répartition, encaissement une page). |
+| `ventes-v4-carnet` | `ad6fe4dbfb33ab612a2f5d4517e6cd4711de90e9` | Étape 4 : Vente Carnet en A/B/C (étapes, création client en page, ayants droit, carte client permanente). |
 
 ## Revenir en arrière
 
