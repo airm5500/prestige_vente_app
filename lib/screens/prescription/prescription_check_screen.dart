@@ -7,7 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
-import 'package:prestige_vente_app/screens/pre_vente/pre_vente_screen.dart';
+import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
@@ -371,7 +371,9 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     if (failed.isNotEmpty) _showError('Non ajouté(s) : ${failed.join(', ')}');
     // L'écran Pré/Vente existant affiche la pré-vente : l'opérateur la vérifie puis l'enregistre.
     final open = widget.openPrevente ??
-        (ctx) => Navigator.of(ctx).push(MaterialPageRoute(builder: (_) => const PreVenteScreen(initialTabIndex: 0)));
+        (ctx) => Navigator.of(ctx).push(MaterialPageRoute(
+              builder: (_) => VentesVersion.preVente(initialTabIndex: 0, resumeVenteId: sale.currentVenteId),
+            ));
     await open(context);
   }
 

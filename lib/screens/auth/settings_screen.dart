@@ -11,6 +11,7 @@ import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/screens/home/menu_organizer_screen.dart';
 import 'package:prestige_vente_app/screens/splash_screen.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart'; // Pour la sécurité
+import 'package:prestige_vente_app/ventes/ventes_version.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -250,6 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
 
                       const SizedBox(height: 10),
+                      const VentesVersionTile(),
                       SwitchListTile(
                         title: const Text("Masquer les produits 'RV'"),
                         value: settings.hideRvProducts,

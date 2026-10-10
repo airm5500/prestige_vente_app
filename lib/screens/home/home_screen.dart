@@ -19,9 +19,7 @@ import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
 import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
 
-import 'package:prestige_vente_app/screens/pre_vente/pre_vente_screen.dart';
-import 'package:prestige_vente_app/screens/assurance_sale/assurance_sale_screen.dart';
-import 'package:prestige_vente_app/screens/carnet_sale/carnet_sale_screen.dart';
+import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/screens/caisse/caisse_screen.dart';
 import 'package:prestige_vente_app/screens/perimes/perime_main_screen.dart';
 import 'package:prestige_vente_app/screens/product_evaluation/product_evaluation_screen.dart';
@@ -143,9 +141,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _buildDynamicMenu() {
     final Map<String, MenuItem> allAvailableMenus = {
-      'prevente': MenuItem(id: 'prevente', label: 'Pre/Vente', icon: Icons.point_of_sale, color: Colors.blue.shade700, onTap: () => navigate(const PreVenteScreen())),
-      'assurance': MenuItem(id: 'assurance', label: 'Pre/Vente Assurance', icon: Icons.health_and_safety, color: Colors.red.shade700, onTap: () => navigate(const AssuranceSaleScreen())),
-      'carnet': MenuItem(id: 'carnet', label: 'Vente Carnet', icon: Icons.book, color: Colors.green.shade800, onTap: () => navigate(const CarnetSaleScreen())),
+      'prevente': MenuItem(id: 'prevente', label: 'Pre/Vente', icon: Icons.point_of_sale, color: Colors.blue.shade700, onTap: () => navigate(VentesVersion.preVente())),
+      'assurance': MenuItem(id: 'assurance', label: 'Pre/Vente Assurance', icon: Icons.health_and_safety, color: Colors.red.shade700, onTap: () => navigate(VentesVersion.assurance())),
+      'carnet': MenuItem(id: 'carnet', label: 'Vente Carnet', icon: Icons.book, color: Colors.green.shade800, onTap: () => navigate(VentesVersion.carnet())),
       'caisse': MenuItem(id: 'caisse', label: 'Gestion Caisse', icon: Icons.calculate, color: Colors.lime.shade700, onTap: () => navigate(const CaisseScreen())),
       'perimes': MenuItem(id: 'perimes', label: 'Gestion Périmés', icon: Icons.dangerous, color: Colors.deepOrange.shade600, onTap: () => navigate(const PerimeMainScreen())),
       'evaluation': MenuItem(id: 'evaluation', label: 'Évaluation Vente', icon: Icons.bar_chart, color: Colors.green.shade700, onTap: () => navigate(const ProductEvaluationScreen())),
@@ -238,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ListTile(
                 leading: Icon(Icons.history_toggle_off, color: Colors.orange.shade700),
                 title: Text('$preventesCount Prévente(s) en attente'),
-                onTap: () { Navigator.of(ctx).pop(); navigate(const PreVenteScreen(initialTabIndex: 2)); },
+                onTap: () { Navigator.of(ctx).pop(); navigate(VentesVersion.preVente(initialTabIndex: 2)); },
               ),
               ListTile(
                 leading: Icon(Icons.checklist, color: Colors.cyan.shade700),

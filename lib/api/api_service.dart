@@ -54,6 +54,9 @@ class ApiService {
     _dio = DioClient.getClient(baseUrl);
   }
 
+  /// Client HTTP partagé (utilisé par la passerelle des ventes, qui gère ses propres erreurs).
+  Dio get dio => _dio;
+
   // ... (Toutes les méthodes existantes restent inchangées) ...
   Future<User?> login(String login, String password) async { try { final response = await _dio.post( '/user/auth', data: {'login': login, 'password': password}); if (response.statusCode == 200 && response.data['success'] == true) { return User.fromJson(response.data); } return null; } on DioException catch (e) { print("Error logging in: $e"); return null; } }
   Future<void> logout() async { try { await _dio.post('/user/logout'); } catch (e) { print("Error logging out: $e"); } }
