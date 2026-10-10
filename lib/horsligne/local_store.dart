@@ -89,8 +89,17 @@ String _idOf(CatalogueCategorie c, Map<String, dynamic> row) => switch (c) {
 
 /// Base locale. [replace] remplace une catégorie entière en une transaction :
 /// si elle échoue, l'ancienne copie reste intacte.
+/// [meta] (H5, mise à jour différentielle) : valeurs `meta` écrites dans la MÊME transaction (null = effacée).
 abstract class LocalStore {
-  Future<void> replace(CatalogueCategorie c, List<Map<String, dynamic>> rows, DateTime at);
+  Future<void> replace(CatalogueCategorie c, List<Map<String, dynamic>> rows, DateTime at, {Map<String, String?> meta = const {}});
+
+  /// H5 : changements du catalogue produits (ajouts / modifications, suppressions par identifiant) et [meta],
+  /// en UNE transaction : si elle échoue, rien n'est appliqué (ni produits, ni curseur).
+  Future<void> appliquerProduits(List<Map<String, dynamic>> upserts, List<String> suppressions, DateTime at,
+      {Map<String, String?> meta = const {}});
+
+  /// Valeurs `meta` dont la clé commence par [prefixe] (H5 : état de la mise à jour différentielle).
+  Future<Map<String, String>> metas(String prefixe);
 
   /// Recherche produit par pages ; [query] = texte envoyé au serveur (LIKE 'query%').
   Future<ProductPage> searchProducts(String query, int start, int limit);
@@ -129,11 +138,42 @@ class MemoryLocalStore extends LocalStore {
   final Map<CatalogueCategorie, List<Map<String, dynamic>>> _rows = {};
   final Map<CatalogueCategorie, DateTime> _last = {};
 
+  final Map<String, String> _meta = {};
+
   /// Fait échouer la prochaine écriture (tests).
   bool failNextWrite = false;
 
+  void _ecrireMeta(Map<String, String?> meta) => meta.forEach((k, v) => v == null ? _meta.remove(k) : _meta[k] = v);
+
+  static void _trier(List<Map<String, dynamic>> l) => l.sort((a, b) => foldText('${a['strNAME']}').compareTo(foldText('${b['strNAME']}')));
+
   @override
-  Future<void> replace(CatalogueCategorie c, List<Map<String, dynamic>> rows, DateTime at) async {
+  Future<void> appliquerProduits(List<Map<String, dynamic>> upserts, List<String> suppressions, DateTime at,
+      {Map<String, String?> meta = const {}}) async {
+    if (failNextWrite) {
+      failNextWrite = false;
+      throw StateError('écriture refusée');
+    }
+    const c = CatalogueCategorie.produits;
+    final byId = {for (final r in _rows[c] ?? const <Map<String, dynamic>>[]) _idOf(c, r): r};
+    for (final id in suppressions) {
+      byId.remove(id);
+    }
+    for (final r in upserts) {
+      byId[_idOf(c, r)] = Map<String, dynamic>.from(r);
+    }
+    final list = byId.values.toList();
+    _trier(list);
+    _rows[c] = list;
+    _last[c] = at;
+    _ecrireMeta(meta);
+  }
+
+  @override
+  Future<Map<String, String>> metas(String prefixe) async => {for (final e in _meta.entries) if (e.key.startsWith(prefixe)) e.key: e.value};
+
+  @override
+  Future<void> replace(CatalogueCategorie c, List<Map<String, dynamic>> rows, DateTime at, {Map<String, String?> meta = const {}}) async {
     if (failNextWrite) {
       failNextWrite = false;
       throw StateError('écriture refusée');
@@ -143,9 +183,10 @@ class MemoryLocalStore extends LocalStore {
       byId[_idOf(c, r)] = Map<String, dynamic>.from(r);
     }
     final list = byId.values.toList();
-    if (c == CatalogueCategorie.produits) list.sort((a, b) => foldText('${a['strNAME']}').compareTo(foldText('${b['strNAME']}')));
+    if (c == CatalogueCategorie.produits) _trier(list);
     _rows[c] = list;
     _last[c] = at;
+    _ecrireMeta(meta);
   }
 
   Iterable<Map<String, dynamic>> _match(CatalogueCategorie c, String query, List<String> Function(Map<String, dynamic>) fields) {
@@ -186,6 +227,7 @@ class MemoryLocalStore extends LocalStore {
   Future<void> clear() async {
     _rows.clear();
     _last.clear();
+    _meta.clear();
   }
 }
 
@@ -247,8 +289,55 @@ class SqfliteLocalStore extends LocalStore {
     if (db != null) await (await db).close();
   }
 
+  /// Ligne SQLite d'un produit (JSON brut de /vente/search).
+  static Map<String, Object?> _produitRow(Map<String, dynamic> r, String maj) => {
+        'id': '${r['lgFAMILLEID'] ?? ''}',
+        'cip': '${r['intCIP'] ?? ''}'.trim(),
+        'ean': '${r['codeEanFabriquant'] ?? ''}'.trim(),
+        'nom': '${r['strNAME'] ?? ''}',
+        'nom_n': foldText('${r['strNAME'] ?? ''}'),
+        'prix': (r['intPRICE'] as num?)?.toInt() ?? 0,
+        'stock': (r['intNUMBERAVAILABLE'] as num?)?.toInt() ?? 0,
+        'libelle': '${r['strLIBELLEE'] ?? ''}',
+        'maj': maj,
+        'json': jsonEncode(r),
+      };
+
+  static void _metaBatch(Batch b, Map<String, String?> meta) => meta.forEach((k, v) => v == null
+      ? b.delete('meta', where: 'cle = ?', whereArgs: [k])
+      : b.insert('meta', {'cle': k, 'valeur': v}, conflictAlgorithm: ConflictAlgorithm.replace));
+
   @override
-  Future<void> replace(CatalogueCategorie c, List<Map<String, dynamic>> rows, DateTime at) async {
+  Future<void> appliquerProduits(List<Map<String, dynamic>> upserts, List<String> suppressions, DateTime at,
+      {Map<String, String?> meta = const {}}) async {
+    final db = await _database;
+    final maj = at.toIso8601String();
+    await db.transaction((txn) async {
+      final b = txn.batch();
+      for (var i = 0; i < suppressions.length; i += 200) {
+        final ids = suppressions.sublist(i, (i + 200).clamp(0, suppressions.length));
+        b.delete('produits', where: 'id IN (${List.filled(ids.length, '?').join(',')})', whereArgs: ids);
+      }
+      var n = 0;
+      for (final r in upserts) {
+        if (++n % paquet == 0) await Future<void>.delayed(Duration.zero);
+        b.insert('produits', _produitRow(r, maj), conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      b.insert('meta', {'cle': 'maj_${CatalogueCategorie.produits.name}', 'valeur': maj}, conflictAlgorithm: ConflictAlgorithm.replace);
+      _metaBatch(b, meta);
+      await b.commit(noResult: true);
+    });
+  }
+
+  @override
+  Future<Map<String, String>> metas(String prefixe) async {
+    final db = await _database;
+    final rows = await db.query('meta', where: 'substr(cle, 1, ?) = ?', whereArgs: [prefixe.length, prefixe]);
+    return {for (final r in rows) '${r['cle']}': '${r['valeur']}'};
+  }
+
+  @override
+  Future<void> replace(CatalogueCategorie c, List<Map<String, dynamic>> rows, DateTime at, {Map<String, String?> meta = const {}}) async {
     final db = await _database;
     final maj = at.toIso8601String();
     await db.transaction((txn) async {
@@ -263,21 +352,7 @@ class SqfliteLocalStore extends LocalStore {
           b.delete('produits');
           for (final r in rows) {
             await cede();
-            b.insert(
-                'produits',
-                {
-                  'id': '${r['lgFAMILLEID'] ?? ''}',
-                  'cip': '${r['intCIP'] ?? ''}'.trim(),
-                  'ean': '${r['codeEanFabriquant'] ?? ''}'.trim(),
-                  'nom': '${r['strNAME'] ?? ''}',
-                  'nom_n': foldText('${r['strNAME'] ?? ''}'),
-                  'prix': (r['intPRICE'] as num?)?.toInt() ?? 0,
-                  'stock': (r['intNUMBERAVAILABLE'] as num?)?.toInt() ?? 0,
-                  'libelle': '${r['strLIBELLEE'] ?? ''}',
-                  'maj': maj,
-                  'json': jsonEncode(r),
-                },
-                conflictAlgorithm: ConflictAlgorithm.replace);
+            b.insert('produits', _produitRow(r, maj), conflictAlgorithm: ConflictAlgorithm.replace);
           }
         case CatalogueCategorie.clientsAssurance || CatalogueCategorie.clientsCarnet:
           final type = c == CatalogueCategorie.clientsCarnet ? '2' : '1';
@@ -309,6 +384,7 @@ class SqfliteLocalStore extends LocalStore {
           }
       }
       b.insert('meta', {'cle': 'maj_${c.name}', 'valeur': maj}, conflictAlgorithm: ConflictAlgorithm.replace);
+      _metaBatch(b, meta);
       await b.commit(noResult: true);
     });
   }

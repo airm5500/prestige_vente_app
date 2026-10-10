@@ -8,14 +8,20 @@
 // l'utilisateur travaille ([ActiviteApp] : requête de l'appli en cours ou récente) et reprend ensuite ;
 // la main est rendue entre deux pages ; jamais deux mises à jour à la fois ; la mise à jour manuelle
 // est immédiate (elle lève la pause d'une mise à jour automatique en cours et l'attend).
+// H5 (serveur avec `catalogueDelta`, voir catalogue_delta.dart) : produits = copie complète une fois par jour,
+// sinon seulement les changements (toutes les 5 min en ligne, et dans la mise à jour automatique des 30 min).
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/horsligne/activite_app.dart';
+import 'package:prestige_vente_app/horsligne/catalogue_delta.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 
 /// Appel GET du serveur : renvoie le corps JSON ; lève [CatalogueSyncException] en cas d'échec.
 typedef CatalogueFetch = Future<Map<String, dynamic>> Function(String path, Map<String, dynamic> query);
+
+/// H5 : GET /mobile/capacites (code HTTP et corps, sans lever d'exception pour un 401 / 404).
+typedef CatalogueCapacites = Future<({int status, Object? body})> Function();
 
 class CatalogueSyncException implements Exception {
   final String message;
@@ -43,6 +49,12 @@ class CatalogueSync extends ChangeNotifier {
   /// Copies complémentaires (téléchargées après les catégories du catalogue).
   final List<CatalogueExtension> extensions = [];
   CatalogueFetch? fetch;
+
+  /// H5 : lecture des capacités du serveur (null : jamais de mise à jour différentielle).
+  CatalogueCapacites? capacites;
+
+  /// H5 : adresse du serveur (le curseur des changements ne vaut que pour ce serveur).
+  String Function()? serveur;
   final DateTime Function() _clock;
 
   /// Taille des pages téléchargées.
@@ -96,6 +108,18 @@ class CatalogueSync extends ChangeNotifier {
   DateTime? _lastRun;
   Duration? _lastDuration;
   Timer? _auto;
+  Timer? _autoDelta;
+  EtatDelta _delta = EtatDelta.vide;
+
+  /// H5 : état de la mise à jour différentielle (curseur, dernière mise à jour, nb de produits modifiés).
+  EtatDelta get delta => _delta;
+  String get _serveurCle => serveur?.call() ?? '';
+
+  /// H5 : les produits se mettent à jour par changements (copie complète faite avec la capacité, même serveur).
+  bool get deltaActif => _delta.actifPour(_serveurCle);
+
+  /// « Dernière mise à jour : il y a 3 min (12 produits modifiés) » (null sans mise à jour différentielle).
+  String? get deltaLibelle => deltaActif ? _delta.libelle(_clock()) : null;
 
   bool get running => _running;
 
@@ -122,6 +146,7 @@ class CatalogueSync extends ChangeNotifier {
   Future<LocalStats> refreshStats() async {
     try {
       _stats = await store.stats();
+      _delta = EtatDelta.depuisMeta(await store.metas(CatalogueDelta.prefixe));
       _storeError = null;
     } catch (e) {
       _storeError = 'Copie locale indisponible : $e';
@@ -137,24 +162,31 @@ class CatalogueSync extends ChangeNotifier {
     return at == null || _clock().difference(at) > age;
   }
 
-  /// Synchro si la copie est trop ancienne (démarrage).
+  /// Synchro si la copie est trop ancienne (démarrage) ; H5 : aussi si la vérification complète du jour manque.
   Future<bool> syncIfStale() async {
     if (!_statsLoaded) await refreshStats();
-    if (!isStale()) return true;
+    if (!isStale() && !(deltaActif && _delta.completDu(_clock()))) return true;
     return syncAll(auto: true);
   }
 
-  /// Synchro automatique toutes les 30 min tant que [online] est vrai (sans rien afficher).
+  /// Synchro automatique toutes les 30 min tant que [online] est vrai (sans rien afficher) ;
+  /// H5 : changements des produits toutes les 5 min (seulement si le serveur les propose).
   void startAuto(bool Function() online) {
     _auto?.cancel();
     _auto = Timer.periodic(autoInterval, (_) {
       if (online() && !_running && fetch != null) syncAll(auto: true);
+    });
+    _autoDelta?.cancel();
+    _autoDelta = Timer.periodic(CatalogueDelta.intervalle, (_) {
+      if (online() && !_running && fetch != null && deltaActif) syncChangements();
     });
   }
 
   void stopAuto() {
     _auto?.cancel();
     _auto = null;
+    _autoDelta?.cancel();
+    _autoDelta = null;
   }
 
   @override
@@ -167,7 +199,17 @@ class CatalogueSync extends ChangeNotifier {
   /// (les catégories déjà enregistrées restent à jour, les autres gardent l'ancienne copie).
   /// [auto] : mise à jour automatique (pause tant que l'utilisateur travaille). Manuelle : immédiate ;
   /// si une mise à jour automatique est en cours, elle continue sans pause et on l'attend.
-  Future<bool> syncAll({bool auto = false}) async {
+  Future<bool> syncAll({bool auto = false}) => _lancer(auto: auto);
+
+  /// H5 : produits seulement (changements, ou copie complète si la vérification du jour est due) ;
+  /// automatique (pause pendant l'activité). Sans mise à jour différentielle : rien.
+  Future<bool> syncChangements() async {
+    if (!_statsLoaded) await refreshStats();
+    if (!deltaActif) return false;
+    return _lancer(auto: true, produitsSeuls: true);
+  }
+
+  Future<bool> _lancer({required bool auto, bool produitsSeuls = false}) async {
     final f0 = fetch;
     if (f0 == null) {
       _error = 'Serveur non configuré.';
@@ -185,14 +227,14 @@ class CatalogueSync extends ChangeNotifier {
     return _current = _syncAll((p, q) async {
       await _entreRequetes();
       return f0(p, q);
-    }).whenComplete(() {
+    }, produitsSeuls: produitsSeuls).whenComplete(() {
       _current = null;
       _auto0 = false;
       _enPause = false;
     });
   }
 
-  Future<bool> _syncAll(CatalogueFetch f) async {
+  Future<bool> _syncAll(CatalogueFetch f, {bool produitsSeuls = false}) async {
     _running = true;
     _error = null;
     _warnings.clear();
@@ -202,8 +244,12 @@ class CatalogueSync extends ChangeNotifier {
     final errors = <String>[];
     var network = false;
     try {
-      for (final c in CatalogueCategorie.values) {
+      for (final c in produitsSeuls ? const [CatalogueCategorie.produits] : CatalogueCategorie.values) {
         try {
+          if (c == CatalogueCategorie.produits) {
+            await _produits(f, complet: !_auto0 && !produitsSeuls);
+            continue;
+          }
           final rows = await _download(f, c);
           await store.replace(c, rows, _clock());
         } on CatalogueSyncException catch (e) {
@@ -213,7 +259,7 @@ class CatalogueSync extends ChangeNotifier {
           errors.add('${c.label} : $e');
         }
       }
-      for (final x in network ? const <CatalogueExtension>[] : List.of(extensions)) {
+      for (final x in network || produitsSeuls ? const <CatalogueExtension>[] : List.of(extensions)) {
         try {
           await x.sync(f, _progress);
         } on CatalogueSyncException catch (e) {
@@ -234,6 +280,66 @@ class CatalogueSync extends ChangeNotifier {
       await refreshStats();
     }
     return errors.isEmpty;
+  }
+
+  /// Produits. H5 actif et vérification du jour faite : changements seulement (repli sur la copie complète si le
+  /// serveur ne les donne plus). Sinon copie complète d'origine ; avec la capacité, le curseur (horloge du serveur
+  /// lue AVANT le téléchargement) est écrit dans la même transaction. [complet] : mise à jour manuelle.
+  Future<void> _produits(CatalogueFetch f, {bool complet = false}) async {
+    const c = CatalogueCategorie.produits;
+    if (!complet && deltaActif && !_delta.completDu(_clock())) {
+      try {
+        await _changements(f);
+        return;
+      } on CatalogueSyncException catch (e) {
+        if (e.network) rethrow;
+      }
+    }
+    final cap = await _capaciteDelta();
+    final rows = await _download(f, c);
+    final now = _clock();
+    final Map<String, String?> meta = switch (cap) {
+      (ok: true, heure: final String h) => {
+          CatalogueDelta.kCurseur: h,
+          CatalogueDelta.kServeur: _serveurCle,
+          CatalogueDelta.kComplet: now.toIso8601String(),
+          CatalogueDelta.kMaj: now.toIso8601String(),
+          CatalogueDelta.kN: null,
+        },
+      // Le serveur n'a pas (ou plus) la capacité : on oublie le curseur.
+      (ok: false, heure: _) when _delta.curseur != null || _delta.complet != null => CatalogueDelta.oubli,
+      _ => const {},
+    };
+    await store.replace(c, rows, now, meta: meta);
+  }
+
+  /// H5 : capacité et horloge du serveur. ok : true / false si clair, null si indéterminé (ou sans [capacites]).
+  Future<({bool? ok, String? heure})> _capaciteDelta() async {
+    final lire = capacites;
+    if (lire == null) return (ok: null, heure: null);
+    try {
+      await _entreRequetes();
+      final r = await lire();
+      final ok = CatalogueDelta.capaciteDepuisReponse(r.status, r.body);
+      final body = r.body;
+      final h = ok == true && body is Map ? '${body['serveurMaintenant'] ?? ''}' : null;
+      if (ok == true && CatalogueDelta.lireHeure(h) == null) return (ok: false, heure: null);
+      return (ok: ok, heure: h);
+    } catch (_) {
+      return (ok: null, heure: null);
+    }
+  }
+
+  /// H5 : changements depuis le curseur − 2 min, appliqués avec le nouveau curseur en une transaction.
+  Future<void> _changements(CatalogueFetch f) async {
+    _progress('${CatalogueCategorie.produits.label} (changements)', 0, null);
+    final ch = await telechargerChangements(f, _delta.curseur!, pageSize: pageSize, progress: (d, t) => _progress(_etape ?? '', d, t));
+    final now = _clock();
+    await store.appliquerProduits(ch.upserts, ch.suppressions, now, meta: {
+      CatalogueDelta.kCurseur: ch.serveurMaintenant,
+      CatalogueDelta.kMaj: now.toIso8601String(),
+      CatalogueDelta.kN: '${ch.nombre}',
+    });
   }
 
   void _progress(String etape, int done, int? total) {

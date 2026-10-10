@@ -40,7 +40,7 @@
 
 | Donnée | Usage hors ligne | Mise à jour |
 |---|---|---|
-| Produits (CIP, EAN, nom, prix, dernier stock connu, emplacement) | Recherche, scan, panier | Complète chaque nuit + changements toutes les 15 min |
+| Produits (CIP, EAN, nom, prix, dernier stock connu, emplacement) | Recherche, scan, panier | Complète une fois par jour + changements toutes les 5 min (serveur avec H5, §1.7) ; sinon complète toutes les 30 min |
 | Clients assurance / carnet + tiers payants + ayants droit | Préventes assurance/carnet | À chaque utilisation + chaque nuit |
 | Modes de paiement, QR | Encaissement | À la connexion |
 | Utilisateur connecté (session) | Rester connecté | Déjà le cas |
@@ -65,6 +65,7 @@
 | H2 | Préventes hors ligne + file d'envoi + écran « Ventes à vérifier » |
 | H3 | (option) Encaissement espèces hors ligne avec ticket provisoire |
 | H4 | (serveur) `clientRef` anti-doublon — **fait côté app ; patch serveur à appliquer** (§1.6) |
+| H5 | (serveur) mise à jour différentielle du catalogue — **fait côté app ; patch serveur à appliquer** (§1.7) |
 
 ### 1.5 H3 — Stock hors ligne (réception BL, pointages, péremptions, retours) : réalisé
 
@@ -176,6 +177,45 @@ intégration réelle contre le serveur de test, sautée s'il est injoignable ou 
 **Vérifié sur le serveur de test** (patch déployé) : double envoi / 6 envois simultanés même clé → 1 vente ; 5 envois
 même clé d'un retour → 1 retour ; sans clé → inchangé ; vente « envoyée avec clé » sans réponse → relue et terminée par
 l'application, aucune anomalie. Données de test supprimées.
+
+### 1.7 H5 — Mise à jour différentielle du catalogue : fait côté app, patch serveur à appliquer
+
+Demande client : « pourquoi ne pas récupérer uniquement les produits dont le stock a changé ? il y a des bases de
+10 000 produits ».
+
+**Serveur** (on ne pousse pas sur `airm5500/prestige`) : patch `docs/serveur/H5_catalogue_delta.patch` (après H4) +
+notice `docs/serveur/H5_CATALOGUE_DELTA.md`. `GET /mobile/catalogue/changements?depuis=&jusqua=&start=&limit=` →
+produits modifiés depuis `depuis` (horloge du serveur), au format exact de `/vente/search` + `statut: actif`, ou
+`{lgFAMILLEID, statut: supprime}` ; `serveurMaintenant`, `total`. Critère : `t_famille.dt_UPDATED`,
+`t_famille_stock.dt_UPDATED` (les déclencheurs de la base les posent à CHAQUE modification), plus en filet de sécurité
+les mouvements `HMvtProduit` et le mouchard des prix `t_mouvementprice`. Capacité `catalogueDelta: true` (+
+`serveurMaintenant`) sur `/mobile/capacites`. Migration `V6.9.129.2` : index seulement.
+
+**Application** (`lib/horsligne/catalogue_delta.dart` ; points d'accroche dans `catalogue_sync.dart`, `local_store.dart`,
+`horsligne.dart`, Réglages › Hors ligne) :
+- capacité lue au début de chaque mise à jour complète (avec l'horloge du serveur) ; sans elle : fonctionnement
+  d'origine exact (copie complète toutes les 30 min, aucune requête toutes les 5 min) ;
+- avec elle : copie complète la première fois (curseur = `serveurMaintenant` lu AVANT le téléchargement, écrit dans la
+  même transaction), puis toutes les 5 min en ligne seulement les changements (pause pendant l'activité de l'appli,
+  comme la copie complète) ; la mise à jour des 30 min fait les produits par changements et le reste en entier ;
+  « Mettre à jour maintenant » fait une copie complète ;
+- `depuis` = dernier `serveurMaintenant` − 2 min (chevauchement : une modification de la même seconde n'est jamais
+  perdue), `jusqua` figé pour les pages suivantes ; l'heure du téléphone n'intervient pas ;
+- changements appliqués (ajout / remplacement / suppression) avec le nouveau curseur en UNE transaction SQLite ; échec =
+  rien d'appliqué, curseur inchangé ;
+- vérification complète quotidienne : la première mise à jour d'un nouveau jour (la nuit si l'appli tourne, sinon à la
+  première connexion du jour, même si la copie a moins de 12 h) est une copie complète (suppressions invisibles) ;
+- curseur lié à l'adresse du serveur ; réponse inattendue des changements → repli sur la copie complète ; capacité
+  perdue → curseur oublié ; « Vider la copie locale » l'efface aussi ;
+- Réglages › Hors ligne : « Dernière mise à jour : il y a X min (N produits modifiés) ».
+
+**Mesures** (serveur de test, 10 758 produits simulés puis supprimés) : copie complète 22 pages, 3,2 Mio, 7 à 9,6 s ;
+changements : 131 octets / 12 ms (rien), 15,8 Kio / 70 ms (50 produits). Application : copie complète de toutes les
+catégories 8,6 s, changements après une vente 0,5 s.
+
+**Tests** : `test/horsligne_delta_test.dart` (avec / sans capacité, suppression, chevauchement, horloge du serveur,
+vérification quotidienne, transaction mémoire et SQLite, repli, pause, minuterie, Réglages ; intégration réelle :
+vente clôturée → stock local à jour, sautée si le serveur est injoignable ou sans le patch).
 
 ---
 
