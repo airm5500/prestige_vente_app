@@ -1,5 +1,8 @@
 // lib/providers/reception_provider.dart
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/reception_model.dart';
 import 'package:prestige_vente_app/providers/quantity_sync.dart';
@@ -40,11 +43,14 @@ class ReceptionProvider with ChangeNotifier, QuantitySync {
     notifyListeners();
 
     try {
-      _receptionBons = await _apiService.getReceptionBons(
-        query: query,
-        dtStart: dtStart,
-        dtEnd: dtEnd,
-      );
+      // Hors ligne : copie locale (H3) ; en ligne : inchangé.
+      _receptionBons = HorsLigne.instance.offline
+          ? await StockHorsLigne.instance.controleReception(query: query, dtStart: dtStart, dtEnd: dtEnd)
+          : await _apiService.getReceptionBons(
+              query: query,
+              dtStart: dtStart,
+              dtEnd: dtEnd,
+            );
 
       for (var bon in _receptionBons) {
         _checkedQuantitiesPerBon.putIfAbsent(bon.id, () => {});
@@ -54,7 +60,7 @@ class ReceptionProvider with ChangeNotifier, QuantitySync {
       }
     } catch (e) {
       // La liste précédente reste affichée ; l'écran montre l'erreur avec « Réessayer ».
-      _loadError = e is ApiLoadException ? e.message : 'Impossible de charger les bons : $e';
+      _loadError = e is ApiLoadException || e is StockHorsLigneException ? '$e' : 'Impossible de charger les bons : $e';
     }
 
     _isLoading = false;
@@ -85,9 +91,16 @@ class ReceptionProvider with ChangeNotifier, QuantitySync {
     _checkedQuantitiesPerBon[_selectedBon!.id]![itemId] = quantity;
     notifyListeners();
 
-    return sendQuantity(itemId, quantity, () => _apiService.postBonItemCheckedQuantity(detailId: itemId, quantity: quantity));
+    final bonId = _selectedBon!.id;
+    return sendQuantity(itemId, quantity, () => _post(itemId, quantity, bonId));
   }
 
-  Future<int> retryUnsyncedQuantities() =>
-      retryUnsynced((id, q) => _apiService.postBonItemCheckedQuantity(detailId: id, quantity: q));
+  /// En ligne : envoi au serveur (inchangé). Hors ligne : file des opérations (envoyée plus tard).
+  Future<bool> _post(String itemId, int quantity, [String? bonId]) async {
+    if (!HorsLigne.instance.offline) return _apiService.postBonItemCheckedQuantity(detailId: itemId, quantity: quantity);
+    await StockHorsLigne.instance.pointerBl(bonId, itemId, quantity);
+    return true;
+  }
+
+  Future<int> retryUnsyncedQuantities() => retryUnsynced((id, q) => _post(id, q));
 }

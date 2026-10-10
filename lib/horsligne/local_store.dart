@@ -201,6 +201,9 @@ class SqfliteLocalStore extends LocalStore {
 
   static const _version = 1;
 
+  /// Lignes converties entre deux reprises de main (mise à jour sans ralentir l'appli).
+  static int paquet = 200;
+
   Future<Database> get _database => _db ??= _open();
 
   Future<Database> _open() async {
@@ -223,6 +226,20 @@ class SqfliteLocalStore extends LocalStore {
     await b.commit(noResult: true);
   }
 
+  /// Base ouverte, avec la migration [name] appliquée une seule fois (tables d'autres modules,
+  /// ex. stock hors ligne H3). Migrations NOMMÉES (table `migrations`) : plusieurs modules peuvent
+  /// en ajouter sans se disputer le numéro de version de la base.
+  Future<Database> withMigration(String name, Future<void> Function(Transaction txn) migrate) async {
+    final db = await _database;
+    await db.transaction((txn) async {
+      await txn.execute('CREATE TABLE IF NOT EXISTS migrations (nom TEXT PRIMARY KEY, at TEXT)');
+      if ((await txn.query('migrations', where: 'nom = ?', whereArgs: [name])).isNotEmpty) return;
+      await migrate(txn);
+      await txn.insert('migrations', {'nom': name, 'at': DateTime.now().toIso8601String()});
+    });
+    return db;
+  }
+
   /// Ferme la base (tests).
   Future<void> close() async {
     final db = _db;
@@ -236,10 +253,16 @@ class SqfliteLocalStore extends LocalStore {
     final maj = at.toIso8601String();
     await db.transaction((txn) async {
       final b = txn.batch();
+      // Conversion par paquets : la main est rendue à l'interface tous les [paquet] produits.
+      var n = 0;
+      Future<void> cede() async {
+        if (++n % paquet == 0) await Future<void>.delayed(Duration.zero);
+      }
       switch (c) {
         case CatalogueCategorie.produits:
           b.delete('produits');
           for (final r in rows) {
+            await cede();
             b.insert(
                 'produits',
                 {
@@ -260,6 +283,7 @@ class SqfliteLocalStore extends LocalStore {
           final type = c == CatalogueCategorie.clientsCarnet ? '2' : '1';
           b.delete('clients', where: 'type = ?', whereArgs: [type]);
           for (final r in rows) {
+            await cede();
             final f = clientSearchFields(r);
             b.insert(
                 'clients',
@@ -270,6 +294,7 @@ class SqfliteLocalStore extends LocalStore {
           final carnet = c == CatalogueCategorie.tiersPayantsCarnet ? 1 : 0;
           b.delete('tiers_payants', where: 'carnet = ?', whereArgs: [carnet]);
           for (final r in rows) {
+            await cede();
             final f = tiersPayantSearchFields(r);
             b.insert('tiers_payants', {'id': _idOf(c, r), 'carnet': carnet, 'nom_n': f[0], 'complet_n': f[1], 'json': jsonEncode(r)},
                 conflictAlgorithm: ConflictAlgorithm.replace);
@@ -278,6 +303,7 @@ class SqfliteLocalStore extends LocalStore {
           b.delete('modes');
           var pos = 0;
           for (final r in rows) {
+            await cede();
             b.insert('modes', {'cle': _idOf(c, r), 'kind': '${r['_kind']}', 'pos': pos++, 'json': jsonEncode(r)},
                 conflictAlgorithm: ConflictAlgorithm.replace);
           }

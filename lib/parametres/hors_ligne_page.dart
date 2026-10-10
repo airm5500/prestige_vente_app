@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/horsligne/ventes_hors_ligne_screen.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_ui.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
@@ -75,13 +76,18 @@ class _HorsLignePageState extends State<HorsLignePage> {
   Future<void> _vider() async {
     final ok = await confirmer(context,
         title: 'Vider la copie locale ?',
-        message: 'Les produits, clients et modes de paiement gardés sur cet appareil seront effacés. '
+        message: 'Les produits, clients, modes de paiement, BL et commandes gardés sur cet appareil seront effacés '
+            '(les opérations saisies hors ligne sont conservées). '
             'Sans copie, la recherche hors ligne ne trouvera plus rien jusqu\'à la prochaine mise à jour.',
         action: 'Vider',
         danger: true);
     if (!ok) return;
     try {
       await _hl.store.clear();
+      // Copies complémentaires (stock H3) ; les opérations en attente ne sont jamais effacées.
+      for (final x in _hl.sync.extensions) {
+        await x.clear();
+      }
     } catch (_) {}
     await _hl.sync.refreshStats();
     if (!mounted) return;
@@ -199,6 +205,8 @@ class _HorsLignePageState extends State<HorsLignePage> {
               icon: const Icon(Icons.delete_outline),
               label: const Text('Vider la copie locale'),
             ),
+            // Stock hors ligne (H3) : copie BL / commandes / retours, opérations et anomalies.
+            const StockHorsLigneSection(),
           ],
         );
       },

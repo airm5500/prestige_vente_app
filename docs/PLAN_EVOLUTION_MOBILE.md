@@ -66,6 +66,90 @@
 | H3 | (option) Encaissement espèces hors ligne avec ticket provisoire |
 | H4 | (serveur) `clientRef` anti-doublon |
 
+### 1.5 H3 — Stock hors ligne (réception BL, pointages, péremptions, retours) : réalisé
+
+**Code** : `lib/horsligne/stock/` (nouveau dossier) ; points d'accroche minimes dans `local_store.dart` (migrations
+NOMMÉES `withMigration`), `catalogue_sync.dart` (`CatalogueExtension`), `horsligne_ui.dart` (bandeau stock),
+`rapports_hl_screen.dart` (anomalies stock dans l'écran commun), Réglages › Hors ligne, et les écrans/providers concernés
+(branche « hors ligne » seulement : en ligne, le code d'origine est appelé tel quel).
+
+**Copie étendue** (téléchargée À LA SUITE du catalogue, mêmes déclencheurs, une transaction) — routes des écrans :
+
+| Catégorie | Route | Serveur de test |
+|---|---|---|
+| BL à entrer en stock | `/commande/list-bons?statut=enable` | 1 |
+| BL entrés en stock (30 j) | `/commande/list-bons?statut=is_Closed` (jour / 7 j / 30 j pour les périodes hors ligne) | 50 |
+| Lignes de BL | `/commande/bon/items/{id}?filtre=ALL` (BL des deux listes) | 751 |
+| Contrôle réception (30 j) | `/etat-control-bon/list` (lignes incluses ; `dtUPDATED` = date d'entrée en stock) | 46 |
+| Commandes en cours / passées | `/commande/list`, `/commande/list/passees` | 5 |
+| Lignes de commandes | `/commande/commande-en-cours-items` | 8 |
+| Grossistes, motifs de retour, rayons | `/common/grossiste`, `/common/motifs-retour`, `/common/rayons` | 12 / 13 / 38 |
+| Périmés en cours (du jour) | `/gestionperime/saisie-encours` | 0 |
+
+Réglages › Hors ligne affiche le nombre d'éléments et la date par catégorie. « Vider la copie locale » efface aussi cette
+copie, **jamais** les opérations en attente.
+
+**Actions hors ligne** (file persistante SQLite `stock_ops`, une opération par BL / commande / saisie, clé `HL3-…`) :
+
+| Écran | Hors ligne | Envoi (mêmes routes qu'en ligne) |
+|---|---|---|
+| Réception BL | saisie des lots (qté, UG, lot, péremption) ; contrôle « reçu ≤ commandé » conservé ; effacer = lots saisis hors ligne seulement | `/commande/add-lot` puis pointage `/commande/bon/items/checked-quantities` |
+| Pointage BL, Contrôle réception | quantités contrôlées | `/commande/bon/items/checked-quantities` |
+| Contrôle livraison (commande) | quantités contrôlées | `/commande/item/checked-quantities` |
+| Mise à jour péremption | lot + date + quantité | `/fichearticle/add-lot` |
+| Périmés (saisie) | ajout / retrait des saisies hors ligne | `/gestionperime/add` |
+| Retour fournisseur | création (BL, motif, produits, commentaire) | `/retourfournisseur/new` puis `add-item` |
+| Emplacement | changement de rayon | `/fichearticle/produit/update-lite-info` |
+| Désactivés (« Disponible en ligne uniquement ») | création de BL, entrée en stock, recherche/historique/validation des périmés, EAN, modification d'un retour déjà sur Prestige | — |
+
+Sans copie locale : message « … absents de cet appareil, mettez à jour la copie (Réglages › Hors ligne) » — jamais de
+liste vide trompeuse ni d'erreur réseau brute.
+
+**Envoi** : jamais automatique. Au retour du serveur, la confirmation s'ouvre (après celle des ventes H2, même principe) :
+opérations en attente (type, BL / grossiste, heure, nb de lignes), cochées par défaut ; décochée = « Non envoyée —
+ressaisie sur le serveur » (gardée dans l'historique) ; « Plus tard » n'envoie rien. Aussi : bandeau « N opération(s) de
+stock en attente » et bouton « Envoyer maintenant » (écran « Opérations hors ligne (stock) », Réglages › Hors ligne).
+Une opération à la fois, dans l'ordre ; panne réseau / session expirée → envoi interrompu, rien de perdu.
+
+**Idempotence** : chaque ligne est marquée « envoi commencé » (sur le téléphone) avant l'appel, avec la valeur relue sur
+le serveur ; si la réponse est perdue, l'envoi suivant relit le serveur (lignes du BL, `/lot/listlot`, saisie en cours des
+périmés, `retours-items`) et marque « déjà appliqué » au lieu de renvoyer. Pointages et emplacements posent une valeur
+(renvoi sans risque) ; même quantité déjà pointée → « déjà appliqué ».
+
+**Anomalies** (refus du serveur, motif conservé, état traité / non traité) dans l'écran commun « Anomalies de
+synchronisation » (ventes H2 + opérations de stock, impression ticket / PDF) : BL déjà clôturé (entré en stock), ligne déjà
+pointée sur le serveur avec une autre quantité, commande déjà transformée en BL, ligne absente, produit inconnu,
+quantité refusée, réponse perdue à la création d'un retour.
+
+**Vérifié sur le serveur de test** (Payara + MariaDB, admin) :
+- formats réels de toutes les routes ci-dessus ; copie stock complète en ~8 s (1 BL à entrer, 50 BL entrés, 751 lignes) ;
+- lot sur BL « enable » avec coupure simulée après `/commande/add-lot` → 2ᵉ envoi : « déjà appliqué », 1 seul lot créé ;
+- lot sur un BL clôturé → anomalie « BL déjà clôturé » SANS appel d'écriture (le serveur, lui, accepterait le lot :
+  `OrderServiceImpl.addLot` ne vérifie pas le statut du BL) ;
+- pointage même quantité → « déjà appliqué » ; quantité différente d'une ligne déjà pointée → anomalie ;
+- péremption (`/fichearticle/add-lot`) et périmés (`/gestionperime/add`) coupés après l'appel → retrouvés, pas de doublon ;
+- **limite trouvée** : `/produit/retours-data` ne liste que les retours VALIDÉS (statut `enable`) ; un retour « en
+  préparation » (`is_Process`) est introuvable par l'API. Si la réponse de la création est perdue, l'appli ne renvoie
+  PAS (risque de doublon, constaté) : anomalie « vérifiez sur Prestige (commentaire [HL:…]) ». Les produits ajoutés
+  ensuite sont, eux, relus dans `retours-items`. Données de test nettoyées.
+
+**Ne ralentit jamais l'appli** : une mise à jour automatique (connexion, 30 min) se met en pause avant chaque requête tant
+qu'une requête de l'appli est en cours ou date de moins de 2 s (`ActiviteApp`, intercepteur sur le Dio de l'appli : ventes,
+réception, pointage… sans toucher aux écrans) et reprend ensuite ; main rendue entre deux pages ; lignes converties en
+SQLite par paquets de 200 ; réponses JSON décodées hors du thread UI (`BackgroundTransformer`) ; jamais deux mises à jour à
+la fois ; la mise à jour manuelle est immédiate (elle lève la pause d'une mise à jour automatique en cours).
+Mesuré sur le serveur de test (catalogue 1 793 produits + clients + modes + copie stock, SQLite) : **durée totale ≈ 9,7 s**,
+**blocage max de la boucle d'événements 12 ms** (28 ms au premier lancement, compilation à la volée).
+
+**Limites** : pas de création de BL ni d'entrée en stock hors ligne ; BL entrés en stock limités aux 30 derniers jours ;
+saisie des périmés en cours : copie du jour seulement ; un pointage fait EN LIGNE après la dernière mise à jour de la copie
+puis modifié hors ligne est signalé en anomalie (prudence) ; détection « retour déjà créé » impossible côté serveur
+(voir ci-dessus — évolution serveur souhaitable : clé client sur `/retourfournisseur/new`, comme `clientRef` H4).
+
+**API pour l'écran commun d'anomalies** : `Anomalie` {id, source, date, type, reference, motif, traitee, operationId,
+details} et `AnomalieSource` {`anomalies()`, `setTraitee(id, bool)`} (`stock_models.dart`) ; `StockQueue` les implémente ;
+`lignesAnomaliesGeneriques()` pour ticket / PDF.
+
 ---
 
 ## 2. Paiement en plusieurs modes (espèces + mobile money, Wave + OM…)

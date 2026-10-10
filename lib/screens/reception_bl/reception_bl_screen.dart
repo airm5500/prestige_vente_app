@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
@@ -124,7 +125,7 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
       if (mounted) {
         setState(() {
           _loading = false;
-          _loadError = 'Lignes du BL non chargées. Vérifiez la connexion au serveur.';
+          _loadError = e is StockHorsLigneException ? e.message : 'Lignes du BL non chargées. Vérifiez la connexion au serveur.';
         });
       }
     }

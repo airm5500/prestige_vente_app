@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/horsligne/activite_app.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
@@ -105,6 +106,8 @@ class HorsLigne {
     if (!dio.interceptors.any((i) => i is ServerMonitorInterceptor)) {
       dio.interceptors.add(ServerMonitorInterceptor(() => monitor));
     }
+    // Requêtes de l'utilisateur en cours : la mise à jour automatique de la copie se met en pause.
+    if (!dio.interceptors.any((i) => i is ActiviteInterceptor)) dio.interceptors.add(ActiviteInterceptor());
     monitor.ping ??= _ping;
     sync.fetch ??= _fetch;
     // Mêmes appels que la vente en ligne (session de l'appli).
@@ -133,8 +136,10 @@ class HorsLigne {
 
   /// GET pour la synchro : même session (cookies) que l'appli, sans le journal des réponses.
   Future<Map<String, dynamic>> _fetch(String path, Map<String, dynamic> query) async {
-    final d = _syncDio ??= Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 60)))
-      ..interceptors.add(CookieManager(DioClient.cookieJar));
+    // BackgroundTransformer (défaut de Dio 5, rendu explicite) : grosses réponses JSON décodées hors du thread UI.
+    final d = _syncDio ??= (Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 60)))
+      ..transformer = BackgroundTransformer()
+      ..interceptors.add(CookieManager(DioClient.cookieJar)));
     d.options.baseUrl = _baseUrl;
     try {
       final r = await d.get(path, queryParameters: query);

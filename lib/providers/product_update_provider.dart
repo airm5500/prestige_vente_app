@@ -1,6 +1,9 @@
 // lib/providers/product_update_provider.dart
 // 29/10/2025 23:30
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/rayon.dart';
@@ -76,7 +79,8 @@ class ProductUpdateProvider with ChangeNotifier, PagedProductSearchHost {
     notifyListeners(); // Affiche le chargement et cache les résultats
 
     // On charge les détails (qui contiennent 'intEan13')
-    _selectedProductDetails = await _apiService.getProductDetailsForSearch(product.intCIP);
+    // Hors ligne : pas d'appel (H3) ; l'écran EAN indique « en ligne uniquement ».
+    _selectedProductDetails = HorsLigne.instance.offline ? null : await _apiService.getProductDetailsForSearch(product.intCIP);
 
     _isLoading = false;
     notifyListeners(); // Affiche le formulaire avec les détails
@@ -84,6 +88,11 @@ class ProductUpdateProvider with ChangeNotifier, PagedProductSearchHost {
 
   Future<bool> updateEAN(String ean) async {
     if (_selectedProduct == null) return false;
+    if (HorsLigne.instance.offline) {
+      _errorMessage = 'Mise à jour EAN : $kEnLigneUniquement.';
+      notifyListeners();
+      return false;
+    }
     _isLoading = true;
     notifyListeners();
 
@@ -103,7 +112,8 @@ class ProductUpdateProvider with ChangeNotifier, PagedProductSearchHost {
     _isLoading = true;
     notifyListeners();
     try {
-      _rayons = await _apiService.getRayons();
+      // Hors ligne : rayons de la copie locale (H3).
+      _rayons = HorsLigne.instance.offline ? await StockHorsLigne.instance.rayons() : await _apiService.getRayons();
       // Liste vide = échec probable du serveur : on pourra réessayer.
       _rayonsLoaded = _rayons.isNotEmpty;
     } finally {
@@ -116,6 +126,23 @@ class ProductUpdateProvider with ChangeNotifier, PagedProductSearchHost {
     if (_selectedProduct == null) return false;
     _isLoading = true;
     notifyListeners();
+
+    if (HorsLigne.instance.offline) {
+      // Hors ligne : enregistré sur l'appareil, envoyé au retour du serveur (H3).
+      final p = _selectedProduct!;
+      final rayon = _rayons.where((r) => r.id == rayonId).firstOrNull;
+      try {
+        await StockHorsLigne.instance.queue.setEmplacement(produitId: p.lgFAMILLEID, produit: p.strNAME, rayonId: rayonId, rayon: rayon?.libelle ?? rayonId);
+      } catch (e) {
+        _isLoading = false;
+        _errorMessage = 'Hors ligne : emplacement non enregistré sur l\'appareil ($e).';
+        notifyListeners();
+        return false;
+      }
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    }
 
     final success = await _apiService.updateLiteInfo({
       "id": _selectedProduct!.lgFAMILLEID,

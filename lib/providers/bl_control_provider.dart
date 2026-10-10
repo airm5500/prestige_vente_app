@@ -1,6 +1,9 @@
 // lib/providers/bl_control_provider.dart
 
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison.dart';
 import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
@@ -102,14 +105,17 @@ class BlControlProvider with ChangeNotifier, QuantitySync {
     notifyListeners();
 
     try {
-      _bonsLivraison = await _apiService.getBonsLivraison(
-        query: _currentBlQuery,
-        dtStart: _currentBlDtStart,
-        dtEnd: _currentBlDtEnd,
-      );
+      // Hors ligne : copie locale (H3) ; en ligne : inchangé.
+      _bonsLivraison = HorsLigne.instance.offline
+          ? await StockHorsLigne.instance.blsClotures(query: _currentBlQuery, dtStart: _currentBlDtStart, dtEnd: _currentBlDtEnd)
+          : await _apiService.getBonsLivraison(
+              query: _currentBlQuery,
+              dtStart: _currentBlDtStart,
+              dtEnd: _currentBlDtEnd,
+            );
     } catch (e) {
       // La liste précédente reste affichée ; l'écran montre l'erreur avec « Réessayer ».
-      _loadError = e is ApiLoadException ? e.message : 'Impossible de charger les BL : $e';
+      _loadError = e is ApiLoadException || e is StockHorsLigneException ? '$e' : 'Impossible de charger les BL : $e';
     }
 
     _isLoading = false;
@@ -126,9 +132,9 @@ class BlControlProvider with ChangeNotifier, QuantitySync {
     notifyListeners();
 
     try {
-      _items = await _apiService.getBonLivraisonItems(bl.id);
+      _items = HorsLigne.instance.offline ? await StockHorsLigne.instance.blItems(bl.id) : await _apiService.getBonLivraisonItems(bl.id);
     } catch (e) {
-      _itemsError = e is ApiLoadException ? e.message : 'Impossible de charger les lignes du BL : $e';
+      _itemsError = e is ApiLoadException || e is StockHorsLigneException ? '$e' : 'Impossible de charger les lignes du BL : $e';
     }
 
     // --- LA CORRECTION EST ICI ---
@@ -163,9 +169,16 @@ class BlControlProvider with ChangeNotifier, QuantitySync {
     _checkedQuantitiesPerBl[_selectedBonLivraison!.id]![detailId] = quantity;
     notifyListeners();
 
-    return sendQuantity(detailId, quantity, () => _apiService.postBonItemCheckedQuantity(detailId: detailId, quantity: quantity));
+    final blId = _selectedBonLivraison!.id;
+    return sendQuantity(detailId, quantity, () => _post(detailId, quantity, blId));
   }
 
-  Future<int> retryUnsyncedQuantities() =>
-      retryUnsynced((id, q) => _apiService.postBonItemCheckedQuantity(detailId: id, quantity: q));
+  /// En ligne : envoi au serveur (inchangé). Hors ligne : file des opérations (envoyée plus tard).
+  Future<bool> _post(String detailId, int quantity, [String? blId]) async {
+    if (!HorsLigne.instance.offline) return _apiService.postBonItemCheckedQuantity(detailId: detailId, quantity: quantity);
+    await StockHorsLigne.instance.pointerBl(blId, detailId, quantity);
+    return true;
+  }
+
+  Future<int> retryUnsyncedQuantities() => retryUnsynced((id, q) => _post(id, q));
 }

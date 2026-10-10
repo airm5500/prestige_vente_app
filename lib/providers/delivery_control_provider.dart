@@ -1,6 +1,9 @@
 // lib/providers/delivery_control_provider.dart
 // 18/10/2025 14:30
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/commande.dart';
 import 'package:prestige_vente_app/api/models/commande_item.dart';
@@ -61,10 +64,11 @@ class DeliveryControlProvider with ChangeNotifier, QuantitySync {
     _loadError = null;
     notifyListeners();
     try {
-      _commandes = await _apiService.getCommandes();
+      // Hors ligne : copie locale (H3) ; en ligne : inchangé.
+      _commandes = HorsLigne.instance.offline ? await StockHorsLigne.instance.commandesEnCours() : await _apiService.getCommandes();
     } catch (e) {
       // La liste précédente reste affichée ; l'écran montre l'erreur avec « Réessayer ».
-      _loadError = e is ApiLoadException ? e.message : 'Impossible de charger les commandes : $e';
+      _loadError = e is ApiLoadException || e is StockHorsLigneException ? '$e' : 'Impossible de charger les commandes : $e';
     }
     _isLoading = false;
     notifyListeners();
@@ -79,9 +83,11 @@ class DeliveryControlProvider with ChangeNotifier, QuantitySync {
     notifyListeners();
 
     try {
-      _items = await _apiService.getCommandeItems(commande.id);
+      _items = HorsLigne.instance.offline
+          ? await StockHorsLigne.instance.commandeItems(commande.id)
+          : await _apiService.getCommandeItems(commande.id);
     } catch (e) {
-      _itemsError = e is ApiLoadException ? e.message : 'Impossible de charger les produits : $e';
+      _itemsError = e is ApiLoadException || e is StockHorsLigneException ? '$e' : 'Impossible de charger les produits : $e';
     }
 
     for (var item in _items) {
@@ -107,8 +113,16 @@ class DeliveryControlProvider with ChangeNotifier, QuantitySync {
     if (_selectedCommande == null) return false;
     _checkedQuantitiesPerOrder[_selectedCommande!.id]![detailId] = quantity;
     notifyListeners();
-    return sendQuantity(detailId, quantity, () => _apiService.postCheckedQuantity(detailId: detailId, quantity: quantity));
+    final orderId = _selectedCommande!.id;
+    return sendQuantity(detailId, quantity, () => _post(detailId, quantity, orderId));
   }
 
-  Future<int> retryUnsyncedQuantities() => retryUnsynced((id, q) => _apiService.postCheckedQuantity(detailId: id, quantity: q));
+  /// En ligne : envoi au serveur (inchangé). Hors ligne : file des opérations (envoyée plus tard).
+  Future<bool> _post(String detailId, int quantity, [String? orderId]) async {
+    if (!HorsLigne.instance.offline) return _apiService.postCheckedQuantity(detailId: detailId, quantity: quantity);
+    await StockHorsLigne.instance.pointerCommande(orderId, detailId, quantity);
+    return true;
+  }
+
+  Future<int> retryUnsyncedQuantities() => retryUnsynced((id, q) => _post(id, q));
 }

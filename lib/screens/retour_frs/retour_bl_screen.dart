@@ -6,6 +6,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/retour/retour_gateway.dart';
@@ -81,8 +82,8 @@ class _RetourBlScreenState extends State<RetourBlScreen> with PresentationAware 
         _motifs = motifs;
         _motifId = motifs.any((m) => m.id == last) ? last : null;
       });
-    } catch (_) {
-      if (mounted) setState(() => _error = 'Motifs de retour non chargés. Vérifiez la connexion.');
+    } catch (e) {
+      if (mounted) setState(() => _error = e is StockHorsLigneException ? e.message : 'Motifs de retour non chargés. Vérifiez la connexion.');
     }
   }
 
@@ -122,10 +123,11 @@ class _RetourBlScreenState extends State<RetourBlScreen> with PresentationAware 
         found = await widget.gateway.blLines(widget.bl.id, query: q);
         if (found.isNotEmpty) break;
       }
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         setState(() => _busy = false);
-        _alert('Serveur injoignable', 'Le produit n\'a pas pu être recherché.');
+        _alert(e is StockHorsLigneException ? 'Hors ligne' : 'Serveur injoignable',
+            e is StockHorsLigneException ? e.message : 'Le produit n\'a pas pu être recherché.');
       }
       return;
     }
@@ -285,6 +287,7 @@ class _RetourBlScreenState extends State<RetourBlScreen> with PresentationAware 
         title: const Text('Retour en préparation'),
         content: Text('Retour ${r.ref} — BL ${widget.bl.ref} (${widget.bl.grossiste})\n'
             '${_items.length} produit(s), $total boîte(s).\n\n'
+            '${r.id.startsWith('HL3-') ? 'Enregistré hors ligne : il sera créé sur Prestige au retour du serveur (après votre confirmation). ' : ''}'
             'Il sera validé sur Prestige par une personne habilitée : le stock ne diminue qu\'à ce moment-là.'),
         actions: [ElevatedButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
       ),

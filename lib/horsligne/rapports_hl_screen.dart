@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -68,9 +70,11 @@ List<Widget> _actions(BuildContext context, {required String titre, required Lis
 // Anomalies de synchronisation
 // -----------------------------------------------------------------------------
 
+/// Écran commun : anomalies des ventes (H2) ET des opérations de stock (H3, [AnomalieSource]).
 class AnomaliesHorsLigneScreen extends StatefulWidget {
   final HorsLigne? horsLigne;
-  const AnomaliesHorsLigneScreen({super.key, this.horsLigne});
+  final StockHorsLigne? stock;
+  const AnomaliesHorsLigneScreen({super.key, this.horsLigne, this.stock});
 
   @override
   State<AnomaliesHorsLigneScreen> createState() => _AnomaliesHorsLigneScreenState();
@@ -78,22 +82,27 @@ class AnomaliesHorsLigneScreen extends StatefulWidget {
 
 class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
   HorsLigne get _hl => widget.horsLigne ?? HorsLigne.instance;
+  StockHorsLigne get _stock => widget.stock ?? StockHorsLigne.instance;
   bool _nonTraitees = false;
 
   @override
   void initState() {
     super.initState();
     _hl.ventes.ensureLoaded();
+    _stock.queue.load();
   }
 
   @override
   Widget build(BuildContext context) {
     final f = _hl.ventes;
+    final q = _stock.queue;
     return ListenableBuilder(
-      listenable: f,
+      listenable: Listenable.merge([f, q]),
       builder: (context, _) {
         final all = f.anomalies.reversed.toList();
         final list = _nonTraitees ? all.where((a) => !a.traitee).toList() : all;
+        final stockAll = q.anomaliesList;
+        final stock = _nonTraitees ? stockAll.where((a) => !a.traitee).toList() : stockAll;
         const titre = 'ANOMALIES DE SYNCHRONISATION';
         return Scaffold(
           backgroundColor: Pal.page,
@@ -101,14 +110,17 @@ class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
             title: const Text('Anomalies de synchronisation'),
             actions: _actions(context,
                 titre: titre,
-                lignes: (cols) => lignesAnomalies(list, cols: cols),
+                lignes: (cols) => [
+                      ...lignesAnomalies(list, cols: cols),
+                      if (stock.isNotEmpty) ...['', 'OPÉRATIONS DE STOCK', ...lignesAnomaliesGeneriques(stock, cols: cols)],
+                    ],
                 fichier: 'Anomalies_hors_ligne_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf'),
           ),
           body: ListView(
             key: const Key('liste_anomalies'),
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
             children: [
-              Text('${all.length} anomalie(s) · ${f.anomaliesNonTraitees} non traitée(s)',
+              Text('${all.length + stockAll.length} anomalie(s) · ${f.anomaliesNonTraitees + q.anomaliesNonTraitees} non traitée(s)',
                   key: const Key('compteur_anomalies'), style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -116,7 +128,7 @@ class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
                 value: _nonTraitees,
                 onChanged: (v) => setState(() => _nonTraitees = v),
               ),
-              if (list.isEmpty)
+              if (list.isEmpty && stock.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
                   child: Center(child: Text('Aucune anomalie', style: TextStyle(color: Pal.muted))),
@@ -146,6 +158,37 @@ class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
                         title: Text(a.traitee ? 'Traitée' : 'Non traitée'),
                         value: a.traitee,
                         onChanged: (v) => f.marquerAnomalie(a.id, v ?? false),
+                      ),
+                    ]),
+                  ),
+                ),
+              if (stock.isNotEmpty)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(2, 8, 2, 6),
+                  child: Text('OPÉRATIONS DE STOCK', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Pal.muted)),
+                ),
+              for (final a in stock)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: SoftCard(
+                    band: a.traitee ? Pal.line : const Color(0xFFDC2626),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Row(children: [
+                        Expanded(
+                          child: Text('${a.type} · ${a.reference}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Pal.ink)),
+                        ),
+                        Text(DateFormat('dd/MM HH:mm').format(a.date), style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
+                      ]),
+                      const SizedBox(height: 4),
+                      Text(a.motif, key: Key('motif_${a.id}'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFB91C1C))),
+                      for (final d in a.details) Text('• $d', style: const TextStyle(fontSize: 12.5, color: Pal.ink)),
+                      CheckboxListTile(
+                        key: Key('anomalie_traitee_${a.id}'),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: Text(a.traitee ? 'Traitée' : 'Non traitée'),
+                        value: a.traitee,
+                        onChanged: (v) => q.setTraitee(a.id, v ?? false),
                       ),
                     ]),
                   ),

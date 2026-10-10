@@ -1,6 +1,9 @@
 // lib/providers/perime_provider.dart
 // 09/11/2025 18:45 (Ajout filtres date Pémimés)
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/perime_models.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -77,6 +80,13 @@ class PerimeProvider with ChangeNotifier, PagedProductSearchHost {
   }
 
   Future<void> loadProduitsPerimes() async {
+    if (HorsLigne.instance.offline) {
+      // Hors ligne : pas de liste vide trompeuse.
+      _produitsPerimesList = [];
+      _metaData = null;
+      _setError('Recherche des périmés : $kEnLigneUniquement.');
+      return;
+    }
     _setLoading(true);
     final result = await _apiService.getProduitsPerimes(_nbreMoisFilter);
     _produitsPerimesList = result['data'] as List<ProduitPerime>;
@@ -87,12 +97,28 @@ class PerimeProvider with ChangeNotifier, PagedProductSearchHost {
   // --- Méthodes pour "Saisie" ---
   Future<void> loadSaisieEnCours() async {
     _setLoading(true);
+    if (HorsLigne.instance.offline) {
+      // Hors ligne : copie du jour + saisies en attente d'envoi (H3).
+      try {
+        _saisieEnCoursList = await StockHorsLigne.instance.perimesEnCours();
+      } on StockHorsLigneException catch (e) {
+        _saisieEnCoursList = [];
+        _errorMessage = e.message;
+      }
+      _setLoading(false);
+      return;
+    }
     _saisieEnCoursList = await _apiService.getSaisiePerimesEnCours();
     _setLoading(false);
   }
 
   // MODIFICATION : Accepte les filtres de date
   Future<void> loadSaisieHistory({String? dtStart, String? dtEnd}) async {
+    if (HorsLigne.instance.offline) {
+      _saisieHistoryList = [];
+      _setError('Historique des saisies : $kEnLigneUniquement.');
+      return;
+    }
     _setLoading(true);
     _saisieHistoryList = await _apiService.getSaisiePerimesHistory(
       dtStart: dtStart,
@@ -136,6 +162,20 @@ class PerimeProvider with ChangeNotifier, PagedProductSearchHost {
     _setError(null);
     _setSuccess('');
 
+    if (HorsLigne.instance.offline) {
+      final p = _selectedProduct!;
+      try {
+        await StockHorsLigne.instance.queue.addPerime(
+            produitId: p.lgFAMILLEID, cip: p.intCIP, produit: p.strNAME, lot: lot, date: datePeremption, qty: quantite);
+        _setSuccess('Produit ajouté hors ligne : envoyé au retour du serveur.');
+        await loadSaisieEnCours();
+      } catch (e) {
+        _setError('Hors ligne : saisie non enregistrée sur l\'appareil ($e).');
+      }
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
     final result = await _apiService.addPerimeItem(
       produitId: _selectedProduct!.lgFAMILLEID,
       datePeremption: datePeremption,
@@ -157,6 +197,17 @@ class PerimeProvider with ChangeNotifier, PagedProductSearchHost {
   }
 
   Future<void> deleteSaisieItem(String itemId) async {
+    if (itemId.startsWith(StockHorsLigne.perimeLocalPrefix)) {
+      // Saisie faite hors ligne, pas encore envoyée : retirée de la file.
+      final ok = await StockHorsLigne.instance.queue.removeLine(itemId.substring(StockHorsLigne.perimeLocalPrefix.length));
+      ok ? _setSuccess('Produit retiré.') : _setError('Saisie déjà envoyée : suppression $kEnLigneUniquement.');
+      await loadSaisieEnCours();
+      return;
+    }
+    if (HorsLigne.instance.offline) {
+      _setError('Retrait d\'une saisie enregistrée sur le serveur : $kEnLigneUniquement.');
+      return;
+    }
     _setLoading(true);
     final success = await _apiService.deletePerimeItem(itemId);
     if (success) {
@@ -174,6 +225,10 @@ class PerimeProvider with ChangeNotifier, PagedProductSearchHost {
       return false;
     }
 
+    if (HorsLigne.instance.offline) {
+      _setError('Validation de la saisie : $kEnLigneUniquement.');
+      return false;
+    }
     final String batchId = _saisieEnCoursList.first.id;
 
     _setLoading(true);

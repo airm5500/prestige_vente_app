@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_gateways.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
@@ -51,7 +54,8 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
   static final _money = NumberFormat.decimalPattern('fr_FR');
 
   late final ReceptionGateway _gateway =
-      widget.gateway ?? DioReceptionGateway(DioClient.getClient(context.read<SettingsProvider>().baseUrl));
+      // Hors ligne : copie locale et file des opérations (H3) ; en ligne : inchangé.
+      widget.gateway ?? OfflineReceptionGateway(DioReceptionGateway(DioClient.getClient(context.read<SettingsProvider>().baseUrl)));
   ReceptionSettings _settings = const ReceptionSettings();
   List<ReceptionBl> _bls = [];
   List<ReceptionOrder> _orders = [];
@@ -117,11 +121,11 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
         _blLines = lines;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = 'Liste non chargée. Vérifiez la connexion au serveur.';
+          _error = e is StockHorsLigneException ? e.message : 'Liste non chargée. Vérifiez la connexion au serveur.';
         });
       }
     }
@@ -145,6 +149,11 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
   }
 
   Future<void> _createBl(ReceptionOrder order) async {
+    if (HorsLigne.instance.offline) {
+      await _info('Création du BL', '$kEnLigneUniquement : le n° de BL doit être vérifié par Prestige. '
+          'Les BL déjà créés restent saisissables hors ligne (onglet « BL à entrer »).');
+      return;
+    }
     ReceptionResult? result;
     String? ref;
     final created = await Navigator.of(context).push<bool>(MaterialPageRoute(

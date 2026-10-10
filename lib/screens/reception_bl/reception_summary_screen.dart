@@ -4,6 +4,8 @@
 // « entrée en stock » sur Prestige ; sinon le BL est laissé pour validation sur Prestige.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_ui.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
@@ -208,6 +210,7 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             if (widget.settings.terminalValidation) ...[
+              if (HorsLigne.instance.offline) const EnLigneUniquementNote(action: 'Entrée en stock'),
               if (_authorized == null) const LinearProgressIndicator(minHeight: 2),
               SizedBox(
                 height: 52,

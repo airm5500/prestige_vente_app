@@ -4,6 +4,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_gateways.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
@@ -32,7 +34,8 @@ class RetourHomeScreen extends StatefulWidget {
 
 class _RetourHomeScreenState extends State<RetourHomeScreen> {
   late final RetourGateway _gateway =
-      widget.gateway ?? DioRetourGateway(DioClient.getClient(context.read<SettingsProvider>().baseUrl));
+      // Hors ligne : copie locale et file des opérations (H3) ; en ligne : inchangé.
+      widget.gateway ?? OfflineRetourGateway(DioRetourGateway(DioClient.getClient(context.read<SettingsProvider>().baseUrl)));
   List<ReceptionBl> _bls = [];
   bool _loading = true;
   String? _error;
@@ -115,11 +118,11 @@ class _RetourHomeScreenState extends State<RetourHomeScreen> {
         _loading = false;
         if (_grossiste != null && !bls.any((b) => b.grossiste == _grossiste)) _grossiste = null;
       });
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = 'Liste des BL non chargée. Vérifiez la connexion au serveur.';
+          _error = e is StockHorsLigneException ? e.message : 'Liste des BL non chargée. Vérifiez la connexion au serveur.';
         });
       }
     }

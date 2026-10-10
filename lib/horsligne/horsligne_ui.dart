@@ -13,6 +13,8 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_ui.dart';
 import 'package:prestige_vente_app/horsligne/ventes_hors_ligne_screen.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:provider/provider.dart';
@@ -43,6 +45,7 @@ class HorsLigneScope extends StatefulWidget {
 class _HorsLigneScopeState extends State<HorsLigneScope> {
   HorsLigne get _hl => widget.horsLigne ?? HorsLigne.instance;
   late final HorsLigne _bound = _hl;
+  late final StockHorsLigne _stock = StockHorsLigne.instance;
   bool _retour = false;
   DateTime? _retourVu;
   Timer? _retourTimer;
@@ -54,6 +57,8 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     _bound.monitor.addListener(_onMonitor);
     _bound.sync.addListener(_onChange);
     _bound.ventesEnAttente.addListener(_onChange);
+    _stock.attach(_bound);
+    _stock.queue.addListener(_onChange); // stock hors ligne (H3)
     _bound.ventes.addListener(_onChange);
     if (widget.bindApp) _bound.monitor.start();
   }
@@ -63,7 +68,10 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     super.didChangeDependencies();
     if (!widget.bindApp) return;
     final api = Provider.of<ApiService?>(context);
-    if (api != null) _bound.bind(api);
+    if (api != null) {
+      _bound.bind(api);
+      _stock.bind(api);
+    }
     final connecte = Provider.of<AuthProvider?>(context)?.user != null;
     if (connecte == _connecte) return;
     _connecte = connecte;
@@ -84,6 +92,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     _bound.monitor.removeListener(_onMonitor);
     _bound.sync.removeListener(_onChange);
     _bound.ventesEnAttente.removeListener(_onChange);
+    _stock.queue.removeListener(_onChange);
     _bound.ventes.removeListener(_onChange);
     if (widget.bindApp) {
       _bound.monitor.stop();
@@ -105,6 +114,8 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
         } finally {
           _confirmationOuverte = false;
         }
+        // Puis les opérations de stock en attente (H3), même principe.
+        if (StockHorsLigne.confirmerAuRetour && _stock.queue.pendingCount > 0) await ouvrirEnvoiStock(null, stock: _stock);
       });
     }
   }
@@ -143,7 +154,9 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     // Structure fixe (le Navigator n'est jamais recréé) ; sans bandeau, l'écran est identique.
     return Column(children: [
       b == null ? const SizedBox.shrink() : HorsLigneBanner(kind: b, horsLigne: _bound),
-      Expanded(child: MediaQuery.removePadding(context: context, removeTop: b != null, child: widget.child)),
+      MediaQuery.removePadding(context: context, removeTop: b != null, child: StockBandeau(horsLigne: _bound, stock: _stock)),
+      Expanded(
+          child: MediaQuery.removePadding(context: context, removeTop: b != null || StockBandeau.visible(_stock), child: widget.child)),
     ]);
   }
 }

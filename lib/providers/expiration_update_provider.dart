@@ -2,6 +2,8 @@
 // 15/10/2025 23:50
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart'; // Utilise le modèle de recherche rapide
 import 'package:prestige_vente_app/services/product_finder.dart';
@@ -97,6 +99,21 @@ class ExpirationUpdateProvider with ChangeNotifier, PagedProductSearchHost {
     notifyListeners();
 
     final formattedDate = DateFormat('yyyy-MM-dd').format(DateFormat('dd/MM/yyyy').parse(date));
+    if (HorsLigne.instance.offline) {
+      // Hors ligne : enregistré sur l'appareil, envoyé au retour du serveur (H3).
+      final p = _selectedProduct!;
+      var ok = true;
+      try {
+        await StockHorsLigne.instance.queue.addPeremption(
+            produitId: p.lgFAMILLEID, cip: p.intCIP, produit: p.strNAME, numLot: lot, date: DateFormat('dd/MM/yyyy').parse(date), qty: quantity);
+      } catch (e) {
+        ok = false;
+        _errorMessage = 'Hors ligne : mise à jour non enregistrée sur l\'appareil ($e).';
+      }
+      _isLoading = false;
+      notifyListeners();
+      return ok;
+    }
 
     final success = await _apiService.addLot(
       // MODIFICATION : Utilise l'ID du bon modèle

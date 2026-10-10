@@ -4,9 +4,14 @@
 // /common/reglement, /modereglement/all). Chaque catégorie est d'abord entièrement téléchargée,
 // puis écrite en une transaction : si la synchro échoue au milieu, l'ancienne copie reste utilisable.
 // Au démarrage (après connexion) si la copie a plus de 12 h, puis toutes les 30 min quand en ligne.
+// Ne ralentit jamais l'appli : une mise à jour AUTOMATIQUE se met en pause avant chaque requête tant que
+// l'utilisateur travaille ([ActiviteApp] : requête de l'appli en cours ou récente) et reprend ensuite ;
+// la main est rendue entre deux pages ; jamais deux mises à jour à la fois ; la mise à jour manuelle
+// est immédiate (elle lève la pause d'une mise à jour automatique en cours et l'attend).
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:prestige_vente_app/horsligne/activite_app.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 
 /// Appel GET du serveur : renvoie le corps JSON ; lève [CatalogueSyncException] en cas d'échec.
@@ -22,15 +27,59 @@ class CatalogueSyncException implements Exception {
   String toString() => message;
 }
 
+/// Copie complémentaire téléchargée à la suite du catalogue, avec les mêmes déclencheurs
+/// (ex. stock hors ligne H3). Doit écrire en une transaction ; lève [CatalogueSyncException] si échec.
+abstract class CatalogueExtension {
+  String get label;
+  Future<void> sync(CatalogueFetch fetch, void Function(String etape, int done, int? total) progress);
+
+  /// « Vider la copie locale ».
+  Future<void> clear();
+}
+
 class CatalogueSync extends ChangeNotifier {
   final LocalStore store;
+
+  /// Copies complémentaires (téléchargées après les catégories du catalogue).
+  final List<CatalogueExtension> extensions = [];
   CatalogueFetch? fetch;
   final DateTime Function() _clock;
 
   /// Taille des pages téléchargées.
   final int pageSize;
 
-  CatalogueSync({required this.store, this.fetch, DateTime Function()? clock, this.pageSize = 500}) : _clock = clock ?? DateTime.now;
+  /// Attente entre deux vérifications pendant une pause (utilisateur occupé).
+  final Duration pause;
+
+  /// L'utilisateur travaille-t-il ? (par défaut : [ActiviteApp.occupee]).
+  final bool Function() occupee;
+
+  CatalogueSync({required this.store, this.fetch, DateTime Function()? clock, this.pageSize = 500, this.pause = const Duration(milliseconds: 500), bool Function()? occupee})
+      : _clock = clock ?? DateTime.now,
+        occupee = occupee ?? (() => ActiviteApp.occupee);
+
+  Future<bool>? _current;
+  bool _auto0 = false;
+  bool _enPause = false;
+
+  /// Mise à jour automatique en pause (l'utilisateur travaille).
+  bool get enPause => _enPause;
+
+  /// Avant chaque requête : rend la main ; en automatique, attend que l'utilisateur ne travaille plus.
+  Future<void> _entreRequetes() async {
+    await Future<void>.delayed(Duration.zero);
+    while (_auto0 && occupee()) {
+      if (!_enPause) {
+        _enPause = true;
+        notifyListeners();
+      }
+      await Future<void>.delayed(pause);
+    }
+    if (_enPause) {
+      _enPause = false;
+      notifyListeners();
+    }
+  }
 
   static const Duration maxAge = Duration(hours: 12);
   static const Duration autoInterval = Duration(minutes: 30);
@@ -92,14 +141,14 @@ class CatalogueSync extends ChangeNotifier {
   Future<bool> syncIfStale() async {
     if (!_statsLoaded) await refreshStats();
     if (!isStale()) return true;
-    return syncAll();
+    return syncAll(auto: true);
   }
 
   /// Synchro automatique toutes les 30 min tant que [online] est vrai (sans rien afficher).
   void startAuto(bool Function() online) {
     _auto?.cancel();
     _auto = Timer.periodic(autoInterval, (_) {
-      if (online() && !_running && fetch != null) syncAll();
+      if (online() && !_running && fetch != null) syncAll(auto: true);
     });
   }
 
@@ -116,14 +165,34 @@ class CatalogueSync extends ChangeNotifier {
 
   /// Télécharge et enregistre toutes les catégories ; false si l'une a échoué
   /// (les catégories déjà enregistrées restent à jour, les autres gardent l'ancienne copie).
-  Future<bool> syncAll() async {
-    final f = fetch;
-    if (f == null) {
+  /// [auto] : mise à jour automatique (pause tant que l'utilisateur travaille). Manuelle : immédiate ;
+  /// si une mise à jour automatique est en cours, elle continue sans pause et on l'attend.
+  Future<bool> syncAll({bool auto = false}) async {
+    final f0 = fetch;
+    if (f0 == null) {
       _error = 'Serveur non configuré.';
       notifyListeners();
       return false;
     }
+    final cur = _current;
+    if (_running && cur != null) {
+      if (auto) return false;
+      _auto0 = false;
+      return cur;
+    }
     if (_running) return false;
+    _auto0 = auto;
+    return _current = _syncAll((p, q) async {
+      await _entreRequetes();
+      return f0(p, q);
+    }).whenComplete(() {
+      _current = null;
+      _auto0 = false;
+      _enPause = false;
+    });
+  }
+
+  Future<bool> _syncAll(CatalogueFetch f) async {
     _running = true;
     _error = null;
     _warnings.clear();
@@ -131,6 +200,7 @@ class CatalogueSync extends ChangeNotifier {
     final sw = Stopwatch()..start();
     notifyListeners();
     final errors = <String>[];
+    var network = false;
     try {
       for (final c in CatalogueCategorie.values) {
         try {
@@ -138,9 +208,19 @@ class CatalogueSync extends ChangeNotifier {
           await store.replace(c, rows, _clock());
         } on CatalogueSyncException catch (e) {
           errors.add('${c.label} : ${e.message}');
-          if (e.network) break;
+          if (network = e.network) break;
         } catch (e) {
           errors.add('${c.label} : $e');
+        }
+      }
+      for (final x in network ? const <CatalogueExtension>[] : List.of(extensions)) {
+        try {
+          await x.sync(f, _progress);
+        } on CatalogueSyncException catch (e) {
+          errors.add('${x.label} : ${e.message}');
+          if (e.network) break;
+        } catch (e) {
+          errors.add('${x.label} : $e');
         }
       }
     } finally {
@@ -154,6 +234,13 @@ class CatalogueSync extends ChangeNotifier {
       await refreshStats();
     }
     return errors.isEmpty;
+  }
+
+  void _progress(String etape, int done, int? total) {
+    _etape = etape;
+    _done = done;
+    _total = total;
+    notifyListeners();
   }
 
   Future<List<Map<String, dynamic>>> _download(CatalogueFetch f, CatalogueCategorie c) async {
