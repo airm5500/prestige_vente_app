@@ -141,6 +141,9 @@ class HorsLigne {
     JournalTerminal.instance.horsLigne = () => HorsLigne.instance.offline;
     monitor.ping ??= _ping;
     sync.fetch ??= _fetch;
+    // H5 : mise à jour différentielle du catalogue si le serveur l'annonce (GET /mobile/capacites).
+    sync.capacites ??= _capacites;
+    sync.serveur ??= () => _baseUrl;
     // Mêmes appels que la vente en ligne (session de l'appli).
     if (ventes.gateway == null || ventes.gateway is DioVenteGateway) ventes.gateway = DioVenteGateway(api);
   }
@@ -165,13 +168,24 @@ class HorsLigne {
     }
   }
 
-  /// GET pour la synchro : même session (cookies) que l'appli, sans le journal des réponses.
-  Future<Map<String, dynamic>> _fetch(String path, Map<String, dynamic> query) async {
+  Dio get _dioSync {
     // BackgroundTransformer (défaut de Dio 5, rendu explicite) : grosses réponses JSON décodées hors du thread UI.
     final d = _syncDio ??= (Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 60)))
       ..transformer = BackgroundTransformer()
       ..interceptors.add(CookieManager(DioClient.cookieJar)));
     d.options.baseUrl = _baseUrl;
+    return d;
+  }
+
+  /// H5 : GET /mobile/capacites (code et corps, 401 / 404 compris) ; lève une exception si le serveur ne répond pas.
+  Future<({int status, Object? body})> _capacites() async {
+    final r = await _dioSync.get('/mobile/capacites', options: Options(validateStatus: (_) => true));
+    return (status: r.statusCode ?? 0, body: r.data);
+  }
+
+  /// GET pour la synchro : même session (cookies) que l'appli, sans le journal des réponses.
+  Future<Map<String, dynamic>> _fetch(String path, Map<String, dynamic> query) async {
+    final d = _dioSync;
     try {
       final r = await d.get(path, queryParameters: query);
       monitor.signalReachable();

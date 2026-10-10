@@ -175,6 +175,15 @@ class _HorsLignePageState extends State<HorsLignePage> {
                     Text('${(sync.lastDuration!.inMilliseconds / 1000).toStringAsFixed(1)} s',
                         style: const TextStyle(fontSize: 12, color: Pal.muted)),
                 ]),
+                // H5 : mise à jour différentielle (serveur avec le patch) : « il y a X min (N produits modifiés) ».
+                if (sync.deltaLibelle case final String l)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(l, key: const Key('maj_differentielle'), style: const TextStyle(fontSize: 12, color: Pal.muted)),
+                    ),
+                  ),
               ]),
             ),
             if (sync.running)
@@ -195,9 +204,14 @@ class _HorsLignePageState extends State<HorsLignePage> {
               ),
             if (!sync.running && sync.error != null) InfoBanner.error('Dernière mise à jour incomplète :\n${sync.error}'),
             for (final w in sync.warnings) InfoBanner.warning(w),
-            const InfoBanner('La copie se met à jour après la connexion si elle a plus de 12 h, puis toutes les 30 min '
-                'tant que le serveur répond. Le stock affiché hors ligne est celui connu à la dernière mise à jour. '
-                'BL entrés en stock : les 3 derniers jours (écrans hors ligne : aujourd\'hui par défaut).'),
+            InfoBanner(sync.deltaActif
+                ? 'Les produits modifiés sur le serveur (ventes, entrées, prix…) sont récupérés toutes les 5 min tant que '
+                    'le serveur répond, avec une copie complète une fois par jour ; le reste toutes les 30 min. '
+                    'Le stock affiché hors ligne est celui connu à la dernière mise à jour. '
+                    'BL entrés en stock : les 3 derniers jours (écrans hors ligne : aujourd\'hui par défaut).'
+                : 'La copie se met à jour après la connexion si elle a plus de 12 h, puis toutes les 30 min '
+                    'tant que le serveur répond. Le stock affiché hors ligne est celui connu à la dernière mise à jour. '
+                    'BL entrés en stock : les 3 derniers jours (écrans hors ligne : aujourd\'hui par défaut).'),
             const SizedBox(height: 4),
             ElevatedButton.icon(
               key: const Key('maj_copie'),

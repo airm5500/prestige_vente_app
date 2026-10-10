@@ -1,0 +1,408 @@
+From fd693df656bee468d39e7eb99585a2107d4482a7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 10 Oct 2026 23:39:28 +0000
+Subject: [PATCH] =?UTF-8?q?Prestige=20Mobile=20H5=20:=20changements=20du?=
+ =?UTF-8?q?=20catalogue=20depuis=20un=20instant=20(mise=20=C3=A0=20jour=20?=
+ =?UTF-8?q?diff=C3=A9rentielle=20de=20la=20copie=20du=20t=C3=A9l=C3=A9phon?=
+ =?UTF-8?q?e)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+GET v1/mobile/catalogue/changements?depuis=&jusqua=&start=&limit= : produits modifiés (t_famille.dt_UPDATED,
+t_famille_stock.dt_UPDATED de l'emplacement, mouvements HMvtProduit, mouchard des prix t_mouvementprice), au
+format de v1/vente/search avec statut actif, ou statut supprime s'ils n'y apparaissent plus ; serveurMaintenant
+(horloge de la base) et total. Capacité catalogueDelta annoncée par v1/mobile/capacites (avec serveurMaintenant).
+Session habituelle (cookie), comme v1/vente/search. Migration V6.9.129.2 : index sur les colonnes de date
+(rejouable, aucune table ni donnée modifiée).
+---
+ .../java/filter/AuthenticationFilter.java     |   5 +-
+ .../java/rest/MobileCapacitesRessource.java   |   8 +
+ .../java/rest/MobileCatalogueRessource.java   |  65 ++++++
+ .../mobile/MobileCatalogueDeltaService.java   | 185 ++++++++++++++++++
+ .../V6.9.129.2__mobile_catalogue_delta.sql    |  47 +++++
+ 5 files changed, 309 insertions(+), 1 deletion(-)
+ create mode 100644 src/main/java/rest/MobileCatalogueRessource.java
+ create mode 100644 src/main/java/rest/service/mobile/MobileCatalogueDeltaService.java
+ create mode 100644 src/main/resources/db/migration/V6.9.129.2__mobile_catalogue_delta.sql
+
+diff --git a/src/main/java/filter/AuthenticationFilter.java b/src/main/java/filter/AuthenticationFilter.java
+index 0fecb40..b25a8e8 100644
+--- a/src/main/java/filter/AuthenticationFilter.java
++++ b/src/main/java/filter/AuthenticationFilter.java
+@@ -60,6 +60,8 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
+      */
+     private static final String CLIENT_REF_MOBILE = "v1/mobile/client-ref/";
+     private static final String CAPACITES_MOBILE = "v1/mobile/capacites";
++    /* H5 (Prestige Mobile) : changements du catalogue, meme session que v1/vente/search. */
++    private static final String CATALOGUE_MOBILE = "v1/mobile/catalogue/";
+ 
+     @Inject
+     private HttpServletRequest servletRequest;
+@@ -86,7 +88,8 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
+          * L13 : les nouveaux chemins des telephones exigent le jeton signe, et rien d'autre (ni session, ni
+          * X-User-Info). Les chemins mobiles existants ne passent pas ici : leur fonctionnement est inchange.
+          */
+-        if (path.startsWith(CHEMIN_MOBILE) && !path.startsWith(CLIENT_REF_MOBILE) && !CAPACITES_MOBILE.equals(path)) {
++        if (path.startsWith(CHEMIN_MOBILE) && !path.startsWith(CLIENT_REF_MOBILE) && !CAPACITES_MOBILE.equals(path)
++                && !path.startsWith(CATALOGUE_MOBILE)) {
+             if (!CONNEXION_MOBILE.equals(path)) {
+                 String a = requestContext.getHeaderString("Authorization");
+                 TUser u = a != null && a.startsWith("Bearer ")
+diff --git a/src/main/java/rest/MobileCapacitesRessource.java b/src/main/java/rest/MobileCapacitesRessource.java
+index df41719..76b6268 100644
+--- a/src/main/java/rest/MobileCapacitesRessource.java
++++ b/src/main/java/rest/MobileCapacitesRessource.java
+@@ -7,6 +7,7 @@ import javax.ws.rs.Produces;
+ import javax.ws.rs.core.MediaType;
+ import javax.ws.rs.core.Response;
+ import org.json.JSONObject;
++import rest.service.mobile.MobileCatalogueDeltaService;
+ import rest.service.mobile.MobileClientRefService;
+ 
+ /**
+@@ -16,6 +17,9 @@ import rest.service.mobile.MobileClientRefService;
+  * {@code clientRef} (H4) : en-tete {@code X-Client-Ref} pris en compte sur {@code v1/vente/add/vno},
+  * {@code v1/vente/add/assurance}, {@code v1/vente/add/depot} et {@code v1/retourfournisseur/new}, et relecture par
+  * {@code GET v1/mobile/client-ref/{ref}}. Faux si la table mobile_client_ref n'existe pas.
++ * <p>
++ * {@code catalogueDelta} (H5) : {@code GET v1/mobile/catalogue/changements} (produits modifies depuis un instant) ;
++ * {@code serveurMaintenant} donne l'horloge du serveur (point de depart d'une copie complete du catalogue).
+  */
+ @Path("v1/mobile/capacites")
+ @Produces(MediaType.APPLICATION_JSON)
+@@ -23,12 +27,16 @@ public class MobileCapacitesRessource {
+ 
+     @EJB
+     private MobileClientRefService clientRefService;
++    @EJB
++    private MobileCatalogueDeltaService catalogueDeltaService;
+ 
+     @GET
+     public Response capacites() {
+         boolean clientRef = clientRefService.disponible();
+         JSONObject o = new JSONObject().put("success", true).put("clientRef", clientRef).put("clientRefVersion",
+                 clientRef ? 1 : 0);
++        o.put("catalogueDelta", true).put("catalogueDeltaVersion", 1).put("serveurMaintenant",
++                MobileCatalogueDeltaService.format(catalogueDeltaService.maintenant()));
+         return Response.ok(o.toString(), MediaType.APPLICATION_JSON).build();
+     }
+ }
+diff --git a/src/main/java/rest/MobileCatalogueRessource.java b/src/main/java/rest/MobileCatalogueRessource.java
+new file mode 100644
+index 0000000..4d3e0e9
+--- /dev/null
++++ b/src/main/java/rest/MobileCatalogueRessource.java
+@@ -0,0 +1,65 @@
++package rest;
++
++import dal.TUser;
++import java.util.Date;
++import javax.ejb.EJB;
++import javax.ws.rs.GET;
++import javax.ws.rs.Path;
++import javax.ws.rs.Produces;
++import javax.ws.rs.QueryParam;
++import javax.ws.rs.core.MediaType;
++import javax.ws.rs.core.Response;
++import org.json.JSONObject;
++import rest.service.SessionHelperService;
++import rest.service.mobile.MobileCatalogueDeltaService;
++
++/**
++ * H5 (Prestige Mobile) : mise a jour differentielle de la copie du catalogue gardee sur le telephone.
++ * <p>
++ * {@code GET v1/mobile/catalogue/changements?depuis=2026-10-10 23:00:00[&jusqua=...]&start=0&limit=500} →
++ * {@code {success, depuis, serveurMaintenant, total, start, limit, data:[{...produit comme v1/vente/search...,
++ * statut:"actif"} | {lgFAMILLEID, statut:"supprime"}]}}. Les dates sont celles de l'horloge de la base
++ * ({@code yyyy-MM-dd HH:mm:ss}) ; le telephone repasse {@code serveurMaintenant} en {@code jusqua} pour les pages
++ * suivantes, puis en {@code depuis} (moins une marge) a la mise a jour suivante.
++ * <p>
++ * Authentification : session habituelle de l'application (cookie), comme {@code v1/vente/search} ; voir
++ * filter.AuthenticationFilter.
++ */
++@Path("v1/mobile/catalogue")
++@Produces(MediaType.APPLICATION_JSON)
++public class MobileCatalogueRessource {
++
++    @EJB
++    private MobileCatalogueDeltaService service;
++    @EJB
++    private SessionHelperService sessionHelperService;
++
++    @GET
++    @Path("changements")
++    public Response changements(@QueryParam("depuis") String depuis, @QueryParam("jusqua") String jusqua,
++            @QueryParam("start") int start, @QueryParam("limit") int limit) {
++        TUser u = sessionHelperService.getCurrentUser();
++        if (u == null || u.getLgEMPLACEMENTID() == null) {
++            return erreur(Response.Status.UNAUTHORIZED, "Veuillez vous connecter.");
++        }
++        Date d = MobileCatalogueDeltaService.lire(depuis);
++        if (d == null) {
++            return erreur(Response.Status.BAD_REQUEST,
++                    "Parametre depuis obligatoire (" + MobileCatalogueDeltaService.FORMAT + ", horloge du serveur).");
++        }
++        Date j = null;
++        if (jusqua != null && !jusqua.trim().isEmpty()) {
++            j = MobileCatalogueDeltaService.lire(jusqua);
++            if (j == null) {
++                return erreur(Response.Status.BAD_REQUEST, "Parametre jusqua illisible.");
++            }
++        }
++        JSONObject o = service.changements(d, j, start, limit, u.getLgEMPLACEMENTID().getLgEMPLACEMENTID());
++        return Response.ok(o.toString(), MediaType.APPLICATION_JSON).build();
++    }
++
++    private static Response erreur(Response.Status s, String msg) {
++        return Response.status(s).type(MediaType.APPLICATION_JSON)
++                .entity(new JSONObject().put("success", false).put("msg", msg).toString()).build();
++    }
++}
+diff --git a/src/main/java/rest/service/mobile/MobileCatalogueDeltaService.java b/src/main/java/rest/service/mobile/MobileCatalogueDeltaService.java
+new file mode 100644
+index 0000000..abc1f20
+--- /dev/null
++++ b/src/main/java/rest/service/mobile/MobileCatalogueDeltaService.java
+@@ -0,0 +1,185 @@
++package rest.service.mobile;
++
++import commonTasks.dto.SearchDTO;
++import dal.TFamille;
++import dal.TFamilleGrossiste;
++import dal.TFamilleStock;
++import dal.TFamilleStock_;
++import dal.TFamille_;
++import java.sql.Timestamp;
++import java.text.ParseException;
++import java.text.SimpleDateFormat;
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.Date;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import javax.ejb.Stateless;
++import javax.ejb.TransactionAttribute;
++import javax.ejb.TransactionAttributeType;
++import javax.persistence.EntityManager;
++import javax.persistence.PersistenceContext;
++import javax.persistence.TypedQuery;
++import javax.persistence.criteria.CriteriaBuilder;
++import javax.persistence.criteria.CriteriaQuery;
++import javax.persistence.criteria.Join;
++import javax.persistence.criteria.JoinType;
++import javax.persistence.criteria.Root;
++import org.apache.commons.lang3.StringUtils;
++import org.hibernate.jpa.QueryHints;
++import org.json.JSONArray;
++import org.json.JSONObject;
++
++/**
++ * H5 (Prestige Mobile) : changements du catalogue produits depuis un instant donne.
++ * <p>
++ * Le telephone garde une copie du catalogue (meme contenu que {@code GET v1/vente/search?query=%}). Au lieu de la
++ * telecharger en entier a chaque mise a jour (10 000 produits = plusieurs Mo), il ne demande que les produits modifies
++ * depuis sa derniere mise a jour, avec l'horloge du SERVEUR (aucun decalage d'heure du telephone).
++ * <p>
++ * Un produit est « modifie » depuis {@code depuis} (exclu) jusqu'a {@code jusqua} (inclus) si :
++ * <ul>
++ * <li>{@code t_famille.dt_UPDATED} a change (fiche article, prix, activation / desactivation / suppression REST) ;</li>
++ * <li>{@code t_famille_stock.dt_UPDATED} de l'emplacement de l'operateur a change (vente cloturee, ajustement, entree
++ * de BL, inventaire, deconditionnement, perimes, retour fournisseur) ;</li>
++ * <li>un mouvement de stock {@code HMvtProduit.createdAt} a ete enregistre pour cet emplacement (filet de securite :
++ * quelques chemins modifient le stock sans toucher dt_UPDATED, ex. retour depot) ;</li>
++ * <li>un changement de prix a ete journalise dans {@code t_mouvementprice} (mouchard des prix).</li>
++ * </ul>
++ * Chaque produit modifie est renvoye exactement comme la recherche de vente le montrerait ({@code statut: "actif"}), ou
++ * avec {@code statut: "supprime"} s'il n'y apparait plus (desactive, supprime, plus de stock pour l'emplacement...) :
++ * le telephone le retire alors de sa copie.
++ * <p>
++ * Dans les bases Prestige, les declencheurs {@code t_famille_before_upd_tr} et {@code t_famille_stock_before_upd_tr}
++ * posent {@code dt_UPDATED = NOW()} a CHAQUE modification de ligne (JPA, SQL natif, anciens ecrans) : les deux
++ * premieres conditions suffisent alors. Les deux autres sont un filet de securite pour une base ou ces declencheurs
++ * manqueraient (la plupart des chemins Java posent dt_UPDATED eux-memes, pas tous). Ce qui echapperait encore (ex.
++ * libelle d'un rayon renomme) est rattrape par la verification complete quotidienne faite par le telephone.
++ */
++@Stateless
++@TransactionAttribute(TransactionAttributeType.SUPPORTS)
++public class MobileCatalogueDeltaService {
++
++    public static final String FORMAT = "yyyy-MM-dd HH:mm:ss";
++    public static final int LIMITE_DEFAUT = 500;
++    public static final int LIMITE_MAX = 2000;
++
++    public static final String ACTIF = "actif";
++    public static final String SUPPRIME = "supprime";
++
++    /** Identifiants des produits modifies dans (?1, ?2] pour l'emplacement ?3. */
++    private static final String IDS = "SELECT f.lg_FAMILLE_ID AS id FROM t_famille f"
++            + " WHERE f.dt_UPDATED > ?1 AND f.dt_UPDATED <= ?2" + " UNION SELECT s.lg_FAMILLE_ID FROM t_famille_stock s"
++            + " WHERE s.dt_UPDATED > ?1 AND s.dt_UPDATED <= ?2 AND s.lg_EMPLACEMENT_ID = ?3"
++            + " UNION SELECT h.lg_FAMILLE_ID FROM HMvtProduit h"
++            + " WHERE h.createdAt > ?1 AND h.createdAt <= ?2 AND h.lg_EMPLACEMENT_ID = ?3"
++            + " UNION SELECT m.lg_FAMILLE_ID FROM t_mouvementprice m"
++            + " WHERE m.dt_CREATED > ?1 AND m.dt_CREATED <= ?2 AND m.lg_FAMILLE_ID IS NOT NULL";
++
++    @PersistenceContext(unitName = "JTA_UNIT")
++    private EntityManager em;
++
++    /** Horloge de la base (celle qui date les modifications). */
++    public Date maintenant() {
++        Object o = em.createNativeQuery("SELECT NOW()").getSingleResult();
++        if (o instanceof Date) {
++            return new Date(((Date) o).getTime() / 1000 * 1000);
++        }
++        if (o instanceof java.time.LocalDateTime) {
++            return Timestamp.valueOf((java.time.LocalDateTime) o);
++        }
++        return new Date(System.currentTimeMillis() / 1000 * 1000);
++    }
++
++    public static String format(Date d) {
++        return new SimpleDateFormat(FORMAT).format(d);
++    }
++
++    /** « 2026-10-10 23:14:35 » (ou avec un T) ; null si illisible. */
++    public static Date lire(String s) {
++        if (StringUtils.isBlank(s)) {
++            return null;
++        }
++        String t = s.trim().replace('T', ' ');
++        if (t.length() > 19) {
++            t = t.substring(0, 19);
++        }
++        try {
++            SimpleDateFormat f = new SimpleDateFormat(FORMAT);
++            f.setLenient(false);
++            return f.parse(t);
++        } catch (ParseException e) {
++            return null;
++        }
++    }
++
++    /**
++     * Page de changements. {@code jusqua} null : maintenant (horloge de la base) ; le telephone repasse la valeur
++     * renvoyee ({@code serveurMaintenant}) pour les pages suivantes, ce qui fige l'ensemble pendant la pagination.
++     */
++    public JSONObject changements(Date depuis, Date jusqua, int start, int limit, String emplacementId) {
++        Date fin = jusqua != null ? jusqua : maintenant();
++        int lim = limit <= 0 ? LIMITE_DEFAUT : Math.min(limit, LIMITE_MAX);
++        int deb = Math.max(start, 0);
++        Timestamp d = new Timestamp(depuis.getTime());
++        Timestamp f = new Timestamp(fin.getTime());
++
++        Number total = (Number) em.createNativeQuery("SELECT COUNT(*) FROM (" + IDS + ") ids").setParameter(1, d)
++                .setParameter(2, f).setParameter(3, emplacementId).getSingleResult();
++        @SuppressWarnings("unchecked")
++        List<Object> ids = em.createNativeQuery("SELECT ids.id FROM (" + IDS + ") ids ORDER BY ids.id")
++                .setParameter(1, d).setParameter(2, f).setParameter(3, emplacementId).setFirstResult(deb)
++                .setMaxResults(lim).getResultList();
++
++        List<String> page = new ArrayList<>();
++        for (Object o : ids) {
++            if (o != null) {
++                page.add(o.toString());
++            }
++        }
++        Map<String, SearchDTO> vus = produits(page, emplacementId);
++        JSONArray data = new JSONArray();
++        for (String id : page) {
++            SearchDTO p = vus.get(id);
++            if (p != null) {
++                data.put(new JSONObject(p).put("statut", ACTIF));
++            } else {
++                data.put(new JSONObject().put("lgFAMILLEID", id).put("statut", SUPPRIME));
++            }
++        }
++        return new JSONObject().put("success", true).put("depuis", format(depuis)).put("serveurMaintenant", format(fin))
++                .put("total", total == null ? 0 : total.longValue()).put("start", deb).put("limit", lim)
++                .put("data", data);
++    }
++
++    /**
++     * Produits de la page tels que la recherche de vente les montre (memes colonnes, memes conditions que
++     * SalesServiceImpl.produits : produit actif, stock de l'emplacement, au moins une fiche grossiste, rayon).
++     */
++    private Map<String, SearchDTO> produits(List<String> ids, String emplacementId) {
++        if (ids.isEmpty()) {
++            return Collections.emptyMap();
++        }
++        CriteriaBuilder cb = em.getCriteriaBuilder();
++        CriteriaQuery<SearchDTO> cq = cb.createQuery(SearchDTO.class);
++        Root<TFamille> root = cq.from(TFamille.class);
++        Join<TFamille, TFamilleGrossiste> st = root.join("tFamilleGrossisteCollection", JoinType.INNER);
++        Join<TFamille, TFamilleStock> fa = root.join("tFamilleStockCollection", JoinType.INNER);
++        cq.select(cb.construct(SearchDTO.class, root.get(TFamille_.lgFAMILLEID), root.get(TFamille_.intCIP),
++                root.get(TFamille_.strNAME), root.get("lgZONEGEOID").get("strLIBELLEE"), root.get(TFamille_.intPRICE),
++                fa.get(TFamilleStock_.intNUMBERAVAILABLE), root.get(TFamille_.intPAF), fa.get(TFamilleStock_.intNUMBER),
++                root.get(TFamille_.boolDECONDITIONNE), root.get(TFamille_.lgFAMILLEPARENTID),
++                root.get(TFamille_.codeEanFabriquant))).distinct(true);
++        cq.where(cb.equal(root.get(TFamille_.strSTATUT), "enable"),
++                cb.equal(fa.get("lgEMPLACEMENTID").get("lgEMPLACEMENTID"), emplacementId),
++                root.get(TFamille_.lgFAMILLEID).in(ids));
++        TypedQuery<SearchDTO> q = em.createQuery(cq);
++        q.setHint(QueryHints.HINT_CACHEABLE, false);
++        Map<String, SearchDTO> out = new LinkedHashMap<>();
++        for (SearchDTO p : q.getResultList()) {
++            out.putIfAbsent(p.getLgFAMILLEID(), p);
++        }
++        return out;
++    }
++}
+diff --git a/src/main/resources/db/migration/V6.9.129.2__mobile_catalogue_delta.sql b/src/main/resources/db/migration/V6.9.129.2__mobile_catalogue_delta.sql
+new file mode 100644
+index 0000000..292080a
+--- /dev/null
++++ b/src/main/resources/db/migration/V6.9.129.2__mobile_catalogue_delta.sql
+@@ -0,0 +1,47 @@
++-- H5 (Prestige Mobile) : mise a jour differentielle du catalogue (GET v1/mobile/catalogue/changements).
++--
++-- La route cherche les produits modifies depuis un instant donne dans quatre colonnes de date. Sans index, chaque
++-- appel (toutes les 5 minutes par telephone) balaierait t_famille, t_famille_stock, HMvtProduit (souvent des millions
++-- de lignes) et t_mouvementprice. Ces index rendent l'appel proportionnel au nombre de changements.
++--
++-- Aucune table, colonne ni donnee modifiee : seuls des index sont ajoutes. Rejouable (index cree s'il manque).
++-- Numero 6.9.129.2 intercale apres 6.9.129.1 (H4) : pas de collision avec la suite 6.9.130... (Flyway outOfOrder).
++-- Sur une tres grosse table HMvtProduit, la creation de l'index peut prendre quelques minutes (InnoDB la fait sans
++-- bloquer les ecritures).
++
++SET @existe := (SELECT COUNT(*) FROM information_schema.STATISTICS
++                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 't_famille'
++                  AND INDEX_NAME = 'idx_famille_dt_updated');
++SET @sql := IF(@existe = 0, 'CREATE INDEX idx_famille_dt_updated ON t_famille (dt_UPDATED)',
++    'SELECT ''idx_famille_dt_updated deja present''');
++PREPARE stmt FROM @sql;
++EXECUTE stmt;
++DEALLOCATE PREPARE stmt;
++
++SET @existe := (SELECT COUNT(*) FROM information_schema.STATISTICS
++                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 't_famille_stock'
++                  AND INDEX_NAME = 'idx_famille_stock_dt_updated');
++SET @sql := IF(@existe = 0,
++    'CREATE INDEX idx_famille_stock_dt_updated ON t_famille_stock (dt_UPDATED, lg_EMPLACEMENT_ID)',
++    'SELECT ''idx_famille_stock_dt_updated deja present''');
++PREPARE stmt FROM @sql;
++EXECUTE stmt;
++DEALLOCATE PREPARE stmt;
++
++SET @existe := (SELECT COUNT(*) FROM information_schema.STATISTICS
++                WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = 'hmvtproduit'
++                  AND INDEX_NAME = 'idx_hmvt_created_at');
++SET @sql := IF(@existe = 0, 'CREATE INDEX idx_hmvt_created_at ON HMvtProduit (createdAt, lg_EMPLACEMENT_ID)',
++    'SELECT ''idx_hmvt_created_at deja present''');
++PREPARE stmt FROM @sql;
++EXECUTE stmt;
++DEALLOCATE PREPARE stmt;
++
++SET @existe := (SELECT COUNT(*) FROM information_schema.STATISTICS
++                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 't_mouvementprice'
++                  AND INDEX_NAME = 'idx_mouvementprice_dt_created');
++SET @sql := IF(@existe = 0, 'CREATE INDEX idx_mouvementprice_dt_created ON t_mouvementprice (dt_CREATED)',
++    'SELECT ''idx_mouvementprice_dt_created deja present''');
++PREPARE stmt FROM @sql;
++EXECUTE stmt;
++DEALLOCATE PREPARE stmt;
+-- 
+2.43.0
+
