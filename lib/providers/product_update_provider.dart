@@ -93,10 +93,14 @@ class ProductUpdateProvider with ChangeNotifier {
     if (_rayonsLoaded) return;
     _isLoading = true;
     notifyListeners();
-    _rayons = await _apiService.getRayons();
-    _rayonsLoaded = true;
-    _isLoading = false;
-    notifyListeners();
+    try {
+      _rayons = await _apiService.getRayons();
+      // Liste vide = échec probable du serveur : on pourra réessayer.
+      _rayonsLoaded = _rayons.isNotEmpty;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<bool> updateEmplacement(String rayonId) async {
