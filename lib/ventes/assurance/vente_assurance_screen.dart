@@ -1,8 +1,10 @@
 // lib/ventes/assurance/vente_assurance_screen.dart
-// Pré-vente Assurance — nouvelle version (copie fiabilisée de lib/screens/assurance_sale).
-// Mêmes 3 étapes : Client → Bon & ayant droit → Produits. Le contrôleur appartient à l'écran
-// (plus de vente perdue en pleine saisie) ; net recalculé automatiquement ; un seul dialogue
-// d'impression avec le nombre de copies ; « Reprendre » / « Réimprimer » depuis l'historique.
+// Pré-vente Assurance — nouvelle version, présentations A / B / C (menu « Présentation » mémorisé).
+// Étapes Client → Couverture → Produits → Encaisser (retour possible aux étapes précédentes).
+// Le contrôleur appartient à l'écran (plus de vente perdue en pleine saisie) ; net recalculé
+// automatiquement ; part client > 0 : page d'encaissement unique (comme la Pré-vente) ; part client 0 :
+// validation directe après une confirmation simple ; un seul choix d'impression (case + copies) ;
+// « Reprendre » / « Réimprimer » depuis l'historique.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -15,8 +17,8 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
-import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_controller.dart';
+import 'package:prestige_vente_app/ventes/assurance/assurance_frame.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_history.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_print.dart';
 import 'package:prestige_vente_app/ventes/assurance/assurance_step_client.dart';
@@ -27,12 +29,18 @@ import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/ventes/prevente/encaissement_page.dart';
+import 'package:prestige_vente_app/ventes/prevente/prevente_dialogs.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 
 class VenteAssuranceScreen extends StatelessWidget {
   /// Accès serveur (simulé dans les tests).
   final VenteGateway? gateway;
-  const VenteAssuranceScreen({super.key, this.gateway});
+
+  /// Présentation (A, B, C) ; celle de l'appareil si non précisée.
+  final ListPresentation? presentation;
+  const VenteAssuranceScreen({super.key, this.gateway, this.presentation});
 
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider<AssuranceController>(
@@ -40,18 +48,22 @@ class VenteAssuranceScreen extends StatelessWidget {
           gateway: gateway ?? DioVenteGateway(Provider.of<ApiService>(ctx, listen: false)),
           userId: Provider.of<AuthProvider>(ctx, listen: false).user?.userId ?? '',
         ),
-        child: const _AssuranceView(),
+        child: _AssuranceView(presentation: presentation),
       );
 }
 
 class _AssuranceView extends StatefulWidget {
-  const _AssuranceView();
+  final ListPresentation? presentation;
+  const _AssuranceView({this.presentation});
 
   @override
   State<_AssuranceView> createState() => _AssuranceViewState();
 }
 
-class _AssuranceViewState extends State<_AssuranceView> {
+class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
+  @override
+  ListPresentation? get forcedPresentation => widget.presentation;
+
   final _produitsKey = GlobalKey<AssuranceStepProduitsState>();
   bool _paying = false;
 
@@ -60,7 +72,13 @@ class _AssuranceViewState extends State<_AssuranceView> {
   @override
   void initState() {
     super.initState();
+    loadPresentation();
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+  }
+
+  void _setStyle(ListPresentation p) {
+    setState(() => style = p);
+    if (widget.presentation == null) PresentationPrefs.save(p);
   }
 
   /// Démarrage : proposition de reprendre la vente mémorisée.
@@ -77,7 +95,7 @@ class _AssuranceViewState extends State<_AssuranceView> {
       if (mounted) showVenteSnack(context, 'La vente ${pending.reference} a déjà été clôturée.');
       return;
     }
-    final resume = await showResumeSaleDialog(context,
+    final resume = await showReprendreVenteDialog(context,
         reference: pending.reference, itemCount: pending.itemCount, total: pending.total, savedAt: pending.savedAt);
     if (!mounted || !resume) return;
     await _resume(pending.venteId);
@@ -274,12 +292,14 @@ class _AssuranceViewState extends State<_AssuranceView> {
         if (mounted) showVenteFailure(context, r, onRetry: _savePrevente);
         return;
       }
-      await _afterFinish(snap, prevente: true);
+      await _afterPrevente(snap);
     } finally {
       if (mounted) setState(() => _paying = false);
     }
   }
 
+  /// Part client > 0 : page d'encaissement (modes de règlement puis clôture, comme avant) ;
+  /// part client 0 : confirmation simple puis validation directe (ESPECES, comme avant).
   Future<void> _valider() async {
     if (_paying) return;
     setState(() => _paying = true);
@@ -289,70 +309,70 @@ class _AssuranceViewState extends State<_AssuranceView> {
       final summary = c.summary;
       if (summary == null) return;
       final changes = c.changes;
-      PaymentMethod? method;
-      int? recu, remis;
-      if (summary.montantNet > 0) {
-        final mr = await c.paymentMethods();
-        if (!mounted) return;
-        if (mr is! VenteOk<List<PaymentMethod>>) {
-          showVenteFailure(context, mr, onRetry: _valider);
-          return;
-        }
-        final allowed = Provider.of<SettingsProvider>(context, listen: false).enabledPaymentMethodIds;
-        method = await showPaymentMethodPicker(context, mr.value.where((m) => allowed.contains(m.id)).toList());
-        if (method == null || !mounted) return;
-        if (method.id == '1') {
-          // Espèces : le dialogue du montant versé vaut confirmation (un dialogue de moins).
-          final cash = await showCashDialog(context, montantNet: summary.montantNet);
-          if (cash == null || !mounted) return;
-          recu = cash.verse;
-          remis = cash.monnaie;
-        } else {
-          final ok = await showPaymentConfirmDialog(context,
-              methodName: method.name, montantNet: summary.montantNet, qrCode: c.qrFor(method.id)?.qrCode);
-          if (!ok || !mounted) return;
-        }
-      }
       final snap = _Snapshot.of(c);
       if (snap == null) return;
-      final r = await c.cloturer(method: method, expectedChanges: changes, montantRecu: recu, montantRemis: remis);
-      if (!mounted) return;
-      switch (r) {
-        case VenteOk(:final value):
-          await _afterFinish(snap, prevente: false, method: method, montantVerse: recu, monnaie: remis, dejaCloturee: value.dejaCloturee);
-        default:
-          if (await handleCaisseFermee(context, r)) return;
-          // Bon déjà utilisé : message affiché à l'étape des bons (retour automatique).
-          if (mounted && c.step == AssuranceStep.productSearch) showVenteFailure(context, r, onRetry: _valider);
+      final copiesDefault = Provider.of<SettingsProvider>(context, listen: false).numberOfTicketsAssurance;
+      if (summary.montantNet <= 0) {
+        final copies = await showValidationZeroDialog(context, reference: snap.reference, initialCopies: copiesDefault);
+        if (copies == null || !mounted) return;
+        final r = await c.cloturer(expectedChanges: changes);
+        if (!mounted) return;
+        switch (r) {
+          case VenteOk(:final value):
+            await _afterValidation(snap, copies: copies, dejaCloturee: value.dejaCloturee);
+          default:
+            if (await handleCaisseFermee(context, r)) return;
+            // Bon déjà utilisé : message affiché à l'étape Couverture (retour automatique).
+            if (mounted && c.step == AssuranceStep.productSearch) showVenteFailure(context, r, onRetry: _valider);
+        }
+        return;
       }
+      final done = await Navigator.of(context).push<EncaissementDone>(MaterialPageRoute(
+        builder: (_) => EncaissementPage(
+          actions: EncaissementActions(
+            paymentMethods: c.paymentMethods,
+            loadQrMethods: c.loadQrMethods,
+            qrFor: c.qrFor,
+            encaisser: (method, recu, remis) => c.cloturer(method: method, expectedChanges: changes, montantRecu: recu, montantRemis: remis),
+            // Bon déjà utilisé : retour à l'étape Couverture, où le message du serveur est affiché.
+            leaveOn: (_) => c.step != AssuranceStep.productSearch,
+          ),
+          expectedChanges: changes,
+          summary: SaleSummary(montant: summary.montant, montantNet: summary.montantNet, reference: snap.reference, venteId: c.venteId ?? ''),
+          itemCount: snap.items.length,
+          presentation: style,
+          initialCopies: copiesDefault,
+          totalLabel: 'Part client à payer',
+          stepsHeader: (onDark) => AssuranceStepsBar(active: 3, onDark: onDark),
+        ),
+      ));
+      if (done == null || !mounted) return;
+      await _afterValidation(snap,
+          copies: done.copies, dejaCloturee: done.dejaCloturee, method: done.method, montantVerse: done.recu, monnaie: done.remis);
     } finally {
       if (mounted) setState(() => _paying = false);
     }
   }
 
-  /// Un seul dialogue : résultat + impression avec le nombre de copies (défaut n°21).
-  Future<void> _afterFinish(
+  /// Vente validée : message, impression choisie avant la validation (copies), nouvelle vente.
+  Future<void> _afterValidation(
     _Snapshot s, {
-    required bool prevente,
+    required int copies,
+    required bool dejaCloturee,
     PaymentMethod? method,
     int? montantVerse,
     int? monnaie,
-    bool dejaCloturee = false,
   }) async {
-    final settings = Provider.of<SettingsProvider>(context, listen: false);
-    final copies = await showPrintCopiesDialog(
+    final ref = s.reference.isEmpty ? '' : ' (${s.reference})';
+    showVenteSnack(
       context,
-      title: prevente ? 'Prévente enregistrée' : (dejaCloturee ? 'Vente déjà clôturée' : 'Vente validée'),
-      message: dejaCloturee
-          ? 'Le serveur indique que cette vente est déjà clôturée (aucune seconde clôture).'
-          : (s.reference.isEmpty ? null : 'Réf. ${s.reference}'),
-      initialCopies: settings.numberOfTicketsAssurance,
+      dejaCloturee ? 'Vente déjà clôturée sur le serveur$ref : aucune seconde clôture.' : 'Vente validée ✓$ref',
+      color: Colors.green.shade700,
     );
-    if (!mounted) return;
     if (copies > 0) {
       await printAssuranceTicket(
         context,
-        prevente: prevente,
+        prevente: false,
         copies: copies,
         summary: s.summary,
         items: s.items,
@@ -371,89 +391,81 @@ class _AssuranceViewState extends State<_AssuranceView> {
     _ctrl.reset();
   }
 
+  /// Prévente enregistrée : un seul dialogue (résultat + impression avec le nombre de copies, défaut n°21).
+  Future<void> _afterPrevente(_Snapshot s) async {
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    final copies = await showPrintCopiesDialog(
+      context,
+      title: 'Prévente enregistrée',
+      message: s.reference.isEmpty ? null : 'Réf. ${s.reference}',
+      initialCopies: settings.numberOfTicketsAssurance,
+    );
+    if (!mounted) return;
+    if (copies > 0) {
+      await printAssuranceTicket(
+        context,
+        prevente: true,
+        copies: copies,
+        summary: s.summary,
+        items: s.items,
+        client: s.client,
+        ayantDroit: s.ayantDroit,
+        reference: s.reference,
+      );
+    }
+    if (!mounted) return;
+    try {
+      unawaited(Provider.of<SaleProvider>(context, listen: false).fetchPreventes());
+    } catch (_) {}
+    _ctrl.reset();
+  }
+
   // ---------------------------------------------------------------------------
   // Affichage
   // ---------------------------------------------------------------------------
 
-  Widget _stepBar(AssuranceStep step) {
-    Widget item(int n, String label, AssuranceStep s) {
-      final active = step == s, done = step.index > s.index;
-      final color = active ? AppColors.primary : (done ? Colors.green.shade700 : Colors.grey);
-      return Expanded(
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          CircleAvatar(
-            radius: 11,
-            backgroundColor: color,
-            child: done ? const Icon(Icons.check, size: 14, color: Colors.white) : Text('$n', style: const TextStyle(fontSize: 12, color: Colors.white)),
-          ),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(label,
-                overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: color, fontWeight: active ? FontWeight.bold : FontWeight.normal)),
-          ),
-        ]),
-      );
-    }
-
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-      child: Row(children: [
-        item(1, 'Client', AssuranceStep.clientSearch),
-        item(2, 'Bons & patient', AssuranceStep.bonAndAyantDroit),
-        item(3, 'Produits', AssuranceStep.productSearch),
-      ]),
-    );
+  /// Retour par la barre d'étapes : Client (changer de client, confirmé) ; Couverture depuis Produits.
+  VoidCallback? _stepTap(AssuranceController c, int index) {
+    if (_paying || c.finished) return null;
+    if (index == 0 && c.step != AssuranceStep.clientSearch) return _changeClient;
+    if (index == 1 && c.step == AssuranceStep.productSearch) return c.returnToCouverture;
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.watch<AssuranceController>();
-    final ref = c.reference;
+    final frame = AssuranceFrame(
+      style: style,
+      progress: c.busy && c.step != AssuranceStep.productSearch,
+      stepTap: (i) => _stepTap(c, i),
+      actions: (col) => [
+        if (c.client != null)
+          IconButton(
+            icon: Icon(Icons.add_circle_outline, color: col),
+            tooltip: 'Nouvelle vente',
+            onPressed: _paying ? null : _newSale,
+          ),
+        PresentationMenuButton(value: style, onChanged: _setStyle, color: col),
+      ],
+    );
     return PopScope(
       canPop: !c.busy && (c.client == null || c.finished),
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _confirmLeave();
       },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Vente Assurance'),
-            if (c.venteId != null)
-              Text(
-                '${ref.isEmpty ? 'Vente en cours' : 'Réf. $ref'} · ${c.items.length} article${c.items.length > 1 ? 's' : ''}',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
-                overflow: TextOverflow.ellipsis,
-              ),
-          ]),
-          actions: [
-            if (c.client != null)
-              TextButton.icon(
-                style: TextButton.styleFrom(foregroundColor: Colors.white, minimumSize: const Size(0, 44)),
-                onPressed: _paying ? null : _newSale,
-                icon: const Icon(Icons.add),
-                label: const Text('Nouvelle'),
-              ),
-          ],
-        ),
-        body: Column(children: [
-          _stepBar(c.step),
-          if (c.busy && c.step != AssuranceStep.productSearch) const LinearProgressIndicator(minHeight: 2),
-          Expanded(
-            child: switch (c.step) {
-              AssuranceStep.clientSearch => AssuranceStepClient(onHistory: _history),
-              AssuranceStep.bonAndAyantDroit => AssuranceStepCouverture(onChangeClient: _changeClient),
-              AssuranceStep.productSearch => AssuranceStepProduits(
-                  key: _produitsKey,
-                  addProduct: _addProduct,
-                  onPrevente: _savePrevente,
-                  onValider: _valider,
-                  paying: _paying,
-                ),
-            },
+      child: switch (c.step) {
+        AssuranceStep.clientSearch => AssuranceStepClient(frame: frame, onHistory: _history),
+        AssuranceStep.bonAndAyantDroit => AssuranceStepCouverture(frame: frame, onChangeClient: _changeClient),
+        AssuranceStep.productSearch => AssuranceStepProduits(
+            key: _produitsKey,
+            frame: frame,
+            addProduct: _addProduct,
+            onPrevente: _savePrevente,
+            onValider: _valider,
+            paying: _paying,
           ),
-        ]),
-      ),
+      },
     );
   }
 }

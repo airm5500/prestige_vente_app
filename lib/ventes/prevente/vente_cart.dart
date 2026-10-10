@@ -2,15 +2,44 @@
 // Panier de la vente : Modifier (quantité + prix contrôlés), Supprimer (confirmé), boutons ≥ 44 px.
 // A : cartes ; B : lignes denses (toucher = modifier, glisser = supprimer) ; C : cartes à bande de couleur
 // (vert normal, ambre stock dépassé / forcé). Si la relecture échoue, l'ancien panier reste affiché.
+// [VenteCartList] : même panier pour un autre menu (Assurance) à partir d'une [CartSource].
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/vente_dialogs.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
+import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
+
+/// Ce dont le panier a besoin (lignes, état, opérations de la file de la vente).
+class CartSource {
+  final List<SaleItemDetail> items;
+  final String? cartError;
+
+  /// La vente existe sur le serveur (identifiant connu).
+  final bool hasVente;
+  final bool busy;
+
+  /// Vente terminée ou fin de vente en cours : ni modification ni suppression.
+  final bool locked;
+  final Future<void> Function() reload;
+  final Future<VenteResult<void>> Function(SaleItemDetail item, int qty, int price) updateLine;
+  final Future<VenteResult<void>> Function(SaleItemDetail item) removeLine;
+
+  const CartSource({
+    required this.items,
+    required this.cartError,
+    required this.hasVente,
+    required this.busy,
+    required this.locked,
+    required this.reload,
+    required this.updateLine,
+    required this.removeLine,
+  });
+}
 
 class VenteCart extends StatelessWidget {
   /// Remet le curseur dans la recherche après une action.
@@ -27,7 +56,46 @@ class VenteCart extends StatelessWidget {
 
   const VenteCart({super.key, this.onDone, this.style = ListPresentation.dashboard, this.stockOf = const {}, this.emptyAction});
 
-  Future<void> _edit(BuildContext context, VenteController c, SaleItemDetail item) async {
+  @override
+  Widget build(BuildContext context) {
+    final c = context.watch<VenteController>();
+    return VenteCartList(
+      source: CartSource(
+        items: c.items,
+        cartError: c.cartError,
+        hasVente: c.venteId != null,
+        busy: c.busy,
+        locked: c.finished,
+        reload: c.reload,
+        updateLine: c.updateLine,
+        removeLine: c.removeLine,
+      ),
+      onDone: onDone,
+      style: style,
+      stockOf: stockOf,
+      emptyAction: emptyAction,
+    );
+  }
+}
+
+/// Panier A / B / C à partir d'une [CartSource].
+class VenteCartList extends StatelessWidget {
+  final CartSource source;
+  final VoidCallback? onDone;
+  final ListPresentation style;
+  final Map<String, int> stockOf;
+  final Widget? emptyAction;
+
+  const VenteCartList({
+    super.key,
+    required this.source,
+    this.onDone,
+    this.style = ListPresentation.dashboard,
+    this.stockOf = const {},
+    this.emptyAction,
+  });
+
+  Future<void> _edit(BuildContext context, CartSource c, SaleItemDetail item) async {
     final v = await showEditLineDialog(context, name: item.strNAME, qty: item.intQUANTITY, price: item.intPRICEUNITAIR);
     if (v == null || !context.mounted) {
       onDone?.call();
@@ -39,7 +107,7 @@ class VenteCart extends StatelessWidget {
     onDone?.call();
   }
 
-  Future<void> _delete(BuildContext context, VenteController c, SaleItemDetail item) async {
+  Future<void> _delete(BuildContext context, CartSource c, SaleItemDetail item) async {
     final ok = await confirmDeleteLine(context, item.strNAME);
     if (!ok || !context.mounted) {
       onDone?.call();
@@ -62,13 +130,13 @@ class VenteCart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.watch<VenteController>();
+    final c = source;
     final items = c.items;
     if (items.isEmpty) {
-      if (c.cartError != null && c.venteId != null) {
+      if (c.cartError != null && c.hasVente) {
         return LoadErrorView(message: 'Panier non relu : ${venteMessage(c.cartError)}', onRetry: c.reload);
       }
-      if (c.busy && c.venteId != null) return const Center(child: CircularProgressIndicator());
+      if (c.busy && c.hasVente) return const Center(child: CircularProgressIndicator());
       return Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -83,7 +151,7 @@ class VenteCart extends StatelessWidget {
         ),
       );
     }
-    final locked = c.finished;
+    final locked = c.locked;
     final edit = locked ? null : (SaleItemDetail i) => _edit(context, c, i);
     final delete = locked ? null : (SaleItemDetail i) => _delete(context, c, i);
 
