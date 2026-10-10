@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquettes accueil et réglages</title>
+<style>
+:root{--navy:#003366;--amber:#F59E0B;--onAmber:#1F1300;--page:#F2F4F8;--ink:#14213D;--muted:#5B6B82;--line:#E3E8EF;--hm:#C9D6E8;--green:#16A34A;--blue:#2563EB;--red:#DC2626;--bg:#E9EDF3;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+header.top{padding:24px 16px 8px;max-width:1240px;margin:auto}
+h1{font-size:24px;margin:0 0 6px}
+.lead{color:var(--muted);margin:0 0 6px;max-width:900px}
+h2{max-width:1240px;margin:28px auto 4px;padding:0 16px;font-size:19px}
+.sub{max-width:1240px;margin:0 auto 12px;padding:0 16px;color:var(--muted);font-size:14px}
+.row{display:flex;flex-wrap:wrap;gap:22px;max-width:1240px;margin:auto;padding:0 16px 8px}
+figure{margin:0;display:flex;flex-direction:column;gap:8px;width:330px;max-width:100%}
+figcaption{font-size:13px;color:var(--muted)}
+figcaption b{color:var(--ink)}
+.phone{width:330px;max-width:100%;height:640px;border-radius:30px;border:8px solid #1b2433;background:var(--page);overflow:hidden;display:flex;flex-direction:column;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+.phone.white{background:#fff}
+.navy{background:var(--navy);color:#fff;padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px}
+.navy.round{border-radius:0 0 22px 22px}
+.bar{display:flex;align-items:center;gap:8px}
+.bar .t{flex:1;min-width:0}
+.bar .t b{display:block;font-size:17px}
+.bar .t span{font-size:12px;color:var(--hm)}
+.ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px}
+.wbar{background:#fff;border-bottom:1px solid var(--line);padding:12px 14px;display:flex;align-items:center;gap:8px;color:var(--navy)}
+.wbar .t{flex:1}.wbar .t b{display:block;font-size:17px}.wbar .t span{font-size:12px;color:var(--muted)}
+.search{background:#fff;border-radius:12px;padding:11px 12px;color:var(--muted);font-size:14px;display:flex;gap:8px;align-items:center}
+.search.out{border:1px solid #C5D0DE}
+.kpis{display:flex;gap:8px}
+.kpi{flex:1;background:rgba(255,255,255,.12);border-radius:12px;padding:8px 10px}
+.kpi b{display:block;font-size:17px}.kpi span{font-size:11px;color:var(--hm)}
+.kpi.hl{background:var(--amber);color:var(--onAmber)}.kpi.hl span{color:var(--onAmber)}
+.steps{display:flex;gap:4px}
+.st{flex:1;font-size:10.5px;text-align:center;padding:6px 2px;border-radius:8px;background:rgba(255,255,255,.12);color:var(--hm)}
+.st.on{background:var(--amber);color:var(--onAmber);font-weight:700}
+.st.done{background:rgba(22,163,74,.35);color:#fff}
+.body{flex:1;overflow:hidden;padding:12px;display:flex;flex-direction:column;gap:9px}
+.body.flat{padding:0;gap:0}
+.card{background:#fff;border-radius:14px;padding:11px 12px;box-shadow:0 1px 2px rgba(20,33,61,.06);position:relative;overflow:hidden}
+.card.band{padding-left:16px}
+.card.band::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--bandc,var(--navy))}
+.pn{font-weight:600;font-size:14px}
+.pm{font-size:12px;color:var(--muted)}
+.lr{display:flex;align-items:center;gap:8px}
+.lr .g{flex:1;min-width:0}
+.amt{font-weight:700;font-size:15px;white-space:nowrap}
+.mini{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:13px;background:#fff}
+.flatrow{background:#fff;border-bottom:1px solid #EEF1F5;padding:9px 14px}
+.foot{background:#fff;border-top:1px solid var(--line);padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.tot{display:flex;justify-content:space-between;align-items:baseline}
+.tot span{color:var(--muted);font-size:13px}.tot b{font-size:20px}
+.split{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.split b{color:var(--ink)}
+.btn{border-radius:12px;padding:12px;text-align:center;font-weight:700;font-size:14px}
+.btn.navy{background:var(--navy);color:#fff;padding:12px}
+.btn.amber{background:var(--amber);color:var(--onAmber)}
+.btn.out{border:1.5px solid var(--navy);color:var(--navy);background:#fff}
+.btn.dis{background:#DDE3EA;color:#8A99AD}
+.two{display:flex;gap:8px}.two>*{flex:1}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center;font-size:13px;font-weight:600}
+.tile .e{font-size:20px;display:block;margin-bottom:3px}
+.tile.on{border-color:var(--navy);background:#E3ECF7;color:var(--navy)}
+.field{background:#fff;border:1.5px solid var(--navy);border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.field b{font-size:18px;color:var(--ink)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid #C5D0DE;border-radius:20px;padding:6px 11px;font-size:12px;font-weight:600;color:var(--navy);background:#fff}
+.chip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.b-green{background:#E6F4EA;color:#166534}.b-amber{background:#FFF4E0;color:#9A3412}.b-blue{background:#E3ECF7;color:var(--navy)}.b-red{background:#FDECEC;color:#991B1B}
+.client{background:#fff;border-radius:14px;padding:10px 12px;border:1px solid var(--line)}
+.client .n{font-weight:700}
+.tp{display:flex;justify-content:space-between;font-size:12.5px;padding-top:5px}
+.check{display:flex;gap:6px;align-items:center;font-size:13px}
+.box{width:18px;height:18px;border-radius:5px;background:var(--navy);color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center}
+.warn{background:#FFF4E0;border:1px solid #F5D08A;color:#7C2D12;border-radius:12px;padding:9px 11px;font-size:12.5px;display:flex;gap:8px;align-items:center}
+.err{background:#FDECEC;border:1px solid #F5C2C2;color:#7F1D1D;border-radius:12px;padding:9px 11px;font-size:12.5px;display:flex;gap:8px;align-items:center}
+.err .r,.warn .r{margin-left:auto;font-weight:700;color:var(--navy);white-space:nowrap}
+.ok{background:#E6F4EA;color:#14532D;border-radius:12px;padding:8px 11px;font-size:12.5px}
+.lbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.dlg{position:absolute;inset:0;background:rgba(10,20,40,.45);display:flex;align-items:center;justify-content:center;padding:18px}
+.dlg .in{background:#fff;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:10px;width:100%}
+.dlg h4{margin:0;font-size:16px}
+.note{max-width:1240px;margin:8px auto 40px;padding:0 16px;color:var(--muted);font-size:13px}
+@media (max-width:420px){figure,.phone{width:100%}}
+</style>
+<style>
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.mt{background:#fff;border-radius:12px;padding:8px 2px;text-align:center;font-size:10.5px;font-weight:600;line-height:1.15;position:relative;box-shadow:0 1px 2px rgba(20,33,61,.06)}
+.mt .e{display:block;font-size:19px;margin-bottom:3px}
+.mt .cnt{position:absolute;top:3px;right:5px;background:var(--red);color:#fff;border-radius:10px;font-size:9.5px;padding:1px 5px}
+.mt .lock{position:absolute;top:3px;right:6px;font-size:9px}
+.fav{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fv{background:#fff;border-radius:14px;padding:11px;display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px;box-shadow:0 1px 2px rgba(20,33,61,.06)}
+.fv .e{width:34px;height:34px;border-radius:10px;background:#E3ECF7;display:flex;align-items:center;justify-content:center;font-size:17px}
+.task{background:#fff;border-radius:12px;padding:9px 11px;display:flex;align-items:center;gap:9px;font-size:13px;box-shadow:0 1px 2px rgba(20,33,61,.06)}
+.task b{font-size:17px;min-width:22px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+.pill{background:rgba(255,255,255,.14);border-radius:20px;padding:4px 10px;font-size:11.5px;display:inline-flex;align-items:center}
+.nav{background:#fff;border-top:1px solid var(--line);display:flex}
+.nav div{flex:1;text-align:center;font-size:10.5px;padding:7px 0 9px;color:var(--muted)}
+.nav div .e{display:block;font-size:17px}
+.nav div.on{color:var(--navy);font-weight:700}
+.sec{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:4px 2px 0}
+.lrow{background:#fff;display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #EEF1F5}
+.lrow .e{width:32px;height:32px;border-radius:9px;background:#E3ECF7;display:flex;align-items:center;justify-content:center;font-size:15px}
+.lrow .g{flex:1;min-width:0}
+.lrow .g b{display:block;font-size:13.5px}
+.lrow .g span{font-size:11.5px;color:var(--muted)}
+.big{background:#fff;border-radius:16px;padding:13px;display:flex;gap:12px;align-items:center;box-shadow:0 1px 2px rgba(20,33,61,.06)}
+.big .e{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.big b{display:block;font-size:15px}.big span{font-size:12px;color:var(--muted)}
+.sw{width:36px;height:20px;border-radius:12px;background:var(--navy);position:relative;flex:none}
+.sw::after{content:"";position:absolute;right:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+.sw.off{background:#C5D0DE}.sw.off::after{right:auto;left:2px}
+.seg{display:flex;background:#EEF2F7;border-radius:10px;padding:3px}
+.seg div{flex:1;text-align:center;font-size:12px;padding:6px 0;border-radius:8px;font-weight:600;color:var(--muted)}
+.seg div.on{background:#fff;color:var(--navy);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.drag{color:#A7B3C4;font-size:15px}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Accueil et paramétrage : propositions de présentation</h1>
+  <p class="lead">Maquettes de l'écran d'accueil (3 présentations + organisation) et du paramétrage par rubriques. Même charte que les menus déjà refaits. Données fictives.</p>
+</header>
+
+<h2>1. Écran d'accueil — les 3 présentations</h2>
+<p class="sub">Tous les menus sur une seule page, rangés par familles ; tâches du jour visibles ; état du serveur ; barre du bas libellée.</p>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="t"><b>Pharmacie Les Palmiers</b><span>Awa K. · Caissière · sam. 10 octobre</span></div><div class="ic">👤</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill"><span class="dot" style="background:#4ADE80"></span>Serveur connecté</span><span class="pill" style="background:var(--amber);color:var(--onAmber)">Licence : 21 jours</span></div>
+        <div class="search">🔍 Rechercher un menu ou un produit</div>
+      </div>
+      <div class="body" style="gap:8px">
+        <div class="sec">À faire maintenant</div>
+        <div class="task"><b style="color:var(--amber)">3</b><div style="flex:1">Préventes à encaisser</div>›</div>
+        <div class="task"><b style="color:var(--blue)">2</b><div style="flex:1">BL à entrer en stock</div>›</div>
+        <div class="sec">Favoris</div>
+        <div class="fav">
+          <div class="fv"><span class="e">🧾</span>Pré-vente</div><div class="fv"><span class="e">🛡️</span>Assurance</div>
+          <div class="fv"><span class="e">🔍</span>Recherche</div><div class="fv"><span class="e">🚚</span>Réception BL</div>
+        </div>
+        <div class="sec">Ventes</div>
+        <div class="grid4">
+          <div class="mt"><span class="e">🧾</span>Pré-vente<span class="cnt">3</span></div><div class="mt"><span class="e">🛡️</span>Assurance</div><div class="mt"><span class="e">📒</span>Carnet</div><div class="mt"><span class="e">🏬</span>Dépôt</div>
+        </div>
+        <div class="sec">Stock</div>
+        <div class="grid4">
+          <div class="mt"><span class="e">📦</span>État de stock</div><div class="mt"><span class="e">⚖️</span>Ajustement<span class="lock">🔒</span></div><div class="mt"><span class="e">⛔</span>Périmés</div><div class="mt"><span class="e">📅</span>Péremption</div>
+        </div>
+      </div>
+      <div class="nav"><div class="on"><span class="e">🏠</span>Accueil</div><div><span class="e">📷</span>Scanner</div><div><span class="e">✅</span>Tâches</div><div><span class="e">⚙️</span>Réglages</div></div>
+    </div>
+    <figcaption><b>A — Tableau de bord</b> (défaut). Tâches, favoris, puis familles de menus (la page continue : Réception, Produits, Équipe…).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone white">
+      <div class="wbar"><div class="t"><b>Prestige Mobile</b><span><span class="dot" style="background:var(--green)"></span>Serveur connecté · Les Palmiers</span></div></div>
+      <div style="padding:8px 12px"><div class="search out">🔍 Rechercher un menu</div></div>
+      <div class="body flat">
+        <div class="sec" style="padding:6px 14px">Ventes</div>
+        <div class="lrow"><span class="e">🧾</span><div class="g"><b>Pré-vente / Vente</b><span>3 préventes à encaisser</span></div><span class="badge b-amber">3</span></div>
+        <div class="lrow"><span class="e">🛡️</span><div class="g"><b>Pré-vente assurance</b></div>›</div>
+        <div class="lrow"><span class="e">📒</span><div class="g"><b>Vente carnet</b></div>›</div>
+        <div class="lrow"><span class="e">📄</span><div class="g"><b>Proforma / devis</b></div>›</div>
+        <div class="sec" style="padding:6px 14px">Réception &amp; fournisseurs</div>
+        <div class="lrow"><span class="e">🚚</span><div class="g"><b>Réception BL</b><span>2 BL à entrer en stock</span></div><span class="badge b-blue">2</span></div>
+        <div class="lrow"><span class="e">↩️</span><div class="g"><b>Retour fournisseur</b></div>›</div>
+        <div class="lrow"><span class="e">✔️</span><div class="g"><b>Pointage BL stock</b></div>›</div>
+      </div>
+      <div class="nav"><div class="on"><span class="e">🏠</span>Accueil</div><div><span class="e">📷</span>Scanner</div><div><span class="e">✅</span>Tâches</div><div><span class="e">⚙️</span>Réglages</div></div>
+    </div>
+    <figcaption><b>B — Compact</b>. Liste dense par familles, compteurs à droite ; idéal sur petit écran.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy">
+        <div class="bar"><div class="t"><b>Bonjour Awa</b><span>Que voulez-vous faire ?</span></div><span class="pill"><span class="dot" style="background:#4ADE80"></span>En ligne</span></div>
+      </div>
+      <div class="body" style="gap:9px">
+        <div class="big"><span class="e" style="background:#FFF4E0">🧾</span><div><b>Vendre</b><span>Pré-vente, assurance, carnet</span></div></div>
+        <div class="big"><span class="e" style="background:#E6F4EA">💰</span><div><b>Encaisser</b><span>3 préventes en attente</span></div></div>
+        <div class="big"><span class="e" style="background:#E3ECF7">🚚</span><div><b>Recevoir une livraison</b><span>2 BL à entrer en stock</span></div></div>
+        <div class="big"><span class="e" style="background:#F3E8FF">🔍</span><div><b>Chercher un produit</b><span>Stock, prix, emplacement</span></div></div>
+        <div class="big"><span class="e" style="background:#FDECEC">📦</span><div><b>Gérer le stock</b><span>Périmés, ajustement, état</span></div></div>
+        <div class="btn out" style="padding:9px">Voir tous les menus</div>
+      </div>
+      <div class="nav"><div class="on"><span class="e">🏠</span>Accueil</div><div><span class="e">📷</span>Scanner</div><div><span class="e">✅</span>Tâches</div><div><span class="e">⚙️</span>Réglages</div></div>
+    </div>
+    <figcaption><b>C — Guidé</b>. Grosses actions par métier : idéal pour les nouveaux employés.</figcaption>
+  </figure>
+</div>
+
+<h2>2. Recherche globale et organisation de l'accueil</h2>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Rechercher</b></div></div>
+        <div class="search" style="color:var(--ink)">🔍 stock<span style="margin-left:auto;color:var(--muted)">📷</span></div>
+      </div>
+      <div class="body">
+        <div class="sec">Menus</div>
+        <div class="card lr"><div class="g"><div class="pn">📦 État de stock</div><div class="pm">Stock</div></div>›</div>
+        <div class="card lr"><div class="g"><div class="pn">⚖️ Ajustement stock 🔒</div><div class="pm">Stock</div></div>›</div>
+        <div class="card lr"><div class="g"><div class="pn">✔️ Pointage BL stock</div><div class="pm">Réception &amp; fournisseurs</div></div>›</div>
+        <div class="sec">Produits</div>
+        <div class="card lr"><div class="g"><div class="pn">STOCKOVIT CP B/30</div><div class="pm">CIP 3400120 · stock 12 · 4 500 F</div></div><span class="badge b-green">En stock</span></div>
+      </div>
+    </div>
+    <figcaption><b>Recherche</b> : un mot trouve les menus et les produits ; 📷 scanne un code pour ouvrir la fiche.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round">
+        <div class="bar"><div class="ic">←</div><div class="t"><b>Organiser l'accueil</b><span>Glisser pour ordonner · ★ favori · 👁 masquer</span></div></div>
+      </div>
+      <div class="body" style="gap:6px">
+        <div class="sec">Favoris (4 max)</div>
+        <div class="card lr" style="padding:8px 10px"><span class="drag">⋮⋮</span><div class="g pn">Pré-vente</div><span style="color:var(--amber)">★</span><span>👁</span></div>
+        <div class="card lr" style="padding:8px 10px"><span class="drag">⋮⋮</span><div class="g pn">Pré-vente assurance</div><span style="color:var(--amber)">★</span><span>👁</span></div>
+        <div class="sec">Ventes</div>
+        <div class="card lr" style="padding:8px 10px"><span class="drag">⋮⋮</span><div class="g pn">Vente carnet</div><span style="color:#C5D0DE">☆</span><span>👁</span></div>
+        <div class="card lr" style="padding:8px 10px;opacity:.55"><span class="drag">⋮⋮</span><div class="g pn">Vente dépôt <span class="pm">(masqué)</span></div><span style="color:#C5D0DE">☆</span><span>🚫</span></div>
+        <div class="card lr" style="padding:8px 10px"><span class="drag">⋮⋮</span><div class="g pn">Proforma / devis</div><span style="color:#C5D0DE">☆</span><span>👁</span></div>
+      </div>
+      <div class="foot"><div class="two"><div class="btn out">PAR DÉFAUT</div><div class="btn navy">ENREGISTRER</div></div></div>
+    </div>
+    <figcaption><b>Organiser</b> : ordre par famille, favoris, menus masqués ; l'organisation actuelle est reprise.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="t"><b>Tâches</b><span>Actualisé à 10:42</span></div></div></div>
+      <div class="body">
+        <div class="card band" style="--bandc:var(--amber)"><div class="lr"><div class="g"><div class="pn">3 préventes à encaisser</div><div class="pm">La plus ancienne : 09:12 (Koffi)</div></div><span class="badge b-amber">Encaisser</span></div></div>
+        <div class="card band" style="--bandc:var(--blue)"><div class="lr"><div class="g"><div class="pn">2 BL à entrer en stock</div><div class="pm">LABOREX, COPHARMED</div></div><span class="badge b-blue">Ouvrir</span></div></div>
+        <div class="card band" style="--bandc:var(--green)"><div class="lr"><div class="g"><div class="pn">Caisse ouverte</div><div class="pm">Depuis 07:58</div></div><span class="badge b-green">✓</span></div></div>
+        <div class="card band" style="--bandc:var(--red)"><div class="lr"><div class="g"><div class="pn">Vente interrompue</div><div class="pm">PV-000123 · 5 400 F</div></div><span class="badge b-red">Reprendre</span></div></div>
+      </div>
+      <div class="nav"><div><span class="e">🏠</span>Accueil</div><div><span class="e">📷</span>Scanner</div><div class="on"><span class="e">✅</span>Tâches</div><div><span class="e">⚙️</span>Réglages</div></div>
+    </div>
+    <figcaption><b>Tâches</b> : tout ce qui attend une action, avec le bouton pour y aller.</figcaption>
+  </figure>
+</div>
+
+<h2>3. Paramétrage par rubriques</h2>
+<p class="sub">Une page d'entrée avec recherche et résumé de chaque rubrique ; cadenas = code administrateur.</p>
+<div class="row">
+  <figure>
+    <div class="phone white">
+      <div class="wbar"><div>←</div><div class="t"><b>Réglages</b><span>Version 2.4.0 · Sunmi V2s</span></div></div>
+      <div style="padding:8px 12px"><div class="search out">🔍 Rechercher un réglage</div></div>
+      <div class="body flat">
+        <div class="lrow"><span class="e">🌐</span><div class="g"><b>Connexion au serveur 🔒</b><span>192.168.1.20:8080 · connecté</span></div>›</div>
+        <div class="lrow"><span class="e">🧾</span><div class="g"><b>Ventes 🔒</b><span>Nouvelle version · 4 modes de paiement</span></div>›</div>
+        <div class="lrow"><span class="e">🖨️</span><div class="g"><b>Impression</b><span>80 mm · 1 ticket · QR activé</span></div>›</div>
+        <div class="lrow"><span class="e">📦</span><div class="g"><b>Stock &amp; contrôles 🔒</b><span>Comparaison théorique</span></div>›</div>
+        <div class="lrow"><span class="e">🎨</span><div class="g"><b>Apparence</b><span>Présentation A · organiser l'accueil</span></div>›</div>
+        <div class="lrow"><span class="e">👥</span><div class="g"><b>Équipe &amp; pointage 🔒</b><span>Badge + PIN</span></div>›</div>
+        <div class="lrow"><span class="e">🛡️</span><div class="g"><b>Sécurité 🔒</b><span>Code admin · 3 menus protégés</span></div>›</div>
+        <div class="lrow"><span class="e">🪪</span><div class="g"><b>Licence &amp; appareil</b><span>Valide · 21 jours</span></div>›</div>
+        <div class="lrow"><span class="e" style="background:#FDECEC">⏻</span><div class="g"><b style="color:var(--red)">Se déconnecter</b></div></div>
+      </div>
+    </div>
+    <figcaption><b>Entrée des réglages</b> : chaque rubrique montre l'essentiel sans l'ouvrir.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="ic">←</div><div class="t"><b>Connexion au serveur</b><span>Code administrateur vérifié</span></div></div></div>
+      <div class="body">
+        <div class="field" style="border-width:1px"><span>IP locale</span><b style="font-size:15px">192.168.1.20</b></div>
+        <div class="field" style="border-width:1px;border-color:var(--red)"><span style="color:var(--red)">IP distante — format invalide</span><b style="font-size:15px">41.207.300.9</b></div>
+        <div class="two"><div class="field" style="border-width:1px"><span>Port</span><b style="font-size:15px">8080</b></div><div class="field" style="border-width:1px"><span>Appli</span><b style="font-size:15px">prestige</b></div></div>
+        <div class="btn out" style="padding:9px">TESTER LA CONNEXION</div>
+        <div class="card" style="font-size:12.5px;line-height:1.7">✅ Serveur joignable (38 ms)<br>✅ Application Prestige trouvée<br>✅ Licence valide (21 jours)</div>
+      </div>
+      <div class="foot"><div class="two"><div class="btn out">ANNULER</div><div class="btn dis">ENREGISTRER</div></div><div class="pm" style="text-align:center">Corrigez l'IP distante pour enregistrer</div></div>
+    </div>
+    <figcaption><b>Connexion</b> : contrôle du format, test détaillé avant d'enregistrer, barre fixe seulement si modifié.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="ic">←</div><div class="t"><b>Impression</b><span>Appliqué immédiatement</span></div></div></div>
+      <div class="body">
+        <div class="lbl">Largeur du ticket</div>
+        <div class="seg"><div>58 mm</div><div class="on">80 mm</div></div>
+        <div class="lbl">Code sur le ticket</div>
+        <div class="seg"><div class="on">QR code</div><div>Code-barres</div><div>Aucun</div></div>
+        <div class="card lr"><div class="g"><div class="pn">Tickets par vente</div><div class="pm">Vente simple</div></div><span class="mini">−</span><b>1</b><span class="mini">+</span></div>
+        <div class="card lr"><div class="g"><div class="pn">Tickets par vente assurance</div></div><span class="mini">−</span><b>2</b><span class="mini">+</span></div>
+        <div class="card lr"><div class="g"><div class="pn">Mode test d'impression</div><div class="pm">Aperçu à l'écran au lieu d'imprimer</div></div><span class="sw off"></span></div>
+      </div>
+      <div class="foot"><div class="btn navy">🖨️ IMPRIMER UN TICKET D'ESSAI</div></div>
+    </div>
+    <figcaption><b>Impression</b> : choix visuels (pas de saisie), ticket d'essai pour vérifier tout de suite.</figcaption>
+  </figure>
+</div>
+<div class="row">
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="ic">←</div><div class="t"><b>Ventes</b><span>Code administrateur vérifié</span></div></div></div>
+      <div class="body">
+        <div class="card lr"><div class="g"><div class="pn">Nouvelle version des ventes</div><div class="pm">Désactiver = retour à l'ancienne version</div></div><span class="sw"></span></div>
+        <div class="lbl">Modes de paiement proposés</div>
+        <div class="card lr"><div class="box">✓</div><div class="g pn">Espèces</div></div>
+        <div class="card lr"><div class="box">✓</div><div class="g"><div class="pn">Wave</div><div class="pm">QR configuré · voir</div></div></div>
+        <div class="card lr"><div class="box" style="background:#fff;border:1.5px solid #C5D0DE"></div><div class="g pn">Chèque</div></div>
+        <div class="card lr"><div class="g"><div class="pn">Tiers payants max (assurance)</div></div><span class="mini">−</span><b>2</b><span class="mini">+</span></div>
+        <div class="card lr"><div class="g"><div class="pn">Masquer les produits « RV »</div></div><span class="sw"></span></div>
+      </div>
+    </div>
+    <figcaption><b>Ventes</b> : interrupteur de version, modes de paiement avec aperçu QR, limites.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="ic">←</div><div class="t"><b>Apparence</b></div></div></div>
+      <div class="body">
+        <div class="lbl">Présentation de tous les menus</div>
+        <div class="card band" style="--bandc:var(--navy)"><div class="lr"><div class="g"><div class="pn">A — Tableau de bord</div><div class="pm">Chiffres clés et cartes</div></div><span class="badge b-green">✓</span></div></div>
+        <div class="card lr"><div class="g"><div class="pn">B — Compact</div><div class="pm">Listes denses</div></div></div>
+        <div class="card lr"><div class="g"><div class="pn">C — Guidé</div><div class="pm">Étapes, bouton ambre</div></div></div>
+        <div class="lbl">Taille du texte</div>
+        <div class="seg"><div class="on">Normale</div><div>Grande</div></div>
+        <div class="card lr"><div class="g pn">Organiser l'accueil</div>›</div>
+      </div>
+    </div>
+    <figcaption><b>Apparence</b> : présentation par défaut pour tous les menus (chaque menu peut toujours la changer).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone">
+      <div class="navy round"><div class="bar"><div class="ic">←</div><div class="t"><b>Licence &amp; appareil</b></div></div></div>
+      <div class="body">
+        <div class="card"><div class="lr"><div class="g"><div class="pn">Licence</div><div class="pm">Expire le 31/10/2026</div></div><span class="badge b-amber">21 jours</span></div></div>
+        <div class="card" style="font-size:12.5px;line-height:1.75"><b>Appareil</b><br>Sunmi V2s · Android 11<br>Identifiant : 7F3A-91C2-55E0<br>Application : 2.4.0 (build 118)</div>
+        <div class="card lr"><div class="g"><div class="pn">Journal des erreurs</div><div class="pm">2 erreurs ces 7 derniers jours</div></div>›</div>
+        <div class="btn out" style="padding:9px">ENVOYER UN DIAGNOSTIC AU SUPPORT</div>
+      </div>
+    </div>
+    <figcaption><b>Licence &amp; appareil</b> : tout ce que demande le support, au même endroit.</figcaption>
+  </figure>
+</div>
+<p class="note">L'accueil existera en A, B et C ; le paramétrage garde une seule présentation (liste claire), lisible à 360 px.</p>
+</body>
+</html>
