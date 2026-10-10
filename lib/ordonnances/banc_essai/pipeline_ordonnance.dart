@@ -45,6 +45,9 @@ typedef LecteurTexte = Future<List<String>> Function(String cheminImage);
 /// Prépare l'image avant lecture (renvoie le chemin d'un fichier TEMPORAIRE, supprimé après lecture).
 typedef PreparationImage = Future<String> Function(String chemin);
 
+/// Rapproche une ligne du catalogue : nom du produit retenu, ou null. Par défaut : [PrescriptionMatcher.match].
+typedef RapprochementLigne = Future<({String? produit, String? panne})> Function(PrescriptionLine ligne);
+
 /// Découpe le texte lu en lignes « médicament ». Par défaut : [PrescriptionParser.extract].
 typedef DecoupageLignes = List<PrescriptionLine> Function(List<String> lignes);
 
@@ -64,6 +67,9 @@ class PipelineTexteCatalogue implements PipelineOrdonnance {
   /// Préparation de l'image avant lecture (ex. contraste, O2) ; renvoie le chemin d'un fichier temporaire.
   final PreparationImage? preparation;
 
+  /// Correspondance catalogue (ex. O3) ; null : [PrescriptionMatcher.match] sur [recherche].
+  final RapprochementLigne? rapprochement;
+
   const PipelineTexteCatalogue({
     required this.id,
     required this.libelle,
@@ -71,6 +77,7 @@ class PipelineTexteCatalogue implements PipelineOrdonnance {
     required this.decoupage,
     required this.recherche,
     this.preparation,
+    this.rapprochement,
   });
 
   /// Le scan d'ordonnance ACTUEL, sans aucune modification : ML Kit, [PrescriptionParser.extract],
@@ -105,13 +112,18 @@ class PipelineTexteCatalogue implements PipelineOrdonnance {
     var sans = 0;
     String? panne;
     for (final l in lignes) {
-      final r = await PrescriptionMatcher.match(l, recherche);
-      final c = r.chosen;
-      if (c == null) {
-        sans++;
-        panne ??= r.failure;
+      final ({String? produit, String? panne}) r;
+      if (rapprochement != null) {
+        r = await rapprochement!(l);
       } else {
-        produits.add(c.strNAME);
+        final m = await PrescriptionMatcher.match(l, recherche);
+        r = (produit: m.chosen?.strNAME, panne: m.failure);
+      }
+      if (r.produit == null) {
+        sans++;
+        panne ??= r.panne;
+      } else {
+        produits.add(r.produit!);
       }
     }
     return ResultatPipeline(

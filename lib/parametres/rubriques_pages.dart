@@ -306,20 +306,34 @@ class _LectureO2ReglagesState extends State<LectureO2Reglages> {
   }
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
-        valueListenable: LectureO2.actif,
-        builder: (context, actif, _) => ValueListenableBuilder<bool>(
+  Widget build(BuildContext context) => ValueListenableBuilder<ModeLecture>(
+        valueListenable: LectureO2.mode,
+        builder: (context, mode, _) => ValueListenableBuilder<bool>(
           valueListenable: LectureO2.ameliorerImage,
           builder: (context, image, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            SwitchCard(
-              key: const Key('lecture_o2'),
-              title: 'Nouvelle lecture des ordonnances (O2)',
-              subtitle: 'Photo guidée de la page, zone des médicaments, lignes numérotées. '
-                  'À activer seulement si le banc d\'essai donne un meilleur score.',
-              value: actif,
-              onChanged: LectureO2.definirActif,
+            SettingCard(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                const SettingText('Lecture des ordonnances'),
+                const SizedBox(height: 6),
+                Segmented<ModeLecture>(
+                  key: const Key('lecture_mode'),
+                  options: const [(ModeLecture.actuelle, 'Actuelle'), (ModeLecture.o2, 'O2'), (ModeLecture.o3, 'O3')],
+                  value: mode,
+                  onChanged: LectureO2.definirMode,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  switch (mode) {
+                    ModeLecture.actuelle => 'Lecture d\'origine.',
+                    ModeLecture.o2 => 'Photo guidée de la page, zone des médicaments, lignes numérotées.',
+                    ModeLecture.o3 => 'O2 + correspondance catalogue améliorée (3 propositions avec confiance).',
+                  } +
+                      (mode == ModeLecture.actuelle ? '' : ' À garder seulement si le banc d\'essai donne un meilleur score.'),
+                  style: const TextStyle(fontSize: 12.5, color: Pal.muted),
+                ),
+              ]),
             ),
-            if (actif)
+            if (mode != ModeLecture.actuelle)
               SwitchCard(
                 key: const Key('lecture_o2_image'),
                 title: 'Améliorer l\'image (contraste, ombres)',

@@ -195,7 +195,7 @@ void main() {
       final vt = VeriteTerrain.fromJsonString('{"ordonnances":{"ordo (1).jpeg":{"produits":['
           '{"nom":"Curam 1 g"},{"nom":"Brustan B/20"},{"nom":"Tramadol Denk 50 mg"}]}}}');
       final pipelines = pipelinesBanc(_catalogue(_noms), lecteur: (_) async => _manuscrite);
-      expect(pipelines.map((p) => p.id), ['reference', 'o2', 'o2_image']);
+      expect(pipelines.map((p) => p.id), ['reference', 'o2', 'o2_image', 'o3']);
       final ref = await pipelines[0].analyser('ordo (1).jpeg');
       final o2 = await pipelines[1].analyser('ordo (1).jpeg');
       final sRef = BancScore.evaluer('ordo (1).jpeg', vt.pour('ordo (1).jpeg'), ref.produits);
@@ -243,7 +243,7 @@ void main() {
   group('Interrupteurs (désactivés par défaut)', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
-      LectureO2.actif.value = false;
+      LectureO2.mode.value = ModeLecture.actuelle;
       LectureO2.ameliorerImage.value = false;
     });
 
@@ -253,12 +253,12 @@ void main() {
       addTearDown(tester.view.reset);
       await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SingleChildScrollView(child: LectureO2Reglages()))));
       await tester.pumpAndSettle();
-      expect(LectureO2.actif.value, isFalse);
+      expect(LectureO2.mode.value, ModeLecture.actuelle);
       expect(find.byKey(const Key('lecture_o2_image')), findsNothing);
-      await tester.tap(find.byKey(const Key('lecture_o2')));
+      await tester.tap(find.text('O2'));
       await tester.pumpAndSettle();
-      expect(LectureO2.actif.value, isTrue);
-      expect((await SharedPreferences.getInstance()).getBool('ordonnance_lecture_o2_v1'), isTrue);
+      expect(LectureO2.mode.value, ModeLecture.o2);
+      expect((await SharedPreferences.getInstance()).getString('ordonnance_lecture_mode_v1'), 'o2');
       expect(find.byKey(const Key('lecture_o2_image')), findsOneWidget);
       expect(LectureO2.ameliorerImage.value, isFalse);
       expect(tester.takeException(), isNull);
@@ -287,9 +287,9 @@ void main() {
     });
 
     testWidgets('écran Ordonnance : découpage O2 quand il est activé', (tester) async {
-      SharedPreferences.setMockInitialValues({'ordonnance_lecture_o2_v1': true});
+      SharedPreferences.setMockInitialValues({'ordonnance_lecture_mode_v1': 'o2'});
       await scan(tester);
-      expect(LectureO2.actif.value, isTrue);
+      expect(LectureO2.mode.value, ModeLecture.o2);
       expect(find.text('TRAMADOL DENK 50MG CP'), findsOneWidget);
       expect(find.text('CURAM 1G CP B/16'), findsOneWidget);
     });

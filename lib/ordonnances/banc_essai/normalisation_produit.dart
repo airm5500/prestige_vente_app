@@ -178,9 +178,9 @@ class NormalisationProduit {
     ];
     final marques = <String>[attendu.marque, if (attendu.mots.length >= 2) attendu.mots[0] + attendu.mots[1]];
     if (!marques.any((m) => candidats.any((c) => motsProches(m, c)))) return false;
-    // Qualificatifs stricts : mêmes de part et d'autre.
-    final qa = attendu.qualificatifs.intersection(qualificatifsStricts);
-    final qp = propose.qualificatifs.intersection(qualificatifsStricts);
+    // Qualificatifs stricts : mêmes de part et d'autre (y compris collés au nom : « ELUDRILPRO »).
+    final qa = stricts(attendu);
+    final qp = stricts(propose);
     if (qa.length != qp.length || !qa.containsAll(qp)) return false;
     // Qualificatifs souples : exigés s'ils sont attendus.
     for (final q in attendu.qualificatifs.intersection(_souplesNormalises)) {
@@ -191,6 +191,18 @@ class NormalisationProduit {
       return false;
     }
     return true;
+  }
+
+  /// Qualificatifs stricts, y compris ceux collés à la fin du 1ᵉʳ mot (« ELUDRILPRO » → pro).
+  static Set<String> stricts(NomProduitNormalise n) {
+    final out = n.qualificatifs.intersection(qualificatifsStricts);
+    if (n.mots.isNotEmpty) {
+      final m = n.mots.first;
+      for (final q in qualificatifsStricts) {
+        if (q.length >= 3 && m.length >= q.length + 4 && m.endsWith(q)) out.add(q);
+      }
+    }
+    return out;
   }
 
   static final _souplesNormalises = <String>{'pediatrique', 'nourrisson', 'enfant', 'junior', 'lp', 'retard'};

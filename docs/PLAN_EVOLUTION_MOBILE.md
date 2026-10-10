@@ -263,7 +263,7 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 |---|---|
 | O1 | Banc d'essai des 17 ordonnances + mesure de la lecture actuelle (référence) — **réalisé** (§4.5) |
 | O2 | Capture guidée page + découpage par lignes numérotées — **réalisé** (§4.6) |
-| O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) |
+| O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) — **réalisé** (§4.7) |
 | O4 | Apprentissage par correction |
 | O5 | (option) Lecture avancée en ligne, avec consentement |
 
@@ -354,7 +354,7 @@ OCR **synthétiques** uniquement.
   quantité (« 01 bte », « → 02 bts », « (1 fl) ») ; en-têtes, adresses, téléphones, e-mails, dates, médecin,
   tampons, « Nom : … » ignorés ; « 1 comprimé… », « 26 BP… », dates ne sont pas pris pour des numéros ; lettre isolée en
   tête (tiret mal lu : « L KALEORID ») retirée. **Sans aucune ligne numérotée : découpage d'origine à l'identique.**
-- **Production** : Réglages › Ventes › Ordonnances › « Nouvelle lecture des ordonnances (O2) » — **désactivée par
+- **Production** : Réglages › Ventes › Ordonnances › lecture « O2 » (choix Actuelle / O2 / O3 depuis O3) — **« Actuelle » par
   défaut** ; option « Améliorer l'image (contraste, ombres) », désactivée aussi. Désactivée = scan d'origine inchangé
   (même lecteur, même découpage, même correspondance). Le PDF garde sa lecture d'origine (découpage O2 si activé).
 - **Banc d'essai** : candidats « O2 lignes numérotées » et « O2 lignes numérotées + image améliorée » (la zone
@@ -373,6 +373,49 @@ OCR **synthétiques** uniquement.
 Gains : CURAM (n° 12, ligne « 1. » sans forme ni dosage lisible), ordonnance imprimée n° 8 entièrement lue (KALEORID
 retrouvé), plus aucun faux positif avec l'image améliorée. Les ordonnances cursives restent illisibles pour tesseract :
 **le verdict d'activation se fait au banc sur le téléphone**.
+
+### 4.7 O3 — Correspondance catalogue améliorée : réalisé
+
+**Code** : `lib/ordonnances/o3/` (`similarite.dart`, `correspondance_o3.dart`, `catalogue_o3.dart`) ; points d'accroche :
+écran Ordonnance (mode O3), Réglages › Ventes › Ordonnances (choix **Actuelle / O2 / O3**, « Actuelle » par défaut ;
+l'ancien interrupteur O2 est repris), `pipeline_ordonnance.dart` (étape de correspondance remplaçable),
+`pipelines_disponibles.dart` (candidat « O3 »). Tests : `test/ordonnances_o3_test.dart` (CI), mini-catalogue et
+lectures déformées **synthétiques**.
+
+- **Catalogue** : copie locale complète (hors ligne, `LocalStore`) indexée une fois ; sans copie locale, candidats
+  par la recherche serveur existante (3 puis 2 premières lettres des mots lus, 200 produits au plus par requête).
+- **Nom** : distance d'édition **pondérée** (u/n, a/o, i/l/1, e/c, o/0, v/u, b/h… coûtent 0,4 au lieu de 1 ; « rn »↔m,
+  « cl »↔d, « nn »↔m, « ii »↔u) ; **phonétique française** (ph=f, qu=k, ce/ci=se/si, ge/gi=je, eau/au=o, ou=u, ai/ei=e,
+  en/em/am=an, y=i, h muet, lettres doublées, finales muettes) ; début de mot pour les abréviations (« pediat » →
+  PÉDIATRIQUE) ; 1ᵉʳ mot parasite toléré (2ᵉ mot) ; deux mots collés (« Bio Ritmo » = BIORITMO) ; qualificatif collé au
+  nom (« ELUDRILPRO » = Eludril Pro). Mots courts : quasi identiques seulement ; ligne de plus de 5 mots = phrase, ignorée.
+- **Dosage** (1 g = 1000 mg ; 1 g ≠ 500 mg : −0,35) et **forme** (cp/eff, gél, sp/susp/sol/buv, amp, inj, suppo,
+  collyre, sachet, pommade/crème, spray : −0,15 si incompatibles) ; **qualificatifs** (Plus, Pro, Forte, T, AB, MTS,
+  Denk… : −0,25 si différents ; pédiatrique / nourrisson… exigés s'ils sont lus).
+- **Bonus** : en stock (+0,02) ; **réellement vendus** (+0,06 au plus) via `PopulariteProduits` : aujourd'hui un
+  compteur sur l'appareil des produits validés sur ordonnance (`PopulariteLocale`) ; point d'accroche prêt pour un
+  historique de ventes du serveur (`t_famille.int_NOMBRE_VENTES` existe dans la base, non exposé par l'API mobile).
+- **Résultat par ligne** : 3 propositions avec confiance (0–100 %) ; retenue à partir de **65 %** ; « Proposé · N % »
+  (cochée) à partir de **80 %** et nettement devant la 2ᵉ ; sinon « À vérifier · N % », **non cochée** : le pharmacien
+  valide ou change (« Changer » montre les autres propositions) ; un nom lu déformé n'est jamais « sûr », même avec le
+  bon dosage. Rien n'est ajouté au panier sans « Créer la pré-vente » + confirmation. Une ligne avec CIP garde le
+  rapprochement exact d'origine.
+- **Performance** (mesurée en test) : ≈ 5 à 6 ms par ligne sur 10 000 produits (exigence < 50 ms).
+
+**Mesure indicative (tesseract au lieu de ML Kit, 15 ordonnances / 45 produits)** :
+
+| Lecture | Catalogue | Référence | O2 | O3 |
+|---|---|---|---|---|
+| photo brute (psm 6) | indicatif (153) | 0/15 · 9 % · 57 % | 0/15 · 11 % · 63 % | **1/15 · 16 % · 100 %** |
+| photo brute (psm 6) | serveur de test (10 898) | 0/15 · 9 % · 57 % | 0/15 · 11 % · 63 % | 1/15 · 13 % · 86 % |
+| image améliorée (psm 6) | indicatif | 1/15 · 11 % · 100 % | 1/15 · 11 % · 100 % | 1/15 · 11 % · 83 % |
+| image améliorée (psm 6) | serveur de test | 1/15 · 11 % · 100 % | 1/15 · 11 % · 100 % | 1/15 · 11 % · 83 % |
+
+(correctes · rappel · précision). O3 retrouve en plus RHINOCORT (lu « Rhnocoit ») et KALEORID sur la photo brute, et
+supprime les faux positifs de la correspondance d'origine ; il reste 1 faux positif « à vérifier » (ligne parasite).
+Le catalogue du serveur de test contient des doublons « SIM1…SIM5 » et des noms abrégés (« ELUDRILPRO BAIN BCHE ») :
+la mesure sur le téléphone, avec le vrai catalogue de la pharmacie, fait foi. **O3 n'est à activer que si le banc
+sur le téléphone le montre meilleur que la référence.**
 
 ---
 

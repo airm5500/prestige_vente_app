@@ -14,14 +14,22 @@ import 'package:prestige_vente_app/screens/common/guided_capture_screen.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Lecture des ordonnances : actuelle (d'origine), O2 (page + lignes numérotées),
+/// O3 (O2 + correspondance catalogue améliorée).
+enum ModeLecture { actuelle, o2, o3 }
+
 class LectureO2 {
   LectureO2._();
 
-  static const _cleActif = 'ordonnance_lecture_o2_v1';
+  static const _cleMode = 'ordonnance_lecture_mode_v1';
+  static const _cleActif = 'ordonnance_lecture_o2_v1'; // ancien réglage O2 (booléen), repris s'il existe
   static const _cleImage = 'ordonnance_lecture_o2_image_v1';
 
-  /// Nouvelle lecture (capture page, zone, lignes numérotées). Désactivée par défaut.
-  static final ValueNotifier<bool> actif = ValueNotifier<bool>(false);
+  /// Lecture choisie. « Actuelle » par défaut.
+  static final ValueNotifier<ModeLecture> mode = ValueNotifier<ModeLecture>(ModeLecture.actuelle);
+
+  /// Nouvelle lecture (O2 ou O3) : capture page, zone des médicaments, lignes numérotées.
+  static bool get nouvelleLecture => mode.value != ModeLecture.actuelle;
 
   /// Amélioration de l'image (contraste, ombres) avant la lecture. Désactivée par défaut.
   static final ValueNotifier<bool> ameliorerImage = ValueNotifier<bool>(false);
@@ -29,15 +37,18 @@ class LectureO2 {
   static Future<void> charger() async {
     try {
       final p = await SharedPreferences.getInstance();
-      actif.value = p.getBool(_cleActif) ?? false;
+      final m = ModeLecture.values.asNameMap()[p.getString(_cleMode)];
+      mode.value = m ?? ((p.getBool(_cleActif) ?? false) ? ModeLecture.o2 : ModeLecture.actuelle);
       ameliorerImage.value = p.getBool(_cleImage) ?? false;
     } catch (_) {}
   }
 
-  static Future<void> definirActif(bool v) async {
-    actif.value = v;
+  static Future<void> definirMode(ModeLecture m) async {
+    mode.value = m;
     try {
-      await (await SharedPreferences.getInstance()).setBool(_cleActif, v);
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_cleMode, m.name);
+      await p.remove(_cleActif);
     } catch (_) {}
   }
 

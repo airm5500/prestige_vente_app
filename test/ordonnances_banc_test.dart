@@ -86,6 +86,8 @@ void main() {
       expect(_ok('Antalgex T gélules', 'ANTALGEX GEL'), isFalse);
       expect(_ok('Antalgex gélules', 'ANTALGEX T GEL'), isFalse);
       expect(_ok('Tramadol Denk 50 mg', 'TRAMADOL DENK 50MG'), isTrue);
+      expect(_ok('Eludril Pro', 'ELUDRILPRO BAIN BCHE F/200ML'), isTrue); // qualificatif collé au nom
+      expect(_ok('Eludril', 'ELUDRILPRO BAIN BCHE F/200ML'), isFalse);
       expect(_ok('Efferalgan pédiatrique', 'EFFERALGAN 500MG CP'), isFalse); // souple mais attendu
       expect(_ok('Efferalgan', 'EFFERALGAN PEDIATRIQUE'), isTrue);
     });
