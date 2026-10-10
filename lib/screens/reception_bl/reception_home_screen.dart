@@ -9,8 +9,10 @@ import 'package:prestige_vente_app/reception/reception_gateway.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_bl_screen.dart';
+import 'package:prestige_vente_app/screens/reception_bl/reception_summary_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 
 class ReceptionHomeScreen extends StatefulWidget {
@@ -22,6 +24,9 @@ class ReceptionHomeScreen extends StatefulWidget {
   final LabelCamera? labelCamera;
   final DateTime Function()? clock;
 
+  /// Présentation imposée (tests) ; sinon celle choisie sur l'appareil (A par défaut).
+  final ListPresentation? presentation;
+
   const ReceptionHomeScreen({
     super.key,
     this.gateway,
@@ -30,6 +35,7 @@ class ReceptionHomeScreen extends StatefulWidget {
     this.codeCamera,
     this.labelCamera,
     this.clock,
+    this.presentation,
   });
 
   @override
@@ -51,6 +57,11 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
   bool _loading = true;
   String? _error;
   String _filter = '';
+  String? _grossiste;
+  late ListPresentation _style = widget.presentation ?? ListPresentation.dashboard;
+
+  /// Lignes de chaque BL à entrer (avancement de la saisie).
+  Map<String, List<ReceptionLine>> _blLines = {};
 
   @override
   void initState() {
@@ -66,8 +77,22 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
 
   Future<void> _init() async {
     _settings = widget.settings ?? await ReceptionSettings.load();
+    if (widget.presentation == null) {
+      final style = await PresentationPrefs.load();
+      if (mounted) setState(() => _style = style);
+    }
+    _tabs.addListener(() {
+      if (!_tabs.indexIsChanging && mounted) setState(() {});
+    });
     await _load();
   }
+
+  void _setStyle(ListPresentation p) {
+    setState(() => _style = p);
+    if (widget.presentation == null) PresentationPrefs.save(p);
+  }
+
+  DateTime get _now => (widget.clock ?? DateTime.now)();
 
   Future<void> _load() async {
     setState(() {
@@ -77,10 +102,18 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
     try {
       final bls = await _gateway.bls();
       final orders = await _gateway.orders();
+      // Avancement de chaque BL (une lecture par BL, en parallèle).
+      final lines = <String, List<ReceptionLine>>{};
+      await Future.wait(bls.take(40).map((b) async {
+        try {
+          lines[b.id] = await _gateway.lines(b.id);
+        } catch (_) {}
+      }));
       if (!mounted) return;
       setState(() {
         _bls = bls;
         _orders = orders;
+        _blLines = lines;
         _loading = false;
       });
     } catch (_) {
@@ -194,105 +227,596 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
     if (mounted) setState(() => _settings = saved);
   }
 
+  Future<void> _openSummary(ReceptionBl bl) async {
+    final lines = _blLines[bl.id];
+    if (lines == null) return _openBl(bl);
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ReceptionSummaryScreen(bl: bl, gateway: _gateway, settings: _settings, lines: lines, clock: widget.clock),
+    ));
+    if (mounted) _load();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Données affichées
+  // ---------------------------------------------------------------------------
+  List<ReceptionOrder> get _visibleOrders => _orders
+      .where((o) => _match('${o.ref} ${o.grossiste}') && (_grossiste == null || o.grossiste == _grossiste))
+      .toList();
+  List<ReceptionBl> get _visibleBls => _bls
+      .where((b) => _match('${b.ref} ${b.grossiste} ${b.orderRef}') && (_grossiste == null || b.grossiste == _grossiste))
+      .toList();
+
+  ReceptionSummary? _summaryOf(ReceptionBl b) {
+    final l = _blLines[b.id];
+    return l == null ? null : ReceptionSummary.of(l, now: _now, shortExpiryMonths: _settings.shortExpiryMonths);
+  }
+
+  int get _linesToEnter => _bls.fold(0, (s, b) {
+        final sum = _summaryOf(b);
+        return s + (sum == null ? b.lines : sum.lines.length - sum.complete.length);
+      });
+
+  StatusBadge _blBadge(ReceptionBl b, ReceptionSummary? s) {
+    if (b.ref == _justCreated) return StatusBadge.nouveau();
+    if (s == null || s.enteredBoxes == 0) return StatusBadge.aCommencer();
+    if (s.complete.length == s.lines.length) return StatusBadge.pret();
+    return StatusBadge.enSaisie();
+  }
+
+  static String _longDate(DateTime d) {
+    try {
+      final t = DateFormat('EEEE d MMMM', 'fr_FR').format(d);
+      return t[0].toUpperCase() + t.substring(1);
+    } catch (_) {
+      return DateFormat('dd/MM/yyyy').format(d);
+    }
+  }
+
+  String _shortDate(String d) => d.length >= 5 ? d.substring(0, 5) : d;
+
+  // ---------------------------------------------------------------------------
+  // Affichage
+  // ---------------------------------------------------------------------------
   @override
-  Widget build(BuildContext context) {
-    final bls = _bls.where((b) => _match('${b.ref} ${b.grossiste} ${b.orderRef}')).toList();
-    final orders = _orders.where((o) => _match('${o.ref} ${o.grossiste}')).toList();
-    return Scaffold(
-        appBar: AppBar(
-          title: const Text('Réception BL'),
-          actions: [
-            IconButton(icon: const Icon(Icons.tune), tooltip: 'Réglages', onPressed: _editSettings),
-            IconButton(icon: const Icon(Icons.refresh), tooltip: 'Actualiser', onPressed: _load),
-          ],
-          bottom: TabBar(
-            controller: _tabs,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
-            indicatorColor: Colors.amber,
-            indicatorWeight: 3,
-            labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-            unselectedLabelStyle: const TextStyle(fontSize: 15),
-            tabs: [
-              Tab(text: 'Commandes (${_orders.length})'),
-              Tab(text: 'BL à entrer (${_bls.length})'),
-            ],
+  Widget build(BuildContext context) => switch (_style) {
+        ListPresentation.dashboard => _buildDashboard(),
+        ListPresentation.compact => _buildCompact(),
+        ListPresentation.guided => _buildGuided(),
+      };
+
+  List<Widget> _headerActions(Color color) => [
+        PresentationMenuButton(value: _style, onChanged: _setStyle, color: color),
+        IconButton(icon: Icon(Icons.tune, color: color), tooltip: 'Réglages', onPressed: _editSettings),
+        IconButton(icon: Icon(Icons.refresh, color: color), tooltip: 'Actualiser', onPressed: _load),
+      ];
+
+  Widget _searchField({Color fill = Colors.white}) => TextField(
+        decoration: InputDecoration(
+          prefixIcon: const Icon(Icons.search),
+          hintText: 'N° de BL, commande ou grossiste',
+          filled: true,
+          fillColor: fill,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        ),
+        onChanged: (v) => setState(() => _filter = v.trim()),
+      );
+
+  Widget _grossisteChips() {
+    final names = {for (final o in _orders) o.grossiste, for (final b in _bls) b.grossiste}.where((g) => g.isNotEmpty).toList()..sort();
+    if (names.length < 2) return const SizedBox.shrink();
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(children: [
+        Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: ChoiceChip(label: const Text('Tous'), selected: _grossiste == null, onSelected: (_) => setState(() => _grossiste = null)),
+        ),
+        for (final g in names)
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: ChoiceChip(label: Text(g), selected: _grossiste == g, onSelected: (_) => setState(() => _grossiste = _grossiste == g ? null : g)),
           ),
-        ),
-        body: Column(
-          children: [
-            if (_loading) const LinearProgressIndicator(),
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: TextField(
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  labelText: 'N° de BL, commande ou grossiste',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                onChanged: (v) => setState(() => _filter = v.trim()),
-              ),
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(children: [
-                  Text(_error!, textAlign: TextAlign.center),
-                  TextButton(onPressed: _load, child: const Text('Réessayer')),
-                ]),
-              ),
-            Expanded(
-              child: TabBarView(controller: _tabs, children: [
-                RefreshIndicator(
-                  onRefresh: _load,
-                  child: orders.isEmpty && !_loading
-                      ? ListView(children: const [
-                          Padding(padding: EdgeInsets.all(24), child: Text('Aucune commande en cours ou passée.', textAlign: TextAlign.center)),
-                        ])
-                      : ListView.builder(itemCount: orders.length, itemBuilder: (_, i) => _orderTile(orders[i])),
-                ),
-                RefreshIndicator(
-                  onRefresh: _load,
-                  child: bls.isEmpty && !_loading
-                      ? ListView(children: const [
-                          Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Text('Aucun BL à entrer en stock.\nCréez-le depuis l\'onglet « Commandes ».', textAlign: TextAlign.center),
-                          ),
-                        ])
-                      : ListView.builder(itemCount: bls.length, itemBuilder: (_, i) => _blTile(bls[i])),
-                ),
-              ]),
-            ),
-          ],
-        ),
+      ]),
     );
   }
 
-  Widget _blTile(ReceptionBl b) => Card(
-        shape: b.ref == _justCreated
-            ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.green.shade600, width: 2))
-            : null,
-        child: ListTile(
-          leading: Icon(b.ref == _justCreated ? Icons.fiber_new : Icons.local_shipping,
-              color: b.ref == _justCreated ? Colors.green.shade700 : AppColors.primary),
-          title: Text('BL ${b.ref} — ${b.grossiste}'),
-          subtitle: Text('${b.date} · ${b.lines} ligne(s) · ${b.boxes} boîte(s)'
-              '${b.orderRef.isEmpty ? '' : ' · Cde ${b.orderRef}'}'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => _openBl(b),
+  Widget _status() => Column(children: [
+        if (_loading) const LinearProgressIndicator(minHeight: 2),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(children: [Text(_error!, textAlign: TextAlign.center), TextButton(onPressed: _load, child: const Text('Réessayer'))]),
+          ),
+      ]);
+
+  Widget _empty(String text) => ListView(children: [Padding(padding: const EdgeInsets.all(32), child: Text(text, textAlign: TextAlign.center))]);
+
+  static const _noOrder = 'Aucune commande en cours ou passée.';
+  static const _noBl = 'Aucun BL à entrer en stock.\nCréez-le depuis les commandes.';
+
+  // --- A · Tableau de bord ------------------------------------------------------
+  Widget _buildDashboard() {
+    final orders = _visibleOrders, bls = _visibleBls;
+    return Scaffold(
+      backgroundColor: Pal.page,
+      body: Column(children: [
+        NavyHeader(
+          title: 'Réception BL',
+          subtitle: _longDate(_now),
+          actions: _headerActions(Colors.white),
+          children: [
+            Row(children: [
+              Expanded(child: KpiTile('${_orders.length}', 'commandes')),
+              const SizedBox(width: 8),
+              Expanded(child: KpiTile('${_bls.length}', 'BL à entrer')),
+              const SizedBox(width: 8),
+              Expanded(child: KpiTile('$_linesToEnter', 'lignes à saisir', highlight: true)),
+            ]),
+            SegmentedPills(
+              labels: ['Commandes · ${_orders.length}', 'BL à entrer · ${_bls.length}'],
+              selected: _tabs.index,
+              onSelected: (i) => setState(() => _tabs.animateTo(i)),
+            ),
+          ],
         ),
+        Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 6), child: _searchField()),
+        _grossisteChips(),
+        _status(),
+        Expanded(
+          child: TabBarView(controller: _tabs, children: [
+            RefreshIndicator(
+              onRefresh: _load,
+              child: orders.isEmpty && !_loading
+                  ? _empty(_noOrder)
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      itemCount: orders.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (_, i) => _orderCardA(orders[i]),
+                    ),
+            ),
+            RefreshIndicator(
+              onRefresh: _load,
+              child: bls.isEmpty && !_loading
+                  ? _empty(_noBl)
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      itemCount: bls.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (_, i) => _blCardA(bls[i]),
+                    ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  Widget _orderCardA(ReceptionOrder o) => SoftCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            GrossisteAvatar(o.grossiste),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(o.grossiste, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Pal.ink)),
+                Text('Cde ${o.ref} · ${_shortDate(o.date)}', style: const TextStyle(fontSize: 13, color: Pal.muted)),
+              ]),
+            ),
+            o.passed ? StatusBadge.passee() : StatusBadge.enCours(),
+          ]),
+          const SizedBox(height: 12),
+          Row(children: [
+            Figure('${o.products}', o.products > 1 ? 'produits' : 'produit'),
+            const SizedBox(width: 18),
+            Figure(_money.format(o.amount), 'F HT'),
+          ]),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 44,
+            child: ElevatedButton(style: navyButton, onPressed: () => _createBl(o), child: const Text('Créer le BL')),
+          ),
+        ]),
       );
 
-  Widget _orderTile(ReceptionOrder o) => Card(
-        child: ListTile(
-          leading: Icon(o.passed ? Icons.assignment_turned_in : Icons.assignment, color: Colors.blueGrey),
-          title: Text('${o.ref} — ${o.grossiste}'),
-          subtitle: Text('${o.statutLabel} · ${o.date} · ${o.products} produit(s) · ${_money.format(o.amount)} F'),
-          trailing: TextButton(onPressed: () => _createBl(o), child: const Text('Créer BL')),
+  Widget _blCardA(ReceptionBl b) {
+    final s = _summaryOf(b);
+    final started = s != null && s.enteredBoxes > 0;
+    return SoftCard(
+      highlighted: b.ref == _justCreated,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          GrossisteAvatar(b.grossiste),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('BL ${b.ref}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Pal.ink)),
+              Text('${b.grossiste}${b.orderRef.isEmpty ? '' : ' · Cde ${b.orderRef}'}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.muted)),
+            ]),
+          ),
+          _blBadge(b, s),
+        ]),
+        const SizedBox(height: 12),
+        ThinProgress(
+          value: s == null || s.lines.isEmpty ? 0 : s.complete.length / s.lines.length,
+          left: s == null ? '${b.lines} ligne(s)' : '${s.complete.length} / ${s.lines.length} lignes saisies',
+          right: s == null ? '${b.boxes} boîtes' : '${s.enteredBoxes} / ${s.orderedBoxes} boîtes',
+          color: s != null && s.complete.length == s.lines.length ? Pal.green : Pal.blue,
         ),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(
+            flex: 2,
+            child: SizedBox(
+              height: 44,
+              child: ElevatedButton.icon(
+                style: navyButton,
+                icon: const Icon(Icons.qr_code_scanner, size: 20),
+                label: Text(started ? 'Continuer' : 'Commencer la saisie'),
+                onPressed: () => _openBl(b),
+              ),
+            ),
+          ),
+          if (started) ...[
+            const SizedBox(width: 8),
+            Expanded(child: SizedBox(height: 44, child: OutlinedButton(style: outlineButton, onPressed: () => _openSummary(b), child: const Text('Bilan')))),
+          ],
+        ]),
+      ]),
+    );
+  }
+
+  // --- B · Liste groupée --------------------------------------------------------
+  Widget _buildCompact() {
+    final orders = _visibleOrders, bls = _visibleBls;
+    final total = orders.fold<int>(0, (s, o) => s + o.amount);
+    Widget tab(String label, int count, bool on) => Tab(
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(label),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+              decoration: BoxDecoration(color: on ? Pal.navy : Pal.line, borderRadius: BorderRadius.circular(999)),
+              child: Text('$count', style: TextStyle(fontSize: 12, color: on ? Colors.white : Pal.ink)),
+            ),
+          ]),
+        );
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        foregroundColor: Pal.navy,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        title: const Text('Réception BL', style: TextStyle(fontWeight: FontWeight.bold, color: Pal.navy)),
+        actions: _headerActions(Pal.navy),
+        bottom: TabBar(
+          controller: _tabs,
+          labelColor: Pal.navy,
+          unselectedLabelColor: const Color(0xFF4A5A70),
+          indicatorColor: Pal.navy,
+          indicatorWeight: 3,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          tabs: [tab('Commandes', _orders.length, _tabs.index == 0), tab('BL à entrer', _bls.length, _tabs.index == 1)],
+        ),
+      ),
+      body: Column(children: [
+        Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8), child: _searchField(fill: Pal.page)),
+        _grossisteChips(),
+        _status(),
+        Expanded(
+          child: TabBarView(controller: _tabs, children: [
+            RefreshIndicator(
+              onRefresh: _load,
+              child: orders.isEmpty && !_loading ? _empty(_noOrder) : ListView(children: _groupedOrdersB(orders)),
+            ),
+            RefreshIndicator(
+              onRefresh: _load,
+              child: bls.isEmpty && !_loading ? _empty(_noBl) : ListView(children: [for (final b in bls) _blRowB(b)]),
+            ),
+          ]),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: const BoxDecoration(color: Color(0xFFF8FAFC), border: Border(top: BorderSide(color: Pal.line))),
+          child: SafeArea(
+            top: false,
+            child: Row(children: [
+              Expanded(
+                child: Text(
+                  _tabs.index == 0
+                      ? '${orders.length} commande(s) · ${{for (final o in orders) o.grossiste}.length} grossiste(s)'
+                      : '${bls.length} BL · $_linesToEnter ligne(s) à saisir',
+                  style: const TextStyle(fontSize: 13, color: Color(0xFF4A5A70)),
+                ),
+              ),
+              if (_tabs.index == 0) Text('Total ${_money.format(total)} F HT', style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  List<Widget> _groupedOrdersB(List<ReceptionOrder> orders) {
+    final groups = <String, List<ReceptionOrder>>{};
+    for (final o in orders) {
+      groups.putIfAbsent(o.grossiste, () => []).add(o);
+    }
+    return [
+      for (final e in groups.entries) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+          child: Row(children: [
+            Expanded(child: Text(e.key.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
+            Text('${e.value.length} CDE · ${_money.format(e.value.fold<int>(0, (s, o) => s + o.amount))} F',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4A5A70))),
+          ]),
+        ),
+        for (final o in e.value)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(o.ref, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                  Text.rich(TextSpan(style: const TextStyle(fontSize: 13, color: Pal.muted), children: [
+                    TextSpan(text: '${_shortDate(o.date)} · ${o.products} produit(s) · '),
+                    TextSpan(
+                      text: o.statutLabel,
+                      style: TextStyle(fontWeight: FontWeight.w500, color: o.passed ? const Color(0xFF1F4F8F) : const Color(0xFF8A5300)),
+                    ),
+                  ])),
+                ]),
+              ),
+              Text('${_money.format(o.amount)} F', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+              const SizedBox(width: 10),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Pal.navy,
+                  side: const BorderSide(color: Pal.navy),
+                  minimumSize: const Size(0, 38),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () => _createBl(o),
+                child: const Text('Créer BL'),
+              ),
+            ]),
+          ),
+      ],
+    ];
+  }
+
+  Widget _blRowB(ReceptionBl b) {
+    final s = _summaryOf(b);
+    final isNew = b.ref == _justCreated;
+    return InkWell(
+      onTap: () => _openBl(b),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isNew ? const Color(0xFFF2FBF5) : null,
+          border: const Border(bottom: BorderSide(color: Color(0xFFEEF1F5))),
+        ),
+        child: Row(children: [
+          RingProgress(done: s?.complete.length ?? 0, total: s?.lines.length ?? b.lines),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Flexible(child: Text('BL ${b.ref}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink))),
+                if (isNew) ...[const SizedBox(width: 8), StatusBadge.nouveau()],
+              ]),
+              Text(
+                [
+                  b.grossiste,
+                  s == null ? '${b.boxes} boîtes' : '${s.enteredBoxes} / ${s.orderedBoxes} boîtes',
+                  if (s != null && s.shortExpiries.isNotEmpty) '${s.shortExpiries.length} péremption(s) courte(s)',
+                ].join(' · '),
+                style: const TextStyle(fontSize: 13, color: Pal.muted),
+              ),
+            ]),
+          ),
+          const Icon(Icons.chevron_right, color: Pal.muted),
+        ]),
+      ),
+    );
+  }
+
+  // --- C · Parcours guidé -------------------------------------------------------
+  Widget _buildGuided() {
+    final orders = _visibleOrders, bls = _visibleBls;
+    final ready = _bls.where((b) {
+      final s = _summaryOf(b);
+      return s != null && s.lines.isNotEmpty && s.complete.length == s.lines.length;
+    }).length;
+    return Scaffold(
+      backgroundColor: const Color(0xFFEEF2F7),
+      body: Column(children: [
+        NavyHeader(
+          title: 'Réception BL',
+          rounded: false,
+          actions: _headerActions(Colors.white),
+          children: [
+            StepsBar(active: _tabs.index, steps: [
+              (title: 'Commandes', detail: '${_orders.length} à recevoir', onTap: () => setState(() => _tabs.animateTo(0))),
+              (title: 'Saisie BL', detail: '${_bls.length} en cours', onTap: () => setState(() => _tabs.animateTo(1))),
+              (title: 'Stock', detail: ready == 0 ? 'validation' : '$ready prêt(s)', onTap: null),
+            ]),
+          ],
+        ),
+        _status(),
+        Expanded(
+          child: TabBarView(controller: _tabs, children: [
+            RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
+                _searchField(),
+                const SizedBox(height: 10),
+                const Text('Choisissez la commande livrée, puis saisissez le n° du BL.', style: TextStyle(fontSize: 13, color: Color(0xFF4A5A70))),
+                const SizedBox(height: 12),
+                if (orders.isEmpty && !_loading) const Padding(padding: EdgeInsets.all(24), child: Text(_noOrder, textAlign: TextAlign.center)),
+                for (var i = 0; i < orders.length; i++) ...[
+                  i == 0 ? _orderFeaturedC(orders[i]) : _orderCompactC(orders[i]),
+                  const SizedBox(height: 12),
+                ],
+              ]),
+            ),
+            RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
+                if (bls.isEmpty && !_loading) const Padding(padding: EdgeInsets.all(24), child: Text(_noBl, textAlign: TextAlign.center)),
+                for (var i = 0; i < bls.length; i++) ...[
+                  i == 0 ? _blFeaturedC(bls[i]) : _blCompactC(bls[i]),
+                  const SizedBox(height: 12),
+                ],
+              ]),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  Color _band(String grossiste) => GrossisteAvatar.colorsFor(grossiste).$2;
+
+  Widget _metricBox(String value, String label, {Color bg = Pal.page, Color fg = Pal.ink}) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: fg)),
+          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF4A5A70))),
+        ]),
       );
+
+  Widget _orderFeaturedC(ReceptionOrder o) => SoftCard(
+        band: _band(o.grossiste),
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(o.grossiste, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
+                Text('Commande ${o.ref} · ${_shortDate(o.date)}', style: const TextStyle(fontSize: 13, color: Pal.muted)),
+              ]),
+            ),
+            o.passed ? StatusBadge.passee() : StatusBadge.enCours(),
+          ]),
+          const SizedBox(height: 14),
+          Row(children: [
+            Expanded(child: _metricBox('${o.products}', o.products > 1 ? 'produits' : 'produit')),
+            const SizedBox(width: 10),
+            Expanded(child: _metricBox('${_money.format(o.amount)} F', 'montant HT')),
+          ]),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 50,
+            child: ElevatedButton.icon(
+              style: amberButton,
+              icon: const Icon(Icons.arrow_forward),
+              label: const Text('Recevoir cette livraison', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              onPressed: () => _createBl(o),
+            ),
+          ),
+        ]),
+      );
+
+  Widget _orderCompactC(ReceptionOrder o) => SoftCard(
+        band: _band(o.grossiste),
+        child: Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(o.grossiste, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink)),
+              Text('${o.ref} · ${o.products} produit(s) · ${_money.format(o.amount)} F', style: const TextStyle(fontSize: 13, color: Pal.muted)),
+            ]),
+          ),
+          IconButton.filled(
+            tooltip: 'Recevoir la livraison ${o.grossiste}',
+            style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
+            icon: const Icon(Icons.arrow_forward),
+            onPressed: () => _createBl(o),
+          ),
+        ]),
+      );
+
+  Widget _blFeaturedC(ReceptionBl b) {
+    final s = _summaryOf(b);
+    return SoftCard(
+      band: _band(b.grossiste),
+      highlighted: b.ref == _justCreated,
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('BL ${b.ref}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
+              Text('${b.grossiste}${b.orderRef.isEmpty ? '' : ' · Commande ${b.orderRef}'}', style: const TextStyle(fontSize: 13, color: Pal.muted)),
+            ]),
+          ),
+          _blBadge(b, s),
+        ]),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(child: _metricBox('${s?.complete.length ?? 0}', 'complète(s)', bg: const Color(0xFFEAF7EF), fg: const Color(0xFF0B6B45))),
+          const SizedBox(width: 8),
+          Expanded(child: _metricBox('${s?.partial.length ?? 0}', 'incomplète(s)', bg: const Color(0xFFFFF4E0), fg: const Color(0xFF8A5300))),
+          const SizedBox(width: 8),
+          Expanded(child: _metricBox('${s?.notEntered.length ?? b.lines}', 'à saisir')),
+        ]),
+        if (s != null && s.shortExpiries.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(color: const Color(0xFFFFF8EA), borderRadius: BorderRadius.circular(10)),
+            child: Row(children: [
+              const Icon(Icons.warning_amber, size: 18, color: Color(0xFF8A5300)),
+              const SizedBox(width: 8),
+              Text('${s.shortExpiries.length} péremption(s) courte(s)', style: const TextStyle(fontSize: 13, color: Color(0xFF8A5300))),
+            ]),
+          ),
+        ],
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 50,
+          child: ElevatedButton.icon(
+            style: navyButton,
+            icon: const Icon(Icons.qr_code_scanner),
+            label: Text(s != null && s.enteredBoxes > 0 ? 'Continuer le scan' : 'Commencer le scan', style: const TextStyle(fontSize: 16)),
+            onPressed: () => _openBl(b),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _blCompactC(ReceptionBl b) {
+    final s = _summaryOf(b);
+    return SoftCard(
+      band: _band(b.grossiste),
+      highlighted: b.ref == _justCreated,
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('BL ${b.ref}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink)),
+            Text('${b.grossiste} · ${s == null ? b.lines : '${s.complete.length}/${s.lines.length}'} ligne(s)', style: const TextStyle(fontSize: 13, color: Pal.muted)),
+          ]),
+        ),
+        ElevatedButton(
+          style: amberButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(0, 44))),
+          onPressed: () => _openBl(b),
+          child: Text(s != null && s.enteredBoxes > 0 ? 'Continuer' : 'Commencer'),
+        ),
+      ]),
+    );
+  }
 }
 
 typedef _BlInput = ({String ref, DateTime date, int ht, int tva});

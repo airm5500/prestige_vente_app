@@ -5,6 +5,7 @@ import 'package:prestige_vente_app/retour/retour_gateway.dart';
 import 'package:prestige_vente_app/retour/retour_models.dart';
 import 'package:prestige_vente_app/screens/retour_frs/retour_bl_screen.dart';
 import 'package:prestige_vente_app/screens/retour_frs/retour_home_screen.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Prestige simulé : retour lié au n° du BL, un produit par ligne (quantités cumulées, premier motif gardé),
@@ -236,22 +237,47 @@ void main() {
     });
   });
 
-  testWidgets('choix du BL : aujourd\'hui par défaut, période, filtre par grossiste', (tester) async {
+  Future<FakeRetourServer> pumpHome(WidgetTester tester, ListPresentation style) async {
     SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
     final server = FakeRetourServer();
-    await tester.pumpWidget(MaterialApp(home: RetourHomeScreen(gateway: server, clock: () => DateTime(2026, 10, 10, 9))));
+    await tester.pumpWidget(MaterialApp(
+      home: RetourHomeScreen(gateway: server, clock: () => DateTime(2026, 10, 10, 9), presentation: style),
+    ));
     await tester.pumpAndSettle();
+    return server;
+  }
+
+  testWidgets('A : aujourd\'hui par défaut, période, filtre par grossiste, ouverture du BL', (tester) async {
+    final server = await pumpHome(tester, ListPresentation.dashboard);
     expect(server.periods.single, '2026-10-10..2026-10-10');
     expect(find.text('Entrés en stock le 10/10/2026 · 2 BL'), findsOneWidget);
+    expect(find.text('BL sur la période'), findsOneWidget);
     await tester.tap(find.text('7 jours'));
     await tester.pumpAndSettle();
     expect(server.periods.last, '2026-10-04..2026-10-10');
-    expect(find.text('BL BL-778 — LABOREX'), findsOneWidget);
-    expect(find.text('BL BL-990 — COPHARMED'), findsOneWidget);
     await tester.tap(find.widgetWithText(ChoiceChip, 'LABOREX'));
     await tester.pumpAndSettle();
-    expect(find.text('BL BL-990 — COPHARMED'), findsNothing);
-    await tester.tap(find.text('BL BL-778 — LABOREX'));
+    expect(find.text('BL BL-990'), findsNothing);
+    await tester.tap(find.text('Retourner des produits'));
+    await tester.pumpAndSettle();
+    expect(find.text('Retour — BL BL-778'), findsOneWidget);
+  });
+
+  testWidgets('B et C : listes affichées et BL ouvrable', (tester) async {
+    await pumpHome(tester, ListPresentation.compact);
+    expect(find.text('LABOREX'), findsWidgets);
+    expect(find.text('BL BL-990'), findsOneWidget);
+    await tester.tap(find.text('BL BL-990'));
+    await tester.pumpAndSettle();
+    expect(find.text('Retour — BL BL-990'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await pumpHome(tester, ListPresentation.guided);
+    expect(find.text('Choisir le BL'), findsOneWidget);
+    await tester.tap(find.text('Choisir').first);
     await tester.pumpAndSettle();
     expect(find.text('Retour — BL BL-778'), findsOneWidget);
   });

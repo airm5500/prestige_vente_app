@@ -5,6 +5,8 @@ import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_bl_screen.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_home_screen.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const gs = '\u001d';
 const dolipraneGtin = '03400935955838'; // EAN 3400935955838, CIP7 3595583
@@ -361,20 +363,26 @@ void main() {
     });
   });
 
-  testWidgets('commande -> « Créer BL » : page dédiée, doublon refusé sur place, puis onglet « BL à entrer »', (tester) async {
+  Future<FakePrestige> pumpHome(WidgetTester tester, ListPresentation style) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.0;
     addTearDown(tester.view.reset);
     final server = FakePrestige()..add('d1', 'DOLIPRANE 1000MG CP', '3595583', '3400935955838', 24);
     await tester.pumpWidget(MaterialApp(
-      home: ReceptionHomeScreen(gateway: server, settings: const ReceptionSettings(), clock: () => now),
+      home: ReceptionHomeScreen(gateway: server, settings: const ReceptionSettings(), clock: () => now, presentation: style),
     ));
     await tester.pumpAndSettle();
-    // Onglet « Commandes » affiché en premier.
-    expect(find.text('CMD-12 — COPHARMED'), findsOneWidget);
-    expect(find.text('BL BL-778 — LABOREX'), findsNothing);
+    return server;
+  }
 
-    await tester.tap(find.text('Créer BL'));
+  testWidgets('A (défaut) : commandes d\'abord, « Créer le BL » sur page dédiée, doublon refusé sur place, puis onglet BL', (tester) async {
+    final server = await pumpHome(tester, ListPresentation.dashboard);
+    // Chiffres clés et onglet « Commandes » affiché en premier.
+    expect(find.text('lignes à saisir'), findsOneWidget);
+    expect(find.text('COPHARMED'), findsWidgets);
+    expect(find.text('BL BL-778'), findsNothing);
+
+    await tester.tap(find.text('Créer le BL'));
     await tester.pumpAndSettle();
     expect(find.text('Nouveau BL'), findsOneWidget);
     expect(find.text('10/10/2026'), findsOneWidget);
@@ -389,9 +397,61 @@ void main() {
     await tester.tap(find.text('Créer le BL'));
     await tester.pumpAndSettle();
     expect(server.created.single, 'o1|BL-901|2026-10-10|45000|810');
-    // Retour à la liste, onglet « BL à entrer », nouveau BL mis en évidence.
-    expect(find.text('BL BL-901 — COPHARMED'), findsOneWidget);
-    expect(find.byIcon(Icons.fiber_new), findsOneWidget);
+    // Retour à la liste, onglet « BL à entrer », nouveau BL mis en évidence avec son avancement.
+    expect(find.text('BL BL-901'), findsOneWidget);
+    expect(find.text('Nouveau'), findsOneWidget);
+    expect(find.text('0 / 1 lignes saisies'), findsWidgets);
     expect(find.textContaining('touchez-le pour commencer la saisie'), findsOneWidget);
+  });
+
+  testWidgets('A : BL commencé -> « Continuer » et « Bilan »', (tester) async {
+    final server = await pumpHome(tester, ListPresentation.dashboard);
+    await server.addLot(detailId: 'd1', quantity: 10, freeQty: 0, numLot: 'L1', expiry: DateTime(2028));
+    await tester.tap(find.byTooltip('Actualiser'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('BL à entrer · 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('En saisie'), findsOneWidget);
+    expect(find.text('10 / 24 boîtes'), findsOneWidget);
+    await tester.tap(find.text('Bilan'));
+    await tester.pumpAndSettle();
+    expect(find.text('Bilan BL BL-778'), findsOneWidget);
+  });
+
+  testWidgets('B : liste groupée par grossiste, total, « Créer BL »', (tester) async {
+    await pumpHome(tester, ListPresentation.compact);
+    expect(find.text('COPHARMED'), findsWidgets); // en-tête de groupe et filtre
+    expect(find.textContaining('Total'), findsOneWidget);
+    await tester.tap(find.text('Créer BL'));
+    await tester.pumpAndSettle();
+    expect(find.text('Nouveau BL'), findsOneWidget);
+  });
+
+  testWidgets('C : parcours en étapes, « Recevoir cette livraison », étape Saisie BL', (tester) async {
+    await pumpHome(tester, ListPresentation.guided);
+    expect(find.text('ÉTAPE 1'), findsOneWidget);
+    expect(find.text('Recevoir cette livraison'), findsOneWidget);
+    await tester.tap(find.text('Saisie BL'));
+    await tester.pumpAndSettle();
+    expect(find.text('BL BL-778'), findsOneWidget);
+    expect(find.text('Commencer le scan'), findsOneWidget);
+  });
+
+  testWidgets('changement de présentation depuis la barre du haut', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: ReceptionHomeScreen(gateway: FakePrestige(), settings: const ReceptionSettings(), clock: () => now),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('lignes à saisir'), findsOneWidget); // A par défaut
+    await tester.tap(find.byTooltip('Présentation'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('C · Parcours guidé'));
+    await tester.pumpAndSettle();
+    expect(find.text('ÉTAPE 1'), findsOneWidget);
+    expect(await PresentationPrefs.load(), ListPresentation.guided);
   });
 }
