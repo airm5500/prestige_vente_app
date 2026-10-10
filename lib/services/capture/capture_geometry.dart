@@ -15,6 +15,15 @@ class CaptureGeometry {
     return Rect.fromCenter(center: Offset(view.width / 2, centerY), width: width, height: height);
   }
 
+  /// Cadre « page » (ordonnance A5 / A4, portrait 1 : 1,414), centré un peu au-dessus du milieu
+  /// pour laisser la place aux consignes et au déclencheur.
+  static Rect pageFrameInView(Size view) {
+    var height = math.min(view.width * 0.88 * 1.414, view.height * 0.62);
+    final width = height / 1.414;
+    height = width * 1.414;
+    return Rect.fromCenter(center: Offset(view.width / 2, view.height * 0.43), width: width, height: height);
+  }
+
   /// Zone de l'image (redressée) visible dans [frame], l'aperçu remplissant [view] en mode "cover".
   /// [margin] élargit la zone (fraction de la taille du cadre) pour ne pas couper un caractère au bord.
   static Rect frameInImage({required Size image, required Size view, required Rect frame, double margin = 0.06}) {

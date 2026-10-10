@@ -358,11 +358,161 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 ### 4.4 Étapes
 | Étape | Contenu |
 |---|---|
-| O1 | Banc d'essai des 17 ordonnances + mesure de la lecture actuelle (référence) |
-| O2 | Capture guidée page + découpage par lignes numérotées |
-| O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) |
+| O1 | Banc d'essai des 17 ordonnances + mesure de la lecture actuelle (référence) — **réalisé** (§4.5) |
+| O2 | Capture guidée page + découpage par lignes numérotées — **réalisé** (§4.6) |
+| O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) — **réalisé** (§4.7) |
 | O4 | Apprentissage par correction |
 | O5 | (option) Lecture avancée en ligne, avec consentement |
+
+### 4.5 O1 — Banc d'essai des ordonnances : réalisé
+
+**Code** : `lib/ordonnances/banc_essai/` (nouveau dossier) ; la correspondance catalogue du scan est sortie, **à
+l'identique**, de l'écran Ordonnance vers `lib/services/prescription_matcher.dart` (l'écran l'appelle, le banc aussi :
+une seule logique, aucune différence de comportement). Tests : `test/ordonnances_banc_test.dart` (CI).
+
+- **Moteur de score** (pur Dart, `normalisation_produit.dart`, `score_banc.dart`) : compare les produits proposés à la
+  vérité. Normalisation : casse, accents, ponctuation, traits d'union (« Bio-Ritmo » = « BIO RITMO »), formes et
+  conditionnements ignorés (cp, gél, sp, susp, amp, suppo, collyre, sachet, B/20…), « (?) » et remarques entre
+  parenthèses ignorés (la ligne est marquée « incertaine »). Dosage comparé seulement s'il est connu des deux côtés
+  (1 g = 1000 mg, « 80/480 », « 1000 mg ou 600 mg »). Marque : écart de lettres toléré (0 jusqu'à 3 lettres, 1 de 4 à 6,
+  2 au-delà) ou préfixe ≥ 5 lettres (« Predni » → PREDNISOLONE). Qualificatifs qui changent le produit (Plus, Pro,
+  Forte, T, AB, MTS, Denk…) : doivent concorder (« Antalgex » ≠ « Antalgex T », « Doliprane » ≠ « Doliprane Plus »).
+  Par ordonnance : **trouvés / manqués / en trop** ; global : **rappel**, **précision**, **ordonnances entièrement
+  correctes** (« 9/15 »). Une ordonnance sans vérité (fichier inconnu, doublon ou « vérité à compléter ») est exclue du score.
+- **Vérité terrain** : `assets/ordonnances/verite_terrain.json`, indexée par nom de fichier « ordonnance (N).jpeg » :
+  **uniquement** noms de produits (colonne D du pharmacien), posologie et quantité. Aucune image, aucun texte lu, aucune
+  donnée patient/médecin dans le dépôt (vérifié par un test).
+- **Pipelines** (`pipeline_ordonnance.dart`) : interface `PipelineOrdonnance.analyser(image) → produits proposés` (jamais
+  le texte lu). `PipelineTexteCatalogue` est découpé en étapes remplaçables (préparation de l'image, lecture, découpage
+  en lignes, correspondance catalogue) ; la **référence** = scan actuel inchangé (ML Kit → `PrescriptionParser.extract`
+  → `PrescriptionMatcher.match`). Les candidats O2–O4 s'ajoutent dans `pipelines_disponibles.dart`.
+- **Écran caché** : Réglages › Ventes (code administrateur) › Ordonnances › **Banc d'essai ordonnances**.
+  Choisir des images (ou un dossier), choisir la référence et un candidat, « Lancer la mesure » → score global de chaque
+  pipeline, verdict (« Candidat MOINS BON : ne pas l'activer »), détail par ordonnance. **Historique** local (date,
+  version de l'appli, pipeline, scores). **Export** : « Copier le rapport » (texte) / « Enregistrer en CSV » —
+  seulement fichiers, produits attendus/proposés et scores, **jamais le texte lu**. Rien n'est envoyé au serveur
+  (seule la recherche catalogue habituelle du scan est utilisée).
+
+**Mesurer la référence sur le téléphone** : copier les 17 images dans le téléphone **sans les renommer**
+(« ordonnance (1).jpeg »…), être connecté (catalogue réel, ou copie locale hors ligne), ouvrir le banc, « Choisir des
+images » (tout sélectionner), Référence = « Référence (scan actuel) », Candidat = Aucun, « Lancer la mesure ». Noter le
+score (il est aussi gardé dans l'historique) : c'est la base que chaque étape O2–O4 devra dépasser. Pour ajouter des
+ordonnances, compléter le JSON de vérité (même format) et nommer les images pareil.
+
+**Mesure indicative hors téléphone (référence)** : ML Kit ne tourne pas sous Linux ; mesure faite avec **tesseract 5
+(fra)** à la place de ML Kit, sur un **catalogue indicatif** (≈ 150 produits : les 45 attendus au format catalogue +
+voisins trompeurs : DOLAREN, SPIRAMYCINE, DOLIPRANE PLUS…), avec exactement le découpage et la correspondance actuels.
+Texte lu gardé hors dépôt.
+
+| Lecture | Ordonnances correctes | Rappel | Précision |
+|---|---|---|---|
+| tesseract, page auto (psm 3) | 0/15 | 0 % (0/45) | — (rien proposé) |
+| tesseract, bloc unique (psm 6) | 0/15 | 9 % (4/45) | 57 % (3 en trop) |
+
+Seule l'ordonnance imprimée n° 8 est lue (4/5 : DICLOCED, DIAMOX, MONOPROST, CARTEOL ; KALEORID manqué, lu « K. ALEORID »).
+Les 14 manuscrites : rien d'utile — tesseract ne lit pas la cursive. ML Kit fait mieux sur le téléphone : **seule la
+mesure sur le téléphone fait foi**.
+
+**Remarques sur la vérité terrain** (fichier Excel du pharmacien) :
+- **Ordonnances 14 et 15 : doublons** (précision du client ; aucune ligne saisie pour elles). Comparaison visuelle :
+  **14 = autre photo de l'ordonnance 3** (Clavam / Propofan / Eludril Pro, même date, même écriture), **15 = autre
+  photo de l'ordonnance 2** (Dontomycine / Flagyl / Brustan). Le hash perceptuel simple (dHash) ne les rapproche pas
+  (cadrages différents : l'image 3 contient en plus une seconde feuille, surlignages) ; l'identification est visuelle.
+  Marquées `doublonDe` dans le JSON, affichées « Doublon de … », **exclues du score** : 15 ordonnances, 45 produits.
+- Lignes incomplètes / abrégées : « Novalgin 500 », « Gaspral 20 » (sans forme), « Lufar 80/480 » (produit LUFART ?),
+  « arphos Ab » (minuscule, début de mot douteux), « Brustan B/20 » (conditionnement au lieu du dosage),
+  « Kaleorid LP 1000 mg ou 600 mg » (deux dosages acceptés), « Respimer kit lavage nasal » (seule la marque compte).
+- Posologie non rattachable ligne à ligne : ordonnance 1 (une seule remarque pour 2 produits), ordonnance 8 (4 posologies
+  pour 5 produits) → gardée en remarque d'ordonnance.
+- Divergences avec la proposition précédente de Claude (colonne E) : n° 2 « Dontomycine 3m » (E : Spiramycine 3 MUI),
+  n° 16 « Dolowin Plus » (E : Dolaren Plus), n° 4 « Lufar » (E : Lufart), n° 6 « arphos Ab » (E : 3ᵉ ligne illisible
+  « …phos AB »), n° 12 « Brustan B/20 » (E : Brustan (?)), n° 3 « Propofan gel » (E : Propofan (?)). Les autres lignes
+  concordent (au « (?) » près). La colonne D fait foi.
+
+### 4.6 O2 — Capture guidée de la page + découpage par lignes numérotées : réalisé
+
+**Code** : `lib/ordonnances/o2/` ; points d'accroche : `GuidedCaptureScreen` (mode `page`, cadre A5/A4),
+`CaptureGeometry.pageFrameInView`, écran Ordonnance (lecteur et découpage choisis selon l'interrupteur),
+Réglages › Ventes › Ordonnances, `pipelines_disponibles.dart`. Tests : `test/ordonnances_o2_test.dart` (CI), textes
+OCR **synthétiques** uniquement.
+
+- **Capture guidée de la page** (réutilise la capture des étiquettes : lumière, netteté relative, stabilité, lampe,
+  photo automatique) avec un cadre portrait A5/A4 ; la photo est recadrée sur le cadre, sans lecture immédiate.
+- **Refus des photos floues** (galerie comme caméra) : netteté = force moyenne du 1 % des bords les plus francs
+  (|laplacien|, image réduite à 800 px), indépendante de la quantité de texte. Seuil **25** calibré sur les 17 photos
+  (les nettes vont de 36 à 232 ; flou de rayon 4 : 7 à 30). Message « Photo floue » : Reprendre / Lire quand même / Annuler.
+- **Zone des médicaments** : l'utilisateur encadre la partie utile (4 poignées, déplacement) ou garde la page entière ;
+  seule la zone est lue (sans en-tête, tampon ni nom du patient).
+- **Contraste / ombres** (option) : division par le fond estimé (image réduite + flou), puis étirement des niveaux
+  1 %–99 %. **Redressement de perspective : non fait** (détection fiable des coins de la page nécessaire) ; la capture
+  guidée demande la page de face, à plat.
+- **Découpage** (`DecoupageOrdonnance`) : marqueurs 1. / 1) / 1- / (1) / ① / 01 / - / • / = ; posologie rattachée
+  (ligne suivante ou fin de ligne : « 1cp x 2/j pdt 5 jrs », « Une goutte trois fois par jour… », « 10ml + eau ») ;
+  quantité (« 01 bte », « → 02 bts », « (1 fl) ») ; en-têtes, adresses, téléphones, e-mails, dates, médecin,
+  tampons, « Nom : … » ignorés ; « 1 comprimé… », « 26 BP… », dates ne sont pas pris pour des numéros ; lettre isolée en
+  tête (tiret mal lu : « L KALEORID ») retirée. **Sans aucune ligne numérotée : découpage d'origine à l'identique.**
+- **Production** : Réglages › Ventes › Ordonnances › lecture « O2 » (choix Actuelle / O2 / O3 depuis O3) — **« Actuelle » par
+  défaut** ; option « Améliorer l'image (contraste, ombres) », désactivée aussi. Désactivée = scan d'origine inchangé
+  (même lecteur, même découpage, même correspondance). Le PDF garde sa lecture d'origine (découpage O2 si activé).
+- **Banc d'essai** : candidats « O2 lignes numérotées » et « O2 lignes numérotées + image améliorée » (la zone
+  manuelle n'est pas rejouée : page entière). **À activer seulement si le banc sur le téléphone (ML Kit) donne un
+  meilleur score que la référence.**
+
+**Mesure indicative (tesseract au lieu de ML Kit, catalogue indicatif, 15 ordonnances / 45 produits)** :
+
+| Pipeline | Correctes | Rappel | Précision |
+|---|---|---|---|
+| Référence (photo brute, psm 6) | 0/15 | 9 % (4/45) | 57 % (3 en trop) |
+| O2 lignes numérotées (photo brute, psm 6) | 0/15 | 11 % (5/45) | 63 % (3 en trop) |
+| O2 + image améliorée (psm 6) | **1/15** | **11 %** (5/45) | **100 %** (0 en trop) |
+| O2 + image améliorée (psm 3) | 1/15 | 11 % (5/45) | 100 % |
+
+Gains : CURAM (n° 12, ligne « 1. » sans forme ni dosage lisible), ordonnance imprimée n° 8 entièrement lue (KALEORID
+retrouvé), plus aucun faux positif avec l'image améliorée. Les ordonnances cursives restent illisibles pour tesseract :
+**le verdict d'activation se fait au banc sur le téléphone**.
+
+### 4.7 O3 — Correspondance catalogue améliorée : réalisé
+
+**Code** : `lib/ordonnances/o3/` (`similarite.dart`, `correspondance_o3.dart`, `catalogue_o3.dart`) ; points d'accroche :
+écran Ordonnance (mode O3), Réglages › Ventes › Ordonnances (choix **Actuelle / O2 / O3**, « Actuelle » par défaut ;
+l'ancien interrupteur O2 est repris), `pipeline_ordonnance.dart` (étape de correspondance remplaçable),
+`pipelines_disponibles.dart` (candidat « O3 »). Tests : `test/ordonnances_o3_test.dart` (CI), mini-catalogue et
+lectures déformées **synthétiques**.
+
+- **Catalogue** : copie locale complète (hors ligne, `LocalStore`) indexée une fois ; sans copie locale, candidats
+  par la recherche serveur existante (3 puis 2 premières lettres des mots lus, 200 produits au plus par requête).
+- **Nom** : distance d'édition **pondérée** (u/n, a/o, i/l/1, e/c, o/0, v/u, b/h… coûtent 0,4 au lieu de 1 ; « rn »↔m,
+  « cl »↔d, « nn »↔m, « ii »↔u) ; **phonétique française** (ph=f, qu=k, ce/ci=se/si, ge/gi=je, eau/au=o, ou=u, ai/ei=e,
+  en/em/am=an, y=i, h muet, lettres doublées, finales muettes) ; début de mot pour les abréviations (« pediat » →
+  PÉDIATRIQUE) ; 1ᵉʳ mot parasite toléré (2ᵉ mot) ; deux mots collés (« Bio Ritmo » = BIORITMO) ; qualificatif collé au
+  nom (« ELUDRILPRO » = Eludril Pro). Mots courts : quasi identiques seulement ; ligne de plus de 5 mots = phrase, ignorée.
+- **Dosage** (1 g = 1000 mg ; 1 g ≠ 500 mg : −0,35) et **forme** (cp/eff, gél, sp/susp/sol/buv, amp, inj, suppo,
+  collyre, sachet, pommade/crème, spray : −0,15 si incompatibles) ; **qualificatifs** (Plus, Pro, Forte, T, AB, MTS,
+  Denk… : −0,25 si différents ; pédiatrique / nourrisson… exigés s'ils sont lus).
+- **Bonus** : en stock (+0,02) ; **réellement vendus** (+0,06 au plus) via `PopulariteProduits` : aujourd'hui un
+  compteur sur l'appareil des produits validés sur ordonnance (`PopulariteLocale`) ; point d'accroche prêt pour un
+  historique de ventes du serveur (`t_famille.int_NOMBRE_VENTES` existe dans la base, non exposé par l'API mobile).
+- **Résultat par ligne** : 3 propositions avec confiance (0–100 %) ; retenue à partir de **65 %** ; « Proposé · N % »
+  (cochée) à partir de **80 %** et nettement devant la 2ᵉ ; sinon « À vérifier · N % », **non cochée** : le pharmacien
+  valide ou change (« Changer » montre les autres propositions) ; un nom lu déformé n'est jamais « sûr », même avec le
+  bon dosage. Rien n'est ajouté au panier sans « Créer la pré-vente » + confirmation. Une ligne avec CIP garde le
+  rapprochement exact d'origine.
+- **Performance** (mesurée en test) : ≈ 5 à 6 ms par ligne sur 10 000 produits (exigence < 50 ms).
+
+**Mesure indicative (tesseract au lieu de ML Kit, 15 ordonnances / 45 produits)** :
+
+| Lecture | Catalogue | Référence | O2 | O3 |
+|---|---|---|---|---|
+| photo brute (psm 6) | indicatif (153) | 0/15 · 9 % · 57 % | 0/15 · 11 % · 63 % | **1/15 · 16 % · 100 %** |
+| photo brute (psm 6) | serveur de test (10 898) | 0/15 · 9 % · 57 % | 0/15 · 11 % · 63 % | 1/15 · 13 % · 86 % |
+| image améliorée (psm 6) | indicatif | 1/15 · 11 % · 100 % | 1/15 · 11 % · 100 % | 1/15 · 11 % · 83 % |
+| image améliorée (psm 6) | serveur de test | 1/15 · 11 % · 100 % | 1/15 · 11 % · 100 % | 1/15 · 11 % · 83 % |
+
+(correctes · rappel · précision). O3 retrouve en plus RHINOCORT (lu « Rhnocoit ») et KALEORID sur la photo brute, et
+supprime les faux positifs de la correspondance d'origine ; il reste 1 faux positif « à vérifier » (ligne parasite).
+Le catalogue du serveur de test contient des doublons « SIM1…SIM5 » et des noms abrégés (« ELUDRILPRO BAIN BCHE ») :
+la mesure sur le téléphone, avec le vrai catalogue de la pharmacie, fait foi. **O3 n'est à activer que si le banc
+sur le téléphone le montre meilleur que la référence.**
 
 ---
 

@@ -8,6 +8,8 @@ import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/interface_version.dart';
+import 'package:prestige_vente_app/ordonnances/banc_essai/banc_essai_screen.dart';
+import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
@@ -266,6 +268,15 @@ class _VentesPageState extends State<VentesPage> {
           onChanged: s.setMaxTiersPayants,
         ),
         SwitchCard(title: 'Masquer les produits « RV »', value: s.hideRvProducts, onChanged: s.setHideRvProducts),
+        const SectionLabel('Ordonnances'),
+        const LectureO2Reglages(),
+        LinkCard(
+          key: const Key('banc_essai_ordonnances'),
+          icon: Icons.science_outlined,
+          title: 'Banc d\'essai ordonnances',
+          subtitle: 'Mesure de la lecture sur vos images (rien n\'est envoyé)',
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BancEssaiScreen())),
+        ),
         ResetDefaultsButton(
           rubrique: 'Ventes',
           detail: '2 tiers payants max, produits « RV » masqués (la version des ventes et les modes de paiement ne changent pas).',
@@ -277,6 +288,62 @@ class _VentesPageState extends State<VentesPage> {
       ],
     );
   }
+}
+
+/// Interrupteurs de la nouvelle lecture des ordonnances (O2), désactivés par défaut.
+class LectureO2Reglages extends StatefulWidget {
+  const LectureO2Reglages({super.key});
+
+  @override
+  State<LectureO2Reglages> createState() => _LectureO2ReglagesState();
+}
+
+class _LectureO2ReglagesState extends State<LectureO2Reglages> {
+  @override
+  void initState() {
+    super.initState();
+    LectureO2.charger();
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<ModeLecture>(
+        valueListenable: LectureO2.mode,
+        builder: (context, mode, _) => ValueListenableBuilder<bool>(
+          valueListenable: LectureO2.ameliorerImage,
+          builder: (context, image, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            SettingCard(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                const SettingText('Lecture des ordonnances'),
+                const SizedBox(height: 6),
+                Segmented<ModeLecture>(
+                  key: const Key('lecture_mode'),
+                  options: const [(ModeLecture.actuelle, 'Actuelle'), (ModeLecture.o2, 'O2'), (ModeLecture.o3, 'O3')],
+                  value: mode,
+                  onChanged: LectureO2.definirMode,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  switch (mode) {
+                    ModeLecture.actuelle => 'Lecture d\'origine.',
+                    ModeLecture.o2 => 'Photo guidée de la page, zone des médicaments, lignes numérotées.',
+                    ModeLecture.o3 => 'O2 + correspondance catalogue améliorée (3 propositions avec confiance).',
+                  } +
+                      (mode == ModeLecture.actuelle ? '' : ' À garder seulement si le banc d\'essai donne un meilleur score.'),
+                  style: const TextStyle(fontSize: 12.5, color: Pal.muted),
+                ),
+              ]),
+            ),
+            if (mode != ModeLecture.actuelle)
+              SwitchCard(
+                key: const Key('lecture_o2_image'),
+                title: 'Améliorer l\'image (contraste, ombres)',
+                subtitle: 'Mesurez-le aussi au banc d\'essai avant de l\'activer.',
+                value: image,
+                onChanged: LectureO2.definirAmeliorerImage,
+              ),
+          ]),
+        ),
+      );
 }
 
 // ---------------------------------------------------------------------------

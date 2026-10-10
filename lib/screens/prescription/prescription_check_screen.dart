@@ -6,15 +6,19 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/ordonnances/o2/decoupage_ordonnance.dart';
+import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
+import 'package:prestige_vente_app/ordonnances/o3/catalogue_o3.dart';
+import 'package:prestige_vente_app/ordonnances/o3/correspondance_o3.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
+import 'package:prestige_vente_app/services/prescription_matcher.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
-import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:provider/provider.dart';
 
 /// Source de l'ordonnance.
@@ -42,7 +46,7 @@ class PrescriptionCheckScreen extends StatefulWidget {
 enum _LineStatus { searching, available, outOfStock, notFound }
 
 /// Qualité du rapprochement ligne d'ordonnance -> produit du stock.
-enum _Match { exactCip, exactName, toVerify, manual, none }
+enum _Match { exactCip, exactName, probable, toVerify, manual, none }
 
 class _RxLine {
   PrescriptionLine line;
@@ -52,6 +56,9 @@ class _RxLine {
   bool searching = true;
   int quantity;
   bool include = true;
+
+  /// Confiance de la correspondance O3 (0…1), null avec la lecture d'origine.
+  double? confiance;
   _RxLine(this.line) : quantity = line.quantity ?? 1;
 
   _LineStatus get status {
@@ -71,11 +78,13 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   bool _hasScanned = false;
   bool _creating = false;
   int _generation = 0; // Ignore les recherches d'une ordonnance précédente
+  Future<CorrespondanceO3>? _o3; // correspondance O3 (catalogue chargé une fois)
   late ListPresentation _style = widget.presentation ?? ListPresentation.dashboard;
 
   @override
   void initState() {
     super.initState();
+    LectureO2.charger(); // nouvelle lecture O2 / O3 (« Actuelle » par défaut)
     if (widget.presentation == null) {
       PresentationPrefs.load().then((p) {
         if (mounted) setState(() => _style = p);
@@ -92,6 +101,10 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   // Lecture de l'ordonnance
   // ---------------------------------------------------------------------------
   Future<List<String>?> _defaultReader(PrescriptionSource source) {
+    // Nouvelle lecture O2 (Réglages, désactivée par défaut) : capture guidée de la page, zone des médicaments.
+    if (LectureO2.nouvelleLecture && source != PrescriptionSource.pdf) {
+      return LectureO2.lire(context, camera: source == PrescriptionSource.camera);
+    }
     switch (source) {
       case PrescriptionSource.camera:
         return OcrService.captureAndRead(ImageSource.camera);
@@ -115,7 +128,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     if (lines == null) return;
 
     final generation = ++_generation;
-    final candidates = PrescriptionParser.extract(lines);
+    // O2 actif : découpage par lignes numérotées (posologie et quantité rattachées) ; sinon découpage d'origine.
+    final candidates = LectureO2.nouvelleLecture ? DecoupageOrdonnance.extraire(lines) : PrescriptionParser.extract(lines);
     setState(() {
       _hasScanned = true;
       _ocrLines = lines!.map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
@@ -137,77 +151,23 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     );
   }
 
-  /// Rapprochement d'une ligne avec le stock :
-  /// 1) CIP lu -> uniquement le produit ayant exactement ce CIP ;
-  /// 2) sinon nom identique -> ce produit ;
-  /// 3) sinon meilleur candidat, marqué "à vérifier" (les autres restent accessibles via "Changer").
-  /// Nombre maximal de produits examinés pour un nom (pages de 50).
-  static const int _maxNameResults = 200;
-
+  /// Rapprochement d'une ligne avec le stock : voir [PrescriptionMatcher.match]
+  /// (logique partagée avec le banc d'essai des ordonnances).
   Future<void> _search(_RxLine rx, int generation) async {
     final api = Provider.of<ApiService>(context, listen: false);
     setState(() => rx.searching = true);
 
-    ProductSearchResult? chosen;
-    var match = _Match.none;
-    var alternatives = <ProductSearchResult>[];
-
-    final search = apiPageSearch(api);
-    String? failure; // panne (≠ produit introuvable)
-
-    final cip = rx.line.cip;
-    if (cip != null) {
-      // Code exact, quel que soit le nombre de produits qui commencent pareil
-      // (avec les variantes : EAN-13 34009… → CIP7). Seul un produit portant l'un de ces codes est retenu.
-      final r = await ProductLookup.byCode(cip, search);
-      final found = r.valueOrNull;
-      if (found == null) failure = r.message;
-      final exact = found?.exact;
-      if (exact != null && found!.tried.contains(exact.intCIP.trim())) {
-        chosen = exact;
-        match = _Match.exactCip;
-      }
-    }
-
-    if (chosen == null) {
-      List<ProductSearchResult> results = [];
-      for (final q in PrescriptionParser.searchQueries(rx.line)) {
-        // Plusieurs pages (jusqu'à _maxNameResults produits) au lieu des 30 premiers seulement.
-        // Toujours « commence par », texte envoyé tel quel (pas de réglage « Contient ») : la
-        // correspondance (1ʳᵉ requête non vide, score, limite) suppose cette recherche.
-        final pager = ProductPager(search, q);
-        while (pager.items.length < _maxNameResults && (pager.total == 0 || pager.hasMore)) {
-          if (!await pager.loadMore()) {
-            failure = pager.error;
-            break;
-          }
-          if (pager.total == 0) break;
-        }
-        results = List.of(pager.items);
-        if (results.isNotEmpty) break;
-      }
-      final wanted = PrescriptionParser.comparableName(rx.line.text);
-      final sameName = results.where((p) => PrescriptionParser.comparableName(p.strNAME) == wanted).toList();
-      if (sameName.length == 1) {
-        chosen = sameName.first;
-        match = _Match.exactName;
-      } else {
-        final scored = [for (final p in results) MapEntry(p, PrescriptionParser.score(rx.line, p.strNAME))]
-          ..sort((a, b) {
-            final byScore = b.value.compareTo(a.value);
-            return byScore != 0 ? byScore : b.key.intNUMBERAVAILABLE.compareTo(a.key.intNUMBERAVAILABLE);
-          });
-        final relevant = scored.where((e) => e.value > 0).map((e) => e.key).toList();
-        if (relevant.isNotEmpty) {
-          chosen = relevant.first;
-          match = _Match.toVerify;
-          alternatives = relevant.skip(1).take(15).toList();
-        }
-      }
-      if (chosen != null && alternatives.isEmpty) {
-        alternatives = results.where((p) => p.lgFAMILLEID != chosen!.lgFAMILLEID).take(15).toList();
-      }
-    }
+    if (LectureO2.mode.value == ModeLecture.o3) return _searchO3(rx, generation, api);
+    final r = await PrescriptionMatcher.match(rx.line, apiPageSearch(api));
+    final chosen = r.chosen;
+    final failure = r.failure;
+    final alternatives = r.alternatives;
+    final match = switch (r.kind) {
+      PrescriptionMatchKind.exactCip => _Match.exactCip,
+      PrescriptionMatchKind.exactName => _Match.exactName,
+      PrescriptionMatchKind.toVerify => _Match.toVerify,
+      PrescriptionMatchKind.none => _Match.none,
+    };
     if (!mounted || generation != _generation) return;
     if (chosen == null && failure != null) {
       _showError('Recherche impossible pour « ${rx.line.text} » : $failure');
@@ -218,6 +178,39 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       rx.match = match;
       rx.alternatives = alternatives;
       rx.include = chosen != null && chosen.intNUMBERAVAILABLE > 0;
+      rx.searching = false;
+    });
+  }
+
+  /// O3 : CIP exact d'origine si la ligne en porte un ; sinon 3 propositions du catalogue avec confiance.
+  /// Une proposition sûre est cochée ; « à vérifier » reste décochée jusqu'à la validation du pharmacien.
+  Future<void> _searchO3(_RxLine rx, int generation, ApiService api) async {
+    final search = apiPageSearch(api);
+    if (rx.line.cip != null) {
+      final m = await PrescriptionMatcher.match(rx.line, search);
+      if (m.kind == PrescriptionMatchKind.exactCip) {
+        if (!mounted || generation != _generation) return;
+        setState(() {
+          rx.selected = m.chosen;
+          rx.match = _Match.exactCip;
+          rx.alternatives = m.alternatives;
+          rx.include = m.chosen!.intNUMBERAVAILABLE > 0;
+          rx.searching = false;
+        });
+        return;
+      }
+    }
+    final o3 = await (_o3 ??= CatalogueO3.creer(search));
+    final r = await o3.proposer(rx.line);
+    if (!mounted || generation != _generation) return;
+    final best = r.meilleure;
+    if (best == null && r.panne != null) _showError('Recherche impossible pour « ${rx.line.text} » : ${r.panne}');
+    setState(() {
+      rx.selected = best?.produit;
+      rx.confiance = best?.confiance;
+      rx.match = best == null ? _Match.none : (r.sur ? _Match.probable : _Match.toVerify);
+      rx.alternatives = [for (final p in r.propositions.skip(1)) p.produit];
+      rx.include = best != null && r.sur && best.produit.intNUMBERAVAILABLE > 0;
       rx.searching = false;
     });
   }
@@ -329,6 +322,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       }
       rx.selected = picked;
       rx.match = _Match.manual;
+      rx.confiance = null;
       rx.include = true;
     });
   }
@@ -377,6 +371,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    // O3 : produits validés par le pharmacien → bonus « réellement vendu » (compteur sur l'appareil).
+    if (LectureO2.mode.value == ModeLecture.o3) PopulariteLocale.enregistrer([for (final l in toSell) l.selected!.lgFAMILLEID]);
 
     setState(() => _creating = true);
     sale.startNewSale();
@@ -728,12 +724,14 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     );
   }
 
-  Widget _matchBadge(_Match m) {
+  Widget _matchBadge(_Match m, [double? confiance]) {
+    final pct = confiance == null ? '' : ' · ${(confiance * 100).round()} %';
     final (String text, Color color) = switch (m) {
       _Match.exactCip => ('CIP identique', Colors.green.shade800),
       _Match.exactName => ('Nom identique', Colors.green.shade800),
+      _Match.probable => ('Proposé$pct', Colors.green.shade800),
       _Match.manual => ('Choisi par l\'opérateur', AppColors.primary),
-      _Match.toVerify => ('À vérifier', Colors.orange.shade900),
+      _Match.toVerify => ('À vérifier$pct', Colors.orange.shade900),
       _Match.none => ('', Colors.grey),
     };
     return Text(text, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600));
@@ -801,7 +799,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                             children: [
                               Text(p.strNAME, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                               Text('CIP: ${p.intCIP} | ${Constants.formatNumber(p.intPRICE)} F', style: const TextStyle(fontSize: 12)),
-                              _matchBadge(rx.match),
+                              _matchBadge(rx.match, rx.confiance),
                             ],
                           ),
                         ),
