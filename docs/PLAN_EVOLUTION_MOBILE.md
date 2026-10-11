@@ -369,7 +369,7 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 | Étape | Contenu |
 |---|---|
 | B1 | Borne : accueil, recherche, fiche, panier, ticket espèces ; 3 présentations ; désactivée par défaut ; mode kiosque — **réalisé** (§3.7) |
-| B2 | Images : pictogrammes, puis photo produit (avec évolution serveur) |
+| B2 | Images : pictogrammes, puis photo produit (avec évolution serveur) — **réalisé** côté appli avec l'API images EXISTANTE du serveur (§3.8) |
 | B3 | Mobile money via agrégateur (module serveur + notifications) — sert aussi aux ventes du comptoir et au paiement multiple |
 
 ### 3.7 B1 — Borne libre-service : réalisé (désactivée par défaut)
@@ -416,6 +416,37 @@ Réponses du client appliquées (§7) : matériel tablette Sunmi / borne avec ti
 - **Responsive** : 1 colonne (terminal), 2–3 colonnes (tablette portrait), 4 colonnes + panier latéral (≥ 900 px) ; boutons ≥ 56 px.
 - **Tests** : `test/borne_test.dart` (CI) + intégration réelle (prévente créée puis supprimée, retrouvée par sa référence).
   Aperçus : `docs/maquettes/apercus/borne_*.png` (`BORNE_APERCUS=1 flutter test test/borne_test.dart`).
+
+### 3.8 B2 — Images des produits : réalisé (aucun code serveur)
+Décision du client : « les images viendront du serveur » ; l'ajout depuis le terminal sera précisé plus tard.
+Le serveur Prestige a DÉJÀ l'API images (branche `claude/new-session-xm8ptu`, `ImagesProduitRessource`) : l'appli l'utilise
+telle quelle, en session cookie (pas de nouvelle table, route ni patch serveur).
+
+- **Routes utilisées** : `GET /produit-images/{lgFAMILLEID}` (liste : `data[0]` = principale, `modifiable` = droit
+  `P_PRODUIT_IMAGES_MAJ`) ; `GET /produit-images/{f}/{id}/fichier?taille=vignette` (JPEG ≤ 240 px ; WEBP sans vignette →
+  `taille=normale`) ; `POST /produit-images/{f}` (multipart `image` + `principale=true`, réponse text/html contenant du JSON, 5 Mo max).
+  L'API `v1/mobile` (jeton Bearer, `KEY_MOBILE_ACTIF`, `GET /mobile/produits?q=`, `POST /mobile/produits/{f}/images`) existe aussi
+  mais n'est **pas** utilisée (l'appli fonctionne en session cookie).
+- **Pas d'ETag ni de liste différentielle côté serveur** : la liste d'un produit est demandée à la demande (cartes affichées),
+  3 requêtes au plus en même temps, une seule par produit ; cache disque (`images_produits/` du dossier de l'appli, **500 Mo**
+  par défaut, 50 à 4 000 Mo, éviction des images vues il y a le plus longtemps) ; une image est gardée tant que son identifiant ne
+  change pas (jamais retéléchargée) ; **cache négatif daté** (« pas d'image », revérifié après 24 h, comme les produits avec image).
+- **Capacité** : détectée au premier appel (404 de la route ou page HTML = ancien serveur) → pictogrammes seulement et plus
+  aucune requête (revérifié après 30 min).
+- **Hors ligne** : images du cache uniquement (index sur disque, donc aussi après redémarrage), aucune requête.
+  **Préchargement** (réglage, désactivé par défaut) : après la connexion, parcours de la copie locale du catalogue (H5) par lots
+  de 200, en pause quand l'appli est utilisée ; « Précharger maintenant » dans les réglages.
+- **Affichage** : borne (cartes, fiche, panier ; produits **avec image mis en avant en premier** = ceux déjà connus avec image dans
+  le cache au chargement de la page, l'ordre ne bouge pas pendant l'arrivée des images ; pictogramme B1 sinon) ; recherche et fiche
+  produit de l'accueil (rien de changé si le produit n'a pas d'image) ; vignettes dans les listes de vente (réglage **désactivé par
+  défaut** ; liste paresseuse : seules les lignes affichées sont demandées).
+- **Photo du produit** (préparée, **cachée** : Réglages › Images des produits › « Photo du produit depuis le terminal »,
+  désactivé par défaut) : bouton dans la fiche produit, visible seulement en ligne et si le serveur indique `modifiable` ;
+  capture guidée existante (cadre page), recadrage carré centré, 1 024 px, JPEG 85, envoi en image principale.
+- **Réglages** : nouvelle rubrique « Images des produits » (code administrateur).
+- **Code** : `lib/images/` (`produit_images.dart`, `produit_image_widget.dart`, `images_reglages.dart`, `images_reglages_page.dart`,
+  `photo_produit.dart`). **Tests** : `test/images_produits_test.dart` (CI) + intégration réelle (ajout d'une image sur un produit
+  sans image, liste, vignette, puis suppression).
 
 ---
 

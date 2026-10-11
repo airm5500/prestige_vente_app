@@ -11,7 +11,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/horsligne/activite_app.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/images/images_reglages.dart';
+import 'package:prestige_vente_app/images/produit_images.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
@@ -92,6 +95,10 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
       _bound.sync.startAuto(() => _bound.monitor.etat == EtatServeur.enLigne);
       // Ventes hors ligne restées en attente (appli fermée pendant l'envoi) : reprise.
       _bound.demarrerVentes();
+      // B2 : préchargement des images (réglage, désactivé par défaut), en pause quand l'appli est utilisée.
+      if (widget.bindApp && ImagesReglages.courant.value.prechargement) {
+        ProduitImages.instance.prechargerCatalogue(_bound.store, occupe: () => ActiviteApp.occupee).catchError((_) => 0);
+      }
     } else {
       _bound.sync.stopAuto();
       JournalTerminal.instance.utilisateur = '';

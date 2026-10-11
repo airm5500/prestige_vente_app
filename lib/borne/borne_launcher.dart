@@ -10,6 +10,8 @@ import 'package:prestige_vente_app/borne/borne_screen.dart';
 import 'package:prestige_vente_app/borne/borne_service.dart';
 import 'package:prestige_vente_app/borne/borne_ticket.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/images/produit_image_widget.dart';
+import 'package:prestige_vente_app/images/produit_images.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -73,6 +75,9 @@ class _BorneHoteState extends State<BorneHote> {
       connexion: _connexion,
       scanner: (ctx) => CameraScanScreen.open(ctx, title: 'Scanner un produit'),
       officine: auth.officine?.nomComplet ?? '',
+      // B2 : images du serveur (cache disque), produits avec image mis en avant.
+      image: (p, taille, picto) => ProduitImage(familleId: p.id, taille: taille, placeholder: picto),
+      imageConnue: ProduitImages.instance.aImage,
       codeType: settings.ticketCodeType,
       largeurTicket: settings.paperWidth,
       onSortie: (ctx) => Navigator.of(ctx).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => InterfaceVersion.home()), (_) => false),

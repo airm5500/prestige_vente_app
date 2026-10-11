@@ -7,6 +7,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_kiosque.dart';
 import 'package:prestige_vente_app/borne/borne_panier.dart';
@@ -48,6 +49,9 @@ class BorneScreen extends StatefulWidget {
   final int largeurTicket;
   final BorneImageBuilder? image;
 
+  /// B2 : le produit a-t-il une image connue (cache) ? Sert à mettre en avant les produits avec image.
+  final bool? Function(String familleId)? imageConnue;
+
   /// Délais (réduits dans les tests si besoin).
   final Duration delaiTicket;
   final Duration delaiTicketEcran;
@@ -69,6 +73,7 @@ class BorneScreen extends StatefulWidget {
     this.codeType = 'QR_CODE',
     this.largeurTicket = 58,
     this.image,
+    this.imageConnue,
     this.delaiTicket = const Duration(seconds: 10),
     this.delaiTicketEcran = const Duration(seconds: 30),
     this.avertissement = const Duration(seconds: 10),
@@ -198,7 +203,10 @@ class BorneScreenState extends State<BorneScreen> {
     for (final code in cfg.vedettes) {
       final r = await widget.service.parCode(code);
       final p = r.valueOrNull;
-      if (p != null) out.add(BorneProduit(p));
+      if (p != null) {
+        _noterImages([p]);
+        out.add(_produit(p));
+      }
     }
     if (mounted) setState(() => _vedettes = trierPourBorne(out));
   }
@@ -291,7 +299,7 @@ class BorneScreenState extends State<BorneScreen> {
       final r = await widget.service.parCode(t);
       if (!mounted || no != _rechercheNo) return;
       if (r case VenteOk(value: final p?)) {
-        _ouvrirFiche(BorneProduit(p), depuis: BorneVue.resultats);
+        _ouvrirFiche(_produit(p), depuis: BorneVue.resultats);
         return;
       }
     }
@@ -303,6 +311,8 @@ class BorneScreenState extends State<BorneScreen> {
     });
     final ok = await pager.loadMore();
     if (!mounted || no != _rechercheNo) return;
+    _avecImage.clear();
+    _noterImages(pager.items);
     setState(() => _rechercheErreur = ok ? null : (pager.error ?? 'Recherche impossible.'));
   }
 
@@ -310,8 +320,10 @@ class BorneScreenState extends State<BorneScreen> {
     final p = _pager;
     if (p == null || p.loading || !p.hasMore) return;
     final no = _rechercheNo;
+    final avant = p.items.length;
     final ok = await p.loadMore();
     if (!mounted || no != _rechercheNo) return;
+    _noterImages(p.items.skip(avant));
     setState(() => _rechercheErreur = ok ? null : p.error);
   }
 
@@ -331,7 +343,20 @@ class BorneScreenState extends State<BorneScreen> {
     await rechercher(code);
   }
 
-  List<BorneProduit> get _resultats => trierPourBorne([for (final p in _pager?.items ?? const []) BorneProduit(p)]);
+  /// Produits avec image connus au chargement de la page (l'ordre ne bouge pas pendant que les images arrivent).
+  final Set<String> _avecImage = {};
+
+  void _noterImages(Iterable<ProductSearchResult> items) {
+    final f = widget.imageConnue;
+    if (f == null) return;
+    for (final p in items) {
+      if (f(p.lgFAMILLEID) == true) _avecImage.add(p.lgFAMILLEID);
+    }
+  }
+
+  BorneProduit _produit(ProductSearchResult p) => BorneProduit(p, image: _avecImage.contains(p.lgFAMILLEID) ? 'cache' : null);
+
+  List<BorneProduit> get _resultats => trierPourBorne([for (final p in _pager?.items ?? const <ProductSearchResult>[]) _produit(p)]);
 
   // ---------------------------------------------------------------------------
   // Panier

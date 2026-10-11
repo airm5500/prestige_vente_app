@@ -10,6 +10,8 @@ import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/product_info.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/images/photo_produit.dart';
+import 'package:prestige_vente_app/images/produit_image_widget.dart';
 import 'package:prestige_vente_app/screens/product_search/product_search_widgets.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -120,6 +122,15 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
           child: ContentWidth(
             child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 24), children: [
               if (_offline) ...[_noteHorsLigne(), const SizedBox(height: 12)],
+              // B2 : image du produit (serveur, cache disque ; rien si le produit n'en a pas).
+              Center(
+                child: ProduitImage(
+                  familleId: p.lgFAMILLEID,
+                  taille: 180,
+                  rayon: BorderRadius.circular(16),
+                  placeholder: const SizedBox.shrink(),
+                ),
+              ),
               SoftCard(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Text(orDash(info?.libelle.isNotEmpty == true ? info!.libelle : p.strNAME),
@@ -155,6 +166,8 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
                   ]),
                 ),
               ],
+              // B2 : « Photo du produit » (réglage administrateur désactivé par défaut, droit du serveur).
+              Padding(padding: const EdgeInsets.only(top: 12), child: Align(alignment: Alignment.centerLeft, child: PhotoProduitBouton(familleId: p.lgFAMILLEID))),
             ]),
           ),
         ),

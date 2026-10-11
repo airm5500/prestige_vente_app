@@ -11,8 +11,8 @@ const double borneToucheMin = 56;
 
 String prixF(int v) => '${Constants.formatNumber(v)} F';
 
-/// Constructeur d'image produit (B2) ; null : pictogramme seul.
-typedef BorneImageBuilder = Widget? Function(BorneProduit p, double taille);
+/// Constructeur d'image produit (B2) : image du serveur, ou [picto] tant qu'elle n'est pas connue.
+typedef BorneImageBuilder = Widget Function(BorneProduit p, double taille, Widget picto);
 
 /// Image du produit si disponible (B2), sinon pictogramme de la forme sur fond coloré.
 class BornePicto extends StatelessWidget {
@@ -32,11 +32,11 @@ class BornePicto extends StatelessWidget {
       alignment: Alignment.center,
       child: Icon(f.icon, color: fg, size: taille * 0.52, semanticLabel: f.label),
     );
-    if (!produit.aImage || image == null) return picto;
+    if (image == null) return picto;
     return SizedBox(
       width: taille,
       height: taille,
-      child: ClipRRect(borderRadius: BorderRadius.circular(taille * 0.18), child: image!(produit, taille) ?? picto),
+      child: ClipRRect(borderRadius: BorderRadius.circular(taille * 0.18), child: image!(produit, taille, picto)),
     );
   }
 }

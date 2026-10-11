@@ -50,7 +50,7 @@ class ParametresChecks {
 }
 
 /// Rubriques de la page d'entrée des réglages.
-enum Rubrique { connexion, ventes, impression, stock, apparence, equipe, securite, licence, horsLigne, borne }
+enum Rubrique { connexion, ventes, impression, stock, apparence, equipe, securite, licence, horsLigne, borne, images }
 
 extension RubriqueInfo on Rubrique {
   String get title => switch (this) {
@@ -64,11 +64,12 @@ extension RubriqueInfo on Rubrique {
         Rubrique.securite => 'Sécurité',
         Rubrique.licence => 'Licence & appareil',
         Rubrique.borne => 'Borne libre-service',
+        Rubrique.images => 'Images des produits',
       };
 
   /// Protégée par le code administrateur (décision Q7).
   bool get locked => switch (this) {
-        Rubrique.connexion || Rubrique.ventes || Rubrique.stock || Rubrique.equipe || Rubrique.securite || Rubrique.borne => true,
+        Rubrique.connexion || Rubrique.ventes || Rubrique.stock || Rubrique.equipe || Rubrique.securite || Rubrique.borne || Rubrique.images => true,
         _ => false,
       };
 
@@ -90,6 +91,7 @@ extension RubriqueInfo on Rubrique {
         Rubrique.licence => 'licence expiration jours appareil modèle android identifiant support',
         Rubrique.borne => 'borne libre service self kiosque client vitrine liste guidee ticket discret inactivite '
             'categories produits mis en avant epinglage ecran',
+        Rubrique.images => 'images photos produits vignettes cache telechargement prechargement hors ligne photo appareil',
       };
 }
 

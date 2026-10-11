@@ -35,6 +35,11 @@ import 'package:prestige_vente_app/providers/proforma_provider.dart';
 import 'package:prestige_vente_app/providers/ajustement_provider.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
+import 'package:prestige_vente_app/images/images_reglages.dart';
+import 'package:prestige_vente_app/images/produit_images.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:async';
+import 'dart:io';
 import 'package:prestige_vente_app/horsligne/connexion_toasts.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
@@ -49,6 +54,10 @@ Future<void> main() async {
   await SearchModePrefs.load();
   // Borne libre-service (désactivée par défaut) : réglages de cet appareil.
   await BorneReglages.charger();
+  // Images des produits (B2) : réglages et cache disque (affichage hors ligne).
+  await ImagesReglages.charger();
+  ProduitImages.instance.dossier = () async => Directory('${(await getApplicationSupportDirectory()).path}/images_produits');
+  unawaited(ProduitImages.instance.init());
   // Journal du terminal (SQLite, fichier du catalogue) : durée de conservation et identité du terminal.
   JournalTerminal.instance = JournalTerminal.app(HorsLigne.instance.store);
   await JournalTerminal.chargerReglages();
