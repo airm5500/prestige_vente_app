@@ -2,9 +2,13 @@
 // Présentations au choix des listes (Réception BL, Retour fournisseur) :
 //   A · Tableau de bord (par défaut), B · Liste groupée, C · Parcours guidé.
 // Le choix est mémorisé sur l'appareil et partagé par les deux écrans.
+// Bouton « Présentation » réservé au compte administrateur (AuthProvider.isAdmin) : pour les autres
+// comptes il est masqué et la présentation choisie par l'administrateur s'applique.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum ListPresentation { dashboard, compact, guided }
@@ -73,14 +77,28 @@ final ButtonStyle outlineButton = OutlinedButton.styleFrom(
 );
 
 /// Bouton « Présentation » de la barre du haut.
+/// Réservé au compte administrateur (point unique pour tous les écrans) : masqué pour les autres comptes,
+/// qui gardent la présentation choisie par l'administrateur (PresentationPrefs). Sans compte connu
+/// (aucun AuthProvider) : masqué.
 class PresentationMenuButton extends StatelessWidget {
   final ListPresentation value;
   final ValueChanged<ListPresentation> onChanged;
   final Color color;
   const PresentationMenuButton({super.key, required this.value, required this.onChanged, this.color = Colors.white});
 
+  /// Le compte connecté peut choisir la présentation.
+  static bool choixAutorise(BuildContext context) {
+    try {
+      return Provider.of<AuthProvider>(context).isAdmin;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => PopupMenuButton<ListPresentation>(
+  Widget build(BuildContext context) => !choixAutorise(context)
+      ? const SizedBox.shrink()
+      : PopupMenuButton<ListPresentation>(
         tooltip: 'Présentation',
         icon: Icon(Icons.dashboard_customize_outlined, color: color),
         initialValue: value,

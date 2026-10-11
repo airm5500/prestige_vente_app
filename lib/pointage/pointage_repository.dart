@@ -4,6 +4,7 @@
 import 'dart:convert';
 
 import 'package:prestige_vente_app/pointage/pointage_models.dart';
+import 'package:prestige_vente_app/services/pin_securise.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 abstract class PointageRepository {
@@ -50,7 +51,18 @@ class LocalPointageRepository implements PointageRepository {
 
   @override
   Future<List<Employee>> loadEmployees() async {
-    final list = (await _read(_employeesKey)).map(Employee.fromJson).toList();
+    final items = await _read(_employeesKey);
+    // Migration transparente : ancien PIN en clair remplacé par son empreinte salée, puis réécrit.
+    var migre = false;
+    for (final m in items) {
+      final pin = m['pin'];
+      if (pin is String && pin.isNotEmpty && !EmpreintePin.estEmpreinte(pin)) {
+        m['pin'] = EmpreintePin.creer(pin);
+        migre = true;
+      }
+    }
+    if (migre) await _write(_employeesKey, items);
+    final list = items.map(Employee.fromJson).toList();
     list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return list;
   }

@@ -1,6 +1,8 @@
 // lib/pointage/pointage_models.dart
 // Pointage de présence : employés et enregistrements.
 
+import 'package:prestige_vente_app/services/pin_securise.dart';
+
 enum PointageType { arrivee, debutPause, finPause, depart }
 
 extension PointageTypeLabel on PointageType {
@@ -95,6 +97,9 @@ class Employee {
   final String id;
   final String name;
   final String matricule;
+
+  /// Code PIN gardé : empreinte salée (EmpreintePin) — un ancien code en clair n'existe plus qu'en mémoire
+  /// (migré au chargement, jamais réécrit en clair : voir [toJson]). Vérifier avec [verifierPin].
   final String? pin;
 
   /// Horaires prévus "HH:mm".
@@ -133,6 +138,9 @@ class Employee {
   });
 
   bool get hasPin => pin != null && pin!.isNotEmpty;
+
+  /// Le code saisi correspond au PIN de l'employé (empreinte ou ancien code en clair ; temps constant).
+  bool verifierPin(String saisie) => EmpreintePin.correspond(saisie, pin);
   bool get hasBadge => badgeCode.isNotEmpty;
   bool get hasNfc => nfcUid.isNotEmpty;
 
@@ -178,7 +186,8 @@ class Employee {
         'id': id,
         'name': name,
         'matricule': matricule,
-        'pin': pin,
+        // Jamais en clair : un code en clair est remplacé par son empreinte salée.
+        'pin': hasPin ? EmpreintePin.securiser(pin!) : pin,
         'scheduleStart': scheduleStart,
         'scheduleEnd': scheduleEnd,
         'workdays': workdays,
