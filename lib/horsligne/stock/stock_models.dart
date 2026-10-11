@@ -7,6 +7,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
 // ---------------------------------------------------------------------------
@@ -285,6 +286,18 @@ abstract class AnomalieSource {
   /// Marque traitée / non traitée.
   Future<void> setTraitee(String id, bool traitee);
 }
+
+/// Autre source du rapport d'anomalies COMMUN (ex. pointages RH par badge hors ligne) : liste lue
+/// sans attente et écoutable ; inscrite dans [sourcesAnomaliesCommunes] au branchement du module.
+abstract class AnomalieSourceListe implements AnomalieSource, Listenable {
+  /// Titre de la section dans le rapport (« POINTAGES RH »…).
+  String get titreAnomalies;
+  List<Anomalie> get anomaliesList;
+  int get anomaliesNonTraitees;
+}
+
+/// Sources supplémentaires affichées par l'écran « Anomalies de synchronisation ».
+final List<AnomalieSourceListe> sourcesAnomaliesCommunes = [];
 
 /// Lignes du rapport d'anomalies (ticket [cols] colonnes, PDF, partage) — même présentation que les ventes.
 List<String> lignesAnomaliesGeneriques(List<Anomalie> list, {int cols = 32}) {

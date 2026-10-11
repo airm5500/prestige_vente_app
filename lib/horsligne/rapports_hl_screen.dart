@@ -76,7 +76,10 @@ List<Widget> _actions(BuildContext context, {required String titre, required Lis
 class AnomaliesHorsLigneScreen extends StatefulWidget {
   final HorsLigne? horsLigne;
   final StockHorsLigne? stock;
-  const AnomaliesHorsLigneScreen({super.key, this.horsLigne, this.stock});
+
+  /// Autres sources (pointages RH…) ; par défaut celles inscrites dans [sourcesAnomaliesCommunes].
+  final List<AnomalieSourceListe>? autres;
+  const AnomaliesHorsLigneScreen({super.key, this.horsLigne, this.stock, this.autres});
 
   @override
   State<AnomaliesHorsLigneScreen> createState() => _AnomaliesHorsLigneScreenState();
@@ -85,6 +88,7 @@ class AnomaliesHorsLigneScreen extends StatefulWidget {
 class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
   HorsLigne get _hl => widget.horsLigne ?? HorsLigne.instance;
   StockHorsLigne get _stock => widget.stock ?? StockHorsLigne.instance;
+  List<AnomalieSourceListe> get _autres => widget.autres ?? List.of(sourcesAnomaliesCommunes);
   bool _nonTraitees = false;
 
   @override
@@ -99,12 +103,18 @@ class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
     final f = _hl.ventes;
     final q = _stock.queue;
     return ListenableBuilder(
-      listenable: Listenable.merge([f, q]),
+      listenable: Listenable.merge([f, q, ..._autres]),
       builder: (context, _) {
         final all = f.anomalies.reversed.toList();
         final list = _nonTraitees ? all.where((a) => !a.traitee).toList() : all;
         final stockAll = q.anomaliesList;
         final stock = _nonTraitees ? stockAll.where((a) => !a.traitee).toList() : stockAll;
+        final autres = [
+          for (final s in _autres)
+            (source: s, liste: _nonTraitees ? s.anomaliesList.where((a) => !a.traitee).toList() : s.anomaliesList),
+        ];
+        final autresTotal = _autres.fold(0, (n, s) => n + s.anomaliesList.length);
+        final autresNonTraitees = _autres.fold(0, (n, s) => n + s.anomaliesNonTraitees);
         const titre = 'ANOMALIES DE SYNCHRONISATION';
         return Scaffold(
           backgroundColor: Pal.page,
@@ -115,6 +125,8 @@ class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
                 lignes: (cols) => [
                       ...lignesAnomalies(list, cols: cols),
                       if (stock.isNotEmpty) ...['', 'OPÉRATIONS DE STOCK', ...lignesAnomaliesGeneriques(stock, cols: cols)],
+                      for (final a in autres)
+                        if (a.liste.isNotEmpty) ...['', a.source.titreAnomalies, ...lignesAnomaliesGeneriques(a.liste, cols: cols)],
                     ],
                 fichier: 'Anomalies_hors_ligne_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf'),
           ),
@@ -122,7 +134,9 @@ class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
             key: const Key('liste_anomalies'),
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
             children: [
-              Text('${all.length + stockAll.length} anomalie(s) · ${f.anomaliesNonTraitees + q.anomaliesNonTraitees} non traitée(s)',
+              Text(
+                  '${all.length + stockAll.length + autresTotal} anomalie(s) · '
+                  '${f.anomaliesNonTraitees + q.anomaliesNonTraitees + autresNonTraitees} non traitée(s)',
                   key: const Key('compteur_anomalies'), style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -130,7 +144,7 @@ class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
                 value: _nonTraitees,
                 onChanged: (v) => setState(() => _nonTraitees = v),
               ),
-              if (list.isEmpty && stock.isEmpty)
+              if (list.isEmpty && stock.isEmpty && autres.every((a) => a.liste.isEmpty))
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
                   child: Center(child: Text('Aucune anomalie', style: TextStyle(color: Pal.muted))),
@@ -195,6 +209,42 @@ class _AnomaliesHorsLigneScreenState extends State<AnomaliesHorsLigneScreen> {
                     ]),
                   ),
                 ),
+              for (final x in autres)
+                if (x.liste.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
+                    child: Text(x.source.titreAnomalies, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Pal.muted)),
+                  ),
+                  for (final a in x.liste)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: SoftCard(
+                        band: a.traitee ? Pal.line : const Color(0xFFDC2626),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          Row(children: [
+                            Expanded(
+                              child: Text('${a.type} · ${a.reference}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Pal.ink)),
+                            ),
+                            Text(DateFormat('dd/MM HH:mm').format(a.date), style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
+                          ]),
+                          const SizedBox(height: 4),
+                          Text(a.motif,
+                              key: Key('motif_${a.id}'),
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFB91C1C))),
+                          for (final d in a.details) Text('• $d', style: const TextStyle(fontSize: 12.5, color: Pal.ink)),
+                          CheckboxListTile(
+                            key: Key('anomalie_traitee_${a.id}'),
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: Text(a.traitee ? 'Traitée' : 'Non traitée'),
+                            value: a.traitee,
+                            onChanged: (v) => x.source.setTraitee(a.id, v ?? false),
+                          ),
+                        ]),
+                      ),
+                    ),
+                ],
             ],
           ),
         );

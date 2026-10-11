@@ -36,6 +36,7 @@ import 'package:prestige_vente_app/screens/analysis/article_analysis_screen.dart
 import 'package:prestige_vente_app/screens/ajustement/ajustement_screen.dart';
 import 'package:prestige_vente_app/screens/prescription/prescription_check_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/pointage_home_screen.dart';
+import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
 
 class MenuItem {
   final String id;
@@ -164,6 +165,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'reception_bl': MenuItem(id: 'reception_bl', label: 'Réception BL', icon: Icons.local_shipping, color: Colors.teal.shade700, onTap: () => navigate(const ReceptionHomeScreen())),
       'retour_frs': MenuItem(id: 'retour_frs', label: 'Retour Fournisseur', icon: Icons.assignment_return, color: Colors.red.shade400, onTap: () => navigate(const RetourHomeScreen())),
       'empreinte': MenuItem(id: 'empreinte', label: 'Pointage', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, onTap: () => navigate(const PointageHomeScreen())),
+      'pointage_rh': MenuItem(id: 'pointage_rh', label: 'Pointage RH (Prestige)', icon: Icons.how_to_reg, color: Colors.indigo.shade500, onTap: () => navigate(const RhPointageScreen())),
     };
 
     final settings = Provider.of<SettingsProvider>(context);
