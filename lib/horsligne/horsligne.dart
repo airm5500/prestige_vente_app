@@ -17,6 +17,7 @@ import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/horsligne/ventes_sync.dart';
+import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -57,7 +58,11 @@ class HorsLigne {
     final avant = _etat;
     _etat = monitor.etat;
     if (_etat != avant) _journalEtat(avant);
-    if (_etat == EtatServeur.enLigne && avant != EtatServeur.enLigne) ventes.demanderConfirmation();
+    if (_etat == EtatServeur.enLigne && avant != EtatServeur.enLigne) {
+      ventes.demanderConfirmation();
+      // O4 : apprentissages des ordonnances en attente envoyés sans confirmation (ni stock ni caisse).
+      PartageO4.instance.synchroniser();
+    }
   }
 
   /// Passage en / hors ligne noté dans le journal du terminal.
@@ -146,6 +151,8 @@ class HorsLigne {
     sync.serveur ??= () => _baseUrl;
     // Mêmes appels que la vente en ligne (session de l'appli).
     if (ventes.gateway == null || ventes.gateway is DioVenteGateway) ventes.gateway = DioVenteGateway(api);
+    // O4 : partage des apprentissages des ordonnances (si le serveur l'annonce), même session.
+    PartageO4.instance.brancher(api, enLigne: () => HorsLigne.instance.monitor.etat == EtatServeur.enLigne);
   }
 
   String get _baseUrl => _api?.dio.options.baseUrl ?? '';

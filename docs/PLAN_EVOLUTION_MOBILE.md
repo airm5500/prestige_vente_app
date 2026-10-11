@@ -401,7 +401,7 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 | O1 | Banc d'essai des 17 ordonnances + mesure de la lecture actuelle (référence) — **réalisé** (§4.5) |
 | O2 | Capture guidée page + découpage par lignes numérotées — **réalisé** (§4.6) |
 | O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) — **réalisé** (§4.7) |
-| O4 | Apprentissage par correction |
+| O4 | Apprentissage par correction — **réalisé** (§4.8 ; partage : patch serveur à appliquer) |
 | O5 | (option) Lecture avancée en ligne, avec consentement |
 
 ### 4.5 O1 — Banc d'essai des ordonnances : réalisé
@@ -553,6 +553,62 @@ supprime les faux positifs de la correspondance d'origine ; il reste 1 faux posi
 Le catalogue du serveur de test contient des doublons « SIM1…SIM5 » et des noms abrégés (« ELUDRILPRO BAIN BCHE ») :
 la mesure sur le téléphone, avec le vrai catalogue de la pharmacie, fait foi. **O3 n'est à activer que si le banc
 sur le téléphone le montre meilleur que la référence.**
+
+### 4.8 O4 — Apprentissage par correction : réalisé (patch serveur à appliquer pour le partage)
+
+**Code** : `lib/ordonnances/o4/` (`segment_medicament.dart`, `apprentissage_o4.dart`, `partage_o4.dart`,
+`apprentissages_screen.dart`, `banc_o4.dart`) ; points d'accroche : correspondance O3 (`apprentissages`), écran
+Ordonnance (validation de la pré-vente en mode O3), Réglages › Ventes › Ordonnances, banc d'essai (candidat
+« O3 + apprentissages », case « Apprentissage simulé »), `HorsLigne.bind` (partage branché sur la session) et retour en
+ligne (envoi de la file), journal du terminal (type « Apprentissage ordonnances », résultat « Info »).
+Serveur : `docs/serveur/O4_corrections_ordonnances.patch` + `docs/serveur/O4_CORRECTIONS.md`.
+Tests : `test/ordonnances_o4_test.dart` (CI), lectures et catalogue **synthétiques**, faux serveur.
+
+- **Ce qui est appris** : à « Créer la pré-vente » (mode O3), pour chaque ligne LUE validée (proposition gardée, autre
+  proposition choisie ou ligne corrigée à la main) : « segment médicament lu → produit (lgFAMILLEID, CIP, nom) »,
+  avec compteur de confirmations, de contradictions et date. Pas pour un CIP exact (déjà sûr) ni un produit ajouté
+  à la main (aucun texte lu). Le texte appris est celui **lu**, pas la correction tapée (« Brufen 400 mg » lu,
+  BRUSTAN choisi → la prochaine lecture « Brufen 400 mg » propose BRUSTAN).
+- **Données de santé** : jamais le texte lu complet. Segment = partie médicament de la ligne, minuscules sans
+  accents, sans numéro, posologie ni quantité, 4 mots / 40 caractères au plus ; ligne refusée (rien d'appris) si elle
+  contient une date, un téléphone, un e-mail, un long nombre, ou un mot comme Dr, Mme, Patient, Nom, Né le, Tél,
+  BP, Clinique, âge…
+- **Priorité dans O3** : segment lu identique ou presque (ressemblance ≥ 0,88, mêmes confusions d'écriture qu'O3)
+  → la proposition apprise passe **en tête**, même si la lecture est illisible pour O3 ; 1 validation : 75 %
+  « À vérifier » ; à partir de **2** validations nettes : 92 % « Proposé » (cochée), les autres propositions restent
+  derrière et consultables (« Changer »). Mention « Appris des validations précédentes » sous le produit.
+- **Contradiction** : choisir un autre produit pour le même segment contredit l'association (poids = confirmations
+  − 2 × contradictions) ; à 0 elle perd sa priorité (« inactive ») et la nouvelle prend la tête.
+- **Bonus « produits vendus »** : le compteur des produits validés (O3) + les validations reçues des autres terminaux.
+- **Gestion** : Réglages › Ventes (code administrateur) › Ordonnances › **Apprentissages des ordonnances** : liste
+  (segment → produit, validations, contradictions, CIP, date, sûr / inactif), recherche, **Oublier**, **Tout
+  réinitialiser**. 3 000 associations au plus sur l'appareil (préférences locales).
+- **Partage entre terminaux** (serveur avec le patch O4, capacité `ordonnanceCorrections: true`) : envoi par lot
+  `POST /mobile/ordonnances/corrections` (idempotent par clé), réception `GET …?depuis=` (différentiel, horloge du
+  serveur comme H5, chevauchement 2 min, clés déjà appliquées et celles du terminal ignorées). Option Réglages
+  **« Partager les apprentissages avec les autres terminaux »** : activée par défaut seulement si le serveur a la
+  capacité, désactivable (la file est alors vidée). **Sans capacité** : apprentissage sur l'appareil seulement,
+  aucune requête, comportement identique sinon. **Hors ligne** : file d'attente, envoyée au retour du serveur
+  **sans confirmation** (ni stock ni caisse) ; envois, attentes et réceptions notés au journal du terminal (« Info »).
+  Synchronisation aussi à l'ouverture de l'écran Ordonnance en mode O3.
+- **Banc d'essai** : candidat « O3 + apprentissages » (apprentissages réels de l'appareil, lecture seule) ; case
+  **« Apprentissage simulé (2 passages) »** : apprentissages vierges **en mémoire**, 1ᵉʳ passage = lecture puis
+  corrections du pharmacien simulées par la vérité terrain (proposition juste validée ; fausse ou absente →
+  produit attendu le plus ressemblant, sinon dans l'ordre), 2ᵉ passage = mesure. Rien n'est enregistré (ni
+  apprentissage, ni file, ni historique). Le 2ᵉ passage relit **les mêmes** ordonnances : il montre l'effet pour des
+  ordonnances revues (même médecin, même écriture), pas une généralisation.
+
+**Mesure indicative (tesseract au lieu de ML Kit, catalogue indicatif 153 produits, 15 ordonnances / 45 produits)** :
+
+| Lecture | O3 | O3 + apprentissages, 1ᵉʳ passage | 2ᵉ passage (apprentissage simulé) |
+|---|---|---|---|
+| photo brute, page auto (psm 3) | 0/15 · 4 % · 67 % | 0/15 · 4 % · 67 % | 0/15 · 4 % · 67 % (2 lignes apprises) |
+| photo brute, bloc (psm 6) | 1/15 · 16 % · 100 % | 1/15 · 16 % · 100 % | **2/15 · 18 % · 100 %** (7 lignes apprises) |
+| image améliorée (psm 6) | 1/15 · 11 % · 83 % | 1/15 · 11 % · 83 % | **2/15 · 24 % · 100 %** (10 lignes apprises) |
+
+(correctes · rappel · précision). Sans apprentissage, « O3 + apprentissages » = O3 exactement. Le gain est limité
+par tesseract, qui ne détecte qu'une partie des lignes manuscrites (une ligne non lue ne peut pas être apprise) :
+**la mesure sur le téléphone (ML Kit) fait foi** ; le banc simulé y montre l'effet sur vos ordonnances.
 
 ---
 

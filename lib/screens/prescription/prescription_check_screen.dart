@@ -10,6 +10,8 @@ import 'package:prestige_vente_app/ordonnances/o2/decoupage_ordonnance.dart';
 import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
 import 'package:prestige_vente_app/ordonnances/o3/catalogue_o3.dart';
 import 'package:prestige_vente_app/ordonnances/o3/correspondance_o3.dart';
+import 'package:prestige_vente_app/ordonnances/o4/apprentissage_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
@@ -59,7 +61,14 @@ class _RxLine {
 
   /// Confiance de la correspondance O3 (0…1), null avec la lecture d'origine.
   double? confiance;
-  _RxLine(this.line) : quantity = line.quantity ?? 1;
+
+  /// O4 : texte LU de la ligne (null : produit saisi à la main), gardé quand l'opérateur corrige la ligne ;
+  /// seul son segment médicament est appris à la validation (jamais le texte complet).
+  final String? lu;
+
+  /// O4 : la proposition retenue vient d'un apprentissage.
+  bool apprise = false;
+  _RxLine(this.line, {this.lu}) : quantity = line.quantity ?? 1;
 
   _LineStatus get status {
     if (searching) return _LineStatus.searching;
@@ -84,7 +93,10 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   @override
   void initState() {
     super.initState();
-    LectureO2.charger(); // nouvelle lecture O2 / O3 (« Actuelle » par défaut)
+    // Nouvelle lecture O2 / O3 (« Actuelle » par défaut) ; O3 : apprentissages des autres terminaux (O4).
+    LectureO2.charger().then((_) {
+      if (LectureO2.mode.value == ModeLecture.o3) PartageO4.instance.synchroniser();
+    });
     if (widget.presentation == null) {
       PresentationPrefs.load().then((p) {
         if (mounted) setState(() => _style = p);
@@ -135,7 +147,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       _ocrLines = lines!.map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
       _lines
         ..clear()
-        ..addAll(candidates.map(_RxLine.new));
+        ..addAll(candidates.map((c) => _RxLine(c, lu: c.text)));
     });
     if (candidates.isEmpty) {
       Constants.showSnackBar(context, 'Aucun produit reconnu. Ajoutez-les depuis le texte lu ou manuellement.', isError: true);
@@ -200,7 +212,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
         return;
       }
     }
-    final o3 = await (_o3 ??= CatalogueO3.creer(search));
+    final o3 = await (_o3 ??= ApprentissagesO4.charger().then((a) => CatalogueO3.creer(search, apprentissages: a)));
     final r = await o3.proposer(rx.line);
     if (!mounted || generation != _generation) return;
     final best = r.meilleure;
@@ -208,6 +220,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     setState(() {
       rx.selected = best?.produit;
       rx.confiance = best?.confiance;
+      rx.apprise = best?.apprise != null;
       rx.match = best == null ? _Match.none : (r.sur ? _Match.probable : _Match.toVerify);
       rx.alternatives = [for (final p in r.propositions.skip(1)) p.produit];
       rx.include = best != null && r.sur && best.produit.intNUMBERAVAILABLE > 0;
@@ -247,7 +260,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     );
   }
 
-  void _addLine(String text, {_RxLine? replace}) {
+  void _addLine(String text, {_RxLine? replace, bool lu = false}) {
     final cleaned = PrescriptionParser.cleanLine(text) ?? text.trim();
     if (cleaned.isEmpty) return;
     final parsed = PrescriptionParser.parseLine(cleaned) ?? PrescriptionParser.parseLine(cleaned, force: true);
@@ -263,7 +276,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
           ..line = parsed
           ..quantity = parsed.quantity ?? replace.quantity;
       } else {
-        rx = _RxLine(parsed);
+        rx = _RxLine(parsed, lu: lu ? parsed.text : null);
         _lines.add(rx);
       }
     });
@@ -323,6 +336,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       rx.selected = picked;
       rx.match = _Match.manual;
       rx.confiance = null;
+      rx.apprise = false;
       rx.include = true;
     });
   }
@@ -372,7 +386,10 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     );
     if (confirmed != true || !mounted) return;
     // O3 : produits validés par le pharmacien → bonus « réellement vendu » (compteur sur l'appareil).
-    if (LectureO2.mode.value == ModeLecture.o3) PopulariteLocale.enregistrer([for (final l in toSell) l.selected!.lgFAMILLEID]);
+    if (LectureO2.mode.value == ModeLecture.o3) {
+      PopulariteLocale.enregistrer([for (final l in toSell) l.selected!.lgFAMILLEID]);
+      _apprendre(toSell);
+    }
 
     setState(() => _creating = true);
     sale.startNewSale();
@@ -398,6 +415,20 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
               builder: (_) => VentesVersion.preVente(initialTabIndex: 0, resumeVenteId: sale.currentVenteId),
             ));
     await open(context);
+  }
+
+  /// O4 : chaque ligne lue validée (proposition gardée ou produit corrigé) est apprise : segment médicament
+  /// → produit, puis partagée si le serveur le permet (file d'attente hors ligne). Pas pour un CIP exact
+  /// (déjà sûr) ni pour un produit saisi à la main (aucun texte lu).
+  Future<void> _apprendre(List<_RxLine> lignes) async {
+    for (final l in lignes) {
+      final lu = l.lu, p = l.selected;
+      if (lu == null || p == null || l.match == _Match.exactCip) continue;
+      try {
+        await PartageO4.instance.enregistrerValidation(texteLu: lu, produitId: p.lgFAMILLEID, cip: p.intCIP, nom: p.strNAME);
+      } catch (_) {}
+    }
+    PartageO4.instance.synchroniser();
   }
 
   // ---------------------------------------------------------------------------
@@ -694,7 +725,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                     dense: true,
                     title: Text(l),
                     trailing: const Icon(Icons.add_circle_outline),
-                    onTap: () => _addLine(l),
+                    onTap: () => _addLine(l, lu: true),
                   ),
               ],
             ),
@@ -800,6 +831,9 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                               Text(p.strNAME, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                               Text('CIP: ${p.intCIP} | ${Constants.formatNumber(p.intPRICE)} F', style: const TextStyle(fontSize: 12)),
                               _matchBadge(rx.match, rx.confiance),
+                              if (rx.apprise)
+                                const Text('Appris des validations précédentes',
+                                    style: TextStyle(fontSize: 11.5, color: Pal.muted, fontStyle: FontStyle.italic)),
                             ],
                           ),
                         ),

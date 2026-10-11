@@ -10,6 +10,8 @@ import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/banc_essai_screen.dart';
 import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
+import 'package:prestige_vente_app/ordonnances/o4/apprentissages_screen.dart';
+import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
@@ -270,6 +272,7 @@ class _VentesPageState extends State<VentesPage> {
         SwitchCard(title: 'Masquer les produits « RV »', value: s.hideRvProducts, onChanged: s.setHideRvProducts),
         const SectionLabel('Ordonnances'),
         const LectureO2Reglages(),
+        const ApprentissagesReglages(),
         LinkCard(
           key: const Key('banc_essai_ordonnances'),
           icon: Icons.science_outlined,
@@ -344,6 +347,55 @@ class _LectureO2ReglagesState extends State<LectureO2Reglages> {
           ]),
         ),
       );
+}
+
+/// O4 : partage des apprentissages (activé par défaut seulement si le serveur a la capacité) et gestion.
+class ApprentissagesReglages extends StatefulWidget {
+  const ApprentissagesReglages({super.key});
+
+  @override
+  State<ApprentissagesReglages> createState() => _ApprentissagesReglagesState();
+}
+
+class _ApprentissagesReglagesState extends State<ApprentissagesReglages> {
+  @override
+  void initState() {
+    super.initState();
+    final p = PartageO4.instance;
+    p.charger().then((_) async {
+      await p.verifierCapacite();
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = PartageO4.instance;
+    return ValueListenableBuilder<bool?>(
+      valueListenable: p.choix,
+      builder: (context, _, __) => ValueListenableBuilder<bool?>(
+        valueListenable: p.capacite,
+        builder: (context, cap, __) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SwitchCard(
+            key: const Key('appr_partage_switch'),
+            title: 'Partager les apprentissages avec les autres terminaux',
+            subtitle: cap == false
+                ? 'Le serveur ne gère pas le partage : apprentissage sur cet appareil seulement.'
+                : 'Seul le nom du médicament lu et le produit validé sont envoyés (jamais l\'ordonnance).',
+            value: p.actif,
+            onChanged: cap == false ? null : (v) => p.definirPartage(v).then((_) => mounted ? setState(() {}) : null),
+          ),
+          LinkCard(
+            key: const Key('apprentissages_ordonnances'),
+            icon: Icons.school_outlined,
+            title: 'Apprentissages des ordonnances',
+            subtitle: 'Produits validés retenus : liste, recherche, oublier',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ApprentissagesScreen())),
+          ),
+        ]),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

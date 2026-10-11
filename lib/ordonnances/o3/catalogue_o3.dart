@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/ordonnances/o3/correspondance_o3.dart';
+import 'package:prestige_vente_app/ordonnances/o4/apprentissage_o4.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -29,9 +30,16 @@ class CatalogueO3 {
   }
 
   /// Correspondance O3 : copie locale complète si disponible, sinon recherche serveur [recherche].
-  static Future<CorrespondanceO3> creer(ProductPageSearch recherche, {LocalStore? store}) async {
+  /// O4 : [apprentissages] (apprentissages par correction) prioritaires ; leurs validations reçues des autres
+  /// terminaux nourrissent aussi le bonus « produits vendus ».
+  static Future<CorrespondanceO3> creer(ProductPageSearch recherche, {LocalStore? store, SourceApprentissages? apprentissages}) async {
     final pop = await PopulariteLocale.charger();
-    return CorrespondanceO3.auto(recherche, chargerTout: () => copieLocale(store), popularite: pop);
+    return CorrespondanceO3.auto(
+      recherche,
+      chargerTout: () => copieLocale(store),
+      popularite: apprentissages == null ? pop : PopulariteAvecApprentissages(pop, apprentissages),
+      apprentissages: apprentissages,
+    );
   }
 }
 

@@ -6,6 +6,8 @@ import 'package:prestige_vente_app/ordonnances/o2/decoupage_ordonnance.dart';
 import 'package:prestige_vente_app/ordonnances/o2/preparation_page.dart';
 import 'package:prestige_vente_app/ordonnances/o3/catalogue_o3.dart';
 import 'package:prestige_vente_app/ordonnances/o3/correspondance_o3.dart';
+import 'package:prestige_vente_app/ordonnances/o4/apprentissage_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o4/banc_o4.dart';
 import 'package:prestige_vente_app/services/prescription_matcher.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -14,12 +16,28 @@ List<PipelineOrdonnance> pipelinesBanc(
   ProductPageSearch recherche, {
   LecteurTexte? lecteur,
   Future<CorrespondanceO3> Function()? correspondanceO3,
+  Future<SourceApprentissages> Function()? apprentissages,
 }) =>
     [
       PipelineTexteCatalogue.reference(recherche, lecteur: lecteur),
       ...candidatsO2(recherche, lecteur: lecteur),
       candidatO3(recherche, lecteur: lecteur, correspondance: correspondanceO3),
+      candidatO3Appris(recherche, lecteur: lecteur, correspondance: correspondanceO3, apprentissages: apprentissages),
     ];
+
+/// Candidat O4 : O3 + apprentissages par correction (réels ; ou simulés en deux passages, voir banc_o4.dart).
+PipelineO3Appris candidatO3Appris(
+  ProductPageSearch recherche, {
+  LecteurTexte? lecteur,
+  Future<CorrespondanceO3> Function()? correspondance,
+  Future<SourceApprentissages> Function()? apprentissages,
+}) =>
+    PipelineO3Appris(
+      lecteur: lecteur,
+      recherche: recherche,
+      correspondance: correspondance ?? () => CatalogueO3.creer(recherche),
+      apprentissagesReels: apprentissages,
+    );
 
 /// Candidat O3 : découpage O2 + correspondance catalogue améliorée (1ʳᵉ proposition au-dessus du seuil).
 /// Une ligne avec CIP garde le rapprochement exact d'origine. Le catalogue est chargé une fois par passage.

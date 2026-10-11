@@ -217,7 +217,7 @@ void main() {
         lecteur: (_) async => lu,
         correspondanceO3: () async => _o3(),
       );
-      expect(pipelines.map((p) => p.id), ['reference', 'o2', 'o2_image', 'o3']);
+      expect(pipelines.map((p) => p.id).take(4), ['reference', 'o2', 'o2_image', 'o3']);
       final vt = VeriteTerrain.fromJsonString('{"ordonnances":{"o (1).jpeg":{"produits":'
           '[{"nom":"Curam 1 g"},{"nom":"Brustan 400 mg"},{"nom":"Tramadol Denk 50 mg"}]}}}');
       final scores = <String, ScoreOrdonnance>{};
