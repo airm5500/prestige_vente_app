@@ -12,7 +12,10 @@ import 'dart:math' as math;
 
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/normalisation_produit.dart';
+import 'package:prestige_vente_app/ordonnances/o3/fragments_o3.dart';
 import 'package:prestige_vente_app/ordonnances/o3/similarite.dart';
+import 'package:prestige_vente_app/ordonnances/o4/apprentissage_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o4/segment_medicament.dart';
 import 'package:prestige_vente_app/services/prescription_parser.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -42,7 +45,13 @@ class PropositionO3 {
 
   /// Confiance 0…1.
   final double confiance;
-  const PropositionO3(this.produit, this.confiance);
+
+  /// O4 : proposition venant d'un apprentissage (association validée par le pharmacien), sinon null.
+  final AssociationApprise? apprise;
+
+  /// O3b : proposition trouvée par fragments sûrs (« …PHOS… »), toujours « à vérifier » ; sinon null.
+  final String? fragment;
+  const PropositionO3(this.produit, this.confiance, {this.apprise, this.fragment});
 
   @override
   String toString() => '${produit.strNAME} (${(confiance * 100).round()} %)';
@@ -59,10 +68,12 @@ class ResultatO3 {
   PropositionO3? get meilleure => propositions.isEmpty ? null : propositions.first;
 
   /// Proposition sûre : au-dessus de [CorrespondanceO3.seuilSur] et nettement devant la suivante.
+  /// Une proposition par fragments n'est jamais sûre et n'empêche pas une correspondance complète de l'être.
   bool get sur {
     final m = meilleure;
-    if (m == null || m.confiance < CorrespondanceO3.seuilSur) return false;
-    return propositions.length < 2 || m.confiance - propositions[1].confiance >= 0.05;
+    if (m == null || m.fragment != null || m.confiance < CorrespondanceO3.seuilSur) return false;
+    final completes = propositions.where((p) => p.fragment == null).toList();
+    return completes.length < 2 || m.confiance - completes[1].confiance >= 0.05;
   }
 }
 
@@ -133,32 +144,53 @@ class CorrespondanceO3 {
   static const double seuilSur = 0.80;
 
   final PopulariteProduits popularite;
+
+  /// O4 : apprentissages par correction (prioritaires) ; null = O3 seul (comportement O3 inchangé).
+  final SourceApprentissages? apprentissages;
+
+  /// O3b : propositions par fragments sûrs, après les correspondances complètes (désactivé = O3 inchangé).
+  final bool fragments;
   final List<_Entree>? _index;
   final ProductPageSearch? _recherche;
+  Map<String, ProductSearchResult>? _parId;
+  IndexFragments? _indexFragments;
 
-  CorrespondanceO3._(this._index, this._recherche, this.popularite);
+  CorrespondanceO3._(this._index, this._recherche, this.popularite, this.apprentissages, {this.fragments = false});
 
   /// Catalogue complet en mémoire (copie locale) : index construit une fois.
-  factory CorrespondanceO3.catalogue(Iterable<ProductSearchResult> produits, {PopulariteProduits popularite = const AucunePopularite()}) =>
-      CorrespondanceO3._([for (final p in produits) _Entree(p, _analyser(p.strNAME))], null, popularite);
+  factory CorrespondanceO3.catalogue(Iterable<ProductSearchResult> produits,
+          {PopulariteProduits popularite = const AucunePopularite(), SourceApprentissages? apprentissages, bool fragments = false}) =>
+      CorrespondanceO3._([for (final p in produits) _Entree(p, _analyser(p.strNAME))], null, popularite, apprentissages, fragments: fragments);
 
   /// Sans copie locale : candidats obtenus par la recherche serveur existante (préfixes du nom lu).
-  factory CorrespondanceO3.recherche(ProductPageSearch recherche, {PopulariteProduits popularite = const AucunePopularite()}) =>
-      CorrespondanceO3._(null, recherche, popularite);
+  factory CorrespondanceO3.recherche(ProductPageSearch recherche,
+          {PopulariteProduits popularite = const AucunePopularite(), SourceApprentissages? apprentissages, bool fragments = false}) =>
+      CorrespondanceO3._(null, recherche, popularite, apprentissages, fragments: fragments);
 
   /// Copie locale si elle contient des produits ([chargerTout] renvoie la liste complète), sinon recherche serveur.
   static Future<CorrespondanceO3> auto(
     ProductPageSearch recherche, {
     Future<List<ProductSearchResult>> Function()? chargerTout,
     PopulariteProduits popularite = const AucunePopularite(),
+    SourceApprentissages? apprentissages,
+    bool fragments = false,
   }) async {
     if (chargerTout != null) {
       try {
         final tout = await chargerTout();
-        if (tout.isNotEmpty) return CorrespondanceO3.catalogue(tout, popularite: popularite);
+        if (tout.isNotEmpty) return CorrespondanceO3.catalogue(tout, popularite: popularite, apprentissages: apprentissages, fragments: fragments);
       } catch (_) {}
     }
-    return CorrespondanceO3.recherche(recherche, popularite: popularite);
+    return CorrespondanceO3.recherche(recherche, popularite: popularite, apprentissages: apprentissages, fragments: fragments);
+  }
+
+  /// Même catalogue (index partagé), autres apprentissages / popularité (banc d'essai simulé : en mémoire).
+  /// [fragments] null : inchangé.
+  CorrespondanceO3 avec({SourceApprentissages? apprentissages, PopulariteProduits? popularite, bool? fragments}) {
+    final c = CorrespondanceO3._(_index, _recherche, popularite ?? this.popularite, apprentissages, fragments: fragments ?? this.fragments);
+    c._parId = _parId;
+    c._indexFragments = _indexFragments;
+    return c;
   }
 
   int get tailleIndex => _index?.length ?? 0;
@@ -293,25 +325,167 @@ class CorrespondanceO3 {
     ].take(n).toList();
   }
 
+  static bool _lisible(_Analyse q) => !(q.mots.isEmpty || q.mots.every((m) => m.length < 3) || q.mots.length > motsMax);
+
+  /// O4 : apprentissages proches du segment médicament de [texte] (vide sans apprentissages).
+  List<SuggestionApprise> _appris(String texte) {
+    final a = apprentissages;
+    if (a == null) return const [];
+    final segment = SegmentMedicament.extraire(texte);
+    return segment == null ? const [] : a.chercher(segment);
+  }
+
+  ProductSearchResult? _produitIndex(String id) {
+    final index = _index;
+    if (index == null) return null;
+    return (_parId ??= {for (final e in index) e.produit.lgFAMILLEID: e.produit})[id];
+  }
+
+  List<(SuggestionApprise, ProductSearchResult)> _apprisIndex(List<SuggestionApprise> suggestions) {
+    final out = <(SuggestionApprise, ProductSearchResult)>[];
+    for (final s in suggestions) {
+      final p = _produitIndex(s.association.produitId);
+      if (p != null) out.add((s, p));
+    }
+    return out;
+  }
+
+  /// Sans copie locale : produit appris retrouvé par la recherche serveur (nom, puis CIP).
+  Future<ProductSearchResult?> _produitServeur(AssociationApprise a, List<ProductSearchResult> deja) async {
+    for (final p in deja) {
+      if (p.lgFAMILLEID == a.produitId) return p;
+    }
+    final r = _recherche;
+    if (r == null) return null;
+    for (final q in [if (a.nom.isNotEmpty) a.nom, if (a.cip.isNotEmpty) a.cip]) {
+      final page = await r(q, 0, ProductLookup.pageSize);
+      if (page is VenteOk<ProductPage>) {
+        for (final p in page.value.items) {
+          if (p.lgFAMILLEID == a.produitId) return p;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// O4 : l'apprentissage passe en tête. Confiance = celle de l'apprentissage, ou la correspondance du catalogue
+  /// + bonus fort si elle est plus haute ; les autres propositions restent derrière (nettement si l'apprentissage
+  /// est « sûr », c'est-à-dire assez confirmé).
+  static List<PropositionO3> _fusionner(List<PropositionO3> props, List<(SuggestionApprise, ProductSearchResult)> appris, int n) {
+    if (appris.isEmpty) return props;
+    final out = <PropositionO3>[];
+    final vus = <String>{};
+    var plafond = 1.0;
+    for (final (s, p) in appris) {
+      if (!vus.add(p.lgFAMILLEID)) continue;
+      final cat = props.where((x) => x.produit.lgFAMILLEID == p.lgFAMILLEID).firstOrNull?.confiance ?? 0;
+      final c = math.min(plafond, math.max(s.confiance, cat > 0 ? math.min(1.0, cat + 0.15 * s.ressemblance) : 0.0));
+      out.add(PropositionO3(p, c, apprise: s.association));
+      plafond = c - (s.sure ? 0.06 : 0.01);
+    }
+    for (final x in props) {
+      if (!vus.add(x.produit.lgFAMILLEID)) continue;
+      out.add(PropositionO3(x.produit, math.max(0.0, math.min(x.confiance, plafond))));
+    }
+    return out.take(n).toList();
+  }
+
   /// Propositions pour un nom lu (synchrone, catalogue en mémoire).
   List<PropositionO3> proposerTexte(String texte, {int n = 3}) {
     final q = _analyser(texte);
-    if (q.mots.isEmpty || q.mots.every((m) => m.length < 3) || q.mots.length > motsMax) return const [];
-    return _classer(q, _index ?? const [], n);
+    final appris = _apprisIndex(_appris(texte));
+    if (!_lisible(q) && appris.isEmpty) return const [];
+    final props = _lisible(q) ? _classer(q, _index ?? const [], n) : <PropositionO3>[];
+    return _fusionner(props, appris, n);
   }
 
   /// Propositions pour une ligne : top [n] avec confiance. Les propositions sous [seuilProposition] sont écartées.
   Future<ResultatO3> proposer(PrescriptionLine ligne, {int n = 3}) async {
     final texte = ligne.text.trim().isEmpty ? ligne.query : ligne.text;
     final q = _analyser(texte);
-    if (q.mots.isEmpty || q.mots.every((m) => m.length < 3) || q.mots.length > motsMax) return const ResultatO3([]);
+    final suggestions = _appris(texte);
+    final lisible = _lisible(q);
+    // Fragments : seulement sur une ligne courte qui ressemble à un médicament (jamais une phrase, un en-tête,
+    // une adresse : mêmes refus que le segment appris par O4).
+    final parFragments = fragments && q.mots.isNotEmpty && q.mots.length <= 3 && SegmentMedicament.extraire(texte) != null;
+    if (!lisible && suggestions.isEmpty && !parFragments) return const ResultatO3([]);
     final index = _index;
     if (index != null) {
-      return ResultatO3(_classer(q, index, n).where((p) => p.confiance >= seuilProposition).toList());
+      final props = lisible ? _classer(q, index, n) : <PropositionO3>[];
+      final out = _fusionner(props, _apprisIndex(suggestions), n).where((p) => p.confiance >= seuilProposition).toList();
+      if (parFragments) out.addAll(_fragmentsIndex(texte, q, index, {for (final p in out) p.produit.lgFAMILLEID}));
+      return ResultatO3(out);
     }
-    final (candidats, panne) = await _candidatsServeur(q);
-    final props = _classer(q, [for (final p in candidats) _Entree(p, _analyser(p.strNAME))], n);
-    return ResultatO3(props.where((p) => p.confiance >= seuilProposition).toList(), panne: candidats.isEmpty ? panne : null);
+    var candidats = <ProductSearchResult>[];
+    String? panne;
+    if (lisible) (candidats, panne) = await _candidatsServeur(q);
+    final props = lisible ? _classer(q, [for (final p in candidats) _Entree(p, _analyser(p.strNAME))], n) : <PropositionO3>[];
+    final appris = <(SuggestionApprise, ProductSearchResult)>[];
+    for (final s in suggestions) {
+      final p = await _produitServeur(s.association, candidats);
+      if (p != null) appris.add((s, p));
+    }
+    final out = _fusionner(props, appris, n).where((p) => p.confiance >= seuilProposition).toList();
+    if (parFragments) out.addAll(await _fragmentsServeur(texte, q, {for (final p in out) p.produit.lgFAMILLEID}));
+    return ResultatO3(out, panne: out.isEmpty && candidats.isEmpty ? panne : null);
+  }
+
+  // ---------------------------------------------------------------------------
+  // O3b : fragments sûrs (« contient »), APRÈS les correspondances complètes, toujours « à vérifier »
+  // ---------------------------------------------------------------------------
+  IndicesLigne _indices(_Analyse q, _Analyse Function(ProductSearchResult) analyse) => IndicesLigne(
+        dosages: q.dosages,
+        formeLue: q.formes.isNotEmpty,
+        formeCompatible: (p) => _formesCompatibles(q.formes, analyse(p).formes),
+        formeIdentique: (p) => analyse(p).formes.intersection(q.formes).isNotEmpty,
+        dosageCommun: (p) => analyse(p).dosages.intersection(q.dosages).isNotEmpty,
+        dosageConnu: (p) => analyse(p).dosages.isNotEmpty,
+      );
+
+  double _bonusFragment(ProductSearchResult p) {
+    var b = p.intNUMBERAVAILABLE > 0 ? 0.02 : 0.0;
+    final v = popularite.ventes(p.lgFAMILLEID);
+    if (v > 0) b += 0.04 * math.min(1.0, math.log(1 + v) / math.log(20));
+    if ((apprentissages?.confirmationsProduit(p.lgFAMILLEID) ?? 0) > 0) b += 0.02;
+    return b;
+  }
+
+  List<PropositionO3> _versPropositions(List<PropositionFragment> l) => [for (final f in l) PropositionO3(f.produit, f.confiance, fragment: f.indication)];
+
+  List<PropositionO3> _fragmentsIndex(String texte, _Analyse q, List<_Entree> index, Set<String> exclus) {
+    final frs = FragmentsO3.extraire(texte, masque: ConfianceLecture.masquePour(texte));
+    if (frs.isEmpty) return const [];
+    final idx = _indexFragments ??= IndexFragments([for (final e in index) e.produit]);
+    final analyses = <String, _Analyse>{for (final e in index) e.produit.lgFAMILLEID: e.a};
+    return _versPropositions(classerParFragments(
+      fragments: frs,
+      contenant: idx.contenant,
+      produit: (i) => idx.produits[i],
+      nomIndexe: (i) => idx.noms[i],
+      indices: _indices(q, (p) => analyses[p.lgFAMILLEID] ?? _analyser(p.strNAME)),
+      bonus: _bonusFragment,
+      exclus: exclus,
+    ));
+  }
+
+  /// Sans copie locale : recherche serveur « contient » avec le joker % (« %frag1%frag2 »), 50 produits au plus.
+  Future<List<PropositionO3>> _fragmentsServeur(String texte, _Analyse q, Set<String> exclus) async {
+    final frs = FragmentsO3.extraire(texte, masque: ConfianceLecture.masquePour(texte));
+    final r = _recherche;
+    if (frs.isEmpty || r == null) return const [];
+    final page = await r(FragmentsO3.requeteServeur(frs), 0, 50);
+    if (page is! VenteOk<ProductPage> || page.value.items.isEmpty) return const [];
+    final idx = IndexFragments(page.value.items);
+    final analyses = <String, _Analyse>{for (final p in idx.produits) p.lgFAMILLEID: _analyser(p.strNAME)};
+    return _versPropositions(classerParFragments(
+      fragments: frs,
+      contenant: idx.contenant,
+      produit: (i) => idx.produits[i],
+      nomIndexe: (i) => idx.noms[i],
+      indices: _indices(q, (p) => analyses[p.lgFAMILLEID]!),
+      bonus: _bonusFragment,
+      exclus: exclus,
+    ));
   }
 
   /// Sans copie locale : produits commençant comme les mots lus (3 puis 2 premières lettres), 200 au plus par requête.

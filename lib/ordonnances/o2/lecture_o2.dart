@@ -15,8 +15,8 @@ import 'package:prestige_vente_app/services/ocr_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Lecture des ordonnances : actuelle (d'origine), O2 (page + lignes numérotées),
-/// O3 (O2 + correspondance catalogue améliorée).
-enum ModeLecture { actuelle, o2, o3 }
+/// O3 (O2 + correspondance catalogue améliorée), O3+ (O3 + propositions par fragments sûrs, O3b).
+enum ModeLecture { actuelle, o2, o3, o3Fragments }
 
 class LectureO2 {
   LectureO2._();
@@ -30,6 +30,9 @@ class LectureO2 {
 
   /// Nouvelle lecture (O2 ou O3) : capture page, zone des médicaments, lignes numérotées.
   static bool get nouvelleLecture => mode.value != ModeLecture.actuelle;
+
+  /// Correspondance catalogue O3 (avec ou sans fragments) : apprentissages O4 actifs.
+  static bool get correspondanceO3 => mode.value == ModeLecture.o3 || mode.value == ModeLecture.o3Fragments;
 
   /// Amélioration de l'image (contraste, ombres) avant la lecture. Désactivée par défaut.
   static final ValueNotifier<bool> ameliorerImage = ValueNotifier<bool>(false);

@@ -15,6 +15,10 @@ import 'package:prestige_vente_app/ordonnances/banc_essai/historique_banc.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/pipeline_ordonnance.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/pipelines_disponibles.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/score_banc.dart';
+import 'package:prestige_vente_app/ordonnances/o3/catalogue_o3.dart';
+import 'package:prestige_vente_app/ordonnances/o4/banc_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o5/banc_o5.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
@@ -44,7 +48,7 @@ class BancEssaiScreen extends StatefulWidget {
 
 class _BancEssaiScreenState extends State<BancEssaiScreen> {
   late final List<PipelineOrdonnance> _pipelines =
-      widget.pipelines ?? pipelinesBanc(apiPageSearch(Provider.of<ApiService>(context, listen: false)));
+      List.of(widget.pipelines ?? pipelinesBanc(apiPageSearch(Provider.of<ApiService>(context, listen: false))));
   VeriteTerrain? _verite;
   String? _veriteErreur;
   List<String> _images = [];
@@ -53,6 +57,10 @@ class _BancEssaiScreenState extends State<BancEssaiScreen> {
   bool _running = false;
   int _done = 0, _total = 0;
   Map<String, ScoreGlobal> _scores = {};
+
+  /// O4 : apprentissage simulé (2 passages, apprentissages en mémoire) pour un candidat qui apprend.
+  bool _simule = false;
+  bool get _candidatApprend => _candidat != null && _pipeline(_candidat!) is PipelineApprenant;
   List<EntreeHistorique> _historique = [];
 
   @override
@@ -60,6 +68,7 @@ class _BancEssaiScreenState extends State<BancEssaiScreen> {
     super.initState();
     if (_pipelines.length > 1) _candidat = _pipelines[1].id;
     _chargerVerite();
+    if (widget.pipelines == null) _ajouterLectureAvancee();
     HistoriqueBanc.charger().then((h) {
       if (mounted) setState(() => _historique = h);
     });
@@ -77,6 +86,34 @@ class _BancEssaiScreenState extends State<BancEssaiScreen> {
       if (mounted) setState(() => _veriteErreur = 'Vérité terrain illisible : $e');
     }
   }
+
+  /// O5 : candidat « Lecture avancée » seulement si activée (consentement) et proposée par le serveur.
+  Future<void> _ajouterLectureAvancee() async {
+    final la = LectureAvancee.instance;
+    await la.charger();
+    if (la.active.value) await la.verifierCapacite();
+    if (!mounted || !la.proposee) return;
+    final recherche = apiPageSearch(Provider.of<ApiService>(context, listen: false));
+    setState(() => _pipelines.add(PipelineLectureAvancee(service: la, correspondance: () => CatalogueO3.creer(recherche))));
+  }
+
+  /// O5 : confirmation explicite avant d'envoyer le jeu d'images au service externe.
+  Future<bool> _confirmerEnvoiExterne(int n) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Envoyer les images au service externe ?'),
+          content: Text('Le candidat « Lecture avancée » envoie $n image(s) d\'ordonnance, une par une, au service de lecture '
+              'externe (par votre serveur Prestige). Ce sont des DONNÉES DE SANTÉ : seule la page sans ses bandes du haut et '
+              'du bas (masquées) est envoyée, sans métadonnées, mais il n\'y a pas de masquage à la main au banc — utilisez '
+              'des images sans nom de patient visible au milieu. Chaque lecture est facturée et compte dans le quota du jour.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Annuler')),
+            ElevatedButton(key: const Key('banc_o5_confirmer'), onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Envoyer')),
+          ],
+        ),
+      ) ??
+      false;
 
   PipelineOrdonnance _pipeline(String id) => _pipelines.firstWhere((p) => p.id == id);
 
@@ -144,15 +181,28 @@ class _BancEssaiScreenState extends State<BancEssaiScreen> {
     final verite = _verite;
     if (_images.isEmpty || verite == null) return;
     final ids = [_reference, if (_candidat != null && _candidat != _reference) _candidat!];
+    if (ids.any((id) => _pipeline(id) is PipelineLectureAvancee) && !await _confirmerEnvoiExterne(_images.length)) return;
+    if (!mounted) return;
+    final simule = _simule && _candidatApprend && ids.length > 1;
     setState(() {
       _running = true;
       _done = 0;
-      _total = _images.length * ids.length;
+      _total = _images.length * (ids.length + (simule ? 1 : 0));
       _scores = {};
     });
     final res = <String, ScoreGlobal>{};
     for (final id in ids) {
       final p = _pipeline(id);
+      if (simule && p is PipelineApprenant) {
+        // Apprentissage simulé : rien de réel n'est enregistré (ni apprentissage, ni historique).
+        final s = await simulerApprentissage(p, _images, verite, progres: () {
+          if (mounted) setState(() => _done++);
+        });
+        if (!mounted) return;
+        res['${p.libelle} · 2ᵉ passage (après apprentissage simulé)'] = s.passage2;
+        res['${p.libelle} · 1ᵉʳ passage (apprentissage de ${s.lignesApprises} ligne(s))'] = s.passage1;
+        continue;
+      }
       final par = <ScoreOrdonnance>[];
       for (final img in _images) {
         final nom = img.split(RegExp(r'[\\/]')).last;
@@ -169,7 +219,7 @@ class _BancEssaiScreenState extends State<BancEssaiScreen> {
       res[p.libelle] = ScoreGlobal(par);
     }
     var hist = _historique;
-    for (final id in ids) {
+    for (final id in simule ? const <String>[] : ids) {
       final p = _pipeline(id);
       try {
         hist = await HistoriqueBanc.ajouter(EntreeHistorique.depuis(res[p.libelle]!, pipeline: p.libelle));
@@ -258,6 +308,17 @@ class _BancEssaiScreenState extends State<BancEssaiScreen> {
               const SizedBox(height: 8),
               _choixPipeline('Candidat', _candidat, (v) => setState(() => _candidat = v), aucun: true),
             ],
+            if (_candidatApprend)
+              CheckboxListTile(
+                key: const Key('banc_simule'),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _simule,
+                onChanged: _running ? null : (v) => setState(() => _simule = v ?? false),
+                title: const Text('Apprentissage simulé (2 passages)'),
+                subtitle: const Text('1ᵉʳ passage : les bonnes réponses sont apprises comme des corrections du pharmacien ; '
+                    '2ᵉ passage : mesure. Rien n\'est enregistré ni envoyé.'),
+              ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
               key: const Key('banc_lancer'),

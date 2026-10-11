@@ -477,8 +477,9 @@ telle quelle, en session cookie (pas de nouvelle table, route ni patch serveur).
 | O1 | Banc d'essai des 17 ordonnances + mesure de la lecture actuelle (référence) — **réalisé** (§4.5) |
 | O2 | Capture guidée page + découpage par lignes numérotées — **réalisé** (§4.6) |
 | O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) — **réalisé** (§4.7) |
-| O4 | Apprentissage par correction |
-| O5 | (option) Lecture avancée en ligne, avec consentement |
+| O3b | Reconnaissance par fragments sûrs (« contient », avec prudence) — **réalisé** (§4.9) |
+| O4 | Apprentissage par correction — **réalisé** (§4.8 ; partage : patch serveur à appliquer) |
+| O5 | (option) Lecture avancée en ligne, avec consentement — **réalisé** (§4.10 ; patch serveur + clé à configurer, désactivée par défaut) |
 
 ### 4.5 O1 — Banc d'essai des ordonnances : réalisé
 
@@ -629,6 +630,141 @@ supprime les faux positifs de la correspondance d'origine ; il reste 1 faux posi
 Le catalogue du serveur de test contient des doublons « SIM1…SIM5 » et des noms abrégés (« ELUDRILPRO BAIN BCHE ») :
 la mesure sur le téléphone, avec le vrai catalogue de la pharmacie, fait foi. **O3 n'est à activer que si le banc
 sur le téléphone le montre meilleur que la référence.**
+
+### 4.8 O4 — Apprentissage par correction : réalisé (patch serveur à appliquer pour le partage)
+
+**Code** : `lib/ordonnances/o4/` (`segment_medicament.dart`, `apprentissage_o4.dart`, `partage_o4.dart`,
+`apprentissages_screen.dart`, `banc_o4.dart`) ; points d'accroche : correspondance O3 (`apprentissages`), écran
+Ordonnance (validation de la pré-vente en mode O3), Réglages › Ventes › Ordonnances, banc d'essai (candidat
+« O3 + apprentissages », case « Apprentissage simulé »), `HorsLigne.bind` (partage branché sur la session) et retour en
+ligne (envoi de la file), journal du terminal (type « Apprentissage ordonnances », résultat « Info »).
+Serveur : `docs/serveur/O4_corrections_ordonnances.patch` + `docs/serveur/O4_CORRECTIONS.md`.
+Tests : `test/ordonnances_o4_test.dart` (CI), lectures et catalogue **synthétiques**, faux serveur.
+
+- **Ce qui est appris** : à « Créer la pré-vente » (mode O3), pour chaque ligne LUE validée (proposition gardée, autre
+  proposition choisie ou ligne corrigée à la main) : « segment médicament lu → produit (lgFAMILLEID, CIP, nom) »,
+  avec compteur de confirmations, de contradictions et date. Pas pour un CIP exact (déjà sûr) ni un produit ajouté
+  à la main (aucun texte lu). Le texte appris est celui **lu**, pas la correction tapée (« Brufen 400 mg » lu,
+  BRUSTAN choisi → la prochaine lecture « Brufen 400 mg » propose BRUSTAN).
+- **Données de santé** : jamais le texte lu complet. Segment = partie médicament de la ligne, minuscules sans
+  accents, sans numéro, posologie ni quantité, 4 mots / 40 caractères au plus ; ligne refusée (rien d'appris) si elle
+  contient une date, un téléphone, un e-mail, un long nombre, ou un mot comme Dr, Mme, Patient, Nom, Né le, Tél,
+  BP, Clinique, âge…
+- **Priorité dans O3** : segment lu identique ou presque (ressemblance ≥ 0,88, mêmes confusions d'écriture qu'O3)
+  → la proposition apprise passe **en tête**, même si la lecture est illisible pour O3 ; 1 validation : 75 %
+  « À vérifier » ; à partir de **2** validations nettes : 92 % « Proposé » (cochée), les autres propositions restent
+  derrière et consultables (« Changer »). Mention « Appris des validations précédentes » sous le produit.
+- **Contradiction** : choisir un autre produit pour le même segment contredit l'association (poids = confirmations
+  − 2 × contradictions) ; à 0 elle perd sa priorité (« inactive ») et la nouvelle prend la tête.
+- **Bonus « produits vendus »** : le compteur des produits validés (O3) + les validations reçues des autres terminaux.
+- **Gestion** : Réglages › Ventes (code administrateur) › Ordonnances › **Apprentissages des ordonnances** : liste
+  (segment → produit, validations, contradictions, CIP, date, sûr / inactif), recherche, **Oublier**, **Tout
+  réinitialiser**. 3 000 associations au plus sur l'appareil (préférences locales).
+- **Partage entre terminaux** (serveur avec le patch O4, capacité `ordonnanceCorrections: true`) : envoi par lot
+  `POST /mobile/ordonnances/corrections` (idempotent par clé), réception `GET …?depuis=` (différentiel, horloge du
+  serveur comme H5, chevauchement 2 min, clés déjà appliquées et celles du terminal ignorées). Option Réglages
+  **« Partager les apprentissages avec les autres terminaux »** : activée par défaut seulement si le serveur a la
+  capacité, désactivable (la file est alors vidée). **Sans capacité** : apprentissage sur l'appareil seulement,
+  aucune requête, comportement identique sinon. **Hors ligne** : file d'attente, envoyée au retour du serveur
+  **sans confirmation** (ni stock ni caisse) ; envois, attentes et réceptions notés au journal du terminal (« Info »).
+  Synchronisation aussi à l'ouverture de l'écran Ordonnance en mode O3.
+- **Banc d'essai** : candidat « O3 + apprentissages » (apprentissages réels de l'appareil, lecture seule) ; case
+  **« Apprentissage simulé (2 passages) »** : apprentissages vierges **en mémoire**, 1ᵉʳ passage = lecture puis
+  corrections du pharmacien simulées par la vérité terrain (proposition juste validée ; fausse ou absente →
+  produit attendu le plus ressemblant, sinon dans l'ordre), 2ᵉ passage = mesure. Rien n'est enregistré (ni
+  apprentissage, ni file, ni historique). Le 2ᵉ passage relit **les mêmes** ordonnances : il montre l'effet pour des
+  ordonnances revues (même médecin, même écriture), pas une généralisation.
+
+**Mesure indicative (tesseract au lieu de ML Kit, catalogue indicatif 153 produits, 15 ordonnances / 45 produits)** :
+
+| Lecture | O3 | O3 + apprentissages, 1ᵉʳ passage | 2ᵉ passage (apprentissage simulé) |
+|---|---|---|---|
+| photo brute, page auto (psm 3) | 0/15 · 4 % · 67 % | 0/15 · 4 % · 67 % | 0/15 · 4 % · 67 % (2 lignes apprises) |
+| photo brute, bloc (psm 6) | 1/15 · 16 % · 100 % | 1/15 · 16 % · 100 % | **2/15 · 18 % · 100 %** (7 lignes apprises) |
+| image améliorée (psm 6) | 1/15 · 11 % · 83 % | 1/15 · 11 % · 83 % | **2/15 · 24 % · 100 %** (10 lignes apprises) |
+
+(correctes · rappel · précision). Sans apprentissage, « O3 + apprentissages » = O3 exactement. Le gain est limité
+par tesseract, qui ne détecte qu'une partie des lignes manuscrites (une ligne non lue ne peut pas être apprise) :
+**la mesure sur le téléphone (ML Kit) fait foi** ; le banc simulé y montre l'effet sur vos ordonnances.
+
+### 4.9 O3b — Reconnaissance par fragments sûrs (« contient », avec prudence) : réalisé
+
+**Code** : `lib/ordonnances/o3/fragments_o3.dart` ; points d'accroche : `CorrespondanceO3` (`fragments: true`),
+`OcrService.readImageFile` (confiance par caractère), écran Ordonnance (mode **O3+**), Réglages › Ventes ›
+Ordonnances (choix **Actuelle / O2 / O3 / O3+**, « Actuelle » toujours par défaut), banc d'essai (candidat
+« O3 + fragments + apprentissages »). Tests : `test/ordonnances_o3b_test.dart` (CI), catalogue et lectures **synthétiques**.
+
+- **Fragments sûrs** d'une ligne (partie médicament, avant la posologie) : `google_mlkit_text_recognition` 0.15.1 donne
+  une **confiance par symbole** (Android seulement ; null sur iOS) : les caractères sous 0,6 coupent les fragments
+  (masque gardé en mémoire le temps de la lecture, jamais enregistré). Sans confiance (iOS, PDF, tesseract) :
+  **heuristique** — coupure aux lettres nées d'une confusion à plusieurs lettres (m ↔ rn / nn / iu, d ↔ cl,
+  w ↔ vv) et retrait des groupes « rn », « cl », « ii », « nn », « iu » ; les confusions d'une lettre (u/n, a/o,
+  i/l/1, e/c, o/0) sont neutralisées par un **pliage** identique du fragment et du catalogue. Fragments de **4
+  caractères au moins** (3 interdits) ; formes et qualificatifs (cp, sp, plus, pro…) ignorés.
+- **Recherche « contient »** : index de **trigrammes** du catalogue local (construit une fois), vérification
+  « contient » sur le nom plié ; ≈ 6 ms par ligne sur 10 000 produits (correspondance complète + fragments, exigence
+  < 50 ms). Sans copie locale : recherche serveur avec le joker `%` (`%frag1%frag2`), 50 produits au plus.
+- **Classement** : couverture des fragments (ET pondéré par la longueur), bonus si l'ordre des fragments est
+  respecté, **dosage lu** (différent : produit écarté ; commun : bonus), forme lue (bonus / malus), bonus
+  apprentissages O4, produits vendus et en stock.
+- **Garde-fous** : propositions **après** les correspondances complètes (qui gardent leur rang et leur « sûr »),
+  **3 au plus**, confiance plafonnée à 79 % → toujours **« À vérifier »**, **jamais cochées** ; mention « Trouvé par
+  fragment : …LUFAR… » sous le produit et dans « Changer ». Fragment trop fréquent (> 30 produits : « para »,
+  « amox »…) ignoré, sauf si le dosage / la forme lus ramènent le choix à 30 produits au plus ; un fragment de 4
+  lettres seulement doit être confirmé par le dosage lu. Jamais sur une phrase, un en-tête ou une ligne refusée par
+  le filtre du segment O4 (Dr, Patient, Clinique, date, téléphone…). Rien ne passe au panier sans validation.
+
+**Mesure indicative (tesseract, 15 ordonnances / 45 produits)** — correctes · rappel · précision :
+
+| Lecture | Catalogue | O3 | O3 + fragments + apprentissages | idem, 2ᵉ passage (apprentissage simulé) |
+|---|---|---|---|---|
+| photo brute (psm 6) | indicatif (153) | 1/15 · 16 % · 100 % | 1/15 · 16 % · 100 % | 2/15 · 18 % · 100 % |
+| image améliorée (psm 6) | indicatif (153) | 1/15 · 11 % · 83 % | 1/15 · 11 % · 83 % | 2/15 · 24 % · 100 % |
+| photo brute (psm 6) | serveur de test (10 898) | 1/15 · 13 % · 86 % | 1/15 · 13 % · 86 % | — |
+| image améliorée (psm 6) | serveur de test (10 898) | 1/15 · 11 % · 83 % | 1/15 · 11 % · 71 % (1 proposition « par fragment » en trop) | 2/15 · 24 % · 100 % |
+
+Sur le texte de tesseract (mots manuscrits presque entièrement faux), les fragments n'apportent **aucun produit de
+plus** et ajoutent au pire une proposition « à vérifier » en trop (comptée comme faux positif au banc, mais jamais
+cochée à l'écran). Leur intérêt attendu est sur ML Kit, dont la lecture est partiellement juste et qui fournit la
+confiance par caractère : **O3+ ne s'active qu'après un banc meilleur sur le téléphone**.
+
+### 4.10 O5 — Lecture avancée en ligne, avec consentement : réalisé (patch serveur à appliquer + clé à configurer)
+
+**Code** : `lib/ordonnances/o5/` (`masquage_o5.dart`, `lecture_avancee.dart`, `lecture_avancee_screen.dart`,
+`banc_o5.dart`) ; points d'accroche : écran Ordonnance (bouton « Lecture avancée »), Réglages › Ventes ›
+Ordonnances, banc d'essai, `HorsLigne.bind` (session), journal du terminal (type « Lecture avancée (en ligne) »).
+Serveur : `docs/serveur/O5_lecture_avancee.patch` + `docs/serveur/O5_LECTURE_AVANCEE.md`. Tests :
+`test/ordonnances_o5_test.dart` (CI) — images **synthétiques** générées par le test, faux serveur.
+
+- **Architecture, aucune clé dans l'appli** : le téléphone envoie l'image au **serveur Prestige**
+  (`POST /mobile/ordonnances/lecture-avancee`) ; le serveur appelle le fournisseur avec **sa** clé (environnement,
+  propriété système ou `lecture-avancee.properties`, jamais renvoyée) : **API Claude** par défaut (modèle
+  `claude-haiku-5-5` pour le coût, `claude-opus-5-5` possible ; sortie JSON structurée), **Google Cloud Vision**
+  possible (interface `FournisseurLecture`). Réponse : lignes `{nom, dosage, forme, posologie, quantité, confiance}`
+  → découpage O2 → correspondance O3 / O4 (fragments O3+ si choisis) ; **rien au panier sans validation**.
+- **Disponible seulement** si le serveur annonce `lectureAvancee: true` (fournisseur configuré) **et** si la lecture
+  avancée est activée sur le téléphone ; sinon le bouton n'existe pas. Hors ligne : bouton désactivé « disponible en
+  ligne uniquement ».
+- **Consentement** : désactivée par défaut ; Réglages › Ventes (code administrateur) › « Lecture avancée en ligne » →
+  écran de consentement (données de santé, service externe, coût ; case à cocher + « J'accepte ») ; date gardée,
+  activation / désactivation notées au journal du terminal.
+- **Protection des données à chaque envoi** : photo → **zone des médicaments obligatoire** (page entière ou zone de
+  plus de 85 % de la page refusée) → bandes du haut (18 %) et du bas (12 %) de la page **masquées automatiquement**
+  → **masques à la main** (glisser le doigt sur un nom, une date de naissance, un téléphone) → image réduite
+  (1 600 px), JPEG qualité 80, **sans EXIF** → **aperçu de l'image exacte** et confirmation « Envoyer cette zone pour
+  lecture avancée ? ». Journal du terminal (Info) : date, utilisateur, taille, nombre de médicaments ou erreur,
+  coût estimé — **jamais l'image ni le texte**.
+- **Serveur** : n'enregistre pas l'image ; consigne « médicaments seulement » ; réponse filtrée (lignes « Dr / Mme /
+  Patient / date / téléphone » retirées) ; une seule lecture à la fois, délai 30 s, aucune relance, quota par jour
+  (50 par défaut) ; journal serveur et table `mobile_lecture_avancee_journal` (taille, jetons, **coût estimé**,
+  durée ; ni image ni texte).
+- **Banc d'essai** : candidat « Lecture avancée (en ligne) » présent seulement si la capacité et le consentement
+  sont actifs ; avant de lancer, confirmation explicite (« Envoyer les images au service externe ? », rappel données
+  de santé et coût) ; chaque image est envoyée recadrée sur la page sans ses bandes haut / bas, sans EXIF.
+- **Développement** : aucune des 17 vraies ordonnances n'a été envoyée à une API externe ; essais avec un **faux
+  fournisseur local** (imitation de la Messages API : modes ok, lent, erreur, refus, ligne « patient ») et des images
+  synthétiques. Pas de clé d'API dans l'environnement : **la mesure réelle de la lecture avancée reste à faire** sur
+  le téléphone, au banc, avec la clé de l'officine et des ordonnances dont l'officine accepte l'envoi.
 
 ---
 

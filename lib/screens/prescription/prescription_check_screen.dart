@@ -10,6 +10,10 @@ import 'package:prestige_vente_app/ordonnances/o2/decoupage_ordonnance.dart';
 import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
 import 'package:prestige_vente_app/ordonnances/o3/catalogue_o3.dart';
 import 'package:prestige_vente_app/ordonnances/o3/correspondance_o3.dart';
+import 'package:prestige_vente_app/ordonnances/o4/apprentissage_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee_screen.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
@@ -22,7 +26,7 @@ import 'package:prestige_vente_app/services/product_finder.dart';
 import 'package:provider/provider.dart';
 
 /// Source de l'ordonnance.
-enum PrescriptionSource { camera, gallery, pdf }
+enum PrescriptionSource { camera, gallery, pdf, avancee }
 
 /// Lit le texte d'une ordonnance. Renvoie les lignes reconnues, ou `null` si annulé.
 typedef PrescriptionTextReader = Future<List<String>?> Function(PrescriptionSource source);
@@ -59,7 +63,17 @@ class _RxLine {
 
   /// Confiance de la correspondance O3 (0…1), null avec la lecture d'origine.
   double? confiance;
-  _RxLine(this.line) : quantity = line.quantity ?? 1;
+
+  /// O4 : texte LU de la ligne (null : produit saisi à la main), gardé quand l'opérateur corrige la ligne ;
+  /// seul son segment médicament est appris à la validation (jamais le texte complet).
+  final String? lu;
+
+  /// O4 : la proposition retenue vient d'un apprentissage.
+  bool apprise = false;
+
+  /// O3b : produits trouvés par fragments sûrs → indication (« …PHOS… »).
+  Map<String, String> fragments = const {};
+  _RxLine(this.line, {this.lu}) : quantity = line.quantity ?? 1;
 
   _LineStatus get status {
     if (searching) return _LineStatus.searching;
@@ -79,12 +93,21 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   bool _creating = false;
   int _generation = 0; // Ignore les recherches d'une ordonnance précédente
   Future<CorrespondanceO3>? _o3; // correspondance O3 (catalogue chargé une fois)
+  bool _o3Fragments = false;
   late ListPresentation _style = widget.presentation ?? ListPresentation.dashboard;
 
   @override
   void initState() {
     super.initState();
-    LectureO2.charger(); // nouvelle lecture O2 / O3 (« Actuelle » par défaut)
+    // Nouvelle lecture O2 / O3 (« Actuelle » par défaut) ; O3 : apprentissages des autres terminaux (O4).
+    LectureO2.charger().then((_) {
+      if (LectureO2.correspondanceO3) PartageO4.instance.synchroniser();
+    });
+    // O5 : lecture avancée (consentement + capacité du serveur) ; bouton absent sinon.
+    LectureAvancee.instance.charger().then((_) async {
+      if (LectureAvancee.instance.active.value) await LectureAvancee.instance.verifierCapacite();
+      if (mounted) setState(() {});
+    });
     if (widget.presentation == null) {
       PresentationPrefs.load().then((p) {
         if (mounted) setState(() => _style = p);
@@ -101,6 +124,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   // Lecture de l'ordonnance
   // ---------------------------------------------------------------------------
   Future<List<String>?> _defaultReader(PrescriptionSource source) {
+    if (source == PrescriptionSource.avancee) return LectureAvanceeFlux.lire(context, camera: true);
     // Nouvelle lecture O2 (Réglages, désactivée par défaut) : capture guidée de la page, zone des médicaments.
     if (LectureO2.nouvelleLecture && source != PrescriptionSource.pdf) {
       return LectureO2.lire(context, camera: source == PrescriptionSource.camera);
@@ -112,6 +136,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
         return OcrService.captureAndRead(ImageSource.gallery);
       case PrescriptionSource.pdf:
         return OcrService.pickPdfAndRead();
+      case PrescriptionSource.avancee:
+        return Future.value(null);
     }
   }
 
@@ -129,13 +155,16 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
 
     final generation = ++_generation;
     // O2 actif : découpage par lignes numérotées (posologie et quantité rattachées) ; sinon découpage d'origine.
-    final candidates = LectureO2.nouvelleLecture ? DecoupageOrdonnance.extraire(lines) : PrescriptionParser.extract(lines);
+    // O5 : lignes numérotées renvoyées par la lecture avancée → découpage O2 dans tous les cas.
+    final candidates = LectureO2.nouvelleLecture || source == PrescriptionSource.avancee
+        ? DecoupageOrdonnance.extraire(lines)
+        : PrescriptionParser.extract(lines);
     setState(() {
       _hasScanned = true;
       _ocrLines = lines!.map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
       _lines
         ..clear()
-        ..addAll(candidates.map(_RxLine.new));
+        ..addAll(candidates.map((c) => _RxLine(c, lu: c.text)));
     });
     if (candidates.isEmpty) {
       Constants.showSnackBar(context, 'Aucun produit reconnu. Ajoutez-les depuis le texte lu ou manuellement.', isError: true);
@@ -157,7 +186,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     final api = Provider.of<ApiService>(context, listen: false);
     setState(() => rx.searching = true);
 
-    if (LectureO2.mode.value == ModeLecture.o3) return _searchO3(rx, generation, api);
+    if (LectureO2.correspondanceO3) return _searchO3(rx, generation, api);
     final r = await PrescriptionMatcher.match(rx.line, apiPageSearch(api));
     final chosen = r.chosen;
     final failure = r.failure;
@@ -200,7 +229,10 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
         return;
       }
     }
-    final o3 = await (_o3 ??= CatalogueO3.creer(search));
+    final fragments = LectureO2.mode.value == ModeLecture.o3Fragments;
+    if (_o3Fragments != fragments) _o3 = null;
+    _o3Fragments = fragments;
+    final o3 = await (_o3 ??= ApprentissagesO4.charger().then((a) => CatalogueO3.creer(search, apprentissages: a, fragments: fragments)));
     final r = await o3.proposer(rx.line);
     if (!mounted || generation != _generation) return;
     final best = r.meilleure;
@@ -208,6 +240,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     setState(() {
       rx.selected = best?.produit;
       rx.confiance = best?.confiance;
+      rx.apprise = best?.apprise != null;
+      rx.fragments = {for (final p in r.propositions) if (p.fragment != null) p.produit.lgFAMILLEID: p.fragment!};
       rx.match = best == null ? _Match.none : (r.sur ? _Match.probable : _Match.toVerify);
       rx.alternatives = [for (final p in r.propositions.skip(1)) p.produit];
       rx.include = best != null && r.sur && best.produit.intNUMBERAVAILABLE > 0;
@@ -247,7 +281,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     );
   }
 
-  void _addLine(String text, {_RxLine? replace}) {
+  void _addLine(String text, {_RxLine? replace, bool lu = false}) {
     final cleaned = PrescriptionParser.cleanLine(text) ?? text.trim();
     if (cleaned.isEmpty) return;
     final parsed = PrescriptionParser.parseLine(cleaned) ?? PrescriptionParser.parseLine(cleaned, force: true);
@@ -263,7 +297,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
           ..line = parsed
           ..quantity = parsed.quantity ?? replace.quantity;
       } else {
-        rx = _RxLine(parsed);
+        rx = _RxLine(parsed, lu: lu ? parsed.text : null);
         _lines.add(rx);
       }
     });
@@ -302,7 +336,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                     for (final p in choices)
                       ListTile(
                         title: Text(p.strNAME),
-                        subtitle: Text('CIP: ${p.intCIP} | ${Constants.formatNumber(p.intPRICE)} F'),
+                        subtitle: Text('CIP: ${p.intCIP} | ${Constants.formatNumber(p.intPRICE)} F'
+                            '${rx.fragments[p.lgFAMILLEID] == null ? '' : '\nTrouvé par fragment : ${rx.fragments[p.lgFAMILLEID]} (à vérifier)'}'),
                         trailing: _stockChip(p),
                         selected: p.lgFAMILLEID == rx.selected?.lgFAMILLEID,
                         onTap: () => Navigator.of(ctx).pop(p),
@@ -323,6 +358,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       rx.selected = picked;
       rx.match = _Match.manual;
       rx.confiance = null;
+      rx.apprise = false;
+      rx.fragments = const {};
       rx.include = true;
     });
   }
@@ -372,7 +409,10 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     );
     if (confirmed != true || !mounted) return;
     // O3 : produits validés par le pharmacien → bonus « réellement vendu » (compteur sur l'appareil).
-    if (LectureO2.mode.value == ModeLecture.o3) PopulariteLocale.enregistrer([for (final l in toSell) l.selected!.lgFAMILLEID]);
+    if (LectureO2.correspondanceO3) {
+      PopulariteLocale.enregistrer([for (final l in toSell) l.selected!.lgFAMILLEID]);
+      _apprendre(toSell);
+    }
 
     setState(() => _creating = true);
     sale.startNewSale();
@@ -398,6 +438,20 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
               builder: (_) => VentesVersion.preVente(initialTabIndex: 0, resumeVenteId: sale.currentVenteId),
             ));
     await open(context);
+  }
+
+  /// O4 : chaque ligne lue validée (proposition gardée ou produit corrigé) est apprise : segment médicament
+  /// → produit, puis partagée si le serveur le permet (file d'attente hors ligne). Pas pour un CIP exact
+  /// (déjà sûr) ni pour un produit saisi à la main (aucun texte lu).
+  Future<void> _apprendre(List<_RxLine> lignes) async {
+    for (final l in lignes) {
+      final lu = l.lu, p = l.selected;
+      if (lu == null || p == null || l.match == _Match.exactCip) continue;
+      try {
+        await PartageO4.instance.enregistrerValidation(texteLu: lu, produitId: p.lgFAMILLEID, cip: p.intCIP, nom: p.strNAME);
+      } catch (_) {}
+    }
+    PartageO4.instance.synchroniser();
   }
 
   // ---------------------------------------------------------------------------
@@ -556,9 +610,28 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [tile(0), const SizedBox(width: 12), tile(1)])),
       const SizedBox(height: 12),
       IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [tile(2), const SizedBox(width: 12), tile(3)])),
+      ..._boutonAvance(),
       const SizedBox(height: 16),
       Text(_startHelp, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
     ]);
+  }
+
+  /// O5 : bouton « Lecture avancée » seulement si activée (consentement) et proposée par le serveur ;
+  /// désactivé hors ligne (« Disponible en ligne uniquement »).
+  List<Widget> _boutonAvance() {
+    final la = LectureAvancee.instance;
+    if (!la.proposee) return const [];
+    final ok = la.utilisable;
+    return [
+      const SizedBox(height: 12),
+      OutlinedButton.icon(
+        key: const Key('o5_bouton'),
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+        onPressed: ok && !_reading ? () => _scan(PrescriptionSource.avancee) : null,
+        icon: const Icon(Icons.cloud_upload_outlined),
+        label: Text(ok ? 'Lecture avancée (en ligne) : zone des médicaments' : 'Lecture avancée : disponible en ligne uniquement'),
+      ),
+    ];
   }
 
   Widget _startCompact() => ListView(children: [
@@ -589,6 +662,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
               ]),
             ),
           ),
+        if (LectureAvancee.instance.proposee) Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: _boutonAvance())),
         Padding(padding: const EdgeInsets.all(16), child: Text(_startHelp, style: TextStyle(color: Colors.grey.shade700, fontSize: 12))),
       ]);
 
@@ -619,6 +693,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
         const SizedBox(width: 8),
         Expanded(child: OutlinedButton.icon(style: outlineButton, icon: Icon(o[3].icon, size: 18), label: const Text('Saisie manuelle'), onPressed: o[3].onTap)),
       ]),
+      ..._boutonAvance(),
       const SizedBox(height: 16),
       Text(_startHelp, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
     ]);
@@ -694,7 +769,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                     dense: true,
                     title: Text(l),
                     trailing: const Icon(Icons.add_circle_outline),
-                    onTap: () => _addLine(l),
+                    onTap: () => _addLine(l, lu: true),
                   ),
               ],
             ),
@@ -800,6 +875,12 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                               Text(p.strNAME, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                               Text('CIP: ${p.intCIP} | ${Constants.formatNumber(p.intPRICE)} F', style: const TextStyle(fontSize: 12)),
                               _matchBadge(rx.match, rx.confiance),
+                              if (rx.fragments[p.lgFAMILLEID] case final f?)
+                                Text('Trouvé par fragment : $f',
+                                    style: TextStyle(fontSize: 11.5, color: Colors.orange.shade900, fontStyle: FontStyle.italic)),
+                              if (rx.apprise)
+                                const Text('Appris des validations précédentes',
+                                    style: TextStyle(fontSize: 11.5, color: Pal.muted, fontStyle: FontStyle.italic)),
                             ],
                           ),
                         ),

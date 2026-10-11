@@ -10,6 +10,10 @@ import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/banc_essai_screen.dart';
 import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
+import 'package:prestige_vente_app/ordonnances/o4/apprentissages_screen.dart';
+import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee_screen.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
@@ -270,6 +274,8 @@ class _VentesPageState extends State<VentesPage> {
         SwitchCard(title: 'Masquer les produits « RV »', value: s.hideRvProducts, onChanged: s.setHideRvProducts),
         const SectionLabel('Ordonnances'),
         const LectureO2Reglages(),
+        const ApprentissagesReglages(),
+        const LectureAvanceeReglages(),
         LinkCard(
           key: const Key('banc_essai_ordonnances'),
           icon: Icons.science_outlined,
@@ -317,7 +323,7 @@ class _LectureO2ReglagesState extends State<LectureO2Reglages> {
                 const SizedBox(height: 6),
                 Segmented<ModeLecture>(
                   key: const Key('lecture_mode'),
-                  options: const [(ModeLecture.actuelle, 'Actuelle'), (ModeLecture.o2, 'O2'), (ModeLecture.o3, 'O3')],
+                  options: const [(ModeLecture.actuelle, 'Actuelle'), (ModeLecture.o2, 'O2'), (ModeLecture.o3, 'O3'), (ModeLecture.o3Fragments, 'O3+')],
                   value: mode,
                   onChanged: LectureO2.definirMode,
                 ),
@@ -327,6 +333,7 @@ class _LectureO2ReglagesState extends State<LectureO2Reglages> {
                     ModeLecture.actuelle => 'Lecture d\'origine.',
                     ModeLecture.o2 => 'Photo guidée de la page, zone des médicaments, lignes numérotées.',
                     ModeLecture.o3 => 'O2 + correspondance catalogue améliorée (3 propositions avec confiance).',
+                    ModeLecture.o3Fragments => 'O3 + propositions par fragments sûrs (« …PHOS… »), toujours à vérifier.',
                   } +
                       (mode == ModeLecture.actuelle ? '' : ' À garder seulement si le banc d\'essai donne un meilleur score.'),
                   style: const TextStyle(fontSize: 12.5, color: Pal.muted),
@@ -344,6 +351,105 @@ class _LectureO2ReglagesState extends State<LectureO2Reglages> {
           ]),
         ),
       );
+}
+
+/// O4 : partage des apprentissages (activé par défaut seulement si le serveur a la capacité) et gestion.
+class ApprentissagesReglages extends StatefulWidget {
+  const ApprentissagesReglages({super.key});
+
+  @override
+  State<ApprentissagesReglages> createState() => _ApprentissagesReglagesState();
+}
+
+class _ApprentissagesReglagesState extends State<ApprentissagesReglages> {
+  @override
+  void initState() {
+    super.initState();
+    final p = PartageO4.instance;
+    p.charger().then((_) async {
+      await p.verifierCapacite();
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = PartageO4.instance;
+    return ValueListenableBuilder<bool?>(
+      valueListenable: p.choix,
+      builder: (context, _, __) => ValueListenableBuilder<bool?>(
+        valueListenable: p.capacite,
+        builder: (context, cap, __) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SwitchCard(
+            key: const Key('appr_partage_switch'),
+            title: 'Partager les apprentissages avec les autres terminaux',
+            subtitle: cap == false
+                ? 'Le serveur ne gère pas le partage : apprentissage sur cet appareil seulement.'
+                : 'Seul le nom du médicament lu et le produit validé sont envoyés (jamais l\'ordonnance).',
+            value: p.actif,
+            onChanged: cap == false ? null : (v) => p.definirPartage(v).then((_) => mounted ? setState(() {}) : null),
+          ),
+          LinkCard(
+            key: const Key('apprentissages_ordonnances'),
+            icon: Icons.school_outlined,
+            title: 'Apprentissages des ordonnances',
+            subtitle: 'Produits validés retenus : liste, recherche, oublier',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ApprentissagesScreen())),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// O5 : lecture avancée en ligne — désactivée par défaut, activée seulement après l'écran de consentement.
+class LectureAvanceeReglages extends StatefulWidget {
+  const LectureAvanceeReglages({super.key});
+
+  @override
+  State<LectureAvanceeReglages> createState() => _LectureAvanceeReglagesState();
+}
+
+class _LectureAvanceeReglagesState extends State<LectureAvanceeReglages> {
+  @override
+  void initState() {
+    super.initState();
+    final la = LectureAvancee.instance;
+    la.charger().then((_) async {
+      await la.verifierCapacite();
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _changer(bool v) async {
+    final la = LectureAvancee.instance;
+    if (v && !await demanderConsentementO5(context)) return;
+    await la.definir(v);
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final la = LectureAvancee.instance;
+    return ValueListenableBuilder<bool>(
+      valueListenable: la.active,
+      builder: (context, active, _) => ValueListenableBuilder<bool?>(
+        valueListenable: la.capacite,
+        builder: (context, cap, __) => SwitchCard(
+          key: const Key('o5_reglage'),
+          title: 'Lecture avancée en ligne (avec consentement)',
+          subtitle: cap == false
+              ? 'Le serveur ne la propose pas (non configurée) : le bouton n\'apparaît pas.'
+              : active
+                  ? 'Activée${la.consentementLe == null ? '' : ' (consentement du ${DateFormat('dd/MM/yyyy').format(la.consentementLe!)})'} : '
+                      'zone des médicaments masquée, envoyée au service externe par le serveur.'
+                  : 'Désactivée. Données de santé envoyées à un service externe, coût par lecture : consentement demandé.',
+          value: active,
+          onChanged: _changer,
+        ),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

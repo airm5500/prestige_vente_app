@@ -195,7 +195,7 @@ void main() {
       final vt = VeriteTerrain.fromJsonString('{"ordonnances":{"ordo (1).jpeg":{"produits":['
           '{"nom":"Curam 1 g"},{"nom":"Brustan B/20"},{"nom":"Tramadol Denk 50 mg"}]}}}');
       final pipelines = pipelinesBanc(_catalogue(_noms), lecteur: (_) async => _manuscrite);
-      expect(pipelines.map((p) => p.id), ['reference', 'o2', 'o2_image', 'o3']);
+      expect(pipelines.map((p) => p.id).take(4), ['reference', 'o2', 'o2_image', 'o3']);
       final ref = await pipelines[0].analyser('ordo (1).jpeg');
       final o2 = await pipelines[1].analyser('ordo (1).jpeg');
       final sRef = BancScore.evaluer('ordo (1).jpeg', vt.pour('ordo (1).jpeg'), ref.produits);
