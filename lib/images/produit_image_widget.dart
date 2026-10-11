@@ -18,6 +18,9 @@ class ProduitImage extends StatefulWidget {
 
   /// Marge à droite quand l'image est affichée (rien sinon).
   final bool avecMarge;
+
+  /// Demande servie avant celles en attente (ex. fiche produit ouverte depuis une liste).
+  final bool prioritaire;
   final ProduitImages? images;
   const ProduitImage({
     super.key,
@@ -27,6 +30,7 @@ class ProduitImage extends StatefulWidget {
     this.rayon,
     this.charger = true,
     this.avecMarge = false,
+    this.prioritaire = false,
     this.images,
   });
 
@@ -65,7 +69,7 @@ class _ProduitImageState extends State<ProduitImage> {
   void _demander() {
     if (!widget.charger || !ImagesReglages.courant.value.actif) return;
     final id = widget.familleId;
-    _s.demander(id).then((f) {
+    _s.demander(id, prioritaire: widget.prioritaire).then((f) {
       if (mounted && id == widget.familleId && f?.path != _f?.path) setState(() => _f = f);
     });
   }

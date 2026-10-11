@@ -353,7 +353,8 @@ void main() {
   });
 
   testWidgets('Apparence : présentation commune et Organiser l\'accueil protégé', (tester) async {
-    final env = await start(tester);
+    // Choix de la présentation réservé au compte administrateur (retour client).
+    final env = await start(tester, login: 'admin');
     await open(tester, Rubrique.apparence);
     await tester.tap(find.byKey(const Key('presentation_guided')));
     await tester.pumpAndSettle();

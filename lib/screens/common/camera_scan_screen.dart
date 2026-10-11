@@ -9,8 +9,27 @@ class CameraScanScreen extends StatefulWidget {
   final String title;
   final List<BarcodeFormat> formats;
 
+  /// Texte d'aide sous le cadre (par défaut : « Placez le code entièrement dans le cadre »).
+  final String? aide;
+
+  /// Codes des boîtes de médicaments : DataMatrix et tous les codes-barres classiques
+  /// (EAN-13/8, UPC-A/E — un EAN-13 commençant par 0 est lu comme UPC-A —, Code 128/39/93, ITF).
+  static const List<BarcodeFormat> formatsProduit = [
+    BarcodeFormat.dataMatrix,
+    BarcodeFormat.ean13,
+    BarcodeFormat.ean8,
+    BarcodeFormat.upcA,
+    BarcodeFormat.upcE,
+    BarcodeFormat.code128,
+    BarcodeFormat.code39,
+    BarcodeFormat.code93,
+    BarcodeFormat.itf,
+    BarcodeFormat.qrCode,
+  ];
+
   const CameraScanScreen({
     super.key,
+    this.aide,
     this.title = 'Scanner avec l\'appareil photo',
     this.formats = const [
       BarcodeFormat.dataMatrix,
@@ -23,14 +42,18 @@ class CameraScanScreen extends StatefulWidget {
 
   /// Ouvre le scanner et renvoie le contenu du premier code lu (ou `null` si annulé).
   /// [dataMatrixOnly] : ne lit que les DataMatrix (évite de capter l'EAN de la boîte).
-  static Future<String?> open(BuildContext context, {String? title, bool dataMatrixOnly = false}) {
+  /// [produit] : tous les formats des boîtes ([formatsProduit]) ; [aide] : texte sous le cadre.
+  static Future<String?> open(BuildContext context, {String? title, bool dataMatrixOnly = false, bool produit = false, String? aide}) {
     return Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => CameraScanScreen(
           title: title ?? 'Scanner avec l\'appareil photo',
+          aide: aide,
           formats: dataMatrixOnly
               ? const [BarcodeFormat.dataMatrix]
-              : const [
+              : produit
+                  ? formatsProduit
+                  : const [
                   BarcodeFormat.dataMatrix,
                   BarcodeFormat.ean13,
                   BarcodeFormat.ean8,
@@ -47,6 +70,8 @@ class CameraScanScreen extends StatefulWidget {
   /// et le numéro de série restent ainsi séparés sans ambiguïté.
   static String? valueOf(Barcode barcode) {
     final value = barcode.rawValue;
+    // UPC-A (12 chiffres) = EAN-13 commençant par 0 : on rend l'EAN-13 complet.
+    if (barcode.format == BarcodeFormat.upcA && value != null && RegExp(r'^\d{12}$').hasMatch(value)) return '0$value';
     final bytes = barcode.rawBytes;
     if (bytes != null &&
         bytes.contains(29) &&
@@ -143,14 +168,14 @@ class _CameraScanScreenState extends State<CameraScanScreen> {
             ),
           ),
           if (!_startTimedOut)
-          const Positioned(
+          Positioned(
             left: 16,
             right: 16,
             bottom: 32,
             child: Text(
-              'Placez le code entièrement dans le cadre',
+              widget.aide ?? 'Placez le code entièrement dans le cadre',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white, fontSize: 16),
+              style: const TextStyle(color: Colors.white, fontSize: 16),
             ),
           ),
         ],

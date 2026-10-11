@@ -351,13 +351,19 @@ class ProduitImages extends ChangeNotifier {
   // Demandes
   // ---------------------------------------------------------------------------
 
-  Future<void> _jeton() async {
+  /// [prioritaire] : passe devant les demandes en attente (fiche produit ouverte pendant que la liste
+  /// des résultats demande ses vignettes).
+  Future<void> _jeton({bool prioritaire = false}) async {
     if (_actifs < concurrence) {
       _actifs++;
       return;
     }
     final c = Completer<void>();
-    _attente.add(c);
+    if (prioritaire) {
+      _attente.insert(0, c);
+    } else {
+      _attente.add(c);
+    }
     await c.future;
     _actifs++;
   }
@@ -368,20 +374,21 @@ class ProduitImages extends ChangeNotifier {
   }
 
   /// Image du produit (cache, sinon serveur) ; null : pas d'image, pas de capacité, ou hors ligne sans cache.
-  Future<File?> demander(String familleId, {bool forcer = false}) async {
+  /// [prioritaire] : servie avant les demandes en attente (image de la fiche produit).
+  Future<File?> demander(String familleId, {bool forcer = false, bool prioritaire = false}) async {
     if (familleId.isEmpty) return null;
     await _charger();
     final e = _index[familleId];
     final frais = e != null && clock().difference(e.verifie) < fraicheur;
     if ((frais && !forcer) || !_interrogeable) return fichierConnu(familleId);
     // (le rappel ne doit rien renvoyer : renvoyer la demande elle-même la ferait s'attendre.)
-    return _enCours[familleId] ??= _rafraichir(familleId).whenComplete(() {
+    return _enCours[familleId] ??= _rafraichir(familleId, prioritaire: prioritaire).whenComplete(() {
       _enCours.remove(familleId);
     });
   }
 
-  Future<File?> _rafraichir(String familleId) async {
-    await _jeton();
+  Future<File?> _rafraichir(String familleId, {bool prioritaire = false}) async {
+    await _jeton(prioritaire: prioritaire);
     try {
       if (!_interrogeable) return fichierConnu(familleId);
       requetes++;

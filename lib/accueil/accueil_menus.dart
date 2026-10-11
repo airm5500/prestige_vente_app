@@ -29,12 +29,13 @@ import 'package:prestige_vente_app/screens/pointage/pointage_home_screen.dart';
 import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
 
 /// Familles de l'accueil, dans l'ordre d'affichage.
-enum MenuFamille { ventes, caisse, reception, stock, produits, equipe }
+/// La Caisse est rangée dans « Ventes » (retour client) : les familles ne sont pas enregistrées
+/// (ordre, menus masqués et favoris sont mémorisés par identifiant de menu) : rien à migrer.
+enum MenuFamille { ventes, reception, stock, produits, equipe }
 
 extension MenuFamilleLabel on MenuFamille {
   String get label => switch (this) {
         MenuFamille.ventes => 'Ventes',
-        MenuFamille.caisse => 'Caisse',
         MenuFamille.reception => 'Réception & fournisseurs',
         MenuFamille.stock => 'Stock',
         MenuFamille.produits => 'Produits',
@@ -79,8 +80,8 @@ final List<AccueilMenu> accueilMenus = [
   AccueilMenu(id: 'depot', label: 'Vente Dépôt', short: 'Dépôt', icon: Icons.store_mall_directory, color: Colors.brown.shade600, famille: MenuFamille.ventes, screen: () => const DepotSaleListScreen()),
   AccueilMenu(id: 'proforma', label: 'Proforma / Devis', short: 'Proforma', icon: Icons.description, color: Colors.purple.shade600, famille: MenuFamille.ventes, screen: () => const ProformaListScreen()),
   AccueilMenu(id: 'ordonnance', label: 'Vérification Ordonnance', short: 'Ordonnance', icon: Icons.receipt_long, color: Colors.teal.shade600, famille: MenuFamille.ventes, screen: () => const PrescriptionCheckScreen()),
-  // Caisse
-  AccueilMenu(id: 'caisse', label: 'Gestion Caisse', short: 'Caisse', icon: Icons.calculate, color: Colors.lime.shade700, famille: MenuFamille.caisse, screen: () => const CaisseScreen()),
+  // Caisse (famille Ventes)
+  AccueilMenu(id: 'caisse', label: 'Gestion Caisse', short: 'Caisse', icon: Icons.calculate, color: Colors.lime.shade700, famille: MenuFamille.ventes, screen: () => const CaisseScreen()),
   // Réception & fournisseurs
   AccueilMenu(id: 'reception_bl', label: 'Réception BL', short: 'Réception BL', icon: Icons.local_shipping, color: Colors.teal.shade700, famille: MenuFamille.reception, screen: () => const ReceptionHomeScreen()),
   AccueilMenu(id: 'retour_frs', label: 'Retour Fournisseur', short: 'Retour frs', icon: Icons.assignment_return, color: Colors.red.shade400, famille: MenuFamille.reception, screen: () => const RetourHomeScreen()),

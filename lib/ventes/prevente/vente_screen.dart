@@ -118,7 +118,15 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
     if (widget.presentation == null) PresentationPrefs.save(p);
   }
 
-  void _focusSearch() => _searchKey.currentState?.requestFocus();
+  /// Curseur (et clavier) dans la recherche produit. Après une vente validée, le champ est encore
+  /// désactivé (_paying) au moment de l'appel : le focus est redemandé après la prochaine image,
+  /// une fois le champ réactivé, pour enchaîner la vente suivante.
+  void _focusSearch() {
+    _searchKey.currentState?.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchKey.currentState?.requestFocus();
+    });
+  }
 
   /// Démarrage : vente demandée (ordonnance) ou proposition de reprendre la vente mémorisée.
   Future<void> _start() async {

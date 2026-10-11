@@ -78,6 +78,18 @@ class ApiService {
   Future<List<ProductOrderHistory>> getProductOrderHistory(String productId, String dtStart, String dtEnd) async { try { final response = await _dio.get( '/commande/produit/commande/$productId', queryParameters: { 'dtStart': dtStart, 'dtEnd': dtEnd, 'page': 1, 'start': 0, 'limit': 9999 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((item) => ProductOrderHistory.fromJson(item)).toList(); } return []; } catch (e) { print("Error fetching order history: $e"); return []; } }
   Future<bool> updateExpirationDate(String productId, String newDate) async { print('Mise à jour de la date de péremption pour $productId à $newDate'); await Future.delayed(const Duration(seconds: 1)); return true; }
   Future<ProductInfo?> getProductInfo(String codeCip) async { try { final response = await _dio.get( '/info', queryParameters: {'search': codeCip}); if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) { return ProductInfo.fromJson(response.data[0]); } return null; } catch (e) { print("Error fetching product info: $e"); return null; } }
+  /// Même requête que [getProductInfo], annulable (fiche produit quittée avant la réponse).
+  Future<ProductInfo?> getProductInfoAnnulable(String codeCip, CancelToken cancelToken) async {
+    try {
+      final response = await _dio.get('/info', queryParameters: {'search': codeCip}, cancelToken: cancelToken);
+      if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) {
+        return ProductInfo.fromJson(response.data[0]);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
   Future<bool> addLot({ required String produitId, required String datePeremption, required String numLot, required int quantity, }) async { try { final response = await _dio.post( '/fichearticle/add-lot', data: { "produitId": produitId, "datePeremption": datePeremption, "numLot": numLot, "quantity": quantity }, ); return response.statusCode == 202; } catch (e) { print("Error adding lot: $e"); return false; } }
   Future<List<Commande>> getCommandes() => _loadList(
         'commandes',

@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/quantity_dialog.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 const Size _btn = Size(88, 44);
 
@@ -58,6 +59,17 @@ class _EditLineDialogState extends State<_EditLineDialog> {
   bool _busy = false;
 
   @override
+  void initState() {
+    super.initState();
+    _qte.addListener(_maj);
+    _price.addListener(_maj);
+  }
+
+  void _maj() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
     _qte.dispose();
     _price.dispose();
@@ -103,25 +115,32 @@ class _EditLineDialogState extends State<_EditLineDialog> {
     Navigator.of(context).pop((qty: q, price: p));
   }
 
+  /// Même présentation que la fenêtre de quantité (− / +, raccourcis, total en direct) + prix unitaire.
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: Text(widget.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-        content: Form(
-          key: _form,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
+  Widget build(BuildContext context) {
+    final prix = VenteInput.parsePrice(_price.text) ?? widget.price;
+    return AlertDialog(
+      key: const ValueKey('ligne-dialogue'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+      contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      title: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+        Text(widget.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Pal.ink)),
+        const SizedBox(height: 8),
+        ProduitInfos(prix: widget.price),
+      ]),
+      content: Form(
+        key: _form,
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            QuantiteSaisie(controller: _qte, prixUnitaire: prix, autofocus: true),
+            const SizedBox(height: 12),
             TextFormField(
-              controller: _qte,
-              decoration: const InputDecoration(labelText: 'Quantité (1 à ${VenteInput.maxQuantity})'),
-              keyboardType: TextInputType.number,
-              inputFormatters: VenteInput.quantityFormatters,
-              validator: VenteInput.quantityError,
-              autofocus: true,
-            ),
-            const SizedBox(height: 10),
-            TextFormField(
+              key: const ValueKey('ligne-prix'),
               controller: _price,
               enabled: widget.priceEditable,
-              decoration: const InputDecoration(labelText: 'Prix unitaire (F)'),
+              decoration: InputDecoration(labelText: 'Prix unitaire (F)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
               keyboardType: TextInputType.number,
               inputFormatters: VenteInput.priceFormatters,
               validator: widget.priceEditable ? VenteInput.priceError : null,
@@ -129,11 +148,10 @@ class _EditLineDialogState extends State<_EditLineDialog> {
             ),
           ]),
         ),
-        actions: [
-          TextButton(style: TextButton.styleFrom(minimumSize: _btn), onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-          ElevatedButton(style: ElevatedButton.styleFrom(minimumSize: _btn), onPressed: _submit, child: const Text('Valider')),
-        ],
-      );
+      ),
+      actions: [BoutonsDialogue(confirmLabel: 'Valider', onConfirm: _submit)],
+    );
+  }
 }
 
 /// Confirmation avant de retirer [name] du panier.

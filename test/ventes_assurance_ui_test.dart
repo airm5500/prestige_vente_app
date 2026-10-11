@@ -714,6 +714,8 @@ void main() {
       expect(gw.clotures.single.net, 300);
       expect(find.text('Vente validée ✓ (AS-V1)'), findsOneWidget);
       expect(_clientField, findsOneWidget); // nouvelle vente
+      // Vente suivante : le curseur est dans le premier champ (recherche du client).
+      expect(tester.widget<EditableText>(find.descendant(of: _clientField, matching: find.byType(EditableText))).focusNode.hasFocus, isTrue);
       expect(tester.takeException(), isNull);
     });
 
