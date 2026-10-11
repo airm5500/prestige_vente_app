@@ -3,8 +3,9 @@
 //
 // Voie B, en ligne : badge → employé (copie locale) → sens proposé (inverse du dernier pointage du jour
 // connu : présence du serveur + lectures du terminal) → POST v1/rh/pointages avec l'heure de LECTURE.
-// Anti double lecture : le même employé relu moins de 2 minutes après est ignoré (message).
-// Doublon du serveur (même minute : « existe déjà ») : déjà enregistré, sans erreur (idempotent).
+// Anti double lecture : le même employé relu moins de 2 minutes après n'est pas renvoyé ; message clair
+// « Awa, vous avez déjà pointé (ENTRÉE à 08:02) » (information, orange).
+// Doublon du serveur (même minute : « existe déjà ») : déjà enregistré, sans erreur (idempotent), même message.
 // Hors ligne (ou serveur injoignable) : pointage mis en FILE persistante avec l'heure de lecture,
 // envoyé au retour après confirmation (liste décochable) ; refus du serveur → rapport d'anomalies
 // commun ([AnomalieSourceListe]) ; chaque étape notée dans le journal du terminal.
@@ -51,11 +52,17 @@ class BadgeInconnu extends LectureBadge {
   const BadgeInconnu(this.code);
 }
 
-/// Même badge relu moins de 2 minutes après : ignoré.
+/// Même badge relu moins de 2 minutes après : aucun nouveau pointage, « vous avez déjà pointé ».
 class BadgeIgnore extends LectureBadge {
   final EmployeRh employe;
+
+  /// « Awa, vous avez déjà pointé (ENTRÉE à 08:02) ».
   final String message;
-  const BadgeIgnore(this.employe, this.message);
+
+  /// Sens et heure du pointage déjà fait (sens inconnu si l'enregistrement est encore en cours).
+  final SensPointage? sens;
+  final DateTime? at;
+  const BadgeIgnore(this.employe, this.message, {this.sens, this.at});
 }
 
 /// Employé reconnu : sens proposé, à confirmer (ou corriger) sur l'écran de confirmation.
@@ -424,9 +431,11 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     _nouveauJour();
     final avant = _lectures[e.id];
     if (avant != null && n.difference(avant) < antiDoubleLecture) {
-      final reste = antiDoubleLecture - n.difference(avant);
-      return BadgeIgnore(e,
-          '${e.prenomAffiche} déjà identifié(e) à ${_hm(avant)} : lecture ignorée (nouvelle lecture possible dans ${reste.inSeconds + 1} s).');
+      // Pointage déjà fait par cette lecture (sens et heure de lecture) ; sens inconnu s'il est encore en cours.
+      final d = _derniers[e.id];
+      final fait = d != null && !d.at.isBefore(avant) ? d : null;
+      final at = fait?.at ?? avant;
+      return BadgeIgnore(e, messageDejaPointe(e.prenomAffiche, fait?.sens, _hm(at)), sens: fait?.sens, at: at);
     }
     _lectures[e.id] = n;
     return BadgeAConfirmer(e, sensPropose(_derniers[e.id]?.sens), n, moyen);
@@ -435,6 +444,14 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
   /// Lecture annulée sur l'écran de confirmation : le badge peut être relu tout de suite.
   void annuler(BadgeAConfirmer l) {
     if (_lectures[l.employe.id] == l.lu) _lectures.remove(l.employe.id);
+  }
+
+  /// Prénom affiché de l'employé du pointage (copie locale), sinon le nom enregistré.
+  String _prenom(PointageBadge p) {
+    for (final e in _employes) {
+      if (e.id == p.employeId) return e.prenomAffiche;
+    }
+    return p.employeNom;
   }
 
   static String _hm(DateTime d) => '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
@@ -528,7 +545,7 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
       final ok = p.copie(statut: StatutPointageBadge.dejaApplique, message: m);
       if (p.horsLigne) await _sauver(ok);
       _noter(ok, 'Pointage ${p.sens.majuscules} déjà enregistré sur le serveur', ResultatJournal.dejaApplique, motif: m, source: source);
-      return ResultatBadge(IssueBadge.dejaEnregistre, 'Déjà enregistré à ${p.heure}.', ok);
+      return ResultatBadge(IssueBadge.dejaEnregistre, messageDejaPointe(_prenom(p), p.sens, p.heure), ok);
     }
     final ko = p.copie(statut: StatutPointageBadge.refuse, message: m);
     if (p.horsLigne) await _sauver(ko);

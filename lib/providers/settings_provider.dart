@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/services/identifiants_securises.dart';
 
 class SettingsProvider with ChangeNotifier {
   static const String _localIpKey = 'local_ip';
@@ -12,7 +13,8 @@ class SettingsProvider with ChangeNotifier {
   static const String _isRemoteKey = 'is_remote';
   static const String _stayConnectedKey = 'stay_connected';
   static const String _savedLoginKey = 'saved_login';
-  static const String _savedPasswordKey = 'saved_password';
+  // Mot de passe mémorisé : stockage sécurisé, voir IdentifiantsSecurises (ancienne clé en clair
+  // `saved_password` migrée puis supprimée au démarrage).
   static const String _isTestPrintModeKey = 'is_test_print_mode';
   static const String _paperWidthKey = 'paper_width';
   static const String _showQrCodeOnSaleTicketKey = 'show_qr_code_on_sale_ticket';
@@ -98,6 +100,10 @@ class SettingsProvider with ChangeNotifier {
     _isRemote = prefs.getBool(_isRemoteKey) ?? false;
     _stayConnected = prefs.getBool(_stayConnectedKey) ?? false;
     _savedLogin = prefs.getString(_savedLoginKey) ?? '';
+    // Ancien mot de passe en clair : déplacé dans le stockage sécurisé (jamais bloquant).
+    if (prefs.containsKey(IdentifiantsSecurises.cleClaire)) {
+      await IdentifiantsSecurises.instance.migrer();
+    }
     _isTestPrintMode = prefs.getBool(_isTestPrintModeKey) ?? false;
     _paperWidth = prefs.getInt(_paperWidthKey) ?? 58;
     _showQrCodeOnSaleTicket = prefs.getBool(_showQrCodeOnSaleTicketKey) ?? false;
@@ -243,8 +249,7 @@ class SettingsProvider with ChangeNotifier {
   }
 
   Future<String> getSavedPassword() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_savedPasswordKey) ?? '';
+    return await IdentifiantsSecurises.instance.lire() ?? '';
   }
 
   Future<void> saveCredentials(String login, String password, bool stayConnected) async {
@@ -254,11 +259,11 @@ class SettingsProvider with ChangeNotifier {
 
     if (_stayConnected) {
       await prefs.setString(_savedLoginKey, login);
-      await prefs.setString(_savedPasswordKey, password);
+      await IdentifiantsSecurises.instance.ecrire(password);
       _savedLogin = login;
     } else {
       await prefs.remove(_savedLoginKey);
-      await prefs.remove(_savedPasswordKey);
+      await IdentifiantsSecurises.instance.effacer();
       _savedLogin = '';
     }
     notifyListeners();
