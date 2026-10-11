@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_ui.dart';
 import 'package:prestige_vente_app/horsligne/ventes_hors_ligne_screen.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
+import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:provider/provider.dart';
 
 enum BandeauHorsLigne { injoignable, horsLigne, retour, envoi, enAttente, aVerifier }
@@ -60,6 +61,8 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     _bound.ventesEnAttente.addListener(_onChange);
     _stock.attach(_bound);
     _stock.queue.addListener(_onChange); // stock hors ligne (H3)
+    // Pointage RH : copie des employés avec la copie hors ligne, anomalies dans le rapport commun.
+    PointageRh.instance.attach(_bound);
     _bound.ventes.addListener(_onChange);
     if (widget.bindApp) _bound.monitor.start();
   }
@@ -72,6 +75,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     if (api != null) {
       _bound.bind(api);
       _stock.bind(api);
+      PointageRh.instance.bind(api);
     }
     final user = Provider.of<AuthProvider?>(context)?.user;
     final connecte = user != null;
