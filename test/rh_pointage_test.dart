@@ -881,4 +881,148 @@ void main() {
       });
     }
   });
+
+  // =========================================================================
+  // « Vous avez déjà pointé » : relecture < 2 min, doublon du serveur, voie A
+  // =========================================================================
+  group('Déjà pointé', () {
+    Future<Env> pret() async {
+      final e = Env();
+      await e.pr.verifierAcces();
+      await e.pr.rafraichirEmployes();
+      return e;
+    }
+
+    Color? fondResultat(WidgetTester t) => t.widget<Container>(find.byKey(const Key('rh_resultat'))).color;
+
+    test('règles : refus « moins de deux minutes », heure HH:mm, messages', () {
+      expect(estRefusDeuxMinutes('Pointage refusé : moins de deux minutes depuis le dernier pointage.'), isTrue);
+      expect(estRefusDeuxMinutes('Dernier pointage il y a moins de 2 min.'), isTrue);
+      expect(estRefusDeuxMinutes('Code de pointage invalide ou expiré.'), isFalse);
+      expect(estRefusDeuxMinutes('Un pointage existe déjà à cette heure.'), isFalse);
+      expect(heureMinute('2026-10-12 8:01:30'), '08:01');
+      expect(heureMinute('08:02'), '08:02');
+      expect(heureMinute(''), '');
+      expect(messageDejaPointe('Awa', SensPointage.entree, '08:02'), 'Awa, vous avez déjà pointé (ENTRÉE à 08:02)');
+      expect(messageDejaPointe('Awa', null, '08:02'), 'Awa, vous avez déjà pointé (à 08:02)');
+      expect(messageDejaPointeMobile('08:01'), 'Vous avez déjà pointé à 08:01');
+      expect(messageDejaPointeMobile(''), 'Vous avez déjà pointé.');
+    });
+
+    test('relecture < 2 min : « Awa, vous avez déjà pointé (ENTRÉE à 08:02) », sens et heure du pointage, rien envoyé', () async {
+      final e = await pret();
+      final l = e.pr.lire('PV12AB34') as BadgeAConfirmer;
+      expect((await e.pr.enregistrer(l, SensPointage.entree)).issue, IssueBadge.enregistre);
+      e.now = e.now.add(const Duration(seconds: 50));
+      final r = e.pr.lire('pv12ab34');
+      expect(r, isA<BadgeIgnore>());
+      final b = r as BadgeIgnore;
+      expect(b.message, 'Awa, vous avez déjà pointé (ENTRÉE à 08:02)');
+      expect(b.sens, SensPointage.entree);
+      expect(b.at, h0802);
+      // sens corrigé à la confirmation : c'est lui qui est rappelé
+      final k = e.pr.lire('M02') as BadgeAConfirmer;
+      await e.pr.enregistrer(k, SensPointage.sortie);
+      expect((e.pr.lire('M02') as BadgeIgnore).message, 'Koffi, vous avez déjà pointé (SORTIE à 08:02)');
+      expect(e.rh.posts, hasLength(2));
+      // empreinte : même règle
+      expect(e.pr.lireEmploye(e.pr.employes.first, moyen: MoyenIdentification.empreinte), isA<BadgeIgnore>());
+      // au-delà de 2 minutes : nouvelle lecture normale
+      e.now = h0802.add(const Duration(minutes: 2, seconds: 1));
+      expect(e.pr.lire('PV12AB34'), isA<BadgeAConfirmer>());
+    });
+
+    test('doublon du serveur (« Un pointage existe déjà à cette heure ») : même message, accepté, sans nouvel envoi', () async {
+      final e = await pret();
+      e.rh.refus = 'Un pointage existe déjà à cette heure pour cet employé.';
+      final l = e.pr.lire('PV12AB34') as BadgeAConfirmer;
+      final r = await e.pr.enregistrer(l, SensPointage.entree);
+      expect(r.issue, IssueBadge.dejaEnregistre);
+      expect(r.accepte, isTrue);
+      expect(r.message, 'Awa, vous avez déjà pointé (ENTRÉE à 08:02)');
+      expect(e.rh.posts, hasLength(1));
+      expect(e.pr.enAttente, 0);
+      // relu tout de suite : pas de nouvel envoi
+      expect(e.pr.lire('PV12AB34'), isA<BadgeIgnore>());
+      expect(e.rh.posts, hasLength(1));
+    });
+
+    testWidgets('terminal : relecture < 2 min → écran orange « Awa, vous avez déjà pointé (ENTRÉE à 08:02) », rien envoyé', (t) async {
+      tailleTelephone(t);
+      final e = await pret();
+      await pump(t, TerminalPointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, identification: e.identification, rafraichirAuDemarrage: false));
+      await t.enterText(find.byKey(const Key('rh_badge_champ')), 'PV12AB34');
+      await t.testTextInput.receiveAction(TextInputAction.done);
+      await t.pump();
+      await t.tap(find.byKey(const Key('rh_valider')));
+      await t.pump();
+      await t.pump();
+      expect(e.rh.posts, hasLength(1));
+      expect(fondResultat(t), const Color(0xFFDCF5E7));
+      await t.pump(const Duration(seconds: 5));
+      e.now = e.now.add(const Duration(seconds: 40));
+      await t.enterText(find.byKey(const Key('rh_badge_champ')), 'PV12AB34');
+      await t.testTextInput.receiveAction(TextInputAction.done);
+      await t.pump();
+      expect(find.text('Awa, vous avez déjà pointé (ENTRÉE à 08:02)'), findsOneWidget);
+      expect(find.text('Déjà pointé'), findsOneWidget);
+      expect(fondResultat(t), const Color(0xFFFFF1D6));
+      expect(find.byKey(const Key('rh_confirmation')), findsNothing);
+      await t.pump(const Duration(milliseconds: 300)); // second signal (double clic)
+      expect(e.rh.posts, hasLength(1));
+      expect(t.takeException(), isNull);
+      await t.pump(const Duration(seconds: 5));
+      await t.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('terminal : doublon du serveur → même écran orange (pas « Bonjour … ✓ »)', (t) async {
+      tailleTelephone(t);
+      final e = await pret();
+      e.rh.refus = 'Un pointage existe déjà à cette heure pour cet employé.';
+      await pump(t, TerminalPointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, identification: e.identification, rafraichirAuDemarrage: false));
+      await t.enterText(find.byKey(const Key('rh_badge_champ')), 'PV12AB34');
+      await t.testTextInput.receiveAction(TextInputAction.done);
+      await t.pump();
+      await t.tap(find.byKey(const Key('rh_valider')));
+      await t.pump();
+      await t.pump();
+      expect(find.text('Awa, vous avez déjà pointé (ENTRÉE à 08:02)'), findsWidgets);
+      expect(fondResultat(t), const Color(0xFFFFF1D6));
+      expect(find.textContaining('Bonjour Awa'), findsNothing);
+      expect(e.rh.posts, hasLength(1));
+      expect(t.takeException(), isNull);
+      await t.pump(const Duration(seconds: 5));
+      await t.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('voie A : refus « moins de deux minutes » → « Vous avez déjà pointé à HH:mm » (dernier pointage connu), orange', (t) async {
+      tailleTelephone(t);
+      final e = Env();
+      e.coffre.valeur = jsonEncode({...moiJson(qr: false), 'jeton': 'J1', 'expiration': '2026-10-12T20:00:00Z'});
+      e.transport.routes['GET moi'] = (_) => (status: 200, body: moiJson(qr: false));
+      var hist = <Map<String, dynamic>>[];
+      e.transport.routes['GET pointages'] = (_) => (status: 200, body: {'success': true, 'data': hist});
+      e.transport.routes['POST pointages'] = (_) {
+        // pointage fait depuis un autre écran juste avant : l'historique local n'est pas encore à jour
+        hist = [{'heure': '2026-10-12 08:01:10', 'sens': 'ENTREE', 'source': 'MOBILE'}];
+        return (status: 200, body: {'success': false, 'message': 'Pointage refusé : moins de deux minutes depuis le dernier pointage.'});
+      };
+      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard));
+      await t.tap(find.text('Pointer mon entrée'));
+      await t.pumpAndSettle();
+      expect(find.text('Vous avez déjà pointé à 08:01'), findsOneWidget);
+      expect(find.textContaining('moins de deux minutes'), findsNothing);
+      final deco = t.widget<Container>(find.byKey(const Key('rh_mobile_message'))).decoration as BoxDecoration;
+      expect(deco.color, const Color(0xFFFFF1D6));
+      expect(e.transport.corpsDe('POST', 'pointages'), hasLength(1));
+      // autre refus : toujours affiché tel quel (rouge)
+      e.transport.routes['POST pointages'] = (_) => (status: 200, body: {'success': false, 'message': 'Hors de la zone de l\'officine.'});
+      await t.tap(find.text('Pointer ma sortie'));
+      await t.pumpAndSettle();
+      expect(find.text('Hors de la zone de l\'officine.'), findsOneWidget);
+      final deco2 = t.widget<Container>(find.byKey(const Key('rh_mobile_message'))).decoration as BoxDecoration;
+      expect(deco2.color, const Color(0xFFFDECEC));
+      expect(t.takeException(), isNull);
+    });
+  });
 }

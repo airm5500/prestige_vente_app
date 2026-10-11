@@ -52,6 +52,9 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
   /// Message principal (résultat du pointage, refus, erreur) et sa couleur.
   String? _message;
   bool _messageOk = false;
+
+  /// Message d'information (orange) : « Vous avez déjà pointé à 08:02 ».
+  bool _messageInfo = false;
   bool _reglagesPosition = false;
 
   late final TextEditingController _login = TextEditingController(text: widget.login ?? '');
@@ -74,11 +77,12 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
 
   bool get _horsLigne => widget.rh.horsLigne();
 
-  void _dire(String? m, {bool ok = false, bool reglages = false}) {
+  void _dire(String? m, {bool ok = false, bool reglages = false, bool info = false}) {
     if (!mounted) return;
     setState(() {
       _message = m;
       _messageOk = ok;
+      _messageInfo = info;
       _reglagesPosition = reglages;
     });
   }
@@ -251,6 +255,14 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
         SystemSound.play(SystemSoundType.click);
         _dire(r.valeur!.message, ok: true);
         await _chargerHistorique();
+      } else if (estRefusDeuxMinutes(r.refus!)) {
+        // Refus « moins de deux minutes » : l'employé a déjà pointé — heure du dernier pointage connu.
+        await _chargerHistorique();
+        if (!mounted) return;
+        final hm = _historique.isEmpty ? '' : heureMinute(_historique.last.heure);
+        HapticFeedback.lightImpact();
+        SystemSound.play(SystemSoundType.click);
+        _dire(messageDejaPointeMobile(hm), info: true);
       } else {
         HapticFeedback.heavyImpact();
         _dire(r.refus);
@@ -321,16 +333,19 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
           key: const Key('rh_mobile_message'),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: _messageOk ? const Color(0xFFDCF5E7) : const Color(0xFFFDECEC),
+            color: _messageInfo ? const Color(0xFFFFF1D6) : (_messageOk ? const Color(0xFFDCF5E7) : const Color(0xFFFDECEC)),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Row(children: [
-            Icon(_messageOk ? Icons.check_circle : Icons.error_outline, color: _messageOk ? Pal.green : const Color(0xFFB91C1C), size: 30),
+            Icon(_messageInfo ? Icons.info_outline : (_messageOk ? Icons.check_circle : Icons.error_outline),
+                color: _messageInfo ? const Color(0xFFE07B00) : (_messageOk ? Pal.green : const Color(0xFFB91C1C)), size: 30),
             const SizedBox(width: 12),
             Expanded(
               child: Text(_message!,
                   style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold, color: _messageOk ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C))),
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: _messageInfo ? const Color(0xFF8A5300) : (_messageOk ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C)))),
             ),
             if (_reglagesPosition)
               TextButton(onPressed: widget.localisateur.ouvrirReglages, child: const Text('Réglages')),

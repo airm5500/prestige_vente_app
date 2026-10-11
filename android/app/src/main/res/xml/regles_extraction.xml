@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Sauvegarde cloud et transfert d'appareil (Android 12+) : stockage sécurisé exclu (jeton du téléphone,
+<!-- Sauvegarde cloud et transfert d'appareil (Android 12+) : stockage sécurisé exclu (mot de passe mémorisé, jeton du téléphone,
      modèles d'empreinte du pointage RH, gardés uniquement sur ce terminal). -->
 <data-extraction-rules>
     <cloud-backup>

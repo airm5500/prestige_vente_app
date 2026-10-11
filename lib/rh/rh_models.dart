@@ -442,3 +442,22 @@ bool estDoublonServeur(String message) {
   final m = message.toLowerCase();
   return m.contains('existe déjà') || m.contains('existe deja');
 }
+
+/// Refus du serveur (voie A, téléphone) : « moins de deux minutes » depuis le dernier pointage.
+bool estRefusDeuxMinutes(String message) {
+  final m = message.toLowerCase();
+  return m.contains('deux minutes') || RegExp(r'\b2\s*min').hasMatch(m);
+}
+
+/// « HH:mm » extrait d'une heure du serveur (« 08:02 », « 2026-10-12 08:02:15 »…) ; vide si absente.
+String heureMinute(String heure) {
+  final m = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(heure);
+  return m == null ? '' : '${m.group(1)!.padLeft(2, '0')}:${m.group(2)}';
+}
+
+/// Message « déjà pointé » de la voie B : « Awa, vous avez déjà pointé (ENTRÉE à 08:02) ».
+String messageDejaPointe(String prenom, SensPointage? sens, String hm) =>
+    '$prenom, vous avez déjà pointé (${sens == null ? '' : '${sens.majuscules} '}à $hm)';
+
+/// Message « déjà pointé » de la voie A : « Vous avez déjà pointé à 08:02 ».
+String messageDejaPointeMobile(String hm) => hm.isEmpty ? 'Vous avez déjà pointé.' : 'Vous avez déjà pointé à $hm';
