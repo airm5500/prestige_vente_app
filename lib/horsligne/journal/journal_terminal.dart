@@ -21,7 +21,7 @@ import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
-enum TypeJournal { vente, encaissement, prevente, venteHL, stock, caisse, confirmation, connexion, reseau, ordonnance }
+enum TypeJournal { vente, encaissement, prevente, venteHL, stock, caisse, confirmation, connexion, reseau, ordonnance, lectureAvancee }
 
 extension TypeJournalInfo on TypeJournal {
   String get label => switch (this) {
@@ -35,6 +35,7 @@ extension TypeJournalInfo on TypeJournal {
         TypeJournal.connexion => 'Connexion',
         TypeJournal.reseau => 'En ligne / hors ligne',
         TypeJournal.ordonnance => 'Apprentissage ordonnances',
+        TypeJournal.lectureAvancee => 'Lecture avancée (en ligne)',
       };
 }
 

@@ -12,6 +12,8 @@ import 'package:prestige_vente_app/ordonnances/banc_essai/banc_essai_screen.dart
 import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
 import 'package:prestige_vente_app/ordonnances/o4/apprentissages_screen.dart';
 import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee_screen.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
@@ -273,6 +275,7 @@ class _VentesPageState extends State<VentesPage> {
         const SectionLabel('Ordonnances'),
         const LectureO2Reglages(),
         const ApprentissagesReglages(),
+        const LectureAvanceeReglages(),
         LinkCard(
           key: const Key('banc_essai_ordonnances'),
           icon: Icons.science_outlined,
@@ -394,6 +397,56 @@ class _ApprentissagesReglagesState extends State<ApprentissagesReglages> {
             onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ApprentissagesScreen())),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+/// O5 : lecture avancée en ligne — désactivée par défaut, activée seulement après l'écran de consentement.
+class LectureAvanceeReglages extends StatefulWidget {
+  const LectureAvanceeReglages({super.key});
+
+  @override
+  State<LectureAvanceeReglages> createState() => _LectureAvanceeReglagesState();
+}
+
+class _LectureAvanceeReglagesState extends State<LectureAvanceeReglages> {
+  @override
+  void initState() {
+    super.initState();
+    final la = LectureAvancee.instance;
+    la.charger().then((_) async {
+      await la.verifierCapacite();
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _changer(bool v) async {
+    final la = LectureAvancee.instance;
+    if (v && !await demanderConsentementO5(context)) return;
+    await la.definir(v);
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final la = LectureAvancee.instance;
+    return ValueListenableBuilder<bool>(
+      valueListenable: la.active,
+      builder: (context, active, _) => ValueListenableBuilder<bool?>(
+        valueListenable: la.capacite,
+        builder: (context, cap, __) => SwitchCard(
+          key: const Key('o5_reglage'),
+          title: 'Lecture avancée en ligne (avec consentement)',
+          subtitle: cap == false
+              ? 'Le serveur ne la propose pas (non configurée) : le bouton n\'apparaît pas.'
+              : active
+                  ? 'Activée${la.consentementLe == null ? '' : ' (consentement du ${DateFormat('dd/MM/yyyy').format(la.consentementLe!)})'} : '
+                      'zone des médicaments masquée, envoyée au service externe par le serveur.'
+                  : 'Désactivée. Données de santé envoyées à un service externe, coût par lecture : consentement demandé.',
+          value: active,
+          onChanged: _changer,
+        ),
       ),
     );
   }

@@ -15,7 +15,10 @@ import 'package:prestige_vente_app/ordonnances/banc_essai/historique_banc.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/pipeline_ordonnance.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/pipelines_disponibles.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/score_banc.dart';
+import 'package:prestige_vente_app/ordonnances/o3/catalogue_o3.dart';
 import 'package:prestige_vente_app/ordonnances/o4/banc_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o5/banc_o5.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
@@ -45,7 +48,7 @@ class BancEssaiScreen extends StatefulWidget {
 
 class _BancEssaiScreenState extends State<BancEssaiScreen> {
   late final List<PipelineOrdonnance> _pipelines =
-      widget.pipelines ?? pipelinesBanc(apiPageSearch(Provider.of<ApiService>(context, listen: false)));
+      List.of(widget.pipelines ?? pipelinesBanc(apiPageSearch(Provider.of<ApiService>(context, listen: false))));
   VeriteTerrain? _verite;
   String? _veriteErreur;
   List<String> _images = [];
@@ -65,6 +68,7 @@ class _BancEssaiScreenState extends State<BancEssaiScreen> {
     super.initState();
     if (_pipelines.length > 1) _candidat = _pipelines[1].id;
     _chargerVerite();
+    if (widget.pipelines == null) _ajouterLectureAvancee();
     HistoriqueBanc.charger().then((h) {
       if (mounted) setState(() => _historique = h);
     });
@@ -82,6 +86,34 @@ class _BancEssaiScreenState extends State<BancEssaiScreen> {
       if (mounted) setState(() => _veriteErreur = 'Vérité terrain illisible : $e');
     }
   }
+
+  /// O5 : candidat « Lecture avancée » seulement si activée (consentement) et proposée par le serveur.
+  Future<void> _ajouterLectureAvancee() async {
+    final la = LectureAvancee.instance;
+    await la.charger();
+    if (la.active.value) await la.verifierCapacite();
+    if (!mounted || !la.proposee) return;
+    final recherche = apiPageSearch(Provider.of<ApiService>(context, listen: false));
+    setState(() => _pipelines.add(PipelineLectureAvancee(service: la, correspondance: () => CatalogueO3.creer(recherche))));
+  }
+
+  /// O5 : confirmation explicite avant d'envoyer le jeu d'images au service externe.
+  Future<bool> _confirmerEnvoiExterne(int n) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Envoyer les images au service externe ?'),
+          content: Text('Le candidat « Lecture avancée » envoie $n image(s) d\'ordonnance, une par une, au service de lecture '
+              'externe (par votre serveur Prestige). Ce sont des DONNÉES DE SANTÉ : seule la page sans ses bandes du haut et '
+              'du bas (masquées) est envoyée, sans métadonnées, mais il n\'y a pas de masquage à la main au banc — utilisez '
+              'des images sans nom de patient visible au milieu. Chaque lecture est facturée et compte dans le quota du jour.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Annuler')),
+            ElevatedButton(key: const Key('banc_o5_confirmer'), onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Envoyer')),
+          ],
+        ),
+      ) ??
+      false;
 
   PipelineOrdonnance _pipeline(String id) => _pipelines.firstWhere((p) => p.id == id);
 
@@ -149,6 +181,8 @@ class _BancEssaiScreenState extends State<BancEssaiScreen> {
     final verite = _verite;
     if (_images.isEmpty || verite == null) return;
     final ids = [_reference, if (_candidat != null && _candidat != _reference) _candidat!];
+    if (ids.any((id) => _pipeline(id) is PipelineLectureAvancee) && !await _confirmerEnvoiExterne(_images.length)) return;
+    if (!mounted) return;
     final simule = _simule && _candidatApprend && ids.length > 1;
     setState(() {
       _running = true;

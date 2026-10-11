@@ -12,6 +12,8 @@ import 'package:prestige_vente_app/ordonnances/o3/catalogue_o3.dart';
 import 'package:prestige_vente_app/ordonnances/o3/correspondance_o3.dart';
 import 'package:prestige_vente_app/ordonnances/o4/apprentissage_o4.dart';
 import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee_screen.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
@@ -24,7 +26,7 @@ import 'package:prestige_vente_app/services/product_finder.dart';
 import 'package:provider/provider.dart';
 
 /// Source de l'ordonnance.
-enum PrescriptionSource { camera, gallery, pdf }
+enum PrescriptionSource { camera, gallery, pdf, avancee }
 
 /// Lit le texte d'une ordonnance. Renvoie les lignes reconnues, ou `null` si annulé.
 typedef PrescriptionTextReader = Future<List<String>?> Function(PrescriptionSource source);
@@ -101,6 +103,11 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     LectureO2.charger().then((_) {
       if (LectureO2.correspondanceO3) PartageO4.instance.synchroniser();
     });
+    // O5 : lecture avancée (consentement + capacité du serveur) ; bouton absent sinon.
+    LectureAvancee.instance.charger().then((_) async {
+      if (LectureAvancee.instance.active.value) await LectureAvancee.instance.verifierCapacite();
+      if (mounted) setState(() {});
+    });
     if (widget.presentation == null) {
       PresentationPrefs.load().then((p) {
         if (mounted) setState(() => _style = p);
@@ -117,6 +124,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   // Lecture de l'ordonnance
   // ---------------------------------------------------------------------------
   Future<List<String>?> _defaultReader(PrescriptionSource source) {
+    if (source == PrescriptionSource.avancee) return LectureAvanceeFlux.lire(context, camera: true);
     // Nouvelle lecture O2 (Réglages, désactivée par défaut) : capture guidée de la page, zone des médicaments.
     if (LectureO2.nouvelleLecture && source != PrescriptionSource.pdf) {
       return LectureO2.lire(context, camera: source == PrescriptionSource.camera);
@@ -128,6 +136,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
         return OcrService.captureAndRead(ImageSource.gallery);
       case PrescriptionSource.pdf:
         return OcrService.pickPdfAndRead();
+      case PrescriptionSource.avancee:
+        return Future.value(null);
     }
   }
 
@@ -145,7 +155,10 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
 
     final generation = ++_generation;
     // O2 actif : découpage par lignes numérotées (posologie et quantité rattachées) ; sinon découpage d'origine.
-    final candidates = LectureO2.nouvelleLecture ? DecoupageOrdonnance.extraire(lines) : PrescriptionParser.extract(lines);
+    // O5 : lignes numérotées renvoyées par la lecture avancée → découpage O2 dans tous les cas.
+    final candidates = LectureO2.nouvelleLecture || source == PrescriptionSource.avancee
+        ? DecoupageOrdonnance.extraire(lines)
+        : PrescriptionParser.extract(lines);
     setState(() {
       _hasScanned = true;
       _ocrLines = lines!.map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
@@ -597,9 +610,28 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [tile(0), const SizedBox(width: 12), tile(1)])),
       const SizedBox(height: 12),
       IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [tile(2), const SizedBox(width: 12), tile(3)])),
+      ..._boutonAvance(),
       const SizedBox(height: 16),
       Text(_startHelp, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
     ]);
+  }
+
+  /// O5 : bouton « Lecture avancée » seulement si activée (consentement) et proposée par le serveur ;
+  /// désactivé hors ligne (« Disponible en ligne uniquement »).
+  List<Widget> _boutonAvance() {
+    final la = LectureAvancee.instance;
+    if (!la.proposee) return const [];
+    final ok = la.utilisable;
+    return [
+      const SizedBox(height: 12),
+      OutlinedButton.icon(
+        key: const Key('o5_bouton'),
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+        onPressed: ok && !_reading ? () => _scan(PrescriptionSource.avancee) : null,
+        icon: const Icon(Icons.cloud_upload_outlined),
+        label: Text(ok ? 'Lecture avancée (en ligne) : zone des médicaments' : 'Lecture avancée : disponible en ligne uniquement'),
+      ),
+    ];
   }
 
   Widget _startCompact() => ListView(children: [
@@ -630,6 +662,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
               ]),
             ),
           ),
+        if (LectureAvancee.instance.proposee) Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: _boutonAvance())),
         Padding(padding: const EdgeInsets.all(16), child: Text(_startHelp, style: TextStyle(color: Colors.grey.shade700, fontSize: 12))),
       ]);
 
@@ -660,6 +693,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
         const SizedBox(width: 8),
         Expanded(child: OutlinedButton.icon(style: outlineButton, icon: Icon(o[3].icon, size: 18), label: const Text('Saisie manuelle'), onPressed: o[3].onTap)),
       ]),
+      ..._boutonAvance(),
       const SizedBox(height: 16),
       Text(_startHelp, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
     ]);

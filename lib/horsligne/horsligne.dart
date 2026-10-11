@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/horsligne/ventes_sync.dart';
 import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
+import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -153,6 +154,8 @@ class HorsLigne {
     if (ventes.gateway == null || ventes.gateway is DioVenteGateway) ventes.gateway = DioVenteGateway(api);
     // O4 : partage des apprentissages des ordonnances (si le serveur l'annonce), même session.
     PartageO4.instance.brancher(api, enLigne: () => HorsLigne.instance.monitor.etat == EtatServeur.enLigne);
+    // O5 : lecture avancée (si activée et annoncée par le serveur), même session, en ligne seulement.
+    LectureAvancee.instance.brancher(api, enLigne: () => HorsLigne.instance.monitor.etat == EtatServeur.enLigne);
   }
 
   String get _baseUrl => _api?.dio.options.baseUrl ?? '';

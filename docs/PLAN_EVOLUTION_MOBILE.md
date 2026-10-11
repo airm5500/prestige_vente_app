@@ -403,7 +403,7 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 | O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) — **réalisé** (§4.7) |
 | O3b | Reconnaissance par fragments sûrs (« contient », avec prudence) — **réalisé** (§4.9) |
 | O4 | Apprentissage par correction — **réalisé** (§4.8 ; partage : patch serveur à appliquer) |
-| O5 | (option) Lecture avancée en ligne, avec consentement |
+| O5 | (option) Lecture avancée en ligne, avec consentement — **réalisé** (§4.10 ; patch serveur + clé à configurer, désactivée par défaut) |
 
 ### 4.5 O1 — Banc d'essai des ordonnances : réalisé
 
@@ -651,6 +651,44 @@ Sur le texte de tesseract (mots manuscrits presque entièrement faux), les fragm
 plus** et ajoutent au pire une proposition « à vérifier » en trop (comptée comme faux positif au banc, mais jamais
 cochée à l'écran). Leur intérêt attendu est sur ML Kit, dont la lecture est partiellement juste et qui fournit la
 confiance par caractère : **O3+ ne s'active qu'après un banc meilleur sur le téléphone**.
+
+### 4.10 O5 — Lecture avancée en ligne, avec consentement : réalisé (patch serveur à appliquer + clé à configurer)
+
+**Code** : `lib/ordonnances/o5/` (`masquage_o5.dart`, `lecture_avancee.dart`, `lecture_avancee_screen.dart`,
+`banc_o5.dart`) ; points d'accroche : écran Ordonnance (bouton « Lecture avancée »), Réglages › Ventes ›
+Ordonnances, banc d'essai, `HorsLigne.bind` (session), journal du terminal (type « Lecture avancée (en ligne) »).
+Serveur : `docs/serveur/O5_lecture_avancee.patch` + `docs/serveur/O5_LECTURE_AVANCEE.md`. Tests :
+`test/ordonnances_o5_test.dart` (CI) — images **synthétiques** générées par le test, faux serveur.
+
+- **Architecture, aucune clé dans l'appli** : le téléphone envoie l'image au **serveur Prestige**
+  (`POST /mobile/ordonnances/lecture-avancee`) ; le serveur appelle le fournisseur avec **sa** clé (environnement,
+  propriété système ou `lecture-avancee.properties`, jamais renvoyée) : **API Claude** par défaut (modèle
+  `claude-haiku-5-5` pour le coût, `claude-opus-5-5` possible ; sortie JSON structurée), **Google Cloud Vision**
+  possible (interface `FournisseurLecture`). Réponse : lignes `{nom, dosage, forme, posologie, quantité, confiance}`
+  → découpage O2 → correspondance O3 / O4 (fragments O3+ si choisis) ; **rien au panier sans validation**.
+- **Disponible seulement** si le serveur annonce `lectureAvancee: true` (fournisseur configuré) **et** si la lecture
+  avancée est activée sur le téléphone ; sinon le bouton n'existe pas. Hors ligne : bouton désactivé « disponible en
+  ligne uniquement ».
+- **Consentement** : désactivée par défaut ; Réglages › Ventes (code administrateur) › « Lecture avancée en ligne » →
+  écran de consentement (données de santé, service externe, coût ; case à cocher + « J'accepte ») ; date gardée,
+  activation / désactivation notées au journal du terminal.
+- **Protection des données à chaque envoi** : photo → **zone des médicaments obligatoire** (page entière ou zone de
+  plus de 85 % de la page refusée) → bandes du haut (18 %) et du bas (12 %) de la page **masquées automatiquement**
+  → **masques à la main** (glisser le doigt sur un nom, une date de naissance, un téléphone) → image réduite
+  (1 600 px), JPEG qualité 80, **sans EXIF** → **aperçu de l'image exacte** et confirmation « Envoyer cette zone pour
+  lecture avancée ? ». Journal du terminal (Info) : date, utilisateur, taille, nombre de médicaments ou erreur,
+  coût estimé — **jamais l'image ni le texte**.
+- **Serveur** : n'enregistre pas l'image ; consigne « médicaments seulement » ; réponse filtrée (lignes « Dr / Mme /
+  Patient / date / téléphone » retirées) ; une seule lecture à la fois, délai 30 s, aucune relance, quota par jour
+  (50 par défaut) ; journal serveur et table `mobile_lecture_avancee_journal` (taille, jetons, **coût estimé**,
+  durée ; ni image ni texte).
+- **Banc d'essai** : candidat « Lecture avancée (en ligne) » présent seulement si la capacité et le consentement
+  sont actifs ; avant de lancer, confirmation explicite (« Envoyer les images au service externe ? », rappel données
+  de santé et coût) ; chaque image est envoyée recadrée sur la page sans ses bandes haut / bas, sans EXIF.
+- **Développement** : aucune des 17 vraies ordonnances n'a été envoyée à une API externe ; essais avec un **faux
+  fournisseur local** (imitation de la Messages API : modes ok, lent, erreur, refus, ligne « patient ») et des images
+  synthétiques. Pas de clé d'API dans l'environnement : **la mesure réelle de la lecture avancée reste à faire** sur
+  le téléphone, au banc, avec la clé de l'officine et des ordonnances dont l'officine accepte l'envoi.
 
 ---
 

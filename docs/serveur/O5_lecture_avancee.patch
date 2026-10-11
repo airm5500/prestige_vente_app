@@ -1,0 +1,909 @@
+From 1abcc1131c2427f7172fffa61166e05b3281daaf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 01:33:40 +0000
+Subject: [PATCH] =?UTF-8?q?Prestige=20Mobile=20O5=20:=20lecture=20avanc?=
+ =?UTF-8?q?=C3=A9e=20des=20ordonnances=20par=20un=20service=20externe,=20a?=
+ =?UTF-8?q?vec=20consentement=20(cl=C3=A9=20c=C3=B4t=C3=A9=20serveur)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+POST v1/mobile/ordonnances/lecture-avancee : corps = image JPEG de la seule zone des médicaments (recadrée,
+masquée, sans métadonnées par le téléphone) ; le serveur appelle le fournisseur configuré (API Claude par défaut,
+modèle claude-haiku-5-5 ; Google Cloud Vision possible) avec la clé gardée sur le serveur (variable d'environnement,
+propriété système ou lecture-avancee.properties, jamais renvoyée ni journalisée) et renvoie seulement les lignes de
+médicaments {nom, dosage, forme, posologie, quantite, confiance}, filtrées (données personnelles retirées).
+L'image n'est jamais enregistrée. Une seule lecture à la fois, délai maximal, aucune relance, quota par jour ;
+journal mobile_lecture_avancee_journal (date, utilisateur, taille, fournisseur, modèle, résultat, lignes, jetons,
+coût estimé, durée ; ni image ni texte). Capacité lectureAvancee annoncée seulement si un fournisseur est configuré.
+Migration V6.9.129.4 : table du journal (rejouable, aucune table existante modifiée).
+---
+ .../java/rest/MobileCapacitesRessource.java   |   8 +
+ .../java/rest/MobileOrdonnanceRessource.java  |  20 ++
+ .../mobile/MobileLectureAvanceeService.java   | 195 ++++++++++++++++++
+ .../mobile/lecture/FournisseurClaude.java     | 132 ++++++++++++
+ .../lecture/FournisseurGoogleVision.java      |  90 ++++++++
+ .../mobile/lecture/FournisseurLecture.java    |  48 +++++
+ .../lecture/LectureAvanceeConfiguration.java  | 193 +++++++++++++++++
+ .../service/mobile/lecture/LignesLues.java    |  62 ++++++
+ .../V6.9.129.4__mobile_lecture_avancee.sql    |  21 ++
+ 9 files changed, 769 insertions(+)
+ create mode 100644 src/main/java/rest/service/mobile/MobileLectureAvanceeService.java
+ create mode 100644 src/main/java/rest/service/mobile/lecture/FournisseurClaude.java
+ create mode 100644 src/main/java/rest/service/mobile/lecture/FournisseurGoogleVision.java
+ create mode 100644 src/main/java/rest/service/mobile/lecture/FournisseurLecture.java
+ create mode 100644 src/main/java/rest/service/mobile/lecture/LectureAvanceeConfiguration.java
+ create mode 100644 src/main/java/rest/service/mobile/lecture/LignesLues.java
+ create mode 100644 src/main/resources/db/migration/V6.9.129.4__mobile_lecture_avancee.sql
+
+diff --git a/src/main/java/rest/MobileCapacitesRessource.java b/src/main/java/rest/MobileCapacitesRessource.java
+index 465642b7..f6b8ce27 100644
+--- a/src/main/java/rest/MobileCapacitesRessource.java
++++ b/src/main/java/rest/MobileCapacitesRessource.java
+@@ -9,6 +9,7 @@ import javax.ws.rs.core.Response;
+ import org.json.JSONObject;
+ import rest.service.mobile.MobileCatalogueDeltaService;
+ import rest.service.mobile.MobileClientRefService;
++import rest.service.mobile.MobileLectureAvanceeService;
+ import rest.service.mobile.MobileOrdonnanceCorrectionService;
+ 
+ /**
+@@ -24,6 +25,9 @@ import rest.service.mobile.MobileOrdonnanceCorrectionService;
+  * <p>
+  * {@code ordonnanceCorrections} (O4) : {@code POST/GET v1/mobile/ordonnances/corrections} (apprentissages des
+  * ordonnances partages entre terminaux). Faux si la table mobile_ordonnance_correction n'existe pas.
++ * <p>
++ * {@code lectureAvancee} (O5) : {@code POST v1/mobile/ordonnances/lecture-avancee}, vrai SEULEMENT si un fournisseur
++ * est configure sur le serveur (cle presente) et la migration passee.
+  */
+ @Path("v1/mobile/capacites")
+ @Produces(MediaType.APPLICATION_JSON)
+@@ -35,6 +39,8 @@ public class MobileCapacitesRessource {
+     private MobileCatalogueDeltaService catalogueDeltaService;
+     @EJB
+     private MobileOrdonnanceCorrectionService ordonnanceCorrectionService;
++    @EJB
++    private MobileLectureAvanceeService lectureAvanceeService;
+ 
+     @GET
+     public Response capacites() {
+@@ -45,6 +51,8 @@ public class MobileCapacitesRessource {
+                 MobileCatalogueDeltaService.format(catalogueDeltaService.maintenant()));
+         boolean corrections = ordonnanceCorrectionService.disponible();
+         o.put("ordonnanceCorrections", corrections).put("ordonnanceCorrectionsVersion", corrections ? 1 : 0);
++        boolean lecture = lectureAvanceeService.disponible();
++        o.put("lectureAvancee", lecture).put("lectureAvanceeVersion", lecture ? 1 : 0);
+         return Response.ok(o.toString(), MediaType.APPLICATION_JSON).build();
+     }
+ }
+diff --git a/src/main/java/rest/MobileOrdonnanceRessource.java b/src/main/java/rest/MobileOrdonnanceRessource.java
+index 96f9689c..28938548 100644
+--- a/src/main/java/rest/MobileOrdonnanceRessource.java
++++ b/src/main/java/rest/MobileOrdonnanceRessource.java
+@@ -16,6 +16,7 @@ import org.json.JSONException;
+ import org.json.JSONObject;
+ import rest.service.SessionHelperService;
+ import rest.service.mobile.MobileCatalogueDeltaService;
++import rest.service.mobile.MobileLectureAvanceeService;
+ import rest.service.mobile.MobileOrdonnanceCorrectionService;
+ 
+ /**
+@@ -30,6 +31,11 @@ import rest.service.mobile.MobileOrdonnanceCorrectionService;
+  * {@code {success, depuis, serveurMaintenant, total, start, limit, data:[{cle, segment, produitId, cip, nom, at,
+  * recuLe}]}} ({@code depuis} absent : tout).
+  * <p>
++ * {@code POST v1/mobile/ordonnances/lecture-avancee} (O5) corps = image JPEG de la zone des medicaments (recadree et
++ * masquee par le telephone) → {@code {success, lignes:[{nom, dosage, forme, posologie, quantite, confiance}],
++ * fournisseur, modele, coutEstime, quotaRestant}} ; l'image n'est jamais enregistree. 503 si non configuree, 429 quota
++ * / lecture deja en cours, 502 / 504 erreur / delai du fournisseur.
++ * <p>
+  * Authentification : session habituelle de l'application (cookie), comme H4 / H5 ; voir filter.AuthenticationFilter.
+  */
+ @Path("v1/mobile/ordonnances")
+@@ -40,6 +46,20 @@ public class MobileOrdonnanceRessource {
+     private MobileOrdonnanceCorrectionService service;
+     @EJB
+     private SessionHelperService sessionHelperService;
++    @EJB
++    private MobileLectureAvanceeService lectureAvanceeService;
++
++    @POST
++    @Path("lecture-avancee")
++    @Consumes(MediaType.WILDCARD)
++    public Response lectureAvancee(byte[] image) {
++        TUser u = sessionHelperService.getCurrentUser();
++        if (u == null) {
++            return erreur(Response.Status.UNAUTHORIZED, "Veuillez vous connecter.");
++        }
++        MobileLectureAvanceeService.Reponse r = lectureAvanceeService.lire(image, u.getLgUSERID());
++        return Response.status(r.statut).type(MediaType.APPLICATION_JSON).entity(r.corps.toString()).build();
++    }
+ 
+     @POST
+     @Path("corrections")
+diff --git a/src/main/java/rest/service/mobile/MobileLectureAvanceeService.java b/src/main/java/rest/service/mobile/MobileLectureAvanceeService.java
+new file mode 100644
+index 00000000..7095540f
+--- /dev/null
++++ b/src/main/java/rest/service/mobile/MobileLectureAvanceeService.java
+@@ -0,0 +1,195 @@
++package rest.service.mobile;
++
++import java.sql.Timestamp;
++import java.util.Date;
++import java.util.concurrent.Semaphore;
++import java.util.concurrent.TimeUnit;
++import java.util.logging.Level;
++import java.util.logging.Logger;
++import javax.ejb.Stateless;
++import javax.ejb.TransactionAttribute;
++import javax.ejb.TransactionAttributeType;
++import javax.persistence.EntityManager;
++import javax.persistence.PersistenceContext;
++import org.json.JSONObject;
++import rest.service.mobile.lecture.FournisseurLecture;
++import rest.service.mobile.lecture.LectureAvanceeConfiguration;
++
++/**
++ * O5 (Prestige Mobile) : lecture avancee d'une ordonnance par un service externe, AVEC le consentement de l'officine.
++ * <p>
++ * Le telephone envoie l'image JPEG de la seule ZONE DES MEDICAMENTS, recadree et masquee (en-tete, patient, signature
++ * caches ; metadonnees retirees). Le serveur :
++ * <ul>
++ * <li>n'enregistre PAS l'image (ni sur disque, ni en base, ni dans les journaux) : elle n'existe qu'en memoire le temps
++ * de l'appel au fournisseur ;</li>
++ * <li>appelle le fournisseur configure avec la cle gardee sur le serveur ({@link LectureAvanceeConfiguration}), une
++ * seule lecture a la fois, avec un delai maximal, sans relance automatique ;</li>
++ * <li>applique un quota par jour pour toute l'officine ;</li>
++ * <li>journalise chaque appel dans {@code mobile_lecture_avancee_journal} : date, utilisateur, taille, fournisseur,
++ * modele, resultat, nombre de lignes, jetons, cout estime, duree - jamais l'image ni le texte lu.</li>
++ * </ul>
++ */
++@Stateless
++public class MobileLectureAvanceeService {
++
++    private static final Logger LOG = Logger.getLogger(MobileLectureAvanceeService.class.getName());
++
++    /** Taille maximale de l'image recue (la zone recadree et compressee par le telephone fait 100 a 600 Ko). */
++    public static final int TAILLE_MAX = 4 * 1024 * 1024;
++
++    /** Une seule lecture a la fois pour tout le serveur. */
++    private static final Semaphore UNE_A_LA_FOIS = new Semaphore(1);
++
++    private static volatile boolean tablePresente;
++    private static volatile long tableVerifieeA;
++
++    @PersistenceContext(unitName = "JTA_UNIT")
++    private EntityManager em;
++
++    /** Reponse : code HTTP + corps JSON. */
++    public static final class Reponse {
++        public final int statut;
++        public final JSONObject corps;
++
++        Reponse(int statut, JSONObject corps) {
++            this.statut = statut;
++            this.corps = corps;
++        }
++
++        static Reponse erreur(int statut, String msg) {
++            return new Reponse(statut, new JSONObject().put("success", false).put("msg", msg));
++        }
++    }
++
++    /** Configuration courante (relue a chaque appel : un changement de cle ne demande pas de redemarrage). */
++    LectureAvanceeConfiguration config() {
++        return LectureAvanceeConfiguration.duServeur();
++    }
++
++    @TransactionAttribute(TransactionAttributeType.SUPPORTS)
++    public boolean disponible() {
++        return config().configuree() && tablePresente();
++    }
++
++    private boolean tablePresente() {
++        if (tablePresente) {
++            return true;
++        }
++        long now = System.currentTimeMillis();
++        if (tableVerifieeA != 0 && now - tableVerifieeA < 60_000L) {
++            return false;
++        }
++        try {
++            Number n = (Number) em
++                    .createNativeQuery("SELECT COUNT(*) FROM information_schema.tables "
++                            + "WHERE table_schema = DATABASE() AND table_name = 'mobile_lecture_avancee_journal'")
++                    .getSingleResult();
++            tablePresente = n != null && n.intValue() > 0;
++        } catch (RuntimeException e) {
++            LOG.log(Level.WARNING, "mobile_lecture_avancee_journal : verification impossible", e);
++            tablePresente = false;
++        }
++        tableVerifieeA = now;
++        return tablePresente;
++    }
++
++    /** Lectures deja faites aujourd'hui (appels au fournisseur, reussis ou non). */
++    @TransactionAttribute(TransactionAttributeType.SUPPORTS)
++    public int lecturesDuJour() {
++        Number n = (Number) em.createNativeQuery("SELECT COUNT(*) FROM mobile_lecture_avancee_journal "
++                + "WHERE jour = CURDATE() AND resultat IN ('ok', 'echec', 'delai')").getSingleResult();
++        return n == null ? 0 : n.intValue();
++    }
++
++    @TransactionAttribute(TransactionAttributeType.SUPPORTS)
++    public int quotaRestant() {
++        return Math.max(0, config().quotaJour() - lecturesDuJour());
++    }
++
++    static boolean estJpeg(byte[] b) {
++        return b != null && b.length > 4 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xD8 && (b[2] & 0xFF) == 0xFF;
++    }
++
++    @TransactionAttribute(TransactionAttributeType.REQUIRED)
++    public Reponse lire(byte[] jpeg, String userId) {
++        LectureAvanceeConfiguration c = config();
++        if (!c.configuree() || !tablePresente()) {
++            return Reponse.erreur(503, "Lecture avancée non configurée sur le serveur.");
++        }
++        int taille = jpeg == null ? 0 : jpeg.length;
++        if (!estJpeg(jpeg)) {
++            return Reponse.erreur(400, "Image JPEG attendue.");
++        }
++        if (taille > TAILLE_MAX) {
++            return Reponse.erreur(413, "Image trop grande (4 Mo au plus) : recadrez la zone des médicaments.");
++        }
++        FournisseurLecture f = FournisseurLecture.pour(c);
++        if (f == null) {
++            return Reponse.erreur(503, "Lecture avancée non configurée sur le serveur.");
++        }
++        boolean pris;
++        try {
++            pris = UNE_A_LA_FOIS.tryAcquire(2, TimeUnit.SECONDS);
++        } catch (InterruptedException e) {
++            Thread.currentThread().interrupt();
++            pris = false;
++        }
++        if (!pris) {
++            journal(userId, taille, c, "occupe", 0, 0, 0, 0);
++            return Reponse.erreur(429, "Une lecture avancée est déjà en cours : réessayez dans un instant.");
++        }
++        try {
++            if (lecturesDuJour() >= c.quotaJour()) {
++                journal(userId, taille, c, "quota", 0, 0, 0, 0);
++                return Reponse.erreur(429, "Quota de lectures avancées du jour atteint (" + c.quotaJour() + ").");
++            }
++            long t0 = System.currentTimeMillis();
++            try {
++                FournisseurLecture.Resultat r = f.lire(jpeg, c);
++                long duree = System.currentTimeMillis() - t0;
++                double cout = (r.jetonsEntree * c.prixEntree() + r.jetonsSortie * c.prixSortie()) / 1_000_000d;
++                journal(userId, taille, c, "ok", r.lignes.length(), r.jetonsEntree, r.jetonsSortie, cout, duree);
++                return new Reponse(200, new JSONObject().put("success", true).put("lignes", r.lignes)
++                        .put("fournisseur", c.fournisseur())
++                        .put("modele", LectureAvanceeConfiguration.CLAUDE.equals(c.fournisseur()) ? c.modele() : "")
++                        .put("coutEstime", Math.round(cout * 1_000_000d) / 1_000_000d)
++                        .put("quotaRestant", Math.max(0, c.quotaJour() - lecturesDuJour())));
++            } catch (FournisseurLecture.Echec e) {
++                long duree = System.currentTimeMillis() - t0;
++                journal(userId, taille, c, e.delai ? "delai" : "echec", 0, 0, 0, 0, duree);
++                return Reponse.erreur(e.delai ? 504 : 502, "Lecture avancée impossible : " + e.getMessage() + ".");
++            }
++        } finally {
++            UNE_A_LA_FOIS.release();
++        }
++    }
++
++    private void journal(String userId, int taille, LectureAvanceeConfiguration c, String resultat, int lignes,
++            long entree, long sortie, double cout) {
++        journal(userId, taille, c, resultat, lignes, entree, sortie, cout, 0);
++    }
++
++    /** Une ligne de journal : jamais l'image ni le texte lu. */
++    private void journal(String userId, int taille, LectureAvanceeConfiguration c, String resultat, int lignes,
++            long entree, long sortie, double cout, long duree) {
++        String modele = LectureAvanceeConfiguration.CLAUDE.equals(c.fournisseur()) ? c.modele() : c.fournisseur();
++        LOG.log(Level.INFO,
++                "Lecture avancee : utilisateur={0}, taille={1} octets, fournisseur={2}, modele={3}, resultat={4}, "
++                        + "lignes={5}, jetons={6}/{7}, cout estime={8} $, duree={9} ms",
++                new Object[] { userId, taille, c.fournisseur(), modele, resultat, lignes, entree, sortie,
++                        String.format(java.util.Locale.ROOT, "%.6f", cout), duree });
++        try {
++            em.createNativeQuery(
++                    "INSERT INTO mobile_lecture_avancee_journal (jour, horodatage, lg_USER_ID, taille_octets, "
++                            + "fournisseur, modele, resultat, lignes, jetons_entree, jetons_sortie, cout_estime, duree_ms) "
++                            + "VALUES (CURDATE(), ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)")
++                    .setParameter(1, new Timestamp(new Date().getTime())).setParameter(2, userId)
++                    .setParameter(3, taille).setParameter(4, c.fournisseur()).setParameter(5, modele)
++                    .setParameter(6, resultat).setParameter(7, lignes).setParameter(8, entree).setParameter(9, sortie)
++                    .setParameter(10, cout).setParameter(11, duree).executeUpdate();
++        } catch (RuntimeException e) {
++            LOG.log(Level.WARNING, "Journal de la lecture avancee : ecriture impossible", e);
++        }
++    }
++}
+diff --git a/src/main/java/rest/service/mobile/lecture/FournisseurClaude.java b/src/main/java/rest/service/mobile/lecture/FournisseurClaude.java
+new file mode 100644
+index 00000000..9cefdbe6
+--- /dev/null
++++ b/src/main/java/rest/service/mobile/lecture/FournisseurClaude.java
+@@ -0,0 +1,132 @@
++package rest.service.mobile.lecture;
++
++import java.io.IOException;
++import java.net.URI;
++import java.net.http.HttpClient;
++import java.net.http.HttpRequest;
++import java.net.http.HttpResponse;
++import java.net.http.HttpTimeoutException;
++import java.nio.charset.StandardCharsets;
++import java.time.Duration;
++import java.util.Base64;
++import org.json.JSONArray;
++import org.json.JSONException;
++import org.json.JSONObject;
++
++/**
++ * O5 : lecture avancee par l'API Claude (Messages API, image + sortie JSON structuree).
++ * <p>
++ * Appel HTTP direct ({@code java.net.http}) : le SDK Java officiel d'Anthropic n'est pas une dependance de Prestige
++ * (construction hors ligne), et le fournisseur doit rester interchangeable. Requete : {@code POST /v1/messages},
++ * en-tetes {@code x-api-key}, {@code anthropic-version: 2023-06-01} ; image JPEG en base64 ; reponse contrainte par
++ * {@code output_config.format} (json_schema) ; effort {@code low} (lecture simple, cout minimal).
++ * <p>
++ * La consigne demande UNIQUEMENT les medicaments prescrits : jamais nom de patient, de medecin, date, adresse. Le
++ * serveur filtre aussi le resultat ({@link LignesLues#nettoyer}).
++ */
++public class FournisseurClaude implements FournisseurLecture {
++
++    static final String CONSIGNE = "Tu lis la zone des médicaments d'une ordonnance médicale française manuscrite ou "
++            + "imprimée (photo recadrée). Renvoie UNIQUEMENT les médicaments prescrits, un élément par médicament, dans "
++            + "l'ordre de l'ordonnance : nom commercial ou DCI tel qu'écrit (corrige seulement l'orthographe évidente "
++            + "d'un médicament connu), dosage (ex. « 1 g », « 500 mg », « 80/480 »), forme (cp, gélule, sirop, "
++            + "suspension, sachet, ampoule, suppositoire, collyre, pommade, injectable…), posologie et quantité "
++            + "(boîtes) telles qu'écrites, et ta confiance de 0 à 1 dans la lecture du nom. Laisse une chaîne vide si "
++            + "une information est absente ou illisible. N'inclus JAMAIS le nom d'une personne (patient, médecin), une "
++            + "date, un âge, une adresse, un téléphone, un numéro ou le nom d'un établissement, même s'ils sont visibles. "
++            + "Si aucun médicament n'est lisible, renvoie une liste vide.";
++
++    static JSONObject schema() {
++        JSONObject chaine = new JSONObject().put("type", "string");
++        JSONObject ligne = new JSONObject().put("type", "object").put("properties",
++                new JSONObject().put("nom", chaine).put("dosage", chaine).put("forme", chaine).put("posologie", chaine)
++                        .put("quantite", chaine).put("confiance", new JSONObject().put("type", "number")))
++                .put("required", new JSONArray().put("nom").put("dosage").put("forme").put("posologie").put("quantite")
++                        .put("confiance"))
++                .put("additionalProperties", false);
++        return new JSONObject().put("type", "object")
++                .put("properties",
++                        new JSONObject().put("lignes", new JSONObject().put("type", "array").put("items", ligne)))
++                .put("required", new JSONArray().put("lignes")).put("additionalProperties", false);
++    }
++
++    /** Corps de la requete (sans la cle, qui va dans l'en-tete). */
++    static JSONObject requete(byte[] jpeg, String modele) {
++        JSONObject image = new JSONObject().put("type", "image").put("source", new JSONObject().put("type", "base64")
++                .put("media_type", "image/jpeg").put("data", Base64.getEncoder().encodeToString(jpeg)));
++        JSONObject texte = new JSONObject().put("type", "text").put("text",
++                "Liste les médicaments prescrits sur cette zone d'ordonnance.");
++        return new JSONObject().put("model", modele).put("max_tokens", 4000).put("system", CONSIGNE)
++                .put("output_config",
++                        new JSONObject().put("effort", "low").put("format",
++                                new JSONObject().put("type", "json_schema").put("schema", schema())))
++                .put("messages", new JSONArray().put(
++                        new JSONObject().put("role", "user").put("content", new JSONArray().put(image).put(texte))));
++    }
++
++    @Override
++    public Resultat lire(byte[] jpeg, LectureAvanceeConfiguration config) throws Echec {
++        String cle = config.cle();
++        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(config.url()))
++                .timeout(Duration.ofMillis(config.delaiMs())).header("content-type", "application/json")
++                .header("anthropic-version", "2023-06-01").POST(HttpRequest.BodyPublishers
++                        .ofString(requete(jpeg, config.modele()).toString(), StandardCharsets.UTF_8));
++        if (cle != null) {
++            b.header("x-api-key", cle);
++        }
++        HttpResponse<String> r;
++        try {
++            r = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build().send(b.build(),
++                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
++        } catch (HttpTimeoutException e) {
++            throw new Echec("délai dépassé", true);
++        } catch (IOException e) {
++            throw new Echec("service de lecture injoignable", false);
++        } catch (InterruptedException e) {
++            Thread.currentThread().interrupt();
++            throw new Echec("lecture interrompue", false);
++        }
++        return analyser(r.statusCode(), r.body());
++    }
++
++    /** Reponse de la Messages API → lignes (sans jamais recopier le corps dans un message d'erreur). */
++    static Resultat analyser(int statut, String corps) throws Echec {
++        if (statut == 401 || statut == 403) {
++            throw new Echec("clé du service de lecture refusée (configuration du serveur)", false);
++        }
++        if (statut == 429 || statut == 529) {
++            throw new Echec("service de lecture saturé, réessayez plus tard", false);
++        }
++        if (statut != 200) {
++            throw new Echec("service de lecture indisponible (code " + statut + ")", false);
++        }
++        try {
++            JSONObject o = new JSONObject(corps);
++            String arret = o.optString("stop_reason");
++            if ("refusal".equals(arret)) {
++                throw new Echec("lecture refusée par le service", false);
++            }
++            if ("max_tokens".equals(arret)) {
++                throw new Echec("réponse incomplète du service", false);
++            }
++            JSONArray contenu = o.optJSONArray("content");
++            String json = null;
++            for (int i = 0; contenu != null && i < contenu.length(); i++) {
++                JSONObject bloc = contenu.optJSONObject(i);
++                if (bloc != null && "text".equals(bloc.optString("type"))) {
++                    json = bloc.optString("text");
++                    break;
++                }
++            }
++            if (json == null) {
++                throw new Echec("réponse inattendue du service", false);
++            }
++            JSONArray lignes = new JSONObject(json).optJSONArray("lignes");
++            JSONObject u = o.optJSONObject("usage");
++            return new Resultat(LignesLues.nettoyer(lignes), u == null ? 0 : u.optLong("input_tokens"),
++                    u == null ? 0 : u.optLong("output_tokens"));
++        } catch (JSONException e) {
++            throw new Echec("réponse illisible du service", false);
++        }
++    }
++}
+diff --git a/src/main/java/rest/service/mobile/lecture/FournisseurGoogleVision.java b/src/main/java/rest/service/mobile/lecture/FournisseurGoogleVision.java
+new file mode 100644
+index 00000000..2ba4e5f2
+--- /dev/null
++++ b/src/main/java/rest/service/mobile/lecture/FournisseurGoogleVision.java
+@@ -0,0 +1,90 @@
++package rest.service.mobile.lecture;
++
++import java.io.IOException;
++import java.net.URI;
++import java.net.URLEncoder;
++import java.net.http.HttpClient;
++import java.net.http.HttpRequest;
++import java.net.http.HttpResponse;
++import java.net.http.HttpTimeoutException;
++import java.nio.charset.StandardCharsets;
++import java.time.Duration;
++import java.util.Base64;
++import org.json.JSONArray;
++import org.json.JSONException;
++import org.json.JSONObject;
++
++/**
++ * O5 : lecture avancee par Google Cloud Vision ({@code images:annotate}, {@code DOCUMENT_TEXT_DETECTION}, langue fr).
++ * <p>
++ * Vision rend le TEXTE de la zone (pas des medicaments structures) : chaque ligne lue devient une ligne {@code nom}
++ * (sans dosage ni forme separes), confiance = celle du bloc ; le telephone la decoupe et la rapproche du catalogue (O2
++ * / O3 / O4) comme une lecture ML Kit. Les lignes qui ressemblent a une donnee personnelle sont retirees
++ * ({@link LignesLues}). Cle d'API dans {@code LECTURE_AVANCEE_CLE} (parametre {@code key}).
++ */
++public class FournisseurGoogleVision implements FournisseurLecture {
++
++    static JSONObject requete(byte[] jpeg) {
++        return new JSONObject()
++                .put("requests",
++                        new JSONArray()
++                                .put(new JSONObject()
++                                        .put("image",
++                                                new JSONObject().put("content",
++                                                        Base64.getEncoder().encodeToString(jpeg)))
++                                        .put("features",
++                                                new JSONArray()
++                                                        .put(new JSONObject().put("type", "DOCUMENT_TEXT_DETECTION")))
++                                        .put("imageContext",
++                                                new JSONObject().put("languageHints", new JSONArray().put("fr")))));
++    }
++
++    @Override
++    public Resultat lire(byte[] jpeg, LectureAvanceeConfiguration config) throws Echec {
++        String url = config.url();
++        String cle = config.cle();
++        if (cle != null) {
++            url += (url.contains("?") ? "&" : "?") + "key=" + URLEncoder.encode(cle, StandardCharsets.UTF_8);
++        }
++        HttpResponse<String> r;
++        try {
++            r = HttpClient
++                    .newBuilder().connectTimeout(Duration.ofSeconds(10)).build().send(
++                            HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMillis(config.delaiMs()))
++                                    .header("content-type", "application/json")
++                                    .POST(HttpRequest.BodyPublishers.ofString(requete(jpeg).toString(),
++                                            StandardCharsets.UTF_8))
++                                    .build(),
++                            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
++        } catch (HttpTimeoutException e) {
++            throw new Echec("délai dépassé", true);
++        } catch (IOException e) {
++            throw new Echec("service de lecture injoignable", false);
++        } catch (InterruptedException e) {
++            Thread.currentThread().interrupt();
++            throw new Echec("lecture interrompue", false);
++        }
++        if (r.statusCode() == 401 || r.statusCode() == 403) {
++            throw new Echec("clé du service de lecture refusée (configuration du serveur)", false);
++        }
++        if (r.statusCode() != 200) {
++            throw new Echec("service de lecture indisponible (code " + r.statusCode() + ")", false);
++        }
++        try {
++            JSONObject rep = new JSONObject(r.body()).getJSONArray("responses").getJSONObject(0);
++            JSONObject doc = rep.optJSONObject("fullTextAnnotation");
++            JSONArray lignes = new JSONArray();
++            if (doc != null) {
++                for (String l : doc.optString("text").split("\\r?\\n")) {
++                    if (!l.trim().isEmpty()) {
++                        lignes.put(new JSONObject().put("nom", l.trim()).put("dosage", "").put("forme", "")
++                                .put("posologie", "").put("quantite", "").put("confiance", 0.5));
++                    }
++                }
++            }
++            return new Resultat(LignesLues.nettoyer(lignes), 0, 0);
++        } catch (JSONException e) {
++            throw new Echec("réponse illisible du service", false);
++        }
++    }
++}
+diff --git a/src/main/java/rest/service/mobile/lecture/FournisseurLecture.java b/src/main/java/rest/service/mobile/lecture/FournisseurLecture.java
+new file mode 100644
+index 00000000..c3782be1
+--- /dev/null
++++ b/src/main/java/rest/service/mobile/lecture/FournisseurLecture.java
+@@ -0,0 +1,48 @@
++package rest.service.mobile.lecture;
++
++import org.json.JSONArray;
++
++/**
++ * O5 : fournisseur de lecture avancee (interchangeable). Recoit l'image JPEG de la ZONE DES MEDICAMENTS deja recadree
++ * et masquee par le telephone ; renvoie seulement les lignes de medicaments. Ne garde jamais l'image.
++ */
++public interface FournisseurLecture {
++
++    /** Resultat d'une lecture : lignes {nom, dosage, forme, posologie, quantite, confiance} et jetons consommes. */
++    final class Resultat {
++        public final JSONArray lignes;
++        public final long jetonsEntree;
++        public final long jetonsSortie;
++
++        public Resultat(JSONArray lignes, long jetonsEntree, long jetonsSortie) {
++            this.lignes = lignes;
++            this.jetonsEntree = jetonsEntree;
++            this.jetonsSortie = jetonsSortie;
++        }
++    }
++
++    /** Echec de lecture (motif sans donnee de l'ordonnance) ; {@code delai} : delai depasse. */
++    final class Echec extends Exception {
++        private static final long serialVersionUID = 1L;
++        public final boolean delai;
++
++        public Echec(String motif, boolean delai) {
++            super(motif);
++            this.delai = delai;
++        }
++    }
++
++    Resultat lire(byte[] jpeg, LectureAvanceeConfiguration config) throws Echec;
++
++    /** Fournisseur de la configuration (null : aucun). */
++    static FournisseurLecture pour(LectureAvanceeConfiguration config) {
++        switch (config.fournisseur()) {
++        case LectureAvanceeConfiguration.CLAUDE:
++            return new FournisseurClaude();
++        case LectureAvanceeConfiguration.GOOGLE:
++            return new FournisseurGoogleVision();
++        default:
++            return null;
++        }
++    }
++}
+diff --git a/src/main/java/rest/service/mobile/lecture/LectureAvanceeConfiguration.java b/src/main/java/rest/service/mobile/lecture/LectureAvanceeConfiguration.java
+new file mode 100644
+index 00000000..99e8a027
+--- /dev/null
++++ b/src/main/java/rest/service/mobile/lecture/LectureAvanceeConfiguration.java
+@@ -0,0 +1,193 @@
++package rest.service.mobile.lecture;
++
++import java.io.InputStream;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.Properties;
++import java.util.logging.Level;
++import java.util.logging.Logger;
++
++/**
++ * O5 (Prestige Mobile) : configuration de la lecture avancee des ordonnances (service externe de lecture d'ecriture).
++ * <p>
++ * Meme regle que la passerelle Posos : AUCUNE cle dans le code, dans Git, dans une reponse ni dans les journaux. Lue,
++ * par ordre de priorite, dans une variable d'environnement du serveur, une propriete systeme de la JVM de meme nom,
++ * puis le fichier {@code lecture-avancee.properties} du dossier de configuration de Prestige (celui de
++ * {@code dicisms.properties} ; {@code LECTURE_AVANCEE_CONFIG_FILE} permet de le placer ailleurs).
++ * <p>
++ * Cles :
++ * <ul>
++ * <li>{@code LECTURE_AVANCEE_FOURNISSEUR} : {@code claude} (defaut si une cle est presente), {@code google}, ou
++ * {@code aucun} ;</li>
++ * <li>{@code LECTURE_AVANCEE_CLE} : cle d'API du fournisseur (jamais renvoyee) ;</li>
++ * <li>{@code LECTURE_AVANCEE_MODELE} : modele Claude, {@code claude-haiku-5-5} par defaut (cout), ou
++ * {@code claude-opus-5-5} ;</li>
++ * <li>{@code LECTURE_AVANCEE_URL} : adresse du service (defaut : celle du fournisseur ; un faux service local pour les
++ * essais) ;</li>
++ * <li>{@code LECTURE_AVANCEE_QUOTA_JOUR} : lectures par jour pour toute l'officine (defaut 50) ;</li>
++ * <li>{@code LECTURE_AVANCEE_DELAI_MS} : delai maximal d'une lecture (defaut 30 000) ;</li>
++ * <li>{@code LECTURE_AVANCEE_PRIX_ENTREE} / {@code LECTURE_AVANCEE_PRIX_SORTIE} : prix en dollars par million de
++ * jetons, pour le cout estime journalise (defaut : tarif du modele Claude choisi).</li>
++ * </ul>
++ */
++public final class LectureAvanceeConfiguration {
++
++    private static final Logger LOG = Logger.getLogger(LectureAvanceeConfiguration.class.getName());
++
++    static final String NOM_FICHIER = "lecture-avancee.properties";
++    static final String CLE_FICHIER = "LECTURE_AVANCEE_CONFIG_FILE";
++    static final String CLE_FOURNISSEUR = "LECTURE_AVANCEE_FOURNISSEUR";
++    static final String CLE_CLE = "LECTURE_AVANCEE_CLE";
++    static final String CLE_MODELE = "LECTURE_AVANCEE_MODELE";
++    static final String CLE_URL = "LECTURE_AVANCEE_URL";
++    static final String CLE_QUOTA = "LECTURE_AVANCEE_QUOTA_JOUR";
++    static final String CLE_DELAI = "LECTURE_AVANCEE_DELAI_MS";
++    static final String CLE_PRIX_ENTREE = "LECTURE_AVANCEE_PRIX_ENTREE";
++    static final String CLE_PRIX_SORTIE = "LECTURE_AVANCEE_PRIX_SORTIE";
++
++    public static final String CLAUDE = "claude";
++    public static final String GOOGLE = "google";
++    public static final String AUCUN = "aucun";
++
++    public static final String MODELE_DEFAUT = "claude-haiku-5-5";
++    public static final String URL_CLAUDE = "https://api.anthropic.com/v1/messages";
++    public static final String URL_GOOGLE = "https://vision.googleapis.com/v1/images:annotate";
++
++    /** Source de valeurs (injectable pour les tests). */
++    public interface Source {
++        String valeur(String cle);
++    }
++
++    private final Source source;
++    private final Properties fichier;
++
++    LectureAvanceeConfiguration(Source source, Properties fichier) {
++        this.source = source;
++        this.fichier = fichier == null ? new Properties() : fichier;
++    }
++
++    public static LectureAvanceeConfiguration duServeur() {
++        Source env = cle -> {
++            String v = System.getenv(cle);
++            return v != null ? v : System.getProperty(cle);
++        };
++        return new LectureAvanceeConfiguration(env, chargerFichier(env.valeur(CLE_FICHIER)));
++    }
++
++    public static LectureAvanceeConfiguration de(Map<String, String> valeurs) {
++        Map<String, String> copie = new LinkedHashMap<>(valeurs == null ? Map.of() : valeurs);
++        return new LectureAvanceeConfiguration(copie::get, null);
++    }
++
++    private static Properties chargerFichier(String chemin) {
++        Properties p = new Properties();
++        String vise;
++        if (chemin != null && !chemin.trim().isEmpty()) {
++            vise = chemin.trim();
++        } else {
++            try {
++                vise = util.StockageDisque.fichierConfiguration(NOM_FICHIER).toString();
++            } catch (Exception e) {
++                return p;
++            }
++        }
++        try {
++            Path f = Paths.get(vise);
++            if (Files.isReadable(f)) {
++                try (InputStream in = Files.newInputStream(f)) {
++                    p.load(in);
++                }
++            }
++        } catch (Exception e) {
++            // Jamais le contenu du fichier dans le journal : il porte la cle.
++            LOG.log(Level.WARNING, "Configuration de la lecture avancee illisible ({0})", vise);
++        }
++        return p;
++    }
++
++    private String brut(String cle) {
++        String v = source.valeur(cle);
++        if (v == null || v.trim().isEmpty()) {
++            v = fichier.getProperty(cle);
++        }
++        return v == null || v.trim().isEmpty() ? null : v.trim();
++    }
++
++    /** Cle du fournisseur : accessible au paquet seulement (fournisseurs), jamais exposee. */
++    String cle() {
++        return brut(CLE_CLE);
++    }
++
++    public String fournisseur() {
++        String f = brut(CLE_FOURNISSEUR);
++        if (f == null) {
++            return cle() != null ? CLAUDE : AUCUN;
++        }
++        f = f.toLowerCase(java.util.Locale.ROOT);
++        return CLAUDE.equals(f) || GOOGLE.equals(f) ? f : AUCUN;
++    }
++
++    /** Configuree : un fournisseur et une cle (ou une adresse locale de faux service pour les essais). */
++    public boolean configuree() {
++        String f = fournisseur();
++        if (AUCUN.equals(f)) {
++            return false;
++        }
++        return cle() != null || (brut(CLE_URL) != null && estLocale(brut(CLE_URL)));
++    }
++
++    static boolean estLocale(String url) {
++        return url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
++    }
++
++    public String modele() {
++        String m = brut(CLE_MODELE);
++        return m == null ? MODELE_DEFAUT : m;
++    }
++
++    public String url() {
++        String u = brut(CLE_URL);
++        if (u != null) {
++            return u;
++        }
++        return GOOGLE.equals(fournisseur()) ? URL_GOOGLE : URL_CLAUDE;
++    }
++
++    public int quotaJour() {
++        return entier(CLE_QUOTA, 50, 0, 100000);
++    }
++
++    public int delaiMs() {
++        return entier(CLE_DELAI, 30000, 2000, 120000);
++    }
++
++    /** Prix en dollars par million de jetons d'entree. */
++    public double prixEntree() {
++        return decimal(CLE_PRIX_ENTREE, modele().startsWith("claude-opus") ? 4.0 : 0.10);
++    }
++
++    public double prixSortie() {
++        return decimal(CLE_PRIX_SORTIE, modele().startsWith("claude-opus") ? 20.0 : 0.50);
++    }
++
++    private int entier(String cle, int defaut, int min, int max) {
++        try {
++            String v = brut(cle);
++            return v == null ? defaut : Math.max(min, Math.min(max, Integer.parseInt(v)));
++        } catch (NumberFormatException e) {
++            return defaut;
++        }
++    }
++
++    private double decimal(String cle, double defaut) {
++        try {
++            String v = brut(cle);
++            return v == null ? defaut : Double.parseDouble(v.replace(',', '.'));
++        } catch (NumberFormatException e) {
++            return defaut;
++        }
++    }
++}
+diff --git a/src/main/java/rest/service/mobile/lecture/LignesLues.java b/src/main/java/rest/service/mobile/lecture/LignesLues.java
+new file mode 100644
+index 00000000..d543556f
+--- /dev/null
++++ b/src/main/java/rest/service/mobile/lecture/LignesLues.java
+@@ -0,0 +1,62 @@
++package rest.service.mobile.lecture;
++
++import java.util.Locale;
++import java.util.regex.Pattern;
++import org.json.JSONArray;
++import org.json.JSONObject;
++
++/**
++ * O5 : nettoyage des lignes renvoyees par un fournisseur (defense en profondeur) : seulement les champs attendus,
++ * longueurs bornees, 30 lignes au plus, et lignes qui ressemblent a une donnee personnelle retirees (titre Dr / Mme /
++ * Patient / Nom, date, telephone, e-mail).
++ */
++public final class LignesLues {
++
++    static final int MAX_LIGNES = 30;
++    private static final Pattern PERSONNEL = Pattern
++            .compile("(?i)(\\b(dr|docteur|mme|madame|mr|monsieur|mlle|patient|patiente|nom|prenom|ne le|nee le|age|tel|"
++                    + "telephone|bp|clinique|hopital|cabinet)\\b|@|\\d{1,2}\\s*[/.-]\\s*\\d{1,2}\\s*[/.-]\\s*\\d{2,4}|"
++                    + "(\\+?\\d[\\s.-]?){8,})");
++
++    private LignesLues() {
++    }
++
++    static String sansAccents(String s) {
++        return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "");
++    }
++
++    static String borne(String s, int max) {
++        String t = s == null ? "" : s.replaceAll("[\\r\\n\\t]+", " ").trim();
++        return t.length() > max ? t.substring(0, max) : t;
++    }
++
++    public static boolean personnel(String texte) {
++        return PERSONNEL.matcher(sansAccents(texte).toLowerCase(Locale.ROOT)).find();
++    }
++
++    public static JSONArray nettoyer(JSONArray brut) {
++        JSONArray out = new JSONArray();
++        for (int i = 0; brut != null && i < brut.length() && out.length() < MAX_LIGNES; i++) {
++            JSONObject l = brut.optJSONObject(i);
++            if (l == null) {
++                continue;
++            }
++            String nom = borne(l.optString("nom"), 80);
++            if (nom.length() < 2 || personnel(nom)) {
++                continue;
++            }
++            String posologie = borne(l.optString("posologie"), 120);
++            if (personnel(posologie)) {
++                posologie = "";
++            }
++            double c = l.optDouble("confiance", 0.5);
++            if (Double.isNaN(c)) {
++                c = 0.5;
++            }
++            out.put(new JSONObject().put("nom", nom).put("dosage", borne(l.optString("dosage"), 40))
++                    .put("forme", borne(l.optString("forme"), 40)).put("posologie", posologie)
++                    .put("quantite", borne(l.optString("quantite"), 20)).put("confiance", Math.max(0, Math.min(1, c))));
++        }
++        return out;
++    }
++}
+diff --git a/src/main/resources/db/migration/V6.9.129.4__mobile_lecture_avancee.sql b/src/main/resources/db/migration/V6.9.129.4__mobile_lecture_avancee.sql
+new file mode 100644
+index 00000000..7b5a7a3a
+--- /dev/null
++++ b/src/main/resources/db/migration/V6.9.129.4__mobile_lecture_avancee.sql
+@@ -0,0 +1,21 @@
++-- O5 (Prestige Mobile) : journal des lectures avancees d'ordonnances (service externe, avec consentement).
++-- Une ligne par demande : date, utilisateur, taille de l'image, fournisseur, modele, resultat, nombre de lignes,
++-- jetons et cout estime. JAMAIS l'image ni le texte lu (le serveur ne les enregistre nulle part).
++-- Sert aussi au quota par jour. Script rejouable (CREATE TABLE IF NOT EXISTS) ; aucune table existante modifiee.
++CREATE TABLE IF NOT EXISTS mobile_lecture_avancee_journal (
++    id            BIGINT        NOT NULL AUTO_INCREMENT,
++    jour          DATE          NOT NULL,
++    horodatage    DATETIME      NOT NULL,
++    lg_USER_ID    VARCHAR(40)   NULL,
++    taille_octets INT           NOT NULL DEFAULT 0,
++    fournisseur   VARCHAR(20)   NOT NULL,
++    modele        VARCHAR(60)   NULL,
++    resultat      VARCHAR(20)   NOT NULL,
++    lignes        INT           NOT NULL DEFAULT 0,
++    jetons_entree BIGINT        NOT NULL DEFAULT 0,
++    jetons_sortie BIGINT        NOT NULL DEFAULT 0,
++    cout_estime   DECIMAL(12,6) NOT NULL DEFAULT 0,
++    duree_ms      BIGINT        NOT NULL DEFAULT 0,
++    PRIMARY KEY (id),
++    KEY idx_mobile_lecture_avancee_jour (jour, resultat)
++) ENGINE = InnoDB DEFAULT CHARSET = utf8;
+-- 
+2.43.0
+
