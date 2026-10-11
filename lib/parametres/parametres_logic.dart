@@ -50,7 +50,7 @@ class ParametresChecks {
 }
 
 /// Rubriques de la page d'entrée des réglages.
-enum Rubrique { connexion, ventes, impression, stock, apparence, equipe, securite, licence, horsLigne }
+enum Rubrique { connexion, ventes, impression, stock, apparence, equipe, securite, licence, horsLigne, borne, images }
 
 extension RubriqueInfo on Rubrique {
   String get title => switch (this) {
@@ -63,11 +63,13 @@ extension RubriqueInfo on Rubrique {
         Rubrique.equipe => 'Équipe & pointage',
         Rubrique.securite => 'Sécurité',
         Rubrique.licence => 'Licence & appareil',
+        Rubrique.borne => 'Borne libre-service',
+        Rubrique.images => 'Images des produits',
       };
 
   /// Protégée par le code administrateur (décision Q7).
   bool get locked => switch (this) {
-        Rubrique.connexion || Rubrique.ventes || Rubrique.stock || Rubrique.equipe || Rubrique.securite => true,
+        Rubrique.connexion || Rubrique.ventes || Rubrique.stock || Rubrique.equipe || Rubrique.securite || Rubrique.borne || Rubrique.images => true,
         _ => false,
       };
 
@@ -87,6 +89,9 @@ extension RubriqueInfo on Rubrique {
         Rubrique.equipe => 'pointage employés badge nfc empreinte pin rapport diagnostic lecteur',
         Rubrique.securite => 'code pin administrateur admin mot de passe sécurité',
         Rubrique.licence => 'licence expiration jours appareil modèle android identifiant support',
+        Rubrique.borne => 'borne libre service self kiosque client vitrine liste guidee ticket discret inactivite '
+            'categories produits mis en avant epinglage ecran',
+        Rubrique.images => 'images photos produits vignettes cache telechargement prechargement hors ligne photo appareil',
       };
 }
 

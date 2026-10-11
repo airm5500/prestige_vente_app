@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
+import 'package:prestige_vente_app/images/images_reglages.dart';
+import 'package:prestige_vente_app/images/produit_image_widget.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -154,6 +156,15 @@ class _ProductListModalState extends State<ProductListModal> {
                     final p = _filtered[i];
                     return ListTile(
                       minVerticalPadding: 8,
+                      // B2 : vignette seulement si le réglage « vignettes dans les listes de vente » est activé.
+                      leading: ImagesReglages.courant.value.vignettesVentes && ImagesReglages.courant.value.actif
+                          ? ProduitImage(
+                              familleId: p.lgFAMILLEID,
+                              taille: 40,
+                              rayon: BorderRadius.circular(8),
+                              placeholder: const SizedBox(width: 40, height: 40, child: Icon(Icons.medication_outlined, color: Colors.black38)),
+                            )
+                          : null,
                       title: Text(p.strNAME, style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text.rich(TextSpan(style: const TextStyle(fontSize: 12, color: Colors.black87), children: [
                         TextSpan(text: 'CIP : ${p.intCIP} | '),

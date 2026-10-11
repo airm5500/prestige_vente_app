@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import 'package:prestige_vente_app/accueil/accueil_menus.dart';
 import 'package:prestige_vente_app/accueil/fiche_produit_screen.dart';
+import 'package:prestige_vente_app/images/produit_image_widget.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
@@ -292,6 +293,14 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
         onTap: () => _ouvrirProduit(p),
         child: SoftCard(
           child: Row(children: [
+            // B2 : image du produit si le serveur en a une (rien sinon : affichage inchangé).
+            ProduitImage(
+              familleId: p.lgFAMILLEID,
+              taille: 48,
+              rayon: BorderRadius.circular(10),
+              placeholder: const SizedBox.shrink(),
+              avecMarge: true,
+            ),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(orDash(p.strNAME), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Pal.ink)),

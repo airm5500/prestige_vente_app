@@ -11,7 +11,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/horsligne/activite_app.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/images/images_reglages.dart';
+import 'package:prestige_vente_app/images/produit_images.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
@@ -39,6 +42,10 @@ class HorsLigneScope extends StatefulWidget {
   const HorsLigneScope(
       {super.key, required this.child, this.horsLigne, this.bindApp = true, this.retourDuree = const Duration(seconds: 4), this.bandeauRetour = true});
 
+  /// Borne libre-service (B1) ouverte : aucun bandeau ni dialogue hors ligne (le client ne doit rien voir
+  /// de l'appli ; la borne affiche elle-même « momentanément indisponible »). false : appli inchangée.
+  static final ValueNotifier<bool> masquer = ValueNotifier<bool>(false);
+
   @override
   State<HorsLigneScope> createState() => _HorsLigneScopeState();
 }
@@ -61,6 +68,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     _stock.attach(_bound);
     _stock.queue.addListener(_onChange); // stock hors ligne (H3)
     _bound.ventes.addListener(_onChange);
+    HorsLigneScope.masquer.addListener(_onMasque);
     if (widget.bindApp) _bound.monitor.start();
   }
 
@@ -87,6 +95,10 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
       _bound.sync.startAuto(() => _bound.monitor.etat == EtatServeur.enLigne);
       // Ventes hors ligne restées en attente (appli fermée pendant l'envoi) : reprise.
       _bound.demarrerVentes();
+      // B2 : préchargement des images (réglage, désactivé par défaut), en pause quand l'appli est utilisée.
+      if (widget.bindApp && ImagesReglages.courant.value.prechargement) {
+        ProduitImages.instance.prechargerCatalogue(_bound.store, occupe: () => ActiviteApp.occupee).catchError((_) => 0);
+      }
     } else {
       _bound.sync.stopAuto();
       JournalTerminal.instance.utilisateur = '';
@@ -101,6 +113,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     _bound.ventesEnAttente.removeListener(_onChange);
     _stock.queue.removeListener(_onChange);
     _bound.ventes.removeListener(_onChange);
+    HorsLigneScope.masquer.removeListener(_onMasque);
     if (widget.bindApp) {
       _bound.monitor.stop();
       _bound.sync.stopAuto();
@@ -110,9 +123,16 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
 
   bool _confirmationOuverte = false;
 
+  /// Ouverture / fermeture de la borne (pendant une construction) : mise à jour à la fin de l'image.
+  void _onMasque() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onChange());
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
   void _onChange() {
     if (mounted) setState(() {});
     // Retour du serveur avec des ventes en attente : confirmation (aucun envoi sans accord).
+    if (HorsLigneScope.masquer.value) return;
     if (_bound.ventes.confirmationDemandee && !_confirmationOuverte && HorsLigne.navigatorKey.currentState != null) {
       _confirmationOuverte = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -157,13 +177,15 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
 
   @override
   Widget build(BuildContext context) {
-    final b = _bandeau;
-    final maj = _bound.sync.running;
-    final enHaut = b == null && !StockBandeau.visible(_stock);
+    final masque = HorsLigneScope.masquer.value;
+    final b = masque ? null : _bandeau;
+    final maj = !masque && _bound.sync.running;
+    final stockVisible = !masque && StockBandeau.visible(_stock);
+    final enHaut = b == null && !stockVisible;
     // Structure fixe (le Navigator n'est jamais recréé) ; sans bandeau, l'écran est identique.
     return Column(children: [
       b == null ? const SizedBox.shrink() : HorsLigneBanner(kind: b, horsLigne: _bound),
-      MediaQuery.removePadding(context: context, removeTop: b != null, child: StockBandeau(horsLigne: _bound, stock: _stock)),
+      MediaQuery.removePadding(context: context, removeTop: b != null, child: masque ? const SizedBox.shrink() : StockBandeau(horsLigne: _bound, stock: _stock)),
       // Mise à jour de la copie locale en cours : indicateur discret (barre fine, avancement déterminé).
       if (maj)
         Padding(
@@ -179,7 +201,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
         ),
       Expanded(
           child: MediaQuery.removePadding(
-              context: context, removeTop: b != null || StockBandeau.visible(_stock) || maj, child: widget.child)),
+              context: context, removeTop: b != null || stockVisible || maj, child: widget.child)),
     ]);
   }
 }

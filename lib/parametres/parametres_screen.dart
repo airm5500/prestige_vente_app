@@ -6,6 +6,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/accueil/organiser_accueil_screen.dart';
+import 'package:prestige_vente_app/borne/borne_config.dart';
+import 'package:prestige_vente_app/borne/borne_reglages_page.dart';
+import 'package:prestige_vente_app/images/images_reglages.dart';
+import 'package:prestige_vente_app/images/images_reglages_page.dart';
 import 'package:prestige_vente_app/parametres/connexion_page.dart';
 import 'package:prestige_vente_app/parametres/hors_ligne_page.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
@@ -101,6 +105,8 @@ class _ParametresScreenState extends State<ParametresScreen> {
         Rubrique.equipe => _pointage == null ? 'Méthode, employés, rapport' : pointageSummary(_pointage!),
         Rubrique.securite => 'Code PIN administrateur',
         Rubrique.licence => ParametresSummary.licence(l),
+        Rubrique.borne => borneSummary(BorneReglages.courant.value),
+        Rubrique.images => imagesSummary(ImagesReglages.courant.value),
       };
 
   static IconData _icon(Rubrique r) => switch (r) {
@@ -113,6 +119,8 @@ class _ParametresScreenState extends State<ParametresScreen> {
         Rubrique.equipe => Icons.groups,
         Rubrique.securite => Icons.shield,
         Rubrique.licence => Icons.badge,
+        Rubrique.borne => Icons.storefront,
+        Rubrique.images => Icons.image_outlined,
       };
 
   Future<void> _openOrganiser(BuildContext ctx) async {
@@ -159,6 +167,8 @@ class _ParametresScreenState extends State<ParametresScreen> {
       Rubrique.equipe => EquipePage(repository: _pointageRepo),
       Rubrique.securite => const SecuritePage(),
       Rubrique.licence => LicencePage(hardwareInfo: _sv.hardwareInfo ?? FingerprintService.hardwareInfo),
+      Rubrique.borne => const BornePage(),
+      Rubrique.images => const ImagesPage(),
     };
 
   /// Panneau de droite (tablette paysage) : rubrique choisie, sinon une invitation.

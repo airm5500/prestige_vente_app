@@ -175,6 +175,38 @@ class ReceiptService {
     } catch (e) { if (context.mounted) Constants.showSnackBar(context, 'Erreur d\'impression: $e', isError: true); }
   }
 
+  // --- BORNE LIBRE-SERVICE (B1) : numéro en grand, produits, total, code de la référence ---
+  /// Imprime sur l'imprimante intégrée Sunmi, sans dialogue (la borne affiche le ticket à l'écran si false).
+  Future<bool> printBorneTicket({
+    required String officine, required String numero, required String reference,
+    required List<String> lignes, required List<String> pied, required String codeType,
+  }) async {
+    try {
+      final bool? ok = await SunmiPrinter.bindingPrinter();
+      if (ok != true) return false;
+      await SunmiPrinter.initPrinter();
+      await SunmiPrinter.startTransactionPrint(true);
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
+      await SunmiPrinter.printText(officine.toUpperCase(), style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
+      await SunmiPrinter.printText('PRE-VENTE BORNE', style: SunmiStyle(bold: true));
+      await SunmiPrinter.printText('N° $numero', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.XL));
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
+      for (final l in lignes) { await SunmiPrinter.printText(l); }
+      await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
+      await SunmiPrinter.lineWrap(1);
+      if (codeType == 'QR_CODE') { await SunmiPrinter.printQRCode(reference); }
+      else { await SunmiPrinter.printBarCode(reference, barcodeType: SunmiBarcodeType.CODE128, height: 60, width: 2); }
+      await SunmiPrinter.printText(reference);
+      for (final l in pied) { await SunmiPrinter.printText(l, style: SunmiStyle(bold: l == pied.first)); }
+      await SunmiPrinter.lineWrap(4);
+      await SunmiPrinter.cut();
+      await SunmiPrinter.exitTransactionPrint(true);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Titre du ticket assurance / carnet. [carnet] null : règle d'origine (tous les TP à 100 % → CARNET).
   static String _assuranceTitle(AssuranceSaleSummary s, bool? carnet, {required bool prevente}) {
     final isCarnet = carnet ?? !s.tierspayants.any((tp) => tp.taux < 100);
