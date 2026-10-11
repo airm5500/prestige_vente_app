@@ -73,8 +73,10 @@ WAVE_API_KEY=…      WAVE_WEBHOOK_SECRET=…
 PRESTIGE_PAIEMENTS_SIMULATEUR_SECRET=…
 ```
 
-Payara : variables d'environnement du service, ou `asadmin create-jvm-options "-DPRESTIGE_PAIEMENTS_FOURNISSEUR=simulateur"`
-(redémarrage du domaine). La configuration est lue au premier appel.
+Payara : **variables d'environnement du service** (recommandé pour les clés). Les options `-D…`
+(`asadmin create-jvm-options`) fonctionnent aussi, mais Payara recopie la ligne de lancement de la JVM dans
+`server.log` au démarrage : ne les utiliser que pour le simulateur. La configuration est lue au premier appel
+(redémarrage du domaine après un changement).
 
 ## Adaptateurs
 
@@ -109,3 +111,13 @@ curl -b cj -X POST "$B/paiements-mobile/<id>/simuler?payer=true"
 curl -b cj $B/paiements-mobile/<id>           # statut paye, cloture true
 curl -X POST -d '{}' $B/paiements-mobile/notification/simulateur   # 401 (signature absente)
 ```
+
+## Vérification faite sur le serveur de test (11/10/2026, simulateur)
+
+WAR = o5-lecture-avancee + B3 (branche locale `b3-test`), options `-D` du simulateur posées le temps du test :
+capacités `[orange, moov, mtn, wave]` ; part supérieure au net refusée ; montant envoyé ignoré (1 115 F = net de la vente) ;
+même `X-Client-Ref` = même paiement ; webhook sans signature ou mal signé → 401 ; webhook signé rejoué → 200 sans effet tant
+que le fournisseur ne confirme pas ; paiement simulé → `paye`, vente `is_Closed` avec règlement **10 (Wave) 1 115 F** ;
+annulation puis paiement tardif → `paye_apres_annulation`, vente restée en prévente ; historique du jour OK ; routes H4/H5/O4/O5
+inchangées. Nettoyage : vente annulée (stock rétabli), prévente supprimée, `paiement_mobile` vidée, options `-D` retirées
+(paiements de nouveau désactivés : capacités vides, webhook 404).
