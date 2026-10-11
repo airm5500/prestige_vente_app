@@ -3,6 +3,11 @@
 Patch : `docs/serveur/B3_paiements_mobile.patch` (s'applique seul sur la branche serveur actuelle
 `claude/new-session-xm8ptu`, 315a40b7, indépendamment de H4/H5 : `git am docs/serveur/B3_paiements_mobile.patch`).
 
+Ordre d'application avec les autres patchs (11/10/2026) : **H4 → H5 → O4 → O5 → B3**. Vérifié sur la branche
+amont à jour (`b9e03367`) : `git apply --check` passe pour chacun dans cet ordre, et B3 s'applique aussi seul.
+Les routes de H4/H5/O4/O5 sont désormais sous `v1/app-vente/…` (voir `H4_CLIENT_REF.md` § 0) ; elles ne touchent
+plus `AuthenticationFilter` — B3 reste le seul patch à y ajouter des chemins (ses webhooks publics).
+
 **Désactivé par défaut** : sans configuration, aucune route ne crée de paiement et
 `GET v1/paiements-mobile/capacites` annonce une liste d'opérateurs vide (l'application garde alors « espèces »
 et les QR statiques des modes, comme avant).

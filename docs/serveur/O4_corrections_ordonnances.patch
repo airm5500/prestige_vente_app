@@ -1,55 +1,35 @@
-From 759b5a2910496a0fded6994315c7bac61f980ba6 Mon Sep 17 00:00:00 2001
+From 820ce988d8d8b39a0d135d5ab0a7d5c0d76357ea Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
-Date: Sun, 11 Oct 2026 00:56:55 +0000
+Date: Sun, 11 Oct 2026 02:18:53 +0000
 Subject: [PATCH] Prestige Mobile O4 : partage entre terminaux des
  apprentissages des ordonnances (corrections du pharmacien)
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-POST v1/mobile/ordonnances/corrections : lot de validations « segment médicament lu → produit »
+POST v1/app-vente/ordonnances/corrections : lot de validations « segment médicament lu → produit »
 ({cle, segment, produitId, cip, nom, at}, 500 au plus), idempotent par clé (INSERT IGNORE sur la clé primaire) ;
-corrections au format invalide ou produit inconnu listées dans rejetes. GET v1/mobile/ordonnances/corrections
+corrections au format invalide ou produit inconnu listées dans rejetes. GET v1/app-vente/ordonnances/corrections
 ?depuis=&jusqua=&start=&limit= : différentiel avec l'horloge de la base (serveurMaintenant), comme H5.
-Capacité ordonnanceCorrections annoncée par v1/mobile/capacites (vraie si la table existe). Session habituelle
-(cookie), chemin exclu du contrôle par jeton Bearer comme H4/H5. Aucune donnée patient : seul le segment
+Capacité ordonnanceCorrections annoncée par v1/app-vente/capacites (vraie si la table existe). Session habituelle
+(cookie) ; aucune modification de filter.AuthenticationFilter. Aucune donnée patient : seul le segment
 médicament filtré par le téléphone est reçu (longueur et caractères bornés côté serveur).
-Migration V6.9.129.3 : table mobile_ordonnance_correction (rejouable, aucune table existante modifiée).
+Migration V6.9.132.3 : table mobile_ordonnance_correction (rejouable, aucune table existante modifiée).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DmdojchP92w3JjfyVDXDv5
 ---
- .../java/filter/AuthenticationFilter.java     |   4 +-
  .../java/rest/MobileCapacitesRessource.java   |   8 +
- .../java/rest/MobileOrdonnanceRessource.java  | 102 ++++++++
+ .../java/rest/MobileOrdonnanceRessource.java  | 103 ++++++++
  .../MobileOrdonnanceCorrectionService.java    | 224 ++++++++++++++++++
- ...9.129.3__mobile_ordonnance_corrections.sql |  18 ++
- 5 files changed, 355 insertions(+), 1 deletion(-)
+ ...9.132.3__mobile_ordonnance_corrections.sql |  18 ++
+ 4 files changed, 353 insertions(+)
  create mode 100644 src/main/java/rest/MobileOrdonnanceRessource.java
  create mode 100644 src/main/java/rest/service/mobile/MobileOrdonnanceCorrectionService.java
- create mode 100644 src/main/resources/db/migration/V6.9.129.3__mobile_ordonnance_corrections.sql
+ create mode 100644 src/main/resources/db/migration/V6.9.132.3__mobile_ordonnance_corrections.sql
 
-diff --git a/src/main/java/filter/AuthenticationFilter.java b/src/main/java/filter/AuthenticationFilter.java
-index b25a8e8..1c4881b 100644
---- a/src/main/java/filter/AuthenticationFilter.java
-+++ b/src/main/java/filter/AuthenticationFilter.java
-@@ -62,6 +62,8 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
-     private static final String CAPACITES_MOBILE = "v1/mobile/capacites";
-     /* H5 (Prestige Mobile) : changements du catalogue, meme session que v1/vente/search. */
-     private static final String CATALOGUE_MOBILE = "v1/mobile/catalogue/";
-+    /* O4 (Prestige Mobile) : apprentissages des ordonnances partages entre terminaux, meme session. */
-+    private static final String ORDONNANCES_MOBILE = "v1/mobile/ordonnances/";
- 
-     @Inject
-     private HttpServletRequest servletRequest;
-@@ -89,7 +91,7 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
-          * X-User-Info). Les chemins mobiles existants ne passent pas ici : leur fonctionnement est inchange.
-          */
-         if (path.startsWith(CHEMIN_MOBILE) && !path.startsWith(CLIENT_REF_MOBILE) && !CAPACITES_MOBILE.equals(path)
--                && !path.startsWith(CATALOGUE_MOBILE)) {
-+                && !path.startsWith(CATALOGUE_MOBILE) && !path.startsWith(ORDONNANCES_MOBILE)) {
-             if (!CONNEXION_MOBILE.equals(path)) {
-                 String a = requestContext.getHeaderString("Authorization");
-                 TUser u = a != null && a.startsWith("Bearer ")
 diff --git a/src/main/java/rest/MobileCapacitesRessource.java b/src/main/java/rest/MobileCapacitesRessource.java
-index 76b6268..465642b 100644
+index ed1fe7a3..ec164643 100644
 --- a/src/main/java/rest/MobileCapacitesRessource.java
 +++ b/src/main/java/rest/MobileCapacitesRessource.java
 @@ -9,6 +9,7 @@ import javax.ws.rs.core.Response;
@@ -60,17 +40,17 @@ index 76b6268..465642b 100644
  
  /**
   * Capacites du serveur pour Prestige Mobile : l'application n'utilise une evolution du serveur que si celui-ci
-@@ -20,6 +21,9 @@ import rest.service.mobile.MobileClientRefService;
+@@ -21,6 +22,9 @@ import rest.service.mobile.MobileClientRefService;
   * <p>
-  * {@code catalogueDelta} (H5) : {@code GET v1/mobile/catalogue/changements} (produits modifies depuis un instant) ;
+  * {@code catalogueDelta} (H5) : {@code GET v1/app-vente/catalogue/changements} (produits modifies depuis un instant) ;
   * {@code serveurMaintenant} donne l'horloge du serveur (point de depart d'une copie complete du catalogue).
 + * <p>
-+ * {@code ordonnanceCorrections} (O4) : {@code POST/GET v1/mobile/ordonnances/corrections} (apprentissages des
++ * {@code ordonnanceCorrections} (O4) : {@code POST/GET v1/app-vente/ordonnances/corrections} (apprentissages des
 + * ordonnances partages entre terminaux). Faux si la table mobile_ordonnance_correction n'existe pas.
   */
- @Path("v1/mobile/capacites")
+ @Path("v1/app-vente/capacites")
  @Produces(MediaType.APPLICATION_JSON)
-@@ -29,6 +33,8 @@ public class MobileCapacitesRessource {
+@@ -30,6 +34,8 @@ public class MobileCapacitesRessource {
      private MobileClientRefService clientRefService;
      @EJB
      private MobileCatalogueDeltaService catalogueDeltaService;
@@ -79,7 +59,7 @@ index 76b6268..465642b 100644
  
      @GET
      public Response capacites() {
-@@ -37,6 +43,8 @@ public class MobileCapacitesRessource {
+@@ -38,6 +44,8 @@ public class MobileCapacitesRessource {
                  clientRef ? 1 : 0);
          o.put("catalogueDelta", true).put("catalogueDeltaVersion", 1).put("serveurMaintenant",
                  MobileCatalogueDeltaService.format(catalogueDeltaService.maintenant()));
@@ -90,10 +70,10 @@ index 76b6268..465642b 100644
  }
 diff --git a/src/main/java/rest/MobileOrdonnanceRessource.java b/src/main/java/rest/MobileOrdonnanceRessource.java
 new file mode 100644
-index 0000000..96f9689
+index 00000000..0c8642d0
 --- /dev/null
 +++ b/src/main/java/rest/MobileOrdonnanceRessource.java
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,103 @@
 +package rest;
 +
 +import dal.TUser;
@@ -118,17 +98,18 @@ index 0000000..96f9689
 + * O4 (Prestige Mobile) : partage entre terminaux des corrections faites par le pharmacien sur les ordonnances lues
 + * (association « segment medicament lu → produit »).
 + * <p>
-+ * {@code POST v1/mobile/ordonnances/corrections} corps {@code {corrections:[{cle, segment, produitId, cip, nom, at}]}}
-+ * (500 au plus) → {@code {success, recus, enregistres, dejaConnus, rejetes:[{cle, motif}], serveurMaintenant}} ;
++ * {@code POST v1/app-vente/ordonnances/corrections} corps {@code {corrections:[{cle, segment, produitId, cip, nom,
++ * at}]}} (500 au plus) → {@code {success, recus, enregistres, dejaConnus, rejetes:[{cle, motif}], serveurMaintenant}} ;
 + * idempotent par {@code cle}.
 + * <p>
-+ * {@code GET v1/mobile/ordonnances/corrections?depuis=yyyy-MM-dd HH:mm:ss[&jusqua=...]&start=0&limit=500} →
++ * {@code GET v1/app-vente/ordonnances/corrections?depuis=yyyy-MM-dd HH:mm:ss[&jusqua=...]&start=0&limit=500} →
 + * {@code {success, depuis, serveurMaintenant, total, start, limit, data:[{cle, segment, produitId, cip, nom, at,
 + * recuLe}]}} ({@code depuis} absent : tout).
 + * <p>
-+ * Authentification : session habituelle de l'application (cookie), comme H4 / H5 ; voir filter.AuthenticationFilter.
++ * Authentification : session habituelle de l'application (cookie), comme H4 / H5 ; aucune exception dans
++ * filter.AuthenticationFilter.
 + */
-+@Path("v1/mobile/ordonnances")
++@Path("v1/app-vente/ordonnances")
 +@Produces(MediaType.APPLICATION_JSON)
 +public class MobileOrdonnanceRessource {
 +
@@ -198,7 +179,7 @@ index 0000000..96f9689
 +}
 diff --git a/src/main/java/rest/service/mobile/MobileOrdonnanceCorrectionService.java b/src/main/java/rest/service/mobile/MobileOrdonnanceCorrectionService.java
 new file mode 100644
-index 0000000..5d14b86
+index 00000000..baf0b864
 --- /dev/null
 +++ b/src/main/java/rest/service/mobile/MobileOrdonnanceCorrectionService.java
 @@ -0,0 +1,224 @@
@@ -279,7 +260,7 @@ index 0000000..5d14b86
 +        }
 +        tableVerifieeA = now;
 +        if (!tablePresente) {
-+            LOG.warning("Table mobile_ordonnance_correction absente (migration V6.9.129.3 non passee) : "
++            LOG.warning("Table mobile_ordonnance_correction absente (migration V6.9.132.3 non passee) : "
 +                    + "partage des apprentissages d'ordonnances indisponible.");
 +        }
 +        return tablePresente;
@@ -426,11 +407,11 @@ index 0000000..5d14b86
 +        return o == null ? null : o.toString();
 +    }
 +}
-diff --git a/src/main/resources/db/migration/V6.9.129.3__mobile_ordonnance_corrections.sql b/src/main/resources/db/migration/V6.9.129.3__mobile_ordonnance_corrections.sql
+diff --git a/src/main/resources/db/migration/V6.9.132.3__mobile_ordonnance_corrections.sql b/src/main/resources/db/migration/V6.9.132.3__mobile_ordonnance_corrections.sql
 new file mode 100644
-index 0000000..fe38a5e
+index 00000000..fe38a5e9
 --- /dev/null
-+++ b/src/main/resources/db/migration/V6.9.129.3__mobile_ordonnance_corrections.sql
++++ b/src/main/resources/db/migration/V6.9.132.3__mobile_ordonnance_corrections.sql
 @@ -0,0 +1,18 @@
 +-- O4 (Prestige Mobile) : apprentissage par correction des ordonnances, partage entre terminaux.
 +-- Une ligne par validation du pharmacien : « segment medicament lu → produit » (segment filtre par le telephone :

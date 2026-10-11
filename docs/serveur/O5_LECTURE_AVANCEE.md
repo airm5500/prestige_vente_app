@@ -1,27 +1,61 @@
-# O5 — Lecture avancée des ordonnances (`/mobile/ordonnances/lecture-avancee`) : patch serveur Prestige
+# O5 — Lecture avancée des ordonnances (`/app-vente/ordonnances/lecture-avancee`) : patch serveur Prestige
 
 > Pour le développeur Prestige. Patch : `docs/serveur/O5_lecture_avancee.patch` (un commit, à appliquer avec `git am`
-> **après** H4, H5 et O4 : `H4_client_ref.patch`, `H5_catalogue_delta.patch`, `O4_corrections_ordonnances.patch`).
-> Construit sur `o4-corrections-upstream` (= `88a2a4b` + H4 + H5 + O4) ; compilé sur cette base (`mvn compile`) ;
-> H4 + H5 + O4 + O5 s'appliquent aussi à la suite sur `315a40b7` (dernier commit de la branche ; seul H4 y a un
-> conflit, dans `SalesRessource.java`). Vérifié sur le serveur de test avec un **faux fournisseur local** (aucune
-> vraie API appelée, aucune vraie ordonnance envoyée : images synthétiques). **Rien n'a été poussé sur
-> `airm5500/prestige`.**
+> **après** H4, H5 et O4 ; ordre H4 → H5 → O4 → O5 → B3). Construit sur `o4u2` (= `origin/claude/new-session-xm8ptu`
+> à jour `b9e03367` + H4 + H5 + O4) ; compilé (`mvn -o compile`, JDK 11). **Rien n'a été poussé sur le dépôt
+> `airm5500/prestige`.** Voir § 0.
+
+## 0. Mise à jour du 11/10/2026 : préfixe `v1/app-vente/`, filtre non modifié, migrations renumérotées
+
+**Ce qui change par rapport à la version précédente de ce patch** (les 4 patchs H4, H5, O4, O5 ont été refaits ensemble) :
+
+- **Routes déplacées** de `v1/mobile/…` vers le préfixe unique **`v1/app-vente/…`** :
+
+  | Avant | Maintenant |
+  |---|---|
+  | `GET v1/mobile/capacites` | `GET v1/app-vente/capacites` |
+  | `GET v1/mobile/client-ref/{ref}` (H4) | `GET v1/app-vente/client-ref/{ref}` |
+  | `GET v1/mobile/catalogue/changements` (H5) | `GET v1/app-vente/catalogue/changements` |
+  | `POST/GET v1/mobile/ordonnances/corrections` (O4) | `POST/GET v1/app-vente/ordonnances/corrections` |
+  | `POST v1/mobile/ordonnances/lecture-avancee` (O5) | `POST v1/app-vente/ordonnances/lecture-avancee` |
+
+  L'en-tête `X-Client-Ref` (H4) sur `v1/vente/add/*` et `v1/retourfournisseur/new` ne change pas.
+- **`filter/AuthenticationFilter.java` n'est plus modifié** par aucun des 4 patchs. Sur la branche à jour, le préfixe
+  `v1/mobile/` est réservé à l'API mobile à jeton Bearer (`AuthenticationFilter`, `MobileRessource`) ; les anciennes
+  versions devaient y ajouter des exceptions. Les routes `v1/app-vente/` suivent simplement le contrôle de **session
+  habituel** (cookie, ou `X-User-Info`/`X-Token-Exp`), comme le reste de l'application (`v1/vente/…`). Sans session : 401.
+- **Pas de collision** : aucune ressource existante ne commence par `v1/app-vente` (la plus proche est
+  `v1/app-params`, chemin distinct) et le préfixe n'est pas dans `SKIP_PATHS` (aucun accès public).
+- **Migrations renumérotées** au-dessus de la dernière migration amont (`V6.9.132__types_etiquette_par_produit.sql`) :
+  `6.9.129.1 → 6.9.132.1` (H4), `6.9.129.2 → 6.9.132.2` (H5), `6.9.129.3 → 6.9.132.3` (O4), `6.9.129.4 → 6.9.132.4` (O5).
+  **Ces patchs n'ont encore été appliqués chez aucun client : aucune migration à défaire.** (Sur un serveur de test qui
+  aurait déjà joué les anciens numéros, les nouveaux scripts sont rejouables — `CREATE TABLE IF NOT EXISTS`, index
+  créés s'ils manquent — et Flyway est configuré avec `ignoreMissingMigrations(true)` : rien à faire.)
+- **Ordre d'application** (chaque patch s'applique sur le précédent) : **H4 → H5 → O4 → O5 → B3**, sur
+  `origin/claude/new-session-xm8ptu` à jour (`b9e03367`). `git apply --check` vérifié pour chacun, dans cet ordre,
+  sur `b9e03367` : H4 OK, H5 OK, O4 OK, O5 OK, puis `B3_paiements_mobile.patch` OK (B3 utilise ses propres routes
+  `v1/paiements-mobile/…`, indépendantes). Résultat identique, fichier pour fichier, aux branches locales de
+  vérification ; chaque étape compile (`mvn -o compile`, JDK 11). Branches locales (non poussées) :
+  `h4u2` `20e2ef0b`, `h5u2` `fc56cb7e`, `o4u2` `820ce988`, `o5u2` `35ce0172`.
+- **Application** : Prestige Mobile appelle d'abord `v1/app-vente/capacites`, puis, en repli, l'ancien
+  `v1/mobile/capacites` (serveur portant encore les anciens patchs) ; il utilise ensuite le préfixe de la route qui a
+  répondu. Si aucune ne répond (serveur non patché : 404, ou 401 « expire » de l'API à jeton), les fonctions restent
+  désactivées comme avant.
 
 ## 1. Quoi
 
 | Élément | Détail |
 |---|---|
-| Route | `POST v1/mobile/ordonnances/lecture-avancee`, corps = **image JPEG** (`Content-Type: image/jpeg`) de la seule **zone des médicaments**, recadrée, masquée et sans métadonnées par le téléphone ; 4 Mo au plus. |
+| Route | `POST v1/app-vente/ordonnances/lecture-avancee`, corps = **image JPEG** (`Content-Type: image/jpeg`) de la seule **zone des médicaments**, recadrée, masquée et sans métadonnées par le téléphone ; 4 Mo au plus. |
 | Réponse | `{success, lignes:[{nom, dosage, forme, posologie, quantite, confiance}], fournisseur, modele, coutEstime, quotaRestant}` |
 | Erreurs | sans session 401 ; non configurée / migration absente 503 ; pas un JPEG 400 ; trop grande 413 ; quota du jour atteint ou lecture déjà en cours 429 ; erreur ou refus du fournisseur 502 ; délai dépassé 504. Aucun message ne recopie la réponse du fournisseur. |
-| Capacité | `GET v1/mobile/capacites` → `lectureAvancee:true, lectureAvanceeVersion:1` **seulement si un fournisseur est configuré** (clé présente) et la migration passée. Sinon `false` : le téléphone n'affiche pas le bouton. |
+| Capacité | `GET v1/app-vente/capacites` → `lectureAvancee:true, lectureAvanceeVersion:1` **seulement si un fournisseur est configuré** (clé présente) et la migration passée. Sinon `false` : le téléphone n'affiche pas le bouton. |
 | Fournisseurs | interface `FournisseurLecture` : **Claude** (Messages API, par défaut, modèle `claude-haiku-5-5` pour le coût, `claude-opus-5-5` possible) ; **Google Cloud Vision** (`images:annotate`, `DOCUMENT_TEXT_DETECTION`) ; d'autres s'ajoutent en implémentant l'interface (ex. Posos, voir § 8). |
 | Garde-fous | une seule lecture à la fois (sémaphore ; une 2ᵉ demande attend 2 s puis 429) ; délai maximal (30 s par défaut) ; **aucune relance automatique** ; quota par jour pour toute l'officine (50 par défaut). |
 | Données | l'image **n'est jamais enregistrée** (ni disque, ni base, ni journal) : elle n'existe qu'en mémoire pendant l'appel. Le fournisseur reçoit une consigne : seulement les médicaments, jamais nom, date, adresse, téléphone. Le serveur filtre encore la réponse (`LignesLues` : lignes « Dr / Mme / Patient / Nom / date / téléphone / e-mail » retirées, longueurs bornées, 30 lignes au plus). |
 | Journal | table `mobile_lecture_avancee_journal` (date, utilisateur, taille, fournisseur, modèle, résultat `ok / echec / delai / quota / occupe`, nombre de lignes, jetons d'entrée / sortie, **coût estimé**, durée) + une ligne `INFO` dans `server.log` ; **ni image ni texte lu**. Sert aussi au quota. |
-| Authentification | session habituelle de l'application (cookie) ; `v1/mobile/ordonnances/` est déjà exclu du jeton Bearer par O4. |
-| Migration | `V6.9.129.4__mobile_lecture_avancee.sql` : table du journal (aucune table existante modifiée). |
+| Authentification | session habituelle de l'application (cookie) ; préfixe `v1/app-vente/`, aucune modification du filtre (voir § 0). |
+| Migration | `V6.9.132.4__mobile_lecture_avancee.sql` : table du journal (aucune table existante modifiée). |
 
 Fichiers du patch : `rest/service/mobile/MobileLectureAvanceeService.java`, `rest/service/mobile/lecture/`
 (`LectureAvanceeConfiguration`, `FournisseurLecture`, `FournisseurClaude`, `FournisseurGoogleVision`, `LignesLues`),
@@ -76,19 +110,24 @@ d'une zone de 1 100 × 600 px dans l'essai).
 ## 4. Appliquer
 
 ```bash
-git am docs/serveur/H4_client_ref.patch docs/serveur/H5_catalogue_delta.patch \
-       docs/serveur/O4_corrections_ordonnances.patch docs/serveur/O5_lecture_avancee.patch   # ceux qui manquent
-mvn -DskipTests package && asadmin redeploy --name prestige --contextroot prestige target/prestige.war
+git checkout claude/new-session-xm8ptu        # à jour (b9e03367) ou la branche de travail
+git am docs/serveur/H4_client_ref.patch \
+       docs/serveur/H5_catalogue_delta.patch \
+       docs/serveur/O4_corrections_ordonnances.patch \
+       docs/serveur/O5_lecture_avancee.patch \
+       docs/serveur/B3_paiements_mobile.patch          # dans cet ordre ; s'arrêter au patch voulu
+mvn -DskipTests package                       # JDK 11
+asadmin redeploy --name prestige --contextroot prestige target/prestige.war
 ```
 
-Au démarrage : version `6.9.129.4` dans `flyway_schema_history`. Puis déposer `lecture-avancee.properties`.
+Au démarrage : version `6.9.132.4` dans `flyway_schema_history`. Puis déposer `lecture-avancee.properties`.
 
 ## 5. Tester (curl)
 
 ```bash
 B=http://localhost:8080/prestige/api/v1
-curl -s -b cj $B/mobile/capacites                       # …"lectureAvancee":true…
-curl -s -b cj -H 'Content-Type: image/jpeg' --data-binary @zone.jpg $B/mobile/ordonnances/lecture-avancee
+curl -s -b cj $B/app-vente/capacites                       # …"lectureAvancee":true…
+curl -s -b cj -H 'Content-Type: image/jpeg' --data-binary @zone.jpg $B/app-vente/ordonnances/lecture-avancee
 ```
 
 **Vérifié sur le serveur de test** (11/10/2026), faux fournisseur local imitant la Messages API (script
@@ -124,8 +163,8 @@ Le journal de test a été vidé et la configuration retirée du serveur de test
   **gardé** comme pièce justificative d'une ordonnance client (`t_ordonnance_scan`) et la route demande le privilège
   `P_ORDONNANCE_CLIENT_MAJ`. O5 n'enregistre rien et sert le téléphone : il **réutilise la même règle de
   configuration** (environnement → propriété système → fichier du dossier de configuration via
-  `util.StockageDisque`), sans dépendre de Posos (absent de la base `88a2a4b` du patch).
-- Pas de route `v1/mobile/ordonnances/lecture-avancee` ni de table de journal équivalente ; pas de collision avec
+  `util.StockageDisque`), sans dépendre de Posos.
+- Pas de route `v1/app-vente/ordonnances/lecture-avancee` ni de table de journal équivalente ; pas de collision avec
   `MobileRessource` (`connexion`, `moi`, `pointages`, `produits`).
 
 ## 8. Évolutions possibles

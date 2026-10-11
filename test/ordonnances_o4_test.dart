@@ -335,7 +335,7 @@ void main() {
       expect((await SharedPreferences.getInstance()).getBool('ordonnance_o4_partage_v1'), isFalse);
     });
 
-    test('capacité lue sur /mobile/capacites (404 / 401 « expire » = non ; autre = indéterminé)', () {
+    test('capacité lue sur …/capacites (404 / 401 « expire » = non ; autre = indéterminé)', () {
       expect(PartageO4.capaciteDepuisReponse(200, {'ordonnanceCorrections': true}), isTrue);
       expect(PartageO4.capaciteDepuisReponse(200, {'clientRef': true}), isFalse);
       expect(PartageO4.capaciteDepuisReponse(404, null), isFalse);

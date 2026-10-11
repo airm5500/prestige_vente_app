@@ -2,13 +2,13 @@
 // Étape O5 : « lecture avancée » en ligne, avec consentement (patch serveur docs/serveur/O5_lecture_avancee.patch).
 //
 // L'appli n'a AUCUNE clé : elle envoie l'image (zone des médicaments recadrée et masquée, sans métadonnées, voir
-// masquage_o5.dart) au SERVEUR PRESTIGE, POST /mobile/ordonnances/lecture-avancee ; le serveur appelle le fournisseur
+// masquage_o5.dart) au SERVEUR PRESTIGE, POST /app-vente/ordonnances/lecture-avancee (ancien préfixe /mobile/ détecté) ; le serveur appelle le fournisseur
 // (Claude par défaut, Google Cloud Vision possible) avec sa clé, n'enregistre pas l'image et renvoie seulement les
 // lignes de médicaments {nom, dosage, forme, posologie, quantite, confiance}. Ces lignes passent ensuite par le
 // découpage et la correspondance catalogue O3 / O4 comme une lecture ML Kit ; rien n'entre au panier sans validation.
 //
 // - Désactivée par défaut ; activation dans Réglages › Ventes (code administrateur) avec écran de consentement.
-// - Disponible seulement si le serveur annonce `lectureAvancee: true` (GET /mobile/capacites) et en ligne.
+// - Disponible seulement si le serveur annonce `lectureAvancee: true` (GET /app-vente/capacites, repli /mobile/capacites) et en ligne.
 // - Une seule lecture à la fois, délai maximal, aucune relance automatique ; journal du terminal (type « Lecture
 //   avancée », résultat Info) : date, utilisateur, taille, résultat — jamais l'image ni le texte.
 import 'dart:async';
@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
+import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Une ligne de médicament lue par le service.
@@ -104,13 +105,17 @@ class DioServeurLectureAvancee implements ServeurLectureAvancee {
 
   @override
   Future<({int status, Object? body})> capacites() async {
-    final r = await _d.get('/mobile/capacites');
-    return (status: r.statusCode ?? 0, body: r.data);
+    // /app-vente/capacites, repli sur l'ancien /mobile/capacites (voir routes_app_vente.dart).
+    final r = await RoutesAppVente.lireCapacites(adresse, (chemin) async {
+      final x = await _d.get(chemin);
+      return (status: x.statusCode ?? 0, body: x.data);
+    });
+    return (status: r.status, body: r.body);
   }
 
   @override
   Future<({int status, Object? body})> lire(Uint8List jpeg) async {
-    final r = await _d.post(LectureAvancee.route,
+    final r = await _d.post(LectureAvancee.routePour(adresse),
         data: Stream.fromIterable([jpeg]),
         options: Options(contentType: 'image/jpeg', headers: {Headers.contentLengthHeader: jpeg.length}));
     return (status: r.statusCode ?? 0, body: r.data);
@@ -118,7 +123,9 @@ class DioServeurLectureAvancee implements ServeurLectureAvancee {
 }
 
 class LectureAvancee {
-  static const String route = '/mobile/ordonnances/lecture-avancee';
+  /// Route de la lecture (préfixe actuel `/app-vente` ; [routePour] : préfixe détecté pour un serveur).
+  static const String route = '${RoutesAppVente.prefixe}/ordonnances/lecture-avancee';
+  static String routePour(String serveur) => RoutesAppVente.lectureAvancee(RoutesAppVente.prefixePour(serveur));
   static const _kActive = 'ordonnance_o5_lecture_avancee_v1';
   static const _kConsentement = 'ordonnance_o5_consentement_v1';
 
@@ -176,7 +183,7 @@ class LectureAvancee {
     );
   }
 
-  /// GET /mobile/capacites → `lectureAvancee` (oui gardé 30 min, non 5 min, indéterminé jamais gardé).
+  /// GET …/capacites → `lectureAvancee` (oui gardé 30 min, non 5 min, indéterminé jamais gardé).
   static bool? capaciteDepuisReponse(int status, Object? body) {
     if (status == 200 && body is Map) return body['lectureAvancee'] == true;
     if (status == 404) return false;

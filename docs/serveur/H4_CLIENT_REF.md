@@ -1,9 +1,46 @@
 # H4 — Clé client anti-doublon (`X-Client-Ref`) : patch serveur Prestige
 
-> Pour le développeur Prestige. Patch : `docs/serveur/H4_client_ref.patch` (un commit, à appliquer avec `git am`).
-> Construit sur `origin/claude/new-session-xm8ptu` (`88a2a4b`, « Lot B (d) : envoi PharmaML en arrière-plan… ») ;
-> compilé sur cette base (`mvn compile`), vérifié sur le serveur de test (Payara 5 + MariaDB).
-> **Rien n'a été poussé sur le dépôt `airm5500/prestige`.**
+> Pour le développeur Prestige. Patch : `docs/serveur/H4_client_ref.patch` (un commit, à appliquer avec `git am`
+> **en premier**, ordre H4 → H5 → O4 → O5 → B3). Construit sur `origin/claude/new-session-xm8ptu` à jour (`b9e03367`,
+> « Étiquettes : types par produit… ») ; compilé sur cette base (`mvn -o compile`, JDK 11).
+> **Rien n'a été poussé sur le dépôt `airm5500/prestige`.** Voir § 0 pour les changements du 11/10 (préfixe, migrations).
+
+## 0. Mise à jour du 11/10/2026 : préfixe `v1/app-vente/`, filtre non modifié, migrations renumérotées
+
+**Ce qui change par rapport à la version précédente de ce patch** (les 4 patchs H4, H5, O4, O5 ont été refaits ensemble) :
+
+- **Routes déplacées** de `v1/mobile/…` vers le préfixe unique **`v1/app-vente/…`** :
+
+  | Avant | Maintenant |
+  |---|---|
+  | `GET v1/mobile/capacites` | `GET v1/app-vente/capacites` |
+  | `GET v1/mobile/client-ref/{ref}` (H4) | `GET v1/app-vente/client-ref/{ref}` |
+  | `GET v1/mobile/catalogue/changements` (H5) | `GET v1/app-vente/catalogue/changements` |
+  | `POST/GET v1/mobile/ordonnances/corrections` (O4) | `POST/GET v1/app-vente/ordonnances/corrections` |
+  | `POST v1/mobile/ordonnances/lecture-avancee` (O5) | `POST v1/app-vente/ordonnances/lecture-avancee` |
+
+  L'en-tête `X-Client-Ref` (H4) sur `v1/vente/add/*` et `v1/retourfournisseur/new` ne change pas.
+- **`filter/AuthenticationFilter.java` n'est plus modifié** par aucun des 4 patchs. Sur la branche à jour, le préfixe
+  `v1/mobile/` est réservé à l'API mobile à jeton Bearer (`AuthenticationFilter`, `MobileRessource`) ; les anciennes
+  versions devaient y ajouter des exceptions. Les routes `v1/app-vente/` suivent simplement le contrôle de **session
+  habituel** (cookie, ou `X-User-Info`/`X-Token-Exp`), comme le reste de l'application (`v1/vente/…`). Sans session : 401.
+- **Pas de collision** : aucune ressource existante ne commence par `v1/app-vente` (la plus proche est
+  `v1/app-params`, chemin distinct) et le préfixe n'est pas dans `SKIP_PATHS` (aucun accès public).
+- **Migrations renumérotées** au-dessus de la dernière migration amont (`V6.9.132__types_etiquette_par_produit.sql`) :
+  `6.9.129.1 → 6.9.132.1` (H4), `6.9.129.2 → 6.9.132.2` (H5), `6.9.129.3 → 6.9.132.3` (O4), `6.9.129.4 → 6.9.132.4` (O5).
+  **Ces patchs n'ont encore été appliqués chez aucun client : aucune migration à défaire.** (Sur un serveur de test qui
+  aurait déjà joué les anciens numéros, les nouveaux scripts sont rejouables — `CREATE TABLE IF NOT EXISTS`, index
+  créés s'ils manquent — et Flyway est configuré avec `ignoreMissingMigrations(true)` : rien à faire.)
+- **Ordre d'application** (chaque patch s'applique sur le précédent) : **H4 → H5 → O4 → O5 → B3**, sur
+  `origin/claude/new-session-xm8ptu` à jour (`b9e03367`). `git apply --check` vérifié pour chacun, dans cet ordre,
+  sur `b9e03367` : H4 OK, H5 OK, O4 OK, O5 OK, puis `B3_paiements_mobile.patch` OK (B3 utilise ses propres routes
+  `v1/paiements-mobile/…`, indépendantes). Résultat identique, fichier pour fichier, aux branches locales de
+  vérification ; chaque étape compile (`mvn -o compile`, JDK 11). Branches locales (non poussées) :
+  `h4u2` `20e2ef0b`, `h5u2` `fc56cb7e`, `o4u2` `820ce988`, `o5u2` `35ce0172`.
+- **Application** : Prestige Mobile appelle d'abord `v1/app-vente/capacites`, puis, en repli, l'ancien
+  `v1/mobile/capacites` (serveur portant encore les anciens patchs) ; il utilise ensuite le préfixe de la route qui a
+  répondu. Si aucune ne répond (serveur non patché : 404, ou 401 « expire » de l'API à jeton), les fonctions restent
+  désactivées comme avant.
 
 ## 1. Quoi
 
@@ -11,8 +48,8 @@
 |---|---|
 | En-tête HTTP facultatif | `X-Client-Ref: <clé>` (64 caractères au plus) sur la **création** : `POST v1/vente/add/vno` (comptant / prévente), `POST v1/vente/add/assurance` (assurance **et** carnet), `POST v1/vente/add/depot`, `POST v1/retourfournisseur/new`. |
 | Même clé renvoyée | La création **n'est pas refaite** : le serveur renvoie la réponse de la création initiale (même `lgPREENREGISTREMENTID` / `strREF` pour une vente — texte JSON identique ; même `lgRETOURFRSID` / `strREFRETOURFRS` pour un retour, relu en base). |
-| Relecture | `GET v1/mobile/client-ref/{ref}` → `200 {success, ref, type: "VENTE"\|"RETOUR_FRS", id, reference, statut, existe}` ou `404 {success:false, msg:"Clé client inconnue."}` (création jamais faite : le téléphone peut renvoyer sans risque). |
-| Capacité | `GET v1/mobile/capacites` → `{success:true, clientRef:true, clientRefVersion:1}` (`clientRef:false` si la table manque). L'application n'utilise H4 que si cette route répond `clientRef:true`. |
+| Relecture | `GET v1/app-vente/client-ref/{ref}` → `200 {success, ref, type: "VENTE"\|"RETOUR_FRS", id, reference, statut, existe}` ou `404 {success:false, msg:"Clé client inconnue."}` (création jamais faite : le téléphone peut renvoyer sans risque). |
+| Capacité | `GET v1/app-vente/capacites` → `{success:true, clientRef:true, clientRefVersion:1}` (`clientRef:false` si la table manque). L'application n'utilise H4 que si cette route répond `clientRef:true`. |
 | Stockage | Table dédiée `mobile_client_ref(ref PK, type, entity_id, reference, reponse, created_at)` — **aucune table existante n'est modifiée**. |
 
 Fichiers du patch :
@@ -22,10 +59,12 @@ Fichiers du patch :
 - `src/main/java/rest/SalesRessource.java` (`add/vno`, `add/assurance`, `add/depot` : paramètre `@HeaderParam("X-Client-Ref")`,
   la création passe par `creerVente(...)`, inchangée sans en-tête) ;
 - `src/main/java/rest/RetourFournisseurRessource.java` (`new`) ;
-- `src/main/java/filter/AuthenticationFilter.java` : `v1/mobile/client-ref/…` et `v1/mobile/capacites` suivent le
-  contrôle de **session habituel** (cookie, comme les routes de vente) et non celui du jeton Bearer des autres
-  chemins `v1/mobile/` (L13) — l'application de vente n'utilise pas ce jeton ;
-- `src/main/resources/db/migration/V6.9.129.1__mobile_client_ref.sql` (Flyway, rejouable).
+- **`filter/AuthenticationFilter.java` n'est pas modifié** : `v1/app-vente/client-ref/…` et `v1/app-vente/capacites`
+  suivent le contrôle de **session habituel** (cookie, comme les routes de vente) ;
+- `SalesRessource` : sur la branche à jour, l'amont a ajouté le suivi des tickets lents (`SuiviImpressionTicket`,
+  méthode `login()`) au même endroit ; le patch ajoute son injection `MobileClientRefService` **à côté**, sans rien
+  retirer (seul conflit rencontré lors du rebasage, résolu en gardant les deux) ;
+- `src/main/resources/db/migration/V6.9.132.1__mobile_client_ref.sql` (Flyway, rejouable).
 
 ## 2. Pourquoi
 
@@ -60,10 +99,9 @@ et jamais de doublon, même si deux envois partent en même temps.
 
 ## 4. Script SQL de migration (idempotent)
 
-Joué automatiquement par Flyway au démarrage (`V6.9.129.1__mobile_client_ref.sql`). Le numéro `6.9.129.1` est
-intercalé après `6.9.129` pour ne jamais entrer en collision avec la suite `6.9.130, 6.9.131…` (Flyway est configuré
-avec `outOfOrder(true)` : il est appliqué même si des versions plus récentes le sont déjà). À rejouer à la main sans
-risque si besoin :
+Joué automatiquement par Flyway au démarrage (`V6.9.132.1__mobile_client_ref.sql`, anciennement `6.9.129.1`, voir
+§ 0). Le numéro `6.9.132.1` suit la dernière migration amont `6.9.132` (Flyway est de plus configuré avec
+`outOfOrder(true)`). À rejouer à la main sans risque si besoin :
 
 ```sql
 CREATE TABLE IF NOT EXISTS mobile_client_ref (
@@ -87,33 +125,39 @@ DELETE FROM mobile_client_ref WHERE created_at < NOW() - INTERVAL 90 DAY;
 ## 5. Appliquer
 
 ```bash
-git checkout claude/new-session-xm8ptu        # ou la branche de travail
-git am /chemin/vers/docs/serveur/H4_client_ref.patch
+git checkout claude/new-session-xm8ptu        # à jour (b9e03367) ou la branche de travail
+git am docs/serveur/H4_client_ref.patch \
+       docs/serveur/H5_catalogue_delta.patch \
+       docs/serveur/O4_corrections_ordonnances.patch \
+       docs/serveur/O5_lecture_avancee.patch \
+       docs/serveur/B3_paiements_mobile.patch          # dans cet ordre ; s'arrêter au patch voulu
 mvn -DskipTests package                       # JDK 11
 asadmin redeploy --name prestige --contextroot prestige target/prestige.war
 ```
 
 Au démarrage, le journal contient « Flyway migration completed » et la table `mobile_client_ref` existe.
 Si `git am` signale un conflit (branche ayant beaucoup bougé), les seuls points touchés dans des fichiers existants
-sont : les trois méthodes `add/*` de `SalesRessource`, `create` de `RetourFournisseurRessource` et la condition
-`path.startsWith(CHEMIN_MOBILE)` du filtre.
+sont : les champs injectés et les trois méthodes `add/*` de `SalesRessource`, et `create` de
+`RetourFournisseurRessource` (le filtre n'est pas touché).
 
 ## 6. Tester (curl)
 
 ```bash
 B=http://localhost:8080/prestige/api/v1
 curl -s -c cj -H 'Content-Type: application/json' -d '{"login":"admin","password":"…"}' $B/user/auth
-curl -s -b cj $B/mobile/capacites                                  # {"clientRef":true,…}
+curl -s -b cj $B/app-vente/capacites                                  # {"clientRef":true,…}
 D='{"typeVenteId":"1","natureVenteId":"1","produitId":"<lgFAMILLEID>","itemPu":1090,"qte":1,"qteServie":1,"devis":false,"venteId":null,"prevente":true,"remiseId":null,"userVendeurId":null}'
 curl -s -b cj -H 'Content-Type: application/json' -H 'X-Client-Ref: TEST-1' -d "$D" $B/vente/add/vno
 curl -s -b cj -H 'Content-Type: application/json' -H 'X-Client-Ref: TEST-1' -d "$D" $B/vente/add/vno   # même id
-curl -s -b cj $B/mobile/client-ref/TEST-1                          # {type:"VENTE", id, reference, statut}
-curl -s -b cj $B/mobile/client-ref/INCONNUE                        # 404
+curl -s -b cj $B/app-vente/client-ref/TEST-1                          # {type:"VENTE", id, reference, statut}
+curl -s -b cj $B/app-vente/client-ref/INCONNUE                        # 404
 ```
 
 Contrôle en base : `SELECT * FROM mobile_client_ref;` et une seule ligne `t_preenregistrement` pour l'id renvoyé.
 
-**Vérifié sur le serveur de test** (10/10/2026) :
+**Vérifié sur le serveur de test** (10/10/2026, avec les anciennes routes `v1/mobile/…` ; la logique est inchangée,
+seuls les chemins ont bougé ; les routes `v1/app-vente/` sont couvertes par les tests de l'application avec un
+serveur local, la vérification sur le serveur de test se fait au prochain déploiement avec `curl` comme ci-dessus) :
 
 | Cas | Résultat |
 |---|---|
@@ -125,8 +169,8 @@ Contrôle en base : `SELECT * FROM mobile_client_ref;` et une seule ligne `t_pre
 | `retourfournisseur/new` **4 envois simultanés** + 1 de plus, même clé | même `lgRETOURFRSID` / `strREFRETOURFRS`, **1 retour** en base |
 | `retourfournisseur/new` sans clé | nouveau retour (inchangé) |
 | clé d'une vente réutilisée pour un retour | refus « Clé client déjà utilisée pour une autre opération (VENTE). » |
-| `GET mobile/client-ref/{ref}` | vente : `statut` `pending` puis `is_Process` après « terminer prévente » ; retour : `is_Process` ; inconnue : 404 |
-| `GET mobile/capacites` sans session | 401 « Veuillez vous connecter » (comme les autres routes) |
+| `GET app-vente/client-ref/{ref}` | vente : `statut` `pending` puis `is_Process` après « terminer prévente » ; retour : `is_Process` ; inconnue : 404 |
+| `GET app-vente/capacites` sans session | 401 « Veuillez vous connecter » (comme les autres routes) |
 | Application (test d'intégration `test/horsligne_h4_test.dart`) | vente « envoyée avec clé », réponse jamais reçue → relue par sa clé, envoi terminé, **aucune anomalie**, une seule vente |
 
 Les données de test ont été supprimées de la base du serveur de test.
@@ -136,8 +180,8 @@ Les données de test ont été supprimées de la base du serveur de test.
 - **Ancien téléphone / autre client (ExtJS…) → serveur patché** : sans en-tête, chaque route appelle exactement le
   code d'origine (`creerVente` / `create` court-circuitent tout si l'en-tête est absent).
 - **Téléphone à jour → serveur non patché** : un en-tête inconnu est ignoré par JAX-RS (le corps JSON est inchangé,
-  Jackson n'est pas concerné) ; `GET v1/mobile/capacites` répond 401 `{"expire":true}` (chemin `v1/mobile/` protégé
-  par jeton) ou 404 → l'application considère que H4 est absent et garde **exactement** son fonctionnement d'origine
+  Jackson n'est pas concerné) ; `GET v1/app-vente/capacites` répond 404 (puis l'ancien
+  `v1/mobile/capacites`, essayé en repli, répond 401 `{"expire":true}` : chemin protégé par jeton) → l'application considère que H4 est absent et garde **exactement** son fonctionnement d'origine
   (anomalie « vérifiez sur Prestige » si une réponse de création est perdue).
 - **Migration non passée** (table absente) : l'en-tête est ignoré (vérification au plus une fois par minute) et
   `capacites` répond `clientRef:false`.

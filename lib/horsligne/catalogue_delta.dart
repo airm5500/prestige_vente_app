@@ -2,7 +2,8 @@
 // H5 — mise à jour DIFFÉRENTIELLE du catalogue produits (patch serveur docs/serveur/H5_catalogue_delta.patch).
 //
 // Un serveur avec le patch annonce `catalogueDelta: true` (+ son horloge `serveurMaintenant`) sur
-// GET /mobile/capacites et répond à GET /mobile/catalogue/changements?depuis=…&jusqua=…&start&limit :
+// GET /app-vente/capacites et répond à GET /app-vente/catalogue/changements?depuis=…&jusqua=…&start&limit
+// (premières versions du patch : /mobile/… ; préfixe détecté par routes_app_vente.dart et gardé avec le curseur) :
 // seuls les produits modifiés depuis `depuis` (vente clôturée, ajustement, entrée de BL, inventaire, prix,
 // activation / désactivation…), au format de /vente/search avec `statut: actif`, ou `{lgFAMILLEID,
 // statut: supprime}` pour un produit à retirer de la copie.
@@ -19,9 +20,14 @@
 // Serveur sans le patch (capacité absente, 401 « expire », 404) : comportement d'origine exact (copie
 // complète toutes les 30 min), aucune requête supplémentaire toutes les 5 min.
 import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
+import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 
 abstract final class CatalogueDelta {
-  static const String route = '/mobile/catalogue/changements';
+  /// Route des changements (préfixe actuel `/app-vente`).
+  static const String route = '${RoutesAppVente.prefixe}/catalogue/changements';
+
+  /// Route des changements pour le préfixe détecté (null : préfixe actuel).
+  static String routePour(String? prefixe) => RoutesAppVente.catalogueChangements(prefixe ?? RoutesAppVente.prefixe);
 
   /// Intervalle des mises à jour différentielles (en ligne).
   static const Duration intervalle = Duration(minutes: 5);
@@ -35,10 +41,13 @@ abstract final class CatalogueDelta {
   static const String kComplet = 'delta_complet';
   static const String kMaj = 'delta_maj';
   static const String kN = 'delta_n';
+
+  /// Préfixe des routes du serveur (`/app-vente` ou l'ancien `/mobile`), lu avec la capacité.
+  static const String kPrefixe = 'delta_prefixe';
   static const String prefixe = 'delta_';
 
   /// Toutes les clés (effacées quand le serveur n'a plus la capacité).
-  static const Map<String, String?> oubli = {kCurseur: null, kServeur: null, kComplet: null, kMaj: null, kN: null};
+  static const Map<String, String?> oubli = {kCurseur: null, kServeur: null, kComplet: null, kMaj: null, kN: null, kPrefixe: null};
 
   static final RegExp _heure = RegExp(r'^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})');
 
@@ -61,7 +70,7 @@ abstract final class CatalogueDelta {
   /// Paramètre `depuis` de la requête : curseur (heure du serveur) − [chevauchement].
   static String depuis(String curseur) => ecrireHeure(lireHeure(curseur)!.subtract(chevauchement));
 
-  /// Lecture de GET /mobile/capacites : true/false si clair, null si indéterminé.
+  /// Lecture de GET …/capacites (RoutesAppVente.lireCapacites) : true/false si clair, null si indéterminé.
   static bool? capaciteDepuisReponse(int status, dynamic body) {
     if (status == 200 && body is Map) return body['catalogueDelta'] == true;
     if (status == 404) return false;
@@ -84,7 +93,10 @@ class EtatDelta {
   /// Dernière mise à jour (complète ou différentielle) et nombre de produits modifiés (null : copie complète).
   final DateTime? maj;
   final int? n;
-  const EtatDelta({this.curseur, this.serveur, this.complet, this.maj, this.n});
+
+  /// Préfixe des routes du serveur au moment de la copie complète (null : préfixe actuel `/app-vente`).
+  final String? prefixe;
+  const EtatDelta({this.curseur, this.serveur, this.complet, this.maj, this.n, this.prefixe});
 
   static const vide = EtatDelta();
 
@@ -94,6 +106,7 @@ class EtatDelta {
         complet: DateTime.tryParse(m[CatalogueDelta.kComplet] ?? ''),
         maj: DateTime.tryParse(m[CatalogueDelta.kMaj] ?? ''),
         n: int.tryParse(m[CatalogueDelta.kN] ?? ''),
+        prefixe: m[CatalogueDelta.kPrefixe],
       );
 
   /// Les changements sont utilisables pour ce serveur (copie complète déjà faite avec la capacité).
@@ -139,7 +152,7 @@ class ChangementsCatalogue {
 
 /// Télécharge les changements depuis [curseur] − 2 min ; lève [CatalogueSyncException] en cas d'échec.
 Future<ChangementsCatalogue> telechargerChangements(CatalogueFetch f, String curseur,
-    {int pageSize = 500, void Function(int done, int? total)? progress}) async {
+    {int pageSize = 500, void Function(int done, int? total)? progress, String route = CatalogueDelta.route}) async {
   final depuis = CatalogueDelta.depuis(curseur);
   final upserts = <String, Map<String, dynamic>>{};
   final suppressions = <String>{};
@@ -148,10 +161,10 @@ Future<ChangementsCatalogue> telechargerChangements(CatalogueFetch f, String cur
   int? total;
   var recus = 0;
   while (true) {
-    final body = await f(CatalogueDelta.route, {'depuis': depuis, if (jusqua != null) 'jusqua': jusqua, 'start': start, 'limit': pageSize});
+    final body = await f(route, {'depuis': depuis, if (jusqua != null) 'jusqua': jusqua, 'start': start, 'limit': pageSize});
     final t = '${body['serveurMaintenant'] ?? ''}';
     if (body['success'] == false || CatalogueDelta.lireHeure(t) == null || body['data'] is! List) {
-      throw const CatalogueSyncException('Réponse inattendue du serveur (${CatalogueDelta.route}).');
+      throw CatalogueSyncException('Réponse inattendue du serveur ($route).');
     }
     jusqua ??= t;
     total = int.tryParse('${body['total'] ?? ''}') ?? total;

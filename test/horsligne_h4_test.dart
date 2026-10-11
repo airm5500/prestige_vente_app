@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/horsligne/client_ref.dart';
+import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_sender.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
@@ -190,7 +191,9 @@ Future<FileVentesHL> _file(_VenteSrv srv, {MemoryVentesHLStore? store, VenteHors
 
 class _RetourSrv implements StockServer {
   final bool h4;
-  _RetourSrv({required this.h4});
+  /// Préfixe des routes H4 du serveur (`/app-vente` actuel, `/mobile` des premières versions du patch).
+  final String prefixe;
+  _RetourSrv({required this.h4, this.prefixe = '/app-vente'});
 
   final List<Map<String, dynamic>> retours = [];
   final List<Map<String, dynamic>> items = [];
@@ -205,12 +208,12 @@ class _RetourSrv implements StockServer {
   Future<StockHttp> call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers}) async {
     calls.add('$method $path');
     final d = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
-    if (path == '/mobile/capacites') {
-      // Serveur sans H4 : chemin v1/mobile/ protégé par jeton → 401 « expire ».
-      return h4 ? const StockHttp(200, {'success': true, 'clientRef': true}) : const StockHttp(401, {'success': false, 'expire': true});
-    }
-    if (path.startsWith('/mobile/client-ref/')) {
-      final id = parCle[Uri.decodeComponent(path.substring('/mobile/client-ref/'.length))];
+    if (path == '$prefixe/capacites' && h4) return const StockHttp(200, {'success': true, 'clientRef': true});
+    // Serveur sans H4 (ou autre préfixe) : /app-vente inconnu → 404 ; v1/mobile/ protégé par jeton → 401 « expire ».
+    if (path == '/app-vente/capacites') return const StockHttp(404, {});
+    if (path == '/mobile/capacites') return const StockHttp(401, {'success': false, 'expire': true});
+    if (h4 && path.startsWith('$prefixe/client-ref/')) {
+      final id = parCle[Uri.decodeComponent(path.substring('$prefixe/client-ref/'.length))];
       if (id == null) return const StockHttp(404, {'success': false, 'msg': 'Clé client inconnue.'});
       return StockHttp(200, {'success': true, 'type': 'RETOUR_FRS', 'id': id, 'reference': 'REF-$id', 'statut': 'is_Process'});
     }
@@ -270,7 +273,10 @@ class _RealHttp extends HttpOverrides {}
 Future<void> _real(Future<void> Function() body) => HttpOverrides.runWithHttpOverrides(body, _RealHttp());
 
 void main() {
-  setUp(CapaciteClientRef.vider);
+  setUp(() {
+    CapaciteClientRef.vider();
+    RoutesAppVente.vider();
+  });
 
   group('Ventes hors ligne — serveur avec H4', () {
     test('réponse perdue à la création : vente relue par sa clé, reprise sans doublon ni anomalie', () async {
@@ -452,7 +458,21 @@ void main() {
       expect(srv.retours, hasLength(1));
       expect(op.lines.every((l) => l.etat == StockLineEtat.rejected), isTrue);
       expect(op.lines.first.motif, contains('vérifiez sur Prestige'));
-      expect(srv.calls.where((c) => c.contains('/mobile/client-ref/')), isEmpty);
+      expect(srv.calls.where((c) => c.contains('/client-ref/')), isEmpty);
+      expect(srv.calls.where((c) => c.contains('capacites')), ['GET /app-vente/capacites', 'GET /mobile/capacites'],
+          reason: 'nouveau chemin, puis repli sur l\'ancien');
+    });
+
+    test('ancien préfixe /mobile (serveur de test, 1ʳᵉ version du patch) : repli, relecture par /mobile/client-ref', () async {
+      final srv = _RetourSrv(h4: true, prefixe: '/mobile')..perdreReponse = true;
+      final op = _retour();
+      await _sender(srv).apply(op);
+      await _sender(srv).apply(op);
+      expect(srv.retours, hasLength(1), reason: 'aucun doublon');
+      expect(op.lines.every((l) => l.etat == StockLineEtat.applied || l.etat == StockLineEtat.dejaApplique), isTrue);
+      expect(srv.calls.where((c) => c.contains('/client-ref/')), everyElement(startsWith('GET /mobile/client-ref/')));
+      expect(srv.calls.where((c) => c.contains('/client-ref/')), isNotEmpty);
+      expect(srv.calls.where((c) => c.contains('capacites')).take(2), ['GET /app-vente/capacites', 'GET /mobile/capacites']);
     });
   });
 
@@ -460,9 +480,13 @@ void main() {
     late HttpServer server;
     final recus = <({String method, String path, String? cle})>[];
     var capacites = <String, dynamic>{'status': 200, 'body': {'success': true, 'clientRef': true}};
+    // Préfixe servi : '/app-vente' (patch actuel), '/mobile' (1ʳᵉ version du patch), null (serveur sans H4).
+    String? prefixe = '/app-vente';
 
     setUp(() async {
       recus.clear();
+      RoutesAppVente.vider();
+      prefixe = '/app-vente';
       capacites = {'status': 200, 'body': {'success': true, 'clientRef': true}};
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       server.listen((req) async {
@@ -470,12 +494,16 @@ void main() {
         recus.add((method: req.method, path: req.uri.path, cle: req.headers.value(enteteClientRef)));
         final r = req.response..headers.contentType = ContentType.json;
         final p = req.uri.path.replaceFirst('/api', '');
-        if (p == '/mobile/capacites') {
+        if (prefixe != null && p == '$prefixe/capacites') {
           r.statusCode = capacites['status'] as int;
           r.write(jsonEncode(capacites['body']));
-        } else if (p == '/mobile/client-ref/HL2-connue') {
+        } else if (p == '/mobile/capacites') {
+          // Branche serveur à jour : v1/mobile/ = API mobile à jeton Bearer.
+          r.statusCode = 401;
+          r.write(jsonEncode({'success': false, 'expire': true}));
+        } else if (prefixe != null && p == '$prefixe/client-ref/HL2-connue') {
           r.write(jsonEncode({'success': true, 'type': 'VENTE', 'id': 'V9', 'reference': '261010_00009', 'statut': 'pending', 'existe': true}));
-        } else if (p.startsWith('/mobile/client-ref/')) {
+        } else if (prefixe != null && p.startsWith('$prefixe/client-ref/')) {
           r.statusCode = 404;
           r.write(jsonEncode({'success': false, 'msg': 'Clé client inconnue.'}));
         } else if (p == '/vente/add/vno' || p == '/vente/add/assurance' || p == '/vente/add/item') {
@@ -522,7 +550,8 @@ void main() {
           final gw = DioVenteGateway(ApiService(baseUrl: base()));
           expect(await gw.clientRefSupporte(), isTrue);
           expect(await gw.clientRefSupporte(), isTrue);
-          expect(recus.where((r) => r.path.endsWith('/mobile/capacites')), hasLength(1), reason: 'mise en cache');
+          expect(recus.where((r) => r.path.endsWith('/app-vente/capacites')), hasLength(1), reason: 'mise en cache');
+          expect(recus.where((r) => r.path.endsWith('/mobile/capacites')), isEmpty, reason: 'pas de repli si le nouveau chemin répond');
           CapaciteClientRef.vider();
           capacites = {'status': 401, 'body': {'success': false, 'expire': true}};
           expect(await gw.clientRefSupporte(), isFalse);
@@ -554,6 +583,40 @@ void main() {
           } finally {
             await autre.close(force: true);
           }
+        }));
+
+    test('préfixe : nouveau /app-vente, repli sur l\'ancien /mobile, aucun', () => _real(() async {
+          String chemins() => [for (final r in recus) r.path.replaceFirst('/api', '')].join(' ');
+          // Nouveau préfixe : une seule requête, relecture sous /app-vente.
+          var gw = DioVenteGateway(ApiService(baseUrl: base()));
+          expect(await gw.clientRefSupporte(), isTrue);
+          expect((await gw.lireClientRef('HL2-connue')).valueOrNull?.id, 'V9');
+          expect(chemins(), '/app-vente/capacites /app-vente/client-ref/HL2-connue');
+          // Ancien préfixe (serveur de test avec la 1ʳᵉ version des patchs) : 404 puis repli, relecture sous /mobile.
+          CapaciteClientRef.vider();
+          RoutesAppVente.vider();
+          recus.clear();
+          prefixe = '/mobile';
+          gw = DioVenteGateway(ApiService(baseUrl: base()));
+          expect(await gw.clientRefSupporte(), isTrue);
+          expect((await gw.lireClientRef('HL2-connue')).valueOrNull?.id, 'V9');
+          expect(chemins(), '/app-vente/capacites /mobile/capacites /mobile/client-ref/HL2-connue');
+          expect(RoutesAppVente.prefixePour(base()), '/mobile');
+          // Aucun (serveur à jour sans H4) : 404 puis 401 « expire » → non.
+          CapaciteClientRef.vider();
+          RoutesAppVente.vider();
+          recus.clear();
+          prefixe = null;
+          gw = DioVenteGateway(ApiService(baseUrl: base()));
+          expect(await gw.clientRefSupporte(), isFalse);
+          expect(chemins(), '/app-vente/capacites /mobile/capacites');
+          // Nouveau chemin sans session (401 sans « expire ») : indéterminé, pas de repli.
+          CapaciteClientRef.vider();
+          recus.clear();
+          prefixe = '/app-vente';
+          capacites = {'status': 401, 'body': 'Veuillez vous connecter'};
+          expect(await gw.clientRefSupporte(), isFalse);
+          expect(chemins(), '/app-vente/capacites');
         }));
 
     test('relecture : 200 → création, 404 → clé inconnue', () => _real(() async {

@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/horsligne/catalogue_delta.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
+import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/horsligne/ventes_sync.dart';
@@ -45,6 +46,9 @@ class _Srv {
   final Map<String, Map<String, dynamic>> produits = {};
   final Map<String, DateTime> modifie = {};
   bool capacite = true;
+
+  /// Préfixe des routes H5 servies : '/app-vente' (patch actuel) ou '/mobile' (1ʳᵉ version du patch).
+  String prefixe = RoutesAppVente.prefixe;
   bool deltaEnPanne = false;
   final log = <String>[];
   final requetes = <Map<String, dynamic>>[];
@@ -72,11 +76,21 @@ class _Srv {
 
   int compte(String path) => log.where((p) => p == path).length;
 
+  /// Même lecture que l'appli (HorsLigne._capacites) : /app-vente/capacites, repli sur /mobile/capacites.
   Future<({int status, Object? body})> capacites() async {
-    log.add('/mobile/capacites');
-    return capacite
-        ? (status: 200, body: {'success': true, 'clientRef': true, 'catalogueDelta': true, 'serveurMaintenant': CatalogueDelta.ecrireHeure(now)})
-        : (status: 401, body: {'success': false, 'expire': true});
+    final r = await RoutesAppVente.lireCapacites(_serveurTest, (chemin) async {
+      log.add(chemin);
+      if (capacite && chemin == '$prefixe/capacites') {
+        return (
+          status: 200,
+          body: {'success': true, 'clientRef': true, 'catalogueDelta': true, 'serveurMaintenant': CatalogueDelta.ecrireHeure(now)}
+        );
+      }
+      // Route inconnue : 404 ; v1/mobile/ de la branche serveur à jour = API à jeton → 401 « expire ».
+      if (chemin == '/mobile/capacites') return (status: 401, body: {'success': false, 'expire': true});
+      return (status: 404, body: <String, dynamic>{});
+    });
+    return (status: r.status, body: r.body);
   }
 
   Future<Map<String, dynamic>> fetch(String path, Map<String, dynamic> q) async {
@@ -87,7 +101,7 @@ class _Srv {
         final l = produits.values.toList()..sort((a, b) => '${a['lgFAMILLEID']}'.compareTo('${b['lgFAMILLEID']}'));
         final start = q['start'] as int, limit = q['limit'] as int;
         return {'total': l.length, 'data': l.skip(start).take(limit).toList()};
-      case CatalogueDelta.route:
+      case final p when p == '$prefixe/catalogue/changements':
         if (deltaEnPanne || !capacite) throw const CatalogueSyncException('Erreur du serveur (code 404).');
         requetes.add(Map.of(q));
         final depuis = CatalogueDelta.lireHeure('${q['depuis']}')!;
@@ -131,6 +145,8 @@ class _Env {
   Future<int> count() async => (await store.stats()).count(CatalogueCategorie.produits);
 }
 
+const _serveurTest = 'http://srv-test/prestige/api/v1';
+
 _Env _env({int n = 12, bool capacite = true, LocalStore? store, int pageSize = 5, bool Function()? occupee}) {
   final srv = _Srv(n)..capacite = capacite;
   final s = store ?? MemoryLocalStore();
@@ -144,7 +160,7 @@ _Env _env({int n = 12, bool capacite = true, LocalStore? store, int pageSize = 5
     occupee: occupee ?? () => false,
   )
     ..capacites = srv.capacites
-    ..serveur = () => 'http://srv-test/prestige/api/v1';
+    ..serveur = () => _serveurTest;
   // Téléphone volontairement DÉCALÉ du serveur (ici : 5 h 30 de moins).
   env = _Env(srv, s, sync, DateTime(2026, 10, 10, 8, 30));
   return env;
@@ -162,7 +178,10 @@ bool _ffiOk() {
 class _RealHttp extends HttpOverrides {}
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    RoutesAppVente.vider();
+  });
   final ffi = _ffiOk() && (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
 
   group('sans capacité (serveur sans le patch H5)', () {
@@ -189,7 +208,7 @@ void main() {
       e.sync.capacites = null;
       expect(await e.sync.syncAll(auto: true), isTrue);
       expect(await e.sync.syncAll(auto: true), isTrue);
-      expect(e.srv.log.where((p) => p == '/mobile/capacites' || p == CatalogueDelta.route), isEmpty);
+      expect(e.srv.log.where((p) => p.endsWith('/capacites') || p == CatalogueDelta.route), isEmpty);
       expect(e.srv.compte('/vente/search'), 6);
       expect(e.sync.deltaActif, isFalse);
     });
@@ -205,6 +224,68 @@ void main() {
       expect(e.sync.deltaActif, isFalse);
       expect(await e.store.metas(CatalogueDelta.prefixe), isEmpty);
       expect(await e.sync.syncChangements(), isFalse);
+    });
+  });
+
+  group('préfixe des routes (/app-vente, repli /mobile)', () {
+    test('nouveau préfixe : une seule lecture des capacités, changements sous /app-vente', () async {
+      final e = _env();
+      expect(await e.sync.syncAll(auto: true), isTrue);
+      expect(e.srv.log.where((p) => p.endsWith('/capacites')), ['/app-vente/capacites']);
+      expect(e.sync.delta.prefixe, '/app-vente');
+      e.srv.avance(const Duration(minutes: 5));
+      e.srv.maj('p2', _prod('p2', 'PRODUIT 002', stock: 7));
+      final avant = e.srv.log.length;
+      expect(await e.sync.syncChangements(), isTrue, reason: e.sync.error);
+      expect(e.srv.log.sublist(avant), ['/app-vente/catalogue/changements']);
+      expect((await e.local('p2'))!['stock'], 7);
+    });
+
+    test('ancien préfixe (serveur de test, 1ʳᵉ version du patch) : repli, changements sous /mobile, gardé après redémarrage',
+        () async {
+      final store = MemoryLocalStore();
+      var e = _env(store: store);
+      e.srv.prefixe = '/mobile';
+      expect(await e.sync.syncAll(auto: true), isTrue);
+      expect(e.srv.log.where((p) => p.endsWith('/capacites')), ['/app-vente/capacites', '/mobile/capacites']);
+      expect(e.sync.deltaActif, isTrue);
+      expect(e.sync.delta.prefixe, '/mobile');
+      // Redémarrage de l'appli : préfixe relu dans la copie locale, sans nouvelle lecture des capacités.
+      RoutesAppVente.vider();
+      final srv = e.srv;
+      e = _env(store: store);
+      e.srv
+        ..prefixe = '/mobile'
+        ..now = srv.now.add(const Duration(minutes: 5))
+        ..maj('p2', _prod('p2', 'PRODUIT 002', stock: 4));
+      await e.sync.refreshStats();
+      expect(e.sync.deltaActif, isTrue);
+      expect(await e.sync.syncChangements(), isTrue, reason: e.sync.error);
+      expect(e.srv.log, ['/mobile/catalogue/changements']);
+      expect((await e.local('p2'))!['stock'], 4);
+    });
+
+    test('serveur passé de /mobile à /app-vente (patchs mis à jour) : copie complète de reprise, puis /app-vente', () async {
+      final e = _env();
+      e.srv.prefixe = '/mobile';
+      await e.sync.syncAll(auto: true);
+      expect(e.sync.delta.prefixe, '/mobile');
+      e.srv.prefixe = '/app-vente';
+      e.srv.avance(const Duration(minutes: 5));
+      expect(await e.sync.syncChangements(), isTrue, reason: e.sync.error);
+      expect(e.sync.delta.prefixe, '/app-vente', reason: 'préfixe relu avec la capacité lors de la copie de reprise');
+      e.srv.avance(const Duration(minutes: 5));
+      final avant = e.srv.log.length;
+      expect(await e.sync.syncChangements(), isTrue, reason: e.sync.error);
+      expect(e.srv.log.sublist(avant), ['/app-vente/catalogue/changements']);
+    });
+
+    test('aucun préfixe (serveur à jour sans H5) : 404 puis 401 « expire » → copie complète, rien gardé', () async {
+      final e = _env(capacite: false);
+      expect(await e.sync.syncAll(auto: true), isTrue);
+      expect(e.srv.log.where((p) => p.endsWith('/capacites')), ['/app-vente/capacites', '/mobile/capacites']);
+      expect(e.sync.deltaActif, isFalse);
+      expect(await e.store.metas(CatalogueDelta.prefixe), isEmpty);
     });
   });
 
