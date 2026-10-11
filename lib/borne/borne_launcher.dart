@@ -13,6 +13,7 @@ import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/images/produit_image_widget.dart';
 import 'package:prestige_vente_app/images/produit_images.dart';
 import 'package:prestige_vente_app/interface_version.dart';
+import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
@@ -78,6 +79,8 @@ class _BorneHoteState extends State<BorneHote> {
       // B2 : images du serveur (cache disque), produits avec image mis en avant.
       image: (p, taille, picto) => ProduitImage(familleId: p.id, taille: taille, placeholder: picto),
       imageConnue: ProduitImages.instance.aImage,
+      // B3 : mobile money (réglage Paiements mobile money + module serveur) ; sinon « Payer en caisse » seul.
+      paiementsMobile: PaiementsMobile.instance,
       codeType: settings.ticketCodeType,
       largeurTicket: settings.paperWidth,
       onSortie: (ctx) => Navigator.of(ctx).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => InterfaceVersion.home()), (_) => false),

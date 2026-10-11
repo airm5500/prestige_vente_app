@@ -10,6 +10,7 @@ import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_reglages_page.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:prestige_vente_app/images/images_reglages_page.dart';
+import 'package:prestige_vente_app/paiements/paiements_mobile_screen.dart';
 import 'package:prestige_vente_app/parametres/connexion_page.dart';
 import 'package:prestige_vente_app/parametres/hors_ligne_page.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
@@ -109,6 +110,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
         Rubrique.licence => ParametresSummary.licence(l),
         Rubrique.borne => borneSummary(BorneReglages.courant.value),
         Rubrique.images => imagesSummary(ImagesReglages.courant.value),
+        Rubrique.paiementsMobile => paiementsSummary(),
       };
 
   static IconData _icon(Rubrique r) => switch (r) {
@@ -123,6 +125,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
         Rubrique.licence => Icons.badge,
         Rubrique.borne => Icons.storefront,
         Rubrique.images => Icons.image_outlined,
+        Rubrique.paiementsMobile => Icons.qr_code_2,
       };
 
   Future<void> _openOrganiser(BuildContext ctx) async {
@@ -171,6 +174,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
       Rubrique.licence => LicencePage(hardwareInfo: _sv.hardwareInfo ?? FingerprintService.hardwareInfo),
       Rubrique.borne => const BornePage(),
       Rubrique.images => const ImagesPage(),
+      Rubrique.paiementsMobile => const PaiementsMobilePage(),
     };
 
   /// Panneau de droite (tablette paysage) : rubrique choisie, sinon une invitation.

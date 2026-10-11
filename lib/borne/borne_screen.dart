@@ -16,6 +16,8 @@ import 'package:prestige_vente_app/borne/borne_service.dart';
 import 'package:prestige_vente_app/borne/borne_ticket.dart';
 import 'package:prestige_vente_app/borne/borne_widgets.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
+import 'package:prestige_vente_app/paiements/attente_paiement_screen.dart';
+import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -24,7 +26,7 @@ import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-enum BorneVue { accueil, resultats, fiche, panier, ecarts, ticket }
+enum BorneVue { accueil, resultats, fiche, panier, ecarts, ticket, operateur, mobile }
 
 class BorneScreen extends StatefulWidget {
   final BorneService service;
@@ -48,6 +50,12 @@ class BorneScreen extends StatefulWidget {
   final String codeType;
   final int largeurTicket;
   final BorneImageBuilder? image;
+
+  /// B3 : paiement mobile money (QR du montant exact) ; null ou désactivé : « Payer en caisse » seulement.
+  final PaiementsMobile? paiementsMobile;
+
+  /// Interrogation du statut d'un paiement mobile money.
+  final Duration intervallePaiement;
 
   /// B2 : le produit a-t-il une image connue (cache) ? Sert à mettre en avant les produits avec image.
   final bool? Function(String familleId)? imageConnue;
@@ -74,6 +82,8 @@ class BorneScreen extends StatefulWidget {
     this.largeurTicket = 58,
     this.image,
     this.imageConnue,
+    this.paiementsMobile,
+    this.intervallePaiement = const Duration(seconds: 3),
     this.delaiTicket = const Duration(seconds: 10),
     this.delaiTicketEcran = const Duration(seconds: 30),
     this.avertissement = const Duration(seconds: 10),
@@ -110,6 +120,11 @@ class BorneScreenState extends State<BorneScreen> {
   bool _validation = false;
   String? _erreurValidation;
   BornePrevente? _prevente;
+
+  // B3 : mobile money.
+  List<String> _opsMobile = const [];
+  String? _opChoisi;
+  AttentePaiement? _attente;
   BorneTicket? _ticket;
   bool _imprime = false;
   int _resteTicket = 0;
@@ -150,6 +165,7 @@ class BorneScreenState extends State<BorneScreen> {
     for (final t in [_debounce, _ticketTimer, _inactif, _avertTimer, _sortieTimer, _reconnexion]) {
       t?.cancel();
     }
+    _attente?.dispose();
     panier.dispose();
     _recherche.dispose();
     _focus.dispose();
@@ -191,14 +207,25 @@ class BorneScreenState extends State<BorneScreen> {
     if (!mounted) return;
     if (_m.etat != EtatServeur.enLigne) {
       // Borne indisponible : le client ne peut plus rien valider, son panier est effacé.
-      if (vue != BorneVue.ticket) _accueil();
+      if (vue != BorneVue.ticket && vue != BorneVue.mobile) _accueil();
+      _opsMobile = const [];
     } else if (!_connecte) {
       _connecter();
+    } else {
+      _chargerMobile();
     }
     setState(() {});
   }
 
+  Future<void> _chargerMobile() async {
+    final pm = widget.paiementsMobile;
+    if (pm == null) return;
+    final o = await pm.operateurs();
+    if (mounted) setState(() => _opsMobile = o);
+  }
+
   Future<void> _chargerVedettes() async {
+    _chargerMobile();
     final out = <BorneProduit>[];
     for (final code in cfg.vedettes) {
       final r = await widget.service.parCode(code);
@@ -224,14 +251,14 @@ class BorneScreenState extends State<BorneScreen> {
       setState(() => _avertReste = null);
     }
     _inactif?.cancel();
-    if (_auRepos || vue == BorneVue.ticket) return;
+    if (_auRepos || vue == BorneVue.ticket || vue == BorneVue.mobile) return;
     final total = Duration(seconds: cfg.inactivite);
     final avant = total > widget.avertissement ? total - widget.avertissement : Duration.zero;
     _inactif = Timer(avant, _avertir);
   }
 
   void _avertir() {
-    if (!mounted || _auRepos || vue == BorneVue.ticket) return;
+    if (!mounted || _auRepos || vue == BorneVue.ticket || vue == BorneVue.mobile) return;
     setState(() => _avertReste = widget.avertissement.inSeconds);
     _avertTimer?.cancel();
     _avertTimer = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -253,6 +280,9 @@ class BorneScreenState extends State<BorneScreen> {
     _ticketTimer?.cancel();
     _debounce?.cancel();
     _rechercheNo++;
+    _attente?.dispose();
+    _attente = null;
+    _opChoisi = null;
     panier.vider();
     _recherche.clear();
     _focus.unfocus();
@@ -404,8 +434,9 @@ class BorneScreenState extends State<BorneScreen> {
   // ---------------------------------------------------------------------------
 
   /// « Payer en caisse » : prix et stock revérifiés ; écarts montrés avant confirmation.
-  Future<void> payer() async {
+  Future<void> payer({String? operateur}) async {
     if (_validation || panier.vide || indisponible) return; // anti double appui
+    _opChoisi = operateur;
     activite();
     setState(() {
       _validation = true;
@@ -455,7 +486,22 @@ class BorneScreenState extends State<BorneScreen> {
       return;
     }
     final p = r.value;
-    final ticket = BorneTicket(officine: widget.officine, prevente: p, discret: cfg.ticketDiscret, codeType: widget.codeType, largeur: widget.largeurTicket);
+    final op = _opChoisi;
+    if (op != null && _opsMobile.contains(op) && widget.paiementsMobile?.api != null) {
+      _lancerMobile(p, op);
+      return;
+    }
+    await _imprimerTicket(p);
+  }
+
+  Future<void> _imprimerTicket(BornePrevente p, {String? payePar}) async {
+    final ticket = BorneTicket(
+        officine: widget.officine,
+        prevente: p,
+        discret: cfg.ticketDiscret,
+        codeType: widget.codeType,
+        largeur: widget.largeurTicket,
+        payePar: payePar);
     _inactif?.cancel();
     panier.vider();
     setState(() {
@@ -485,6 +531,47 @@ class BorneScreenState extends State<BorneScreen> {
         setState(() => _resteTicket--);
       }
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // B3 : mobile money (QR du montant exact, confirmation automatique, vente clôturée par le serveur)
+  // ---------------------------------------------------------------------------
+
+  void _lancerMobile(BornePrevente p, String op) {
+    final pm = widget.paiementsMobile!;
+    _inactif?.cancel();
+    panier.vider();
+    final a = AttentePaiement(pm.api!,
+        intervalle: widget.intervallePaiement, delai: Duration(minutes: pm.capacitesConnues?.expirationMin ?? 10));
+    a.addListener(() => _onAttente(p, op));
+    setState(() {
+      _prevente = p;
+      _attente = a;
+      _validation = false;
+      vue = BorneVue.mobile;
+    });
+    a.demarrer(venteId: p.venteId, operateur: op, cloturer: true);
+  }
+
+  void _onAttente(BornePrevente p, String op) {
+    final a = _attente;
+    if (!mounted || a == null) return;
+    if (a.statut == StatutPM.paye && vue == BorneVue.mobile) {
+      _imprimerTicket(
+          BornePrevente(venteId: p.venteId, reference: p.reference, total: a.paiement!.montant, lignes: p.lignes, at: p.at),
+          payePar: nomOperateur[op] ?? op);
+      return;
+    }
+    setState(() {});
+  }
+
+  Future<void> _annulerMobile() async {
+    final a = _attente;
+    if (a == null) return;
+    await a.annuler();
+    await Future<void>.delayed(widget.intervallePaiement);
+    if (!mounted || _attente != a) return;
+    await a.verifierApresAnnulation();
   }
 
   // ---------------------------------------------------------------------------
@@ -572,6 +659,8 @@ class BorneScreenState extends State<BorneScreen> {
         BorneVue.panier => _panierVue(),
         BorneVue.ecarts => _ecartsVue(),
         BorneVue.ticket => _ticketVue(),
+        BorneVue.operateur => _operateurVue(),
+        BorneVue.mobile => _mobileVue(),
       };
 
   Widget _indisponible() => Center(
@@ -1109,9 +1198,25 @@ class BorneScreenState extends State<BorneScreen> {
               child: BorneBouton('PAYER EN CAISSE',
                   key: const ValueKey('borne-payer'),
                   icon: Icons.receipt_long,
-                  occupe: _validation,
+                  occupe: _validation && _opChoisi == null,
                   onPressed: panier.vide || _validation ? null : payer),
             ),
+            if (_opsMobile.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: BorneBouton('PAYER PAR MOBILE MONEY',
+                    key: const ValueKey('borne-payer-mobile'),
+                    icon: Icons.qr_code_2,
+                    principal: false,
+                    onPressed: panier.vide || _validation
+                        ? null
+                        : () {
+                            activite();
+                            setState(() => vue = BorneVue.operateur);
+                          }),
+              ),
+            ],
           ]),
         ),
       ),
@@ -1166,6 +1271,68 @@ class BorneScreenState extends State<BorneScreen> {
           ),
         ]),
       ),
+    ]);
+  }
+
+  // --- Mobile money -----------------------------------------------------------------
+
+  Widget _operateurVue() => Column(children: [
+        _retour('Retour au panier', () => setState(() => vue = BorneVue.panier)),
+        Expanded(
+          child: ListView(padding: const EdgeInsets.all(18), children: [
+            const Text('Payer avec', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Pal.ink)),
+            const SizedBox(height: 4),
+            Text('Total : ${prixF(panier.total)} (montant vérifié par la pharmacie)',
+                style: const TextStyle(fontSize: 16, color: Pal.muted)),
+            const SizedBox(height: 14),
+            for (final op in _opsMobile)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: BorneBouton(nomOperateur[op] ?? op,
+                      key: ValueKey('borne-operateur-$op'),
+                      icon: Icons.phone_android,
+                      principal: false,
+                      occupe: _validation && _opChoisi == op,
+                      onPressed: _validation ? null : () => payer(operateur: op)),
+                ),
+              ),
+            if (_erreurValidation != null)
+              Text(_erreurValidation!,
+                  key: const ValueKey('borne-erreur-validation'), style: const TextStyle(color: Color(0xFF991B1B), fontSize: 15)),
+          ]),
+        ),
+      ]);
+
+  Widget _mobileVue() {
+    final a = _attente!;
+    final s = a.statut;
+    final fini = s != null && s != StatutPM.enAttente && s != StatutPM.paye;
+    return Column(children: [
+      Expanded(child: AttentePaiementVue(attente: a, operateur: _opChoisi ?? '', onAnnuler: _annulerMobile, qr: 260)),
+      if (fini || (a.paiement == null && a.erreur != null))
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(children: [
+            if (s != StatutPM.payeApresAnnulation)
+              SizedBox(
+                width: double.infinity,
+                child: BorneBouton('PAYER EN CAISSE', key: const ValueKey('borne-mobile-caisse'), icon: Icons.receipt_long, onPressed: () {
+                  final p = _prevente;
+                  _attente?.dispose();
+                  _attente = null;
+                  if (p != null) _imprimerTicket(p);
+                }),
+              ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: BorneBouton(s == StatutPM.payeApresAnnulation ? 'TERMINÉ (ADRESSEZ-VOUS AU COMPTOIR)' : 'ABANDONNER',
+                  key: const ValueKey('borne-mobile-abandonner'), contour: true, onPressed: _accueil),
+            ),
+          ]),
+        ),
     ]);
   }
 
