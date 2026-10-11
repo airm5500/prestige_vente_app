@@ -709,3 +709,160 @@ sur le téléphone le montre meilleur que la référence.**
 - Le serveur cherche « commence par » (`LIKE 'texte%'`) et **accepte le joker `%`** : `%1000MG` trouve 26 produits contenant « 1000MG », `DOLI% 1000` trouve « DOLIPRANE 1000MG… », en 0,03 s.
 - Vrai pour les **produits**, les **clients** (assurance et carnet) et les **tiers payants**.
 - ⇒ L'option « Contient » est possible **sans modifier le serveur** : l'appli ajoute `%` devant et entre les mots. En « Commence par », les caractères `%` et `_` tapés par l'utilisateur sont neutralisés.
+
+## 8. Centre de support : envoi des anomalies de l'app mobile (réalisé, sans modification du serveur)
+
+L'app utilise **l'API existante** du centre de support, telle quelle (exigence du client : aucune modification du serveur) :
+`POST /api/v1/support/events` (`SupportEventRessource.collect`), avec **la session de l'app** (cookie obtenu par `/user/auth`).
+Le serveur ajoute lui-même l'utilisateur, l'IP et le poste ; il déduplique par signature
+(`type|module|message (chiffres → #)|1ʳᵉ ligne de la pile|écran`), crée les tickets automatiques (FATAL, ou ERROR au-delà
+du seuil `SUPPORT_AUTO_TICKET_SEUIL`) et envoie les e-mails : les événements du mobile sont donc traités **exactement comme
+ceux de l'application web**. Code : `lib/support/`.
+
+### 8.1 Ce qui est envoyé (même format que le web)
+| Origine | type | niveau | module | messageCourt | urlOuEcran | stack |
+|---|---|---|---|---|---|---|
+| Erreur Flutter non gérée (`FlutterError.onError`, `PlatformDispatcher.onError`) | `MOBILE` (texte libre ≤ 50 accepté par le serveur, défaut « AUTRE ») | ERROR (WARN pour un débordement de mise en page) | module de l'écran (VENTE, STOCK, POINTAGE, HORS_LIGNE) sinon MOBILE | 1ʳᵉ ligne de l'exception | nom de l'écran (ex. `VenteScreen`) | exception + pile |
+| Échec HTTP inattendu (intercepteur Dio) — format `AJAX` du web | `AJAX` | ERROR si ≥ 500, sinon WARN | module du chemin (VENTE, STOCK…) sinon MOBILE | `Échec Ajax HTTP <code> <libellé>` | chemin de l'URL **sans paramètres** | corps de la réponse filtré (JSON réduit à `success/msg/message/error/status/code`, HTML sans balises) |
+| Refus à l'envoi d'une file hors ligne (rapport d'anomalies H2 ventes / H3 stock) — format `VenteCtr.signalerReponsePerdue` | `APPLICATION` | WARN | VENTE / STOCK | `Synchronisation hors ligne : <quoi> refusé(e) (<nature>)` | `SYNCHRO ventes hors ligne` / `SYNCHRO stock hors ligne` | motif du serveur |
+| Signalement manuel | `APPLICATION` | gravité choisie (INFO / WARN / ERROR) | module choisi | objet saisi | écran d'où le problème est signalé | description |
+
+Non signalés : les **401** (session expirée), les **échecs réseau purs** (aucune réponse, délai, annulation / doublon bloqué),
+les appels **du support lui-même** (`/support/events`, `/support-contact`) ; un échec d'envoi n'est **jamais** re-signalé
+(Dio dédié sans les intercepteurs de l'app, mêmes cookies).
+
+`payloadJson` (chaîne JSON ≤ 4000, toujours valide : le fil d'Ariane est raccourci en premier) : données métier
+(`vente` ou `operation`, `issue`, `explication` pour la synchro ; `signalement`, `objet` pour le manuel) +
+`application` « Prestige Mobile », `version` (= pubspec, vérifié par test), `terminal` {`id` T-XXXXXX du journal du
+terminal, `modele`}, `utilisateur` (login), `ecran`, `fil_ariane` (15 dernières actions « HH:mm:ss  Écran X » /
+« HH:mm:ss  API GET /prestige/api/v1/… », ≤ 200 caractères, **sans paramètres**). Bornes du serveur appliquées côté app :
+messageCourt 500, urlOuEcran 255, stack 4000, payloadJson 4000.
+
+### 8.2 Données sensibles (filtrées avant tout envoi)
+Mots de passe / PIN, jetons, cookies / JSESSIONID, en-têtes `Authorization` / `Bearer`, e-mails, n° de téléphone ou de
+sécurité sociale (9 à 15 chiffres ; les identifiants techniques plus longs restent lisibles) ; aucune donnée patient /
+ordonnance : paramètres d'URL retirés (une recherche peut porter un nom), corps de réponse réduit au message du serveur,
+synchro hors ligne sans nom du client ni n° de bon (masqués `***`).
+
+### 8.3 Fiabilité et anti-tempête
+- Comme le web : **20 envois automatiques au plus par session** (remis à zéro à la connexion) et jamais deux fois la même
+  paire `messageCourt|urlOuEcran` ; en plus **30 par heure** au plus. Les signalements manuels ne sont pas limités.
+- **File locale** (SharedPreferences, 50 événements, 7 jours) : hors ligne, session absente, erreur 5xx → gardé et
+  **renvoyé au retour en ligne et à la connexion** (arrêt au premier échec, abandon après 8 essais).
+- **Serveur sans la route** (version plus ancienne, HTTP 404) : envoi automatique suspendu proprement pour cette session
+  (noté une fois au journal du terminal), **file conservée** ; nouvel essai au redémarrage, au changement de serveur ou
+  par « Renvoyer maintenant ».
+- Journal du terminal : nouveau type « Centre de support », résultat « Info » (transmis / en attente / route absente /
+  réglage modifié).
+
+### 8.4 Écrans
+- **« Signaler un problème »** : menu ⋮ de l'accueil et Réglages › Centre de support. Objet (obligatoire), description,
+  module (proposé d'après l'écran), gravité (Information / Gênant / Bloquant = INFO / WARN / ERROR), case « Joindre le
+  contexte technique » (cochée). Confirmation à l'utilisateur (« transmis » ou « gardé sur le terminal »).
+  Option « Être recontacté par le support » : demande de contact `POST /prestige/support-contact` (multipart, API existante
+  `SupportContactServlet` : objet, message, moduleConcerne, urgence BASSE / MOYENNE / HAUTE, `pieceJointe1` = capture choisie
+  dans la galerie ≤ 10 Mo ; réponse text/html contenant le JSON `{success, msg}` avec la référence de la demande).
+- **Réglages › Centre de support** : « Envoyer automatiquement les anomalies au centre de support » (**activé par défaut**,
+  comme le web ; modification protégée par le **code administrateur**), état de la file, « Renvoyer maintenant ».
+
+### 8.5 Vérification sur le serveur de test (sans redéploiement)
+- La route `POST /api/v1/support/events` existe sur la version déployée (GET de la liste : 200).
+- Envoi réel depuis le code de l'app (Dio + session admin) : 3 événements enregistrés dans `t_application_event`
+  (MOBILE / ERROR / VENTE, AJAX / WARN 404, APPLICATION / WARN synchro) avec l'utilisateur ajouté par le serveur
+  (« Super Admin (admin) [IP … - poste …] »), payloadJson complet, accents corrects ; **deux erreurs ne différant que par un
+  chiffre fusionnées** (occurrences = 2) ; sans session : réponse « Veuillez vous connecter » → événement gardé ; route
+  absente (404) détectée. Événements, occurrences et fichiers de log d'essai supprimés ensuite.
+- La demande de contact (`/support-contact`) n'a pas été envoyée au serveur de test (elle crée une demande et envoie un
+  e-mail) : format vérifié par test sur faux serveur.
+
+Tests : `test/support_centre_test.dart` (ligne 32 du workflow) ; branchement H2 vérifié dans `test/horsligne_ventes_test.dart`.
+
+---
+
+## 9. Pointage RH (présence des employés sur le serveur Prestige) : réalisé côté app, sans modification du serveur
+
+Module `lib/rh/`, entrée **« Pointage RH (Prestige) »** dans la famille *Équipe* (nouvel accueil et accueil d'origine).
+À ne pas confondre avec le « Pointage BL Stock » ni avec le pointage local par empreinte / PIN (`lib/pointage`),
+inchangés. L'écran d'entrée vérifie le serveur et le compte et **désactive en l'expliquant** ce qui n'est pas
+disponible (route absente → 404 « n'existe pas sur cette version du serveur », module désactivé, droit manquant,
+hors ligne). Présentations A / B / C et tablette comme les autres écrans.
+
+### 8.1 Voie A — l'employé pointe avec SON téléphone (`v1/mobile`, jeton Bearer)
+- Connexion : `POST connexion {login, motDePasse, appareil, nomAppareil}`. `appareil` = identifiant du **journal du
+  terminal** (`T-XXXXXX`, créé une fois), `nomAppareil` = modèle. Identifiant pré-rempli avec le compte de l'appli,
+  **mot de passe redemandé** : l'appli garde le mot de passe principal en clair dans les préférences (« Rester
+  connecté »), ce n'est pas un stockage sûr, on ne le réutilise donc pas. Le mot de passe n'est jamais conservé.
+- Jeton (et réglages `moi`) dans le **stockage sécurisé** (`flutter_secure_storage`, Keystore Android,
+  EncryptedSharedPreferences), exclu des sauvegardes Android. Client Dio **séparé** (sans cookies ni journal des
+  requêtes). Pas de rafraîchissement : à l'expiration (12 h, `KEY_MOBILE_JETON_HEURES`) ou sur **401 `{"expire":true}`**
+  le jeton est effacé et la connexion redemandée.
+- Écran : nom + matricule, état « QR exigé / position exigée », gros bouton **« Pointer mon entrée / ma sortie »**
+  (sens proposé = inverse du dernier pointage des 16 h), lien « plutôt ma sortie / mon entrée », saisie du code à 6
+  caractères si la caméra ne lit pas le QR ; résultat du serveur en grand (heure = serveur) ; historique
+  (`GET pointages`) ; déconnexion (efface le jeton). Refus du serveur affichés **tels quels** (pas d'employé lié,
+  < 2 min, hors zone, QR expiré…). `GET moi` à l'ouverture (droits et réglages relus).
+- QR : scanner de l'appli ; seul un texte `PRESTIGE-POINTAGE:…` est envoyé (brut). Position (`geolocator`) seulement si
+  l'officine l'exige ; refus / localisation coupée → message clair et bouton « Réglages ».
+- **Pas de pointage A hors ligne** : « Disponible en ligne uniquement ».
+
+### 8.2 Voie B — terminal commun (SUNMI V3H) (`v1/rh`, session de l'appli, droit `P_SM_RH`)
+- Employés (`GET rh/employes?query=&inactifs=false`) copiés sur l'appareil (SQLite, migration nommée
+  `rh_pointage_v1`) **avec la copie hors ligne** (extension de la mise à jour du catalogue, active sur un appareil
+  dès que le terminal y a été ouvert avec le droit RH ; refus ou routes absentes : rien, sans erreur).
+- Identification (`IdentificationEmploye`, capacités détectées) dans l'ordre : **1) empreinte**, **2) scan du badge**
+  (lecteur 2D intégré Sunmi, qui tape le code + Entrée comme un clavier — c'est déjà ainsi que l'appli reçoit les
+  scans Sunmi —, lecteur USB / Bluetooth, ou caméra), **3) badge NFC** (UID **hexadécimal majuscule sans séparateur**,
+  ex. `04A1B2C3D4E5F6`, à saisir dans le champ **Badge** de l'employé dans Prestige ; pont NFC natif déjà présent,
+  pas de plugin ajouté), **4) saisie au clavier** (badge ou matricule). Comparaison insensible à la casse, comme le
+  serveur ; badge prioritaire, puis matricule.
+- Confirmation 3 s en grand : « Bonjour Awa — ENTRÉE 08:02 », sens = inverse du dernier pointage du jour connu
+  (`GET rh/presence?jour=` + lectures du terminal), **corrigeable**, Annuler / Valider ; son + vibration.
+  Anti double lecture : même employé < 2 min → ignoré avec message.
+- `POST rh/pointages {employeId, jour, heure (heure de LECTURE), sens, motif}` ; motif « Badge terminal <nom> » ou
+  « Empreinte terminal <nom> ». Doublon de minute (« existe déjà ») = **déjà enregistré** (idempotent) ; heure > maintenant
+  + 5 min refusée par le serveur.
+- **Hors ligne** : file persistante, envoi au retour **après confirmation** (liste décochable, comme H2 / H3) ; refus →
+  rapport **« Anomalies de synchronisation »** commun (`AnomalieSourceListe`) ; chaque étape dans le journal du
+  terminal (type « Pointage RH »). Le terminal fonctionne hors ligne seulement s'il a déjà été ouvert en ligne.
+- Mode **borne** plein écran optionnel (barres système masquées, Retour bloqué, sortie par appui long + confirmation).
+- **Présences du jour** (responsable) : entrée, sortie, prévu, présence, retard, départ anticipé, heures sup.,
+  anomalies en clair ; jour précédent / suivant ; filtre « retards et anomalies ».
+
+### 8.3 Empreinte (V3H avec lecteur d'empreinte optionnel)
+- BiometricPrompt (API Android) ne sait **pas** dire QUI pose le doigt : inutilisable pour plusieurs employés.
+- L'appli contient **déjà** le SDK du service d'empreinte Sunmi (`android/app/libs/libsunmifingeprint_v1.0.0.aar`,
+  pont `SunmiFingerprintBridge`, canal `prestige/fingerprint` : `enroll` → modèle, `identify(modèles)` → index, mode
+  « OnClient »), utilisé par le pointage local. Le module RH le réutilise (`SunmiEmpreinte`) au lieu d'un nouveau canal :
+  service absent (`isServiceInstalled` faux, autre marque, V3H sans lecteur) → **indisponible proprement**, repli
+  badge / NFC. Si Sunmi livre une autre version du SDK (Sunmi Partner Platform, compte développeur du client), on
+  remplace l'AAR et les appels de `SunmiFingerprintBridge.kt` (`enrollOnClient`, `identifyOnClient`) ; le reste ne
+  change pas (`FournisseurEmpreinte`).
+- Modèles d'empreinte **uniquement sur le terminal** : stockage sécurisé (Keystore), associés à l'`employeId`,
+  **jamais envoyés** au serveur ni sauvegardés (règles `regles_sauvegarde.xml` / `regles_extraction.xml`).
+- Enrôlement (terminal › icône empreinte) : **code administrateur** + compte avec le droit RH ; choix de l'employé ;
+  **consentement explicite** (texte affiché, case à cocher, date gardée) ; **3 captures** ; **test de reconnaissance**
+  (rien n'est gardé s'il échoue) ; suppression par employé ; **suppression automatique** des empreintes d'un employé
+  absent de la liste des actifs (devenu INACTIF) à la mise à jour des employés.
+- Rappel : donnée biométrique — l'officine doit **déclarer le traitement à l'ARTCI** (loi ivoirienne n° 2013-450 du
+  19 juin 2013 relative à la protection des données à caractère personnel) avant usage.
+
+### 8.4 Prérequis côté Prestige (aucune modification du code serveur)
+| Pour | Réglage |
+|---|---|
+| Voie A | `KEY_MOBILE_ACTIF = 1` (sinon « Pointage mobile non activé sur le serveur ») ; `KEY_RH_MOBILE_POINTAGE = 1` |
+| Voie A | compte de l'employé **rattaché à un employé ACTIF** (RH › Employés) |
+| Voie A | `KEY_RH_MOBILE_QR` (QR affiché sur un écran de l'officine : RH › Pointage mobile) ; `KEY_RH_MOBILE_GPS` + `KEY_RH_MOBILE_LATITUDE / LONGITUDE / RAYON_M` si la position est exigée |
+| Voie B | compte connecté sur le terminal avec le droit **`P_SM_RH`** ; champ **Badge** des employés rempli (code-barres / QR du badge, ou UID NFC en hexadécimal majuscule) |
+| Empreinte | V3H avec l'**option lecteur d'empreinte** et le service d'empreinte Sunmi installé ; déclaration **ARTCI** |
+
+### 8.5 Vérifié sur le serveur de test (version déployée, sans redéploiement ni changement de paramètres)
+Routes `v1/mobile/*` et `v1/rh/*` présentes (une route inconnue rend bien 404). Jeu d'essai temporaire (2 employés,
+dont un rattaché à `admin`), **retiré ensuite** (employés, pointages, téléphone enregistré) : connexion → jeton
+(12 h), `moi` avec l'employé, 401 `expire` sans jeton, refus sans QR, **pointage accepté avec le QR du moment**
+(`GET rh/mobile/code`), refus « moins de deux minutes », historique ; voie B : pointage enregistré, **doublon de minute
+→ « Un pointage existe déjà à cette heure »**, futur refusé ; présence du jour (`ENTREE_SANS_SORTIE`, motif « Badge
+terminal … » conservé).
+
+Plugins ajoutés : `flutter_secure_storage 9.2.4`, `geolocator 13.0.4` (+ permissions de localisation Android,
+facultatives, et `NSLocationWhenInUseUsageDescription` iOS). NFC : pont natif existant (pas de `nfc_manager`).
+Tests : `test/rh_pointage_test.dart`.

@@ -4,6 +4,7 @@
 // clôture), vente commencée en ligne (articles manquants seulement), confirmation avant envoi (décochage →
 // ressaisie), rapport d'anomalies (bon déjà utilisé), rapport de fin de journée (total par produit),
 // impression en mode test, écrans à 360 px et tablette, en ligne inchangé.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -40,6 +41,7 @@ import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_screen.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -594,7 +596,22 @@ void main() {
       await k.enregistrerHorsLigne(userName: 'Awa', expectedChanges: k.changes);
       e.srv.addModes.addAll([_M.ok, _M.refus]);
       e.srv.refusAjout = 'Le bon N° B9 est déjà utilisé';
+      // Centre de support : l'anomalie est remontée (format VenteCtr.js), sans le client ni le n° de bon.
+      final support = <Map<String, Object?>>[];
+      final supportAvant = SupportCentre.instance;
+      SupportCentre.instance = SupportCentre(envoi: (c) async {
+        support.add(c);
+        return SupportReponse.ok;
+      });
+      addTearDown(() => SupportCentre.instance = supportAvant);
       await e.file.envoyer();
+      await Future<void>.delayed(Duration.zero);
+      expect(support.single['type'], 'APPLICATION');
+      expect(support.single['niveau'], 'WARN');
+      expect(support.single['module'], 'VENTE');
+      expect(jsonDecode(support.single['payloadJson'] as String)['vente'], 'HL-0002');
+      expect(jsonEncode(support.single), isNot(contains('B9')));
+      expect(jsonEncode(support.single), isNot(contains('TRAORE')));
       expect(e.ventes[0].statut, StatutVenteHL.envoyee);
       expect(e.srv.addAssurance.first.typeVenteId, '2');
       expect(e.srv.addAssurance.first.clientId, 'C1');

@@ -26,6 +26,7 @@ import 'package:prestige_vente_app/screens/analysis/article_analysis_screen.dart
 import 'package:prestige_vente_app/screens/ajustement/ajustement_screen.dart';
 import 'package:prestige_vente_app/screens/prescription/prescription_check_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/pointage_home_screen.dart';
+import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
 
 /// Familles de l'accueil, dans l'ordre d'affichage.
 enum MenuFamille { ventes, caisse, reception, stock, produits, equipe }
@@ -69,7 +70,7 @@ class AccueilMenu {
   });
 }
 
-/// Les 22 menus, dans l'ordre par défaut (par famille).
+/// Les 23 menus, dans l'ordre par défaut (par famille).
 final List<AccueilMenu> accueilMenus = [
   // Ventes
   AccueilMenu(id: 'prevente', label: 'Pre/Vente', short: 'Pré-vente', icon: Icons.point_of_sale, color: Colors.blue.shade700, famille: MenuFamille.ventes, screen: () => VentesVersion.preVente()),
@@ -99,6 +100,9 @@ final List<AccueilMenu> accueilMenus = [
   AccueilMenu(id: 'update_emplacement', label: 'Mise à jour Emplacement', short: 'Emplacement', icon: Icons.location_on, color: Colors.brown.shade400, famille: MenuFamille.produits, screen: () => const EmplacementUpdateScreen()),
   // Équipe
   AccueilMenu(id: 'empreinte', label: 'Pointage', short: 'Pointage', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, famille: MenuFamille.equipe, screen: () => const PointageHomeScreen()),
+  // Pointage RH sur le serveur Prestige (téléphone de l'employé, terminal à badge, présences) : voies
+  // proposées selon les routes du serveur et le droit RH du compte (désactivées et expliquées sinon).
+  AccueilMenu(id: 'pointage_rh', label: 'Pointage RH (Prestige)', short: 'Pointage RH', icon: Icons.how_to_reg, color: Colors.indigo.shade500, famille: MenuFamille.equipe, screen: () => const RhPointageScreen()),
 ];
 
 final Map<String, AccueilMenu> accueilMenuById = {for (final m in accueilMenus) m.id: m};

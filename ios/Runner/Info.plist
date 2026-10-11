@@ -43,6 +43,8 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>La position du téléphone est vérifiée par l'officine lors du pointage de présence.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>L'appareil photo sert à scanner les codes DataMatrix et à photographier les ordonnances.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

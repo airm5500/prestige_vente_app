@@ -24,6 +24,7 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/horsligne/client_ref.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
+import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
@@ -182,6 +183,16 @@ class FileVentesHL extends ChangeNotifier {
     );
     await store.putAnomalie(a);
     _anomalies = [..._anomalies, a];
+    // Centre de support : refus à l'envoi signalé comme le web (APPLICATION / WARN / VENTE), sans le nom du
+    // client ni les numéros de bon (données patient).
+    SupportCentre.instance.anomalieSynchro(
+      module: 'VENTE',
+      quoi: 'vente ${v.type.label.toLowerCase()}',
+      nature: a.natureLabel,
+      motif: motif,
+      vente: v.numeroLabel,
+      masquer: [v.clientNom, for (final t in v.tps) t.numBon],
+    );
   }
 
   /// « Renvoyer » : l'écart affiché est accepté, la vente repart (à la même étape).

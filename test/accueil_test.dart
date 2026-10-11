@@ -354,7 +354,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(OrganiserAccueilScreen), findsNothing);
       expect(settings.hiddenMenuIds, isEmpty);
-      // ordre enregistré : carnet avant prevente dans Ventes (organisation reprise), 22 menus
+      // ordre enregistré : carnet avant prevente dans Ventes (organisation reprise), 23 menus
       expect(settings.menuOrder.length, accueilMenus.length);
       expect(settings.menuOrder.indexOf('carnet'), lessThan(settings.menuOrder.indexOf('prevente')));
       final prefs = await SharedPreferences.getInstance();
@@ -377,13 +377,13 @@ void main() {
   });
 
   group('Catalogue des menus', () {
-    test('22 menus, mêmes identifiants que l\'accueil d\'origine, familles complètes', () {
-      expect(accueilMenus.length, 22);
-      expect(accueilMenuById.length, 22);
+    test('23 menus, mêmes identifiants que l\'accueil d\'origine, familles complètes', () {
+      expect(accueilMenus.length, 23);
+      expect(accueilMenuById.length, 23);
       const origine = [
         'prevente', 'assurance', 'carnet', 'caisse', 'perimes', 'evaluation', 'search', 'update_perim', 'delivery', 'bl_control', 'reception',
         'update_ean', 'update_emplacement', 'stock', 'depot', 'proforma', 'analyse_article', 'ajustement', 'ordonnance', 'reception_bl',
-        'retour_frs', 'empreinte',
+        'retour_frs', 'empreinte', 'pointage_rh',
       ];
       expect(accueilMenuById.keys.toSet(), origine.toSet());
       expect(accueilMenus.where((m) => m.protege).map((m) => m.id), ['ajustement']);
@@ -393,7 +393,7 @@ void main() {
       final o = orderedMenus(const ['stock', 'inconnu', 'prevente']);
       expect(o.first.id, 'stock');
       expect(o[1].id, 'prevente');
-      expect(o.length, 22);
+      expect(o.length, 23);
       expect(chercherMenus('etat', accueilMenus).map((m) => m.id), contains('stock'));
       expect(chercherMenus('PÉREMPTION', accueilMenus).map((m) => m.id), contains('update_perim'));
       expect(chercherMenus('', accueilMenus), isEmpty);

@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_sender.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_store.dart';
+import 'package:prestige_vente_app/support/support_centre.dart';
 
 /// Bilan d'un envoi.
 class StockEnvoiResultat {
@@ -412,6 +413,14 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
     _anomalies.removeWhere((x) => x.id == a.id);
     _anomalies.insert(0, a);
     await store.saveAnomalie(a);
+    // Centre de support : refus à l'envoi signalé comme le web (APPLICATION / WARN / STOCK).
+    SupportCentre.instance.anomalieSynchro(
+      module: 'STOCK',
+      quoi: op.type.label.toLowerCase(),
+      nature: rejected.length > 1 ? '${rejected.length} lignes refusées' : 'ligne refusée',
+      motif: [a.motif, ...a.details].join(' | '),
+      operation: op.id,
+    );
   }
 
   static String _detail(StockOpType t, StockOpLine l) {
