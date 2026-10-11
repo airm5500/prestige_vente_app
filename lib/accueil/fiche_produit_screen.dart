@@ -1,8 +1,12 @@
 // lib/accueil/fiche_produit_screen.dart
 // Fiche produit ouverte depuis la recherche ou le scan de l'accueil :
 // nom, CIP, stock, prix de vente (résultat de recherche) + emplacement et grossiste (GET /info).
+// Affichage IMMÉDIAT avec la ligne de résultat ; le complément (GET /info) et l'image arrivent en
+// arrière-plan (squelettes de chargement), en parallèle, avec un cache mémoire court (60 s) et
+// l'abandon de la requête si l'on quitte la fiche avant la réponse.
 // Hors ligne : données de la copie locale du catalogue (lib/horsligne) avec leur date ;
 // ce qui exige le serveur affiche « Disponible en ligne uniquement » (jamais une erreur).
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,12 +21,115 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 
+/// Chargement du complément d'une fiche (annulable).
+typedef ChargeurInfo = Future<ProductInfo?> Function(String cip, CancelToken token);
+
+/// Complément de la fiche (GET /info) chez l'[ApiService] : requête annulable sur le serveur réel ;
+/// une sous-classe (faux service des tests) garde son propre [ApiService.getProductInfo].
+ChargeurInfo chargeurInfo(ApiService api) =>
+    (cip, token) => api.runtimeType == ApiService ? api.getProductInfoAnnulable(cip, token) : api.getProductInfo(cip);
+
+/// Cache mémoire court des compléments de fiche : réouverture sans attente, une seule requête
+/// à la fois par produit, requête abandonnée quand plus aucune fiche ne l'attend.
+class FicheInfoCache {
+  FicheInfoCache({this.duree = const Duration(seconds: 60), DateTime Function()? horloge}) : horloge = horloge ?? DateTime.now;
+
+  /// Cache de l'application.
+  static final FicheInfoCache instance = FicheInfoCache();
+
+  final Duration duree;
+  final DateTime Function() horloge;
+  final Map<String, ({DateTime at, ProductInfo info})> _connus = {};
+  final Map<String, _Demande> _enCours = {};
+
+  /// Requêtes réellement envoyées (diagnostic, tests).
+  int requetes = 0;
+
+  /// Requêtes abandonnées (fiche quittée avant la réponse).
+  int abandons = 0;
+
+  /// Complément encore frais (null sinon).
+  ProductInfo? connu(String cle) {
+    final e = _connus[cle];
+    if (e == null) return null;
+    if (horloge().difference(e.at) > duree) {
+      _connus.remove(cle);
+      return null;
+    }
+    return e.info;
+  }
+
+  /// Complément de [cle] : frais en cache, sinon la requête en cours, sinon une nouvelle requête.
+  /// [attendre] faux (préchargement) : la requête ne compte pas d'écran en attente.
+  Future<ProductInfo?> charger(String cle, String cip, ChargeurInfo chargeur, {bool attendre = true}) {
+    final c = connu(cle);
+    if (c != null) return Future.value(c);
+    final d = _enCours[cle];
+    if (d != null) {
+      if (attendre) d.abonnes++;
+      return d.future;
+    }
+    final token = CancelToken();
+    requetes++;
+    late final _Demande demande;
+    final f = Future<ProductInfo?>.sync(() => chargeur(cip, token)).then<ProductInfo?>((info) {
+      if (info != null && !token.isCancelled) _connus[cle] = (at: horloge(), info: info);
+      return info;
+    }, onError: (_) => null).whenComplete(() {
+      if (identical(_enCours[cle], demande)) _enCours.remove(cle);
+    });
+    demande = _Demande(token, f, attendre ? 1 : 0);
+    _enCours[cle] = demande;
+    return f;
+  }
+
+  /// Un écran n'attend plus [cle] : la requête est abandonnée si personne d'autre ne l'attend.
+  void lacher(String cle) {
+    final d = _enCours[cle];
+    if (d == null) return;
+    d.abonnes--;
+    if (d.abonnes <= 0) {
+      abandons++;
+      d.token.cancel('Fiche produit quittée');
+      _enCours.remove(cle);
+    }
+  }
+
+  bool enCours(String cle) => _enCours.containsKey(cle);
+
+  void vider() {
+    _connus.clear();
+    _enCours.clear();
+  }
+}
+
+class _Demande {
+  final CancelToken token;
+  final Future<ProductInfo?> future;
+  int abonnes;
+  _Demande(this.token, this.future, this.abonnes);
+}
+
+/// Clé du cache : une source (service : serveur et session) et un CIP.
+String cleFiche(Object source, String cip) => '${identityHashCode(source)}|$cip';
+
+/// Préchargement du complément dès la sélection du produit (pendant l'ouverture de la fiche).
+void prechargerFiche(ApiService api, ProductSearchResult p, {FicheInfoCache? cache}) {
+  final cip = p.intCIP.trim();
+  if (cip.isEmpty || HorsLigne.instance.offline) return;
+  (cache ?? FicheInfoCache.instance).charger(cleFiche(api, cip), cip, chargeurInfo(api), attendre: false);
+}
+
 class FicheProduitScreen extends StatefulWidget {
   final ProductSearchResult produit;
 
   /// Chargement du complément (tests) ; sinon ApiService.getProductInfo.
   final Future<ProductInfo?> Function(String cip)? loadInfo;
-  const FicheProduitScreen({super.key, required this.produit, this.loadInfo});
+
+  /// Cache des compléments (tests) ; par défaut celui de l'application, ou un cache propre à
+  /// la fiche si [loadInfo] est fourni.
+  final FicheInfoCache? cache;
+  const FicheProduitScreen({super.key, required this.produit, this.loadInfo, this.cache});
 
   @override
   State<FicheProduitScreen> createState() => _FicheProduitScreenState();
@@ -38,6 +145,12 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
   late final HorsLigne _hl = HorsLigne.instance;
   late bool _offline = _hl.offline;
 
+  late final FicheInfoCache _cache = widget.cache ?? (widget.loadInfo != null ? FicheInfoCache() : FicheInfoCache.instance);
+
+  /// Clé du complément attendu (null : aucun).
+  String? _attendu;
+  int _seq = 0;
+
   @override
   void initState() {
     super.initState();
@@ -48,7 +161,15 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
   @override
   void dispose() {
     _hl.monitor.removeListener(_onMonitor);
+    _lacher();
     super.dispose();
+  }
+
+  /// Fiche quittée (ou rechargée) avant la réponse : la requête n'est plus attendue.
+  void _lacher() {
+    final cle = _attendu;
+    _attendu = null;
+    if (cle != null) _cache.lacher(cle);
   }
 
   /// Passage hors ligne / retour en ligne : la fiche est rechargée depuis la bonne source.
@@ -83,23 +204,38 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
   }
 
   Future<void> _load() async {
+    _lacher();
+    final seq = ++_seq;
+    if (_offline) {
+      setState(() {
+        _loading = true;
+        _failed = false;
+      });
+      return _loadLocal();
+    }
+    final cip = widget.produit.intCIP.trim();
+    final Object source = widget.loadInfo ?? Provider.of<ApiService>(context, listen: false);
+    final cle = cleFiche(source, cip);
+    // Déjà connu (réouverture, préchargement terminé) : affiché tout de suite, sans requête.
+    final connu = cip.isEmpty ? null : _cache.connu(cle);
+    if (connu != null || cip.isEmpty) {
+      setState(() {
+        _info = connu;
+        _local = null;
+        _loading = false;
+        _failed = connu == null;
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _failed = false;
     });
-    if (_offline) return _loadLocal();
-    ProductInfo? info;
-    try {
-      final cip = widget.produit.intCIP.trim();
-      if (cip.isNotEmpty) {
-        info = widget.loadInfo != null
-            ? await widget.loadInfo!(cip)
-            : await Provider.of<ApiService>(context, listen: false).getProductInfo(cip);
-      }
-    } catch (_) {
-      info = null;
-    }
-    if (!mounted || _offline) return;
+    final ChargeurInfo chargeur = widget.loadInfo != null ? (c, _) => widget.loadInfo!(c) : chargeurInfo(source as ApiService);
+    _attendu = cle;
+    final info = await _cache.charger(cle, cip, chargeur);
+    if (!mounted || _offline || seq != _seq) return;
+    _attendu = null;
     setState(() {
       _info = info;
       _local = null;
@@ -129,6 +265,7 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
                   taille: 180,
                   rayon: BorderRadius.circular(16),
                   placeholder: const SizedBox.shrink(),
+                  prioritaire: true,
                 ),
               ),
               SoftCard(
@@ -144,9 +281,11 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
                   const SizedBox(height: 12),
                   DetailLine('Code CIP', orDash(p.intCIP), bold: true),
                   if (p.strLIBELLEE.trim().isNotEmpty) DetailLine('Famille', orDash(p.strLIBELLEE)),
-                  if (_loading)
-                    const Padding(padding: EdgeInsets.symmetric(vertical: 10), child: LinearProgressIndicator(minHeight: 2))
-                  else if (_offline) ...[
+                  if (_loading) ...[
+                    // Squelettes : la fiche reste lisible, le complément arrive en arrière-plan.
+                    _squelette('Emplacement'),
+                    _squelette('Grossiste'),
+                  ] else if (_offline) ...[
                     const DetailLine('Emplacement', 'Disponible en ligne uniquement'),
                     const DetailLine('Grossiste', 'Disponible en ligne uniquement'),
                   ] else if (info != null) ...[
@@ -174,6 +313,25 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
       ]),
     );
   }
+
+  /// Ligne en attente du complément (libellé + barre grise).
+  Widget _squelette(String label) => Padding(
+        key: ValueKey('fiche-squelette-$label'),
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(children: [
+          SizedBox(width: 110, child: Text(label, style: const TextStyle(color: Pal.muted, fontSize: 14))),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FractionallySizedBox(
+                widthFactor: 0.6,
+                child: Container(height: 14, decoration: BoxDecoration(color: const Color(0xFFE3E8EF), borderRadius: BorderRadius.circular(7))),
+              ),
+            ),
+          ),
+        ]),
+      );
 
   /// « Hors ligne — données du catalogue du JJ/MM HH:MM ».
   Widget _noteHorsLigne() {

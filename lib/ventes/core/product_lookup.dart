@@ -43,13 +43,14 @@ class ProductLookup {
   static bool looksLikeCode(String raw) {
     final v = raw.trim();
     if (v.isEmpty) return false;
-    if (v.contains('\u001d') || v.startsWith(']d2') || v.startsWith('01') && v.length > 16) return true;
+    if (v.contains('\u001d') || v.contains('␝') || v.startsWith(']d2') || v.startsWith('01') && v.length > 16) return true;
     return _digits.hasMatch(v) && v.length >= 7;
   }
 
   /// Codes à essayer, du plus précis au plus large.
   static List<String> codeCandidates(String raw) {
-    final v = raw.replaceAll(RegExp(r'[\x00-\x1C\x1E\x1F\x7F]'), '').trim();
+    // GS (FNC1) conservé ; « ␝ » (GS rendu visible dans un champ de saisie) redevient GS.
+    final v = raw.replaceAll('␝', '\u001d').replaceAll(RegExp(r'[\x00-\x1C\x1E\x1F\x7F]'), '').trim();
     if (v.isEmpty) return const [];
     final out = <String>[];
     final dm = DataMatrixParser.parse(v);
@@ -62,6 +63,8 @@ class ProductLookup {
       if (ean != d) out.add(ean);
       // EAN-13 / CIP13 français 34009 + CIP7 + clé.
       if (ean.length == 13 && ean.startsWith('34009')) out.add(ean.substring(5, 12));
+      // UPC-A (12 chiffres, lu ainsi par certains lecteurs pour un EAN-13 commençant par 0) → EAN-13.
+      if (d.length == 12) out.add('0$d');
     } else if (out.isEmpty) {
       out.add(d);
     }

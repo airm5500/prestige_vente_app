@@ -695,17 +695,15 @@ void main() {
           expect(tester.takeException(), isNull);
         });
 
-        testWidgets('accueil — ${style.label} : familles, favoris et « À faire » sur plusieurs colonnes', (tester) async {
+        testWidgets('accueil — ${style.label} : familles, favoris et cloche de notifications', (tester) async {
           _screen(tester, size);
           await _accueil(tester, style);
           if (style == ListPresentation.dashboard) {
             final grids = tester.widgetList<GridView>(find.byType(GridView)).map((g) => (g.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount).crossAxisCount).toList();
             expect(grids.last, large ? 8 : 6, reason: 'tuiles des familles');
-            expect(find.byKey(const ValueKey('accueil-a-faire')), findsOneWidget);
-            final a = tester.getTopLeft(find.text('prévente(s) à encaisser'));
-            final b = tester.getTopLeft(find.text('BL à pointer'));
-            expect((a.dy - b.dy).abs(), lessThan(24), reason: '« À faire » sur 2 colonnes');
-            expect(b.dx, greaterThan(a.dx));
+            // Retour client : « À faire maintenant » remplacé par la cloche de l'en-tête.
+            expect(find.byKey(const ValueKey('accueil-a-faire')), findsNothing);
+            expect(find.byKey(const Key('accueil_cloche')), findsOneWidget);
           }
           expect(tester.takeException(), isNull);
         });

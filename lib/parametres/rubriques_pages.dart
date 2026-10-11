@@ -552,7 +552,11 @@ class _StockPageState extends State<StockPage> {
 class ApparencePage extends StatefulWidget {
   final ListPresentation initial;
   final Future<void> Function(BuildContext) openOrganiser;
-  const ApparencePage({super.key, required this.initial, required this.openOrganiser});
+
+  /// Choix de la présentation (thème) : compte administrateur seulement ; sinon la présentation
+  /// en place est seulement indiquée.
+  final bool choixPresentation;
+  const ApparencePage({super.key, required this.initial, required this.openOrganiser, this.choixPresentation = true});
 
   @override
   State<ApparencePage> createState() => _ApparencePageState();
@@ -577,7 +581,13 @@ class _ApparencePageState extends State<ApparencePage> {
         title: Rubrique.apparence.title,
         children: [
           const SectionLabel('Présentation de tous les menus'),
+          if (!widget.choixPresentation)
+            SettingCard(
+              key: const Key('presentation_reservee'),
+              child: SettingText('Présentation : ${_p.label}', subtitle: 'Choix réservé au compte administrateur.'),
+            ),
           for (final p in ListPresentation.values)
+            if (widget.choixPresentation)
             SettingCard(
               padding: EdgeInsets.zero,
               child: RadioListTile<ListPresentation>(
@@ -592,6 +602,7 @@ class _ApparencePageState extends State<ApparencePage> {
                 subtitle: Text(_detail(p)),
               ),
             ),
+          if (widget.choixPresentation)
           const Padding(
             padding: EdgeInsets.fromLTRB(4, 0, 4, 4),
             child: Text('Chaque menu peut toujours changer de présentation avec son bouton « Présentation ».',

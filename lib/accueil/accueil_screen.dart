@@ -1,6 +1,8 @@
 // lib/accueil/accueil_screen.dart
-// Nouvel écran d'accueil : une seule page par familles, « À faire maintenant », favoris,
-// pastille d'état du serveur, recherche / scan global, barre du bas Accueil · Scanner · Tâches · Réglages.
+// Nouvel écran d'accueil : une seule page par familles, cloche de notifications (ex-« À faire maintenant »),
+// favoris, pastille d'état du serveur et nom de l'utilisateur sur la même ligne, recherche / scan global
+// (appareil photo ou douchette Sunmi : saisie clavier + Entrée), barre du bas Accueil · Scanner · Tâches · Réglages.
+// Choix de la présentation (bouton de l'en-tête) réservé au compte administrateur (AuthProvider.isAdmin).
 // Présentations A (tableau de bord, défaut), B (liste compacte), C (guidé par métier).
 // Conserve tout l'accueil d'origine (lib/screens/home/home_screen.dart, inchangé) : mêmes menus,
 // mêmes écrans, Ajustement protégé par code, ordre / menus masqués (SettingsProvider), contrôle de
@@ -9,6 +11,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -59,7 +62,7 @@ class AccueilScreen extends StatefulWidget {
   State<AccueilScreen> createState() => _AccueilScreenState();
 }
 
-/// Une carte de « À faire maintenant » / onglet Tâches.
+/// Un élément de la cloche de notifications / de l'onglet Tâches.
 class _Tache {
   final String titre;
   final String? detail;
@@ -135,6 +138,50 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     _ventesHL.addListener(_onVentesHL);
     _monitor.addListener(_onMonitor);
     _etatMonitor = _monitor.etat;
+    HardwareKeyboard.instance.addHandler(_onTouche);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Douchette du terminal (Sunmi) : le code arrive comme une saisie clavier suivie d'Entrée.
+  // Sur l'accueil aucun champ n'a le focus : les touches sont lues ici et le code ouvre la fiche.
+  // ---------------------------------------------------------------------------
+  String _tampon = '';
+  DateTime _derniereTouche = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Délai maximal entre deux caractères d'un même code (une douchette tape en quelques ms).
+  static const _delaiTouches = Duration(milliseconds: 400);
+
+  bool _onTouche(KeyEvent e) {
+    if (e is! KeyDownEvent) return false;
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) {
+      _tampon = '';
+      return false;
+    }
+    // Un champ de saisie a le focus : la saisie lui revient.
+    final ctx = FocusManager.instance.primaryFocus?.context;
+    if (ctx != null && (ctx.widget is EditableText || ctx.findAncestorWidgetOfExactType<EditableText>() != null)) {
+      _tampon = '';
+      return false;
+    }
+    final now = DateTime.now();
+    if (now.difference(_derniereTouche) > _delaiTouches) _tampon = '';
+    _derniereTouche = now;
+    if (e.logicalKey == LogicalKeyboardKey.enter || e.logicalKey == LogicalKeyboardKey.numpadEnter) {
+      final code = _tampon.trim();
+      _tampon = '';
+      if (code.length < 4) return false;
+      _codeRecu(code);
+      return true;
+    }
+    final ch = e.character;
+    if (ch != null && ch.isNotEmpty && (ch == '\u001d' || ch.codeUnitAt(0) >= 0x20)) _tampon += ch;
+    return false;
+  }
+
+  /// Code lu par la douchette sur l'accueil : même parcours que l'appareil photo.
+  void _codeRecu(String code) {
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    _rechercher(_visibles(settings), code: code);
   }
 
   /// Surveillance globale du serveur (lib/horsligne) : injoignable / hors ligne → point rouge.
@@ -151,6 +198,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       }
       _etatMonitor = e;
     });
+    _notif.value++;
   }
 
   /// Ventes hors ligne (tâche « N vente(s) hors ligne »).
@@ -158,12 +206,18 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
 
   void _onVentesHL() {
     if (mounted) setState(() {});
+    _notif.value++;
   }
+
+  /// Change à chaque mise à jour des notifications (liste de la cloche ouverte).
+  final _notif = ValueNotifier<int>(0);
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onTouche);
     _ventesHL.removeListener(_onVentesHL);
     _monitor.removeListener(_onMonitor);
+    _notif.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _licenceWatchdogTimer?.cancel();
     super.dispose();
@@ -264,6 +318,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       _chargement = true;
       _serveur = EtatServeur.verification;
     });
+    _notif.value++;
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     final serveurF = _verifierServeur();
     final preventesF = _essayer(() => _saleProvider.fetchPreventes());
@@ -302,6 +357,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         _erreurBl = null;
       }
     });
+    _notif.value++;
   }
 
   DateTime _dernierRetour = DateTime.fromMillisecondsSinceEpoch(0);
@@ -380,15 +436,16 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
   // ---------------------------------------------------------------------------
   // Tâches
   // ---------------------------------------------------------------------------
-  CaisseProvider? _caisse(BuildContext context) {
+  CaisseProvider? _caisse(BuildContext context, {bool listen = true}) {
     try {
-      return Provider.of<CaisseProvider>(context);
+      return Provider.of<CaisseProvider>(context, listen: listen);
     } catch (_) {
       return null;
     }
   }
 
-  List<_Tache> _taches(BuildContext context, Set<String> visibles) {
+  /// Éléments de la cloche (les mêmes que l'ancienne section « À faire maintenant »).
+  List<_Tache> _taches(BuildContext context, Set<String> visibles, {bool listen = true}) {
     final out = <_Tache>[];
     if (_erreurPreventes != null) {
       out.add(_Tache(titre: 'Préventes à encaisser', detail: _erreurPreventes, icon: Icons.cloud_off, couleur: _rouge, action: 'Réessayer', onTap: _actualiser, erreur: true));
@@ -443,7 +500,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       ));
     }
     // Caisse : seulement si l'état est déjà connu (aucun appel supplémentaire).
-    final caisse = _caisse(context);
+    final caisse = _caisse(context, listen: listen);
     if (caisse != null && caisse.ouvertureData != null && visibles.contains('caisse')) {
       final ouverte = caisse.isCaisseOuverte;
       out.add(_Tache(
@@ -460,6 +517,9 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
   }
 
   int _nombreTaches(List<_Tache> t) => t.where((x) => !x.info && !x.erreur).length;
+
+  /// Nombre de choses à faire de la cloche : 3 préventes + 2 BL = 5 (1 par élément sans nombre).
+  int _nombreAFaire(List<_Tache> t) => t.where((x) => !x.info && !x.erreur).fold(0, (n, x) => n + (x.nombre ?? 1));
 
   Map<String, int> get _pastilles => {
         if ((_preventes ?? 0) > 0) 'prevente': _preventes!,
@@ -489,8 +549,8 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       corps = _ongletTaches(taches);
     } else {
       corps = switch (style) {
-        ListPresentation.dashboard => _presentationA(visibles, familles, taches),
-        ListPresentation.compact => _presentationB(visibles, familles, taches),
+        ListPresentation.dashboard => _presentationA(visibles, familles),
+        ListPresentation.compact => _presentationB(visibles, familles),
         ListPresentation.guided => _presentationC(visibles, familles),
       };
     }
@@ -523,7 +583,11 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
           },
           destinations: [
             const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Accueil'),
-            const NavigationDestination(icon: Icon(Icons.qr_code_scanner), label: 'Scanner'),
+            const NavigationDestination(
+              icon: Icon(Icons.qr_code_scanner),
+              label: 'Scanner',
+              tooltip: '$scanProduitTitre — $scanProduitAide',
+            ),
             NavigationDestination(
               icon: Badge(isLabelVisible: nb > 0, label: Text('$nb'), child: const Icon(Icons.task_alt)),
               label: 'Tâches',
@@ -537,17 +601,18 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
 
   // --- Éléments communs ---
 
-  String _date() {
-    final now = DateTime.now();
+  /// Choix de la présentation : compte administrateur seulement (comme la rubrique Sécurité des réglages).
+  bool get _estAdmin {
     try {
-      return DateFormat('EEE d MMMM', 'fr_FR').format(now);
+      return Provider.of<AuthProvider>(context).isAdmin;
     } catch (_) {
-      return DateFormat('dd/MM/yyyy').format(now);
+      return false;
     }
   }
 
   List<Widget> _actions(Color c) => [
-        PresentationMenuButton(value: style, onChanged: _setStyle, color: c),
+        if (_estAdmin) PresentationMenuButton(value: style, onChanged: _setStyle, color: c),
+        _cloche(c),
         PopupMenuButton<String>(
           tooltip: 'Plus d\'actions',
           icon: Icon(Icons.more_vert, color: c),
@@ -628,19 +693,177 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     _actualiser();
   }
 
-  /// Licence : seulement si elle expire dans moins de 30 jours (ambre, rouge à 7 jours).
-  Widget _pastilleLicence() => Consumer<LicenceProvider>(builder: (context, provider, _) {
+  /// Licence : seulement si elle expire dans moins de 30 jours (ambre, rouge à 7 jours) ; [padding] autour si affichée.
+  Widget _pastilleLicence({EdgeInsets padding = EdgeInsets.zero}) => Consumer<LicenceProvider>(builder: (context, provider, _) {
         if (provider.status != LicenceStatus.valid || provider.licence == null) return const SizedBox.shrink();
         final days = provider.remainingDays;
         if (days > 30) return const SizedBox.shrink();
         final urgent = days <= 7;
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(color: urgent ? const Color(0xFFDC2626) : Pal.amber, borderRadius: BorderRadius.circular(999)),
-          child: Text('Licence : $days jour(s)',
-              style: TextStyle(color: urgent ? Colors.white : Pal.onAmber, fontSize: 13, fontWeight: FontWeight.w600)),
+        return Padding(
+          padding: padding,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(color: urgent ? const Color(0xFFDC2626) : Pal.amber, borderRadius: BorderRadius.circular(999)),
+              child: Text('Licence : $days jour(s)',
+                  style: TextStyle(color: urgent ? Colors.white : Pal.onAmber, fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+          ),
         );
       });
+
+  /// Prénom Nom de l'utilisateur connecté (sinon le nom de l'officine), sans le rôle.
+  String _nomUtilisateur(AuthProvider auth) {
+    final u = auth.user?.fullName.trim() ?? '';
+    return u.isNotEmpty ? u : (auth.officine?.fullName.trim() ?? '');
+  }
+
+  /// État du serveur et Prénom Nom sur UNE ligne (nom tronqué proprement), licence en dessous si proche.
+  Widget _ligneEtat({bool dark = true, bool court = false}) {
+    final nom = _nomUtilisateur(Provider.of<AuthProvider>(context));
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+      Row(key: const ValueKey('accueil-ligne-etat'), children: [
+        Flexible(flex: 3, child: Align(alignment: Alignment.centerLeft, child: _pastilleServeur(dark: dark, court: court))),
+        if (nom.isNotEmpty) ...[
+          const SizedBox(width: 10),
+          Flexible(
+            flex: 2,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.person, size: 16, color: dark ? Pal.headerMuted : Pal.muted),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(nom,
+                    key: const ValueKey('accueil-utilisateur'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                    style: TextStyle(color: dark ? Colors.white : Pal.ink, fontSize: 14, fontWeight: FontWeight.w600)),
+              ),
+            ]),
+          ),
+        ],
+      ]),
+      _pastilleLicence(padding: const EdgeInsets.only(top: 8)),
+    ]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cloche de notifications (remplace « À faire maintenant »)
+  // ---------------------------------------------------------------------------
+
+  /// Cloche de l'en-tête : pastille = nombre de choses à faire ; « ! » si un compteur n'a pas pu être vérifié.
+  Widget _cloche(Color c) {
+    final settings = Provider.of<SettingsProvider>(context);
+    final taches = _taches(context, _visibles(settings).map((m) => m.id).toSet());
+    final nb = _nombreAFaire(taches);
+    final erreur = taches.any((t) => t.erreur);
+    return IconButton(
+      key: const Key('accueil_cloche'),
+      tooltip: nb > 0 ? 'Notifications : $nb à faire' : (erreur ? 'Notifications : compteurs non vérifiés' : 'Notifications'),
+      onPressed: _ouvrirNotifications,
+      icon: Badge(
+        key: const Key('accueil_cloche_pastille'),
+        isLabelVisible: nb > 0 || erreur,
+        backgroundColor: nb > 0 ? const Color(0xFFDC2626) : Pal.amber,
+        textColor: nb > 0 ? Colors.white : Pal.onAmber,
+        label: Text(nb > 0 ? '$nb' : '!'),
+        child: Icon(nb > 0 ? Icons.notifications : Icons.notifications_none, color: c),
+      ),
+    );
+  }
+
+  /// Liste des notifications : titre, détail et action qui ouvre l'écran concerné.
+  Future<void> _ouvrirNotifications() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.8),
+          child: ValueListenableBuilder<int>(
+            valueListenable: _notif,
+            builder: (ctx, _, __) {
+              final settings = Provider.of<SettingsProvider>(context, listen: false);
+              final taches = _taches(context, _visibles(settings).map((m) => m.id).toSet(), listen: false);
+              final maj = _majTaches;
+              final vide = _nombreTaches(taches) == 0 && !taches.any((t) => t.erreur);
+              return ListView(
+                key: const ValueKey('accueil-notifications'),
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                children: [
+                  Row(children: [
+                    const Expanded(child: Text('Notifications', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.navy))),
+                    if (_chargement)
+                      const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
+                    else
+                      IconButton(tooltip: 'Actualiser', icon: const Icon(Icons.refresh, color: Pal.navy), onPressed: _actualiser),
+                  ]),
+                  if (maj != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text('Actualisé à ${DateFormat('HH:mm').format(maj)}', style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
+                    ),
+                  if (_chargement && maj == null)
+                    const Padding(padding: EdgeInsets.all(8), child: Text('Chargement des notifications…', style: TextStyle(color: Pal.muted)))
+                  else ...[
+                    for (final t in taches) Padding(padding: const EdgeInsets.only(bottom: 10), child: _notification(ctx, t)),
+                    if (vide && maj != null) _toutEstAJour(),
+                  ],
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _notification(BuildContext sheet, _Tache t) {
+    void ouvrir() {
+      Navigator.of(sheet).pop();
+      t.onTap();
+    }
+
+    return Material(
+      color: Pal.page,
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: ouvrir,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          child: Row(children: [
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: t.couleur.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(10)),
+              child: t.nombre != null
+                  ? FittedBox(fit: BoxFit.scaleDown, child: Text('${t.nombre}', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: t.couleur)))
+                  : Icon(t.icon, color: t.couleur, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(t.titre, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                if (t.detail != null)
+                  Text(t.detail!, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: t.erreur ? _rouge : Pal.muted)),
+              ]),
+            ),
+            const SizedBox(width: 6),
+            TextButton(
+              style: TextButton.styleFrom(minimumSize: const Size(44, 44), foregroundColor: t.erreur ? _rouge : Pal.navy),
+              onPressed: ouvrir,
+              child: Text(t.action, style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
 
   Widget _champRecherche(List<AccueilMenu> visibles, {required bool dark, String hint = 'Rechercher un menu ou un produit'}) => Material(
         color: dark ? Colors.white : Pal.page,
@@ -684,75 +907,15 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         ]),
       );
 
-  /// Cartes courtes de « À faire maintenant » (présentations A et B).
-  List<Widget> _aFaire(List<_Tache> taches) {
-    if (_chargement && _majTaches == null) {
-      return const [
-        SoftCard(
-          child: Row(children: [
-            SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-            SizedBox(width: 12),
-            Expanded(child: Text('Chargement des tâches…', style: TextStyle(color: Pal.muted))),
-          ]),
-        ),
-      ];
-    }
-    final out = <Widget>[];
-    for (final t in taches) {
-      out.add(Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: t.onTap,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 52),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: Row(children: [
-                  SizedBox(
-                    width: 36,
-                    child: t.nombre != null
-                        ? FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text('${t.nombre}', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: t.couleur)),
-                          )
-                        : Icon(t.icon, color: t.couleur),
-                  ),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(t.nombre != null ? t.titre.replaceFirst('${t.nombre} ', '') : t.titre,
-                          maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, color: Pal.ink, fontWeight: FontWeight.w500)),
-                      if (t.erreur && t.detail != null)
-                        Text(t.detail!, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: _rouge)),
-                    ]),
-                  ),
-                  t.erreur ? Text(t.action, style: const TextStyle(color: Pal.navy, fontWeight: FontWeight.w600)) : const Icon(Icons.chevron_right, color: Pal.muted),
-                ]),
-              ),
-            ),
-          ),
-        ),
-      ));
-    }
-    if (_nombreTaches(taches) == 0 && !taches.any((t) => t.erreur)) out.add(_toutEstAJour());
-    return out;
-  }
-
   // --- Présentation A : tableau de bord ---
 
-  Widget _presentationA(List<AccueilMenu> visibles, Map<MenuFamille, List<AccueilMenu>> familles, List<_Tache> taches) {
+  Widget _presentationA(List<AccueilMenu> visibles, Map<MenuFamille, List<AccueilMenu>> familles) {
     final auth = Provider.of<AuthProvider>(context);
     final officine = auth.officine?.nomComplet.trim() ?? '';
-    final nomUser = (auth.user?.fullName.trim().isNotEmpty ?? false) ? auth.user!.fullName.trim() : (auth.officine?.fullName.trim() ?? '');
-    final role = auth.isAdmin ? 'Administrateur' : 'Utilisateur';
     final idsVisibles = visibles.map((m) => m.id).toSet();
     final favoris = _favoris.where(idsVisibles.contains).map((id) => accueilMenuById[id]!).toList();
     final width = MediaQuery.sizeOf(context).width;
-    // Tablette : familles sur 6 (portrait) ou 8 colonnes (paysage), favoris sur 4, « À faire » sur 2.
+    // Tablette : familles sur 6 (portrait) ou 8 colonnes (paysage), favoris sur 4.
     final taille = Responsive.of(context);
     final cols = switch (taille) {
       WindowClass.expanded => 8,
@@ -767,18 +930,12 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       child: ListView(padding: EdgeInsets.zero, physics: const AlwaysScrollableScrollPhysics(), children: [
         NavyHeader(
           title: officine.isEmpty ? 'Prestige Mobile' : officine,
-          subtitle: [if (nomUser.isNotEmpty) nomUser, role, _date()].join(' · '),
           actions: _actions(Colors.white),
           children: [
-            Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [_pastilleServeur(), _pastilleLicence()]),
+            _ligneEtat(),
             _champRecherche(visibles, dark: true),
           ],
         ),
-        _titreSection('À faire maintenant'),
-        Padding(
-            key: const ValueKey('accueil-a-faire'),
-            padding: side,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: cardRows(_aFaire(taches), compact ? 1 : 2))),
         if (favoris.isNotEmpty) ...[
           _titreSection('Favoris'),
           Padding(
@@ -883,30 +1040,25 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
 
   // --- Présentation B : liste compacte ---
 
-  Widget _presentationB(List<AccueilMenu> visibles, Map<MenuFamille, List<AccueilMenu>> familles, List<_Tache> taches) {
+  Widget _presentationB(List<AccueilMenu> visibles, Map<MenuFamille, List<AccueilMenu>> familles) {
     final auth = Provider.of<AuthProvider>(context);
     final officine = auth.officine?.nomComplet.trim() ?? '';
-    final aFaire = taches.where((t) => !t.info).toList();
     return Column(children: [
       Container(
         color: Colors.white,
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: EdgeInsets.fromLTRB(16 + _inset, 6, 4 + _inset, 6),
-            child: Row(children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Prestige Mobile', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Pal.navy)),
-                  const SizedBox(height: 4),
-                  Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                    _pastilleServeur(dark: false),
-                    if (officine.isNotEmpty) Text(officine, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Pal.muted, fontSize: 13)),
-                    _pastilleLicence(),
-                  ]),
-                ]),
-              ),
-              ..._actions(Pal.navy),
+            padding: EdgeInsets.fromLTRB(16 + _inset, 6, 4 + _inset, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                Expanded(
+                  child: Text(officine.isEmpty ? 'Prestige Mobile' : officine,
+                      maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Pal.navy)),
+                ),
+                ..._actions(Pal.navy),
+              ]),
+              Padding(padding: const EdgeInsets.only(right: 12, top: 2), child: _ligneEtat(dark: false)),
             ]),
           ),
         ),
@@ -919,19 +1071,6 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
             Padding(
                 padding: EdgeInsets.fromLTRB(16 + _inset, 12, 16 + _inset, 4),
                 child: _champRecherche(visibles, dark: false, hint: 'Rechercher un menu ou un produit')),
-            if (aFaire.isNotEmpty) ...[
-              _titreSection('À faire maintenant', padding: const EdgeInsets.fromLTRB(16, 14, 16, 6)),
-              for (final t in aFaire)
-                _ligne(
-                  icon: t.icon,
-                  couleur: t.couleur,
-                  titre: t.titre,
-                  detail: t.detail,
-                  erreur: t.erreur,
-                  onTap: t.onTap,
-                ),
-            ] else if (_majTaches != null)
-              _ligne(icon: Icons.check_circle, couleur: Pal.green, titre: 'Tout est à jour ✓', onTap: null),
             for (final f in MenuFamille.values)
               if (familles[f]!.isNotEmpty) ...[
                 _titreSection(f.label, padding: const EdgeInsets.fromLTRB(16, 16, 16, 6)),
@@ -1003,7 +1142,8 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     final ids = visibles.map((m) => m.id).toSet();
     List<AccueilMenu> parmi(List<String> l) => [for (final id in l) if (ids.contains(id)) accueilMenuById[id]!];
 
-    final vendre = familles[MenuFamille.ventes]!;
+    // La Caisse (famille Ventes) est proposée sous « Encaisser ».
+    final vendre = familles[MenuFamille.ventes]!.where((m) => m.id != 'caisse').toList();
     final encaisser = [
       if (ids.contains('prevente'))
         (titre: 'Préventes à encaisser', icon: Icons.history_toggle_off, onTap: () => _push(VentesVersion.preVente(initialTabIndex: 2))),
@@ -1039,9 +1179,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
           subtitle: 'Que voulez-vous faire ?',
           rounded: false,
           actions: _actions(Colors.white),
-          children: [
-            Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [_pastilleServeur(court: true), _pastilleLicence()]),
-          ],
+          children: [_ligneEtat(court: true)],
         ),
         const SizedBox(height: 12),
         // Tablette : grandes actions sur 2 (portrait) ou 3 colonnes (paysage).

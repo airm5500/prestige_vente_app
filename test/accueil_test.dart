@@ -156,7 +156,8 @@ void main() {
         await tester.pumpAndSettle();
         await scrollTo(tester, find.text('Pointage'));
       } else {
-        expect(find.textContaining('prévente(s) à encaisser'), findsWidgets);
+        // Retour client : « À faire maintenant » remplacé par la cloche de l'en-tête (3 préventes + 2 BL).
+        expect(find.descendant(of: find.byKey(const Key('accueil_cloche')), matching: find.text('5')), findsOneWidget);
         await scrollTo(tester, find.text('Pointage'));
       }
       expect(tester.takeException(), isNull);
@@ -167,11 +168,17 @@ void main() {
   testWidgets('A : tâches, favoris par défaut, familles, cadenas, menus masqués exclus', (tester) async {
     phone(tester);
     await pump(tester, hidden: const ['depot']);
-    expect(find.text('À FAIRE MAINTENANT'), findsOneWidget);
-    expect(find.text('prévente(s) à encaisser'), findsOneWidget); // 3 en grand à gauche
-    expect(find.text('BL à pointer'), findsOneWidget); // 2 non terminés
+    // Retour client : section « À faire maintenant » retirée (cloche), Caisse rangée dans Ventes.
+    expect(find.text('À FAIRE MAINTENANT'), findsNothing);
+    await tester.tap(find.byKey(const Key('accueil_cloche')));
+    await tester.pumpAndSettle();
+    expect(find.text('3 prévente(s) à encaisser'), findsOneWidget);
+    expect(find.text('2 BL à pointer'), findsOneWidget); // 2 non terminés
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
     expect(find.text('FAVORIS'), findsOneWidget);
-    for (final f in ['VENTES', 'CAISSE', 'RÉCEPTION & FOURNISSEURS', 'STOCK', 'PRODUITS', 'ÉQUIPE']) {
+    expect(find.text('CAISSE'), findsNothing);
+    for (final f in ['VENTES', 'RÉCEPTION & FOURNISSEURS', 'STOCK', 'PRODUITS', 'ÉQUIPE']) {
       await scrollTo(tester, find.text(f));
     }
     expect(find.text('Dépôt'), findsNothing);
@@ -186,6 +193,10 @@ void main() {
     await pump(tester, serveur: false, api: api);
     expect(find.text('Hors ligne'), findsOneWidget);
     expect(find.text('Réessayer'), findsWidgets);
+    // Compteurs non vérifiés : « ! » sur la cloche, détail dans sa liste (retour client : plus de section).
+    expect(find.descendant(of: find.byKey(const Key('accueil_cloche')), matching: find.text('!')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('accueil_cloche')));
+    await tester.pumpAndSettle();
     expect(find.textContaining('serveur injoignable'), findsOneWidget);
     expect(find.textContaining('BL non chargés'), findsOneWidget);
     expect(find.text('Tout est à jour ✓'), findsNothing);
@@ -212,7 +223,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('Accueil').last);
     await tester.pumpAndSettle();
-    expect(find.text('À FAIRE MAINTENANT'), findsOneWidget);
+    expect(find.byKey(const Key('accueil_cloche')), findsOneWidget); // ex-« À faire maintenant »
     await tester.pumpWidget(const SizedBox());
   });
 

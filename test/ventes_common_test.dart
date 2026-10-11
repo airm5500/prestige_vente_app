@@ -37,6 +37,7 @@ Future<List<Object?>> _host(WidgetTester tester, Future<Object?> Function(BuildC
 }
 
 Finder _dialogField([int i = 0]) => find.descendant(of: find.byType(AlertDialog), matching: find.byType(EditableText)).at(i);
+String _dialogFieldText(WidgetTester tester, [int i = 0]) => tester.widget<EditableText>(_dialogField(i)).controller.text;
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -61,6 +62,113 @@ void main() {
     await tester.pumpAndSettle();
     expect(r, [60]);
     expect(tester.takeException(), isNull);
+  });
+
+  group('Nouvelle fenêtre de quantité (présentations A/B/C)', () {
+    final doli = ProductSearchResult(
+        lgFAMILLEID: 'P1', strNAME: 'DOLIPRANE 1000MG CP B/8', intCIP: '3400930000001', intPRICE: 1500, intNUMBERAVAILABLE: 4, strLIBELLEE: '', intPAF: 0);
+    Future<List<Object?>> ouvrir(WidgetTester tester, {bool smart = false}) =>
+        _host(tester, (ctx) => showDialog<int>(context: ctx, builder: (_) => QuantityDialog(product: doli, isSmartMode: smart)));
+
+    testWidgets('nom, prix, stock, total en direct ; − / + ; raccourcis ; mêmes valeurs renvoyées', (tester) async {
+      _phone(tester);
+      var r = await ouvrir(tester);
+      expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
+      expect(find.textContaining('Prix unitaire'), findsOneWidget);
+      expect(find.textContaining('Stock'), findsOneWidget);
+      expect(tester.widget<Text>(find.byKey(const ValueKey('quantite-total'))).data, '${Constants.formatNumber(1500)} F');
+      // − désactivé à 1 (borne basse).
+      expect(tester.widget<IconButton>(find.byKey(const ValueKey('quantite-moins'))).onPressed, isNull);
+      await tester.tap(find.byKey(const ValueKey('quantite-plus')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('quantite-plus')));
+      await tester.pump();
+      expect(tester.widget<Text>(find.byKey(const ValueKey('quantite-total'))).data, '${Constants.formatNumber(4500)} F');
+      await tester.tap(find.byKey(const ValueKey('quantite-moins')));
+      await tester.pump();
+      await tester.tap(find.text('Ajouter'));
+      await tester.pumpAndSettle();
+      expect(r, [2]);
+
+      r = await ouvrir(tester);
+      await tester.tap(find.byKey(const ValueKey('quantite-raccourci-10')));
+      await tester.pump();
+      expect(_dialogFieldText(tester), '10');
+      expect(find.byKey(const ValueKey('quantite-alerte-stock')), findsOneWidget); // 10 > stock 4
+      expect(tester.widget<Text>(find.byKey(const ValueKey('quantite-total'))).data, '${Constants.formatNumber(15000)} F');
+      await tester.tap(find.text('Ajouter'));
+      await tester.pumpAndSettle();
+      expect(r, [10]); // le contrôle du stock (forcer ?) reste après la fenêtre, comme avant
+
+      r = await ouvrir(tester);
+      await tester.tap(find.byKey(const ValueKey('quantite-raccourci-3')));
+      await tester.pump();
+      await tester.tap(find.text('Annuler'));
+      await tester.pumpAndSettle();
+      expect(r, [null]);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('bornes : 0 et vide refusés, 4 chiffres max, 9 999 confirmé, + désactivé à 9 999', (tester) async {
+      _phone(tester);
+      final r = await ouvrir(tester);
+      await tester.enterText(_dialogField(), '');
+      await tester.tap(find.text('Ajouter'));
+      await tester.pumpAndSettle();
+      expect(find.text('Quantité requise'), findsOneWidget);
+      await tester.enterText(_dialogField(), '0');
+      await tester.tap(find.text('Ajouter'));
+      await tester.pumpAndSettle();
+      expect(find.text('Entre 1 et 9999'), findsOneWidget);
+      await tester.enterText(_dialogField(), '123456');
+      await tester.pump();
+      expect(_dialogFieldText(tester), '1234');
+      await tester.enterText(_dialogField(), '9999');
+      await tester.pump();
+      expect(tester.widget<IconButton>(find.byKey(const ValueKey('quantite-plus'))).onPressed, isNull);
+      await tester.tap(find.text('Ajouter'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ajouter 9999 unités ?'), findsOneWidget);
+      await tester.tap(find.text('OUI, CONFIRMER'));
+      await tester.pumpAndSettle();
+      expect(r, [9999]);
+      expect(tester.takeException(), isNull);
+    });
+
+    for (final size in [const Size(360, 640), const Size(800, 1280), const Size(1280, 800)]) {
+      testWidgets('lisible sans débordement — ${size.width.toInt()} × ${size.height.toInt()} (scan répété)', (tester) async {
+        tester.view.physicalSize = size * 2;
+        tester.view.devicePixelRatio = 2.0;
+        addTearDown(tester.view.reset);
+        await ouvrir(tester, smart: true);
+        expect(find.textContaining('Combien en reste-t-il'), findsOneWidget);
+        for (final k in ['quantite-moins', 'quantite-plus', 'quantite-raccourci-1', 'quantite-raccourci-10']) {
+          final s = tester.getSize(find.byKey(ValueKey(k)));
+          expect(s.height, greaterThanOrEqualTo(44), reason: k);
+          expect(s.width, greaterThanOrEqualTo(44), reason: k);
+        }
+        expect(tester.getSize(find.widgetWithText(ElevatedButton, 'Ajouter')).height, greaterThanOrEqualTo(48));
+        final champ = tester.widget<EditableText>(_dialogField());
+        expect(champ.keyboardType, TextInputType.number);
+        expect(champ.textAlign, TextAlign.center);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('modification de ligne : même présentation, quantité et prix renvoyés', (tester) async {
+      _phone(tester);
+      final r = await _host(tester, (ctx) => showEditLineDialog(ctx, name: 'DOLIPRANE', qty: 2, price: 1500));
+      expect(tester.widget<Text>(find.byKey(const ValueKey('quantite-total'))).data, '${Constants.formatNumber(3000)} F');
+      await tester.tap(find.byKey(const ValueKey('quantite-plus')));
+      await tester.pump();
+      await tester.enterText(_dialogField(1), '1000');
+      await tester.pump();
+      expect(tester.widget<Text>(find.byKey(const ValueKey('quantite-total'))).data, '${Constants.formatNumber(3000)} F');
+      await tester.tap(find.text('Valider'));
+      await tester.pumpAndSettle();
+      expect(r.single, (qty: 3, price: 1000));
+      expect(tester.takeException(), isNull);
+    });
   });
 
   testWidgets('modification de ligne : prix borné, 0 F confirmé', (tester) async {

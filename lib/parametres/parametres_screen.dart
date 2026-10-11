@@ -168,7 +168,12 @@ class _ParametresScreenState extends State<ParametresScreen> {
       Rubrique.impression => ImpressionPage(printTest: _sv.printTestTicket ?? imprimerTicketEssai),
       Rubrique.stock => const StockPage(),
       Rubrique.horsLigne => const HorsLignePage(),
-      Rubrique.apparence => ApparencePage(initial: _presentation, openOrganiser: _openOrganiser),
+      Rubrique.apparence => ApparencePage(
+          initial: _presentation,
+          openOrganiser: _openOrganiser,
+          // Choix de la présentation réservé au compte administrateur (comme la rubrique Sécurité).
+          choixPresentation: Provider.of<AuthProvider>(context, listen: false).isAdmin,
+        ),
       Rubrique.equipe => EquipePage(repository: _pointageRepo),
       Rubrique.securite => const SecuritePage(),
       Rubrique.licence => LicencePage(hardwareInfo: _sv.hardwareInfo ?? FingerprintService.hardwareInfo),

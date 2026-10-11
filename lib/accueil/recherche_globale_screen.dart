@@ -2,9 +2,12 @@
 // Recherche de l'accueil : menus (par nom) + produits (même recherche fiable que les menus :
 // code exact avec variantes ou liste texte par pages). Un code scanné ouvre la fiche produit.
 // Puce « Début / Contient » : mode de la recherche texte des produits (réglage partagé).
+// Un code (douchette Sunmi : saisie clavier + Entrée, ou appareil photo) ouvre directement la fiche ;
+// plusieurs produits : la liste ; aucun : « Code lu … — Aucun produit avec ce code » + Rechercher par nom.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'package:prestige_vente_app/accueil/accueil_menus.dart';
@@ -18,14 +21,31 @@ import 'package:prestige_vente_app/screens/product_search/product_search_widgets
 import 'package:prestige_vente_app/services/product_finder.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/product_paging.dart';
 
 typedef CodeScanner = Future<String?> Function(BuildContext context);
 
-/// Ouvre l'appareil photo et renvoie le code lu (null si annulé).
-Future<String?> scannerParDefaut(BuildContext context) => CameraScanScreen.open(context, title: 'Scanner un produit');
+/// Libellé explicite du scan de l'accueil (onglet « Scanner », bouton de la recherche, écran de l'appareil photo).
+const String scanProduitTitre = 'Scanner un produit';
+const String scanProduitAide = 'Code-barres ou DataMatrix → fiche produit';
+
+/// Ouvre l'appareil photo (DataMatrix et tous les codes-barres des boîtes) et renvoie le code lu (null si annulé).
+Future<String?> scannerParDefaut(BuildContext context) =>
+    CameraScanScreen.open(context, title: scanProduitTitre, produit: true, aide: '$scanProduitAide\nPlacez le code entièrement dans le cadre');
+
+/// Séparateur GS (FNC1) d'un DataMatrix rendu visible dans le champ (« ␝ ») au lieu d'être supprimé :
+/// le lot et le numéro de série restent séparés, le code est relu tel quel.
+class _GsVisible extends TextInputFormatter {
+  const _GsVisible();
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) =>
+      newValue.text.contains('\u001d') ? newValue.copyWith(text: newValue.text.replaceAll('\u001d', '␝')) : newValue;
+}
+
+final List<TextInputFormatter> _formatters = [const _GsVisible(), ...SearchQuery.formatters];
 
 class RechercheGlobaleScreen extends StatefulWidget {
   /// Menus proposés (les menus masqués de l'accueil n'y sont pas).
@@ -53,6 +73,9 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
   bool _loading = false;
   String _lastSent = '';
   List<AccueilMenu> _menus = const [];
+
+  /// Code lu tel quel (séparateurs GS compris) : relu à l'identique par « Réessayer ».
+  String? _codeBrut;
 
   @override
   void initState() {
@@ -84,6 +107,7 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
   void _onChanged() {
     if (_controller.text == _lastText) return;
     _lastText = _controller.text;
+    _codeBrut = null;
     final q = SearchQuery.clean(_controller.text);
     setState(() => _menus = chercherMenus(q, widget.menus));
     _debounce?.cancel();
@@ -110,7 +134,8 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
   /// Code scanné : produit exact → fiche ; sinon liste des candidats / message.
   Future<void> _chercherCode(String raw) async {
     _debounce?.cancel();
-    final shown = SearchQuery.clean(raw);
+    _codeBrut = raw;
+    final shown = SearchQuery.clean(raw.replaceAll('\u001d', '␝'));
     _lastText = shown;
     _controller.text = shown;
     _lastSent = shown;
@@ -124,6 +149,24 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
     if (_search.items.length == 1 && _search.error == null) _ouvrirProduit(_search.items.first);
   }
 
+  /// Entrée (clavier ou douchette Sunmi) : un code ouvre directement la fiche, un texte relance la liste.
+  void _valider(String text) {
+    _debounce?.cancel();
+    final t = text.trim();
+    if (ProductLookup.looksLikeCode(t)) {
+      _chercherCode(t);
+      return;
+    }
+    _codeBrut = null;
+    _lastSent = '';
+    _lancer();
+  }
+
+  /// « Rechercher par nom » après un code inconnu : champ vidé, clavier ouvert.
+  void _rechercherParNom() {
+    _effacer();
+  }
+
   Future<void> _scanner() async {
     final code = await (widget.scanner ?? scannerParDefaut)(context);
     if (!mounted || code == null || code.trim().isEmpty) return;
@@ -132,6 +175,12 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
 
   void _ouvrirProduit(ProductSearchResult p) {
     _focus.unfocus();
+    // Complément de la fiche demandé dès maintenant (en parallèle de l'ouverture), sauf faux service des tests.
+    if (widget.api == null) {
+      try {
+        prechargerFiche(Provider.of<ApiService>(context, listen: false), p);
+      } catch (_) {}
+    }
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => FicheProduitScreen(produit: p)));
   }
 
@@ -153,6 +202,7 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
 
   void _effacer() {
     _debounce?.cancel();
+    _codeBrut = null;
     _controller.clear();
     _lastText = '';
     _lastSent = '';
@@ -174,19 +224,15 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
             controller: _controller,
             focusNode: _focus,
             textInputAction: TextInputAction.search,
-            inputFormatters: SearchQuery.formatters,
-            onSubmitted: (_) {
-              _debounce?.cancel();
-              _lastSent = '';
-              _lancer();
-            },
+            inputFormatters: _formatters,
+            onSubmitted: _valider,
             decoration: InputDecoration(
               hintText: 'Menu, nom du produit ou code CIP',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
                 SearchModeChip(onToggle: _basculerMode),
                 if (_controller.text.isNotEmpty) IconButton(icon: const Icon(Icons.clear), tooltip: 'Effacer', onPressed: _effacer),
-                IconButton(icon: const Icon(Icons.qr_code_scanner), tooltip: 'Scanner un code', onPressed: _scanner),
+                IconButton(icon: const Icon(Icons.qr_code_scanner), tooltip: '$scanProduitTitre — $scanProduitAide', onPressed: _scanner),
               ]),
               filled: true,
               fillColor: Colors.white,
@@ -255,7 +301,7 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
             onPressed: () {
               _lastSent = '';
               if (_search.byCode) {
-                _chercherCode(_search.query.isEmpty ? q : _search.query);
+                _chercherCode(_codeBrut ?? (_search.query.isEmpty ? q : _search.query));
               } else {
                 _lancer();
               }
@@ -265,12 +311,23 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
         ]),
       ));
     } else if (_search.notFound != null) {
-      children.add(Padding(padding: const EdgeInsets.all(8), child: Text(_search.notFound!, style: const TextStyle(color: Pal.muted))));
+      children.add(CodeIntrouvable(
+        code: _codeBrut ?? _search.query,
+        detail: _search.notFound,
+        onRechercherNom: _rechercherParNom,
+        onScanner: _scanner,
+      ));
     } else if (_search.items.isEmpty) {
       if (_lastSent == q && !_loading) {
         children.add(const Padding(padding: EdgeInsets.all(8), child: Text('Aucun produit trouvé.', style: TextStyle(color: Pal.muted))));
       }
     } else {
+      if (_search.byCode && _search.items.length > 1) {
+        children.add(Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+          child: Text('${_search.items.length} produits pour ce code : choisissez le bon.', style: const TextStyle(color: Pal.muted)),
+        ));
+      }
       if (_search.showCount || HorsLigne.instance.offline) children.add(ProductPagingCount(_search, padding: const EdgeInsets.fromLTRB(4, 0, 4, 6)));
       for (final p in _search.items) {
         children.add(_produit(p));
@@ -317,4 +374,56 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
       ),
     );
   }
+}
+
+/// Code lu sans produit : le code tel que lu, « Aucun produit avec ce code », Rechercher par nom / Scanner à nouveau.
+class CodeIntrouvable extends StatelessWidget {
+  final String code;
+
+  /// Codes essayés (« Code X introuvable (essayé aussi …) »).
+  final String? detail;
+  final VoidCallback onRechercherNom;
+  final VoidCallback? onScanner;
+  const CodeIntrouvable({super.key, required this.code, this.detail, required this.onRechercherNom, this.onScanner});
+
+  /// Code affichable : séparateurs GS visibles, caractères de contrôle retirés.
+  static String lisible(String code) => code.replaceAll('\u001d', '␝').replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '').trim();
+
+  @override
+  Widget build(BuildContext context) => SoftCard(
+        key: const ValueKey('code-introuvable'),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Row(children: [
+            Icon(Icons.search_off, color: Color(0xFFB45309)),
+            SizedBox(width: 10),
+            Expanded(child: Text('Aucun produit avec ce code', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink))),
+          ]),
+          const SizedBox(height: 8),
+          Text('Code lu : ${lisible(code)}', style: const TextStyle(fontSize: 14, color: Pal.ink, fontWeight: FontWeight.w600)),
+          if (detail != null && detail!.contains('essayé aussi'))
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(detail!.substring(detail!.indexOf('(')).replaceAll(RegExp(r'^\(|\)$'), ''),
+                  style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
+            ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 48,
+            child: ElevatedButton.icon(
+              key: const ValueKey('rechercher-par-nom'),
+              style: navyButton,
+              onPressed: onRechercherNom,
+              icon: const Icon(Icons.search),
+              label: const Text('Rechercher par nom'),
+            ),
+          ),
+          if (onScanner != null) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 48,
+              child: OutlinedButton.icon(style: outlineButton, onPressed: onScanner, icon: const Icon(Icons.qr_code_scanner), label: const Text('Scanner à nouveau')),
+            ),
+          ],
+        ]),
+      );
 }

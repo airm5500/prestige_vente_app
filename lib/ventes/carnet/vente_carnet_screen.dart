@@ -116,7 +116,14 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
     setState(_unsaved.clear);
   }
 
-  void _focusSearch() => _searchKey.currentState?.requestFocus();
+  /// Curseur dans la recherche produit (redemandé après la prochaine image : le champ peut être
+  /// encore désactivé pendant la fin d'une action).
+  void _focusSearch() {
+    _searchKey.currentState?.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchKey.currentState?.requestFocus();
+    });
+  }
 
   String _cartLabel(CarnetController c) {
     final n = c.items.length;

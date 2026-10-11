@@ -554,6 +554,49 @@ void main() {
     });
   }
 
+  // Retour client : après une vente validée, le curseur revient dans la recherche produit (vente suivante).
+  bool rechercheActive(WidgetTester tester) =>
+      tester.widget<EditableText>(find.descendant(of: _field, matching: find.byType(EditableText))).focusNode.hasFocus;
+
+  for (final style in ListPresentation.values) {
+    testWidgets('après « Prévente » enregistrée : curseur dans la recherche produit — ${style.label}', (tester) async {
+      _phone(tester);
+      final gw = _Gw();
+      await _open(tester, gw, style);
+      await _add(tester, 'doli');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+      expect(rechercheActive(tester), isFalse);
+      await tester.tap(find.byKey(const ValueKey('vente-enregistrer-prevente')));
+      await tester.pumpAndSettle();
+      expect(find.text('Prévente enregistrée'), findsOneWidget);
+      await tester.tap(find.text('Non'));
+      await tester.pumpAndSettle();
+      expect(gw.terminerCalls, 1);
+      expect(find.text('Le panier est vide'), findsOneWidget);
+      expect(rechercheActive(tester), isTrue);
+      expect(tester.testTextInput.isVisible, isTrue); // clavier ouvert
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('après un encaissement : curseur dans la recherche produit', (tester) async {
+    _phone(tester);
+    final gw = _Gw();
+    await _open(tester, gw, ListPresentation.dashboard);
+    await _add(tester, 'doli');
+    await tester.tap(_encaisser);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Exact'));
+    await tester.pump();
+    await tester.tap(_valider);
+    await tester.pumpAndSettle();
+    expect(gw.clotureCalls, 1);
+    expect(find.text('Le panier est vide'), findsOneWidget);
+    expect(rechercheActive(tester), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('« Un panier est en cours » : l\'enregistrer en prévente puis ouvrir l\'autre', (tester) async {
     _phone(tester);
     final gw = _Gw();
