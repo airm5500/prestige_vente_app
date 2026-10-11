@@ -257,7 +257,10 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> with Presentati
   final _form = GlobalKey<FormState>();
   late final _name = TextEditingController(text: widget.employee?.name ?? '');
   late final _matricule = TextEditingController(text: widget.employee?.matricule ?? '');
-  late final _pin = TextEditingController(text: widget.employee?.pin ?? '');
+  // Le PIN gardé est une empreinte : jamais réaffiché ; champ vide = code actuel conservé.
+  final _pin = TextEditingController();
+  bool get _pinExistant => widget.employee?.hasPin ?? false;
+  bool _supprimerPin = false;
   late final _start = TextEditingController(text: widget.employee?.scheduleStart ?? '08:00');
   late final _end = TextEditingController(text: widget.employee?.scheduleEnd ?? '17:00');
   late final _tolerance = TextEditingController(text: '${widget.employee?.toleranceMinutes ?? 10}');
@@ -307,8 +310,8 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> with Presentati
     final e = base.copyWith(
       name: _name.text.trim(),
       matricule: _matricule.text.trim(),
-      pin: _pin.text.trim(),
-      clearPin: _pin.text.trim().isEmpty,
+      pin: _pin.text.trim().isEmpty ? null : _pin.text.trim(),
+      clearPin: _pin.text.trim().isEmpty && (!_pinExistant || _supprimerPin),
       scheduleStart: _start.text.trim(),
       scheduleEnd: _end.text.trim(),
       toleranceMinutes: int.parse(_tolerance.text.trim()),
@@ -539,7 +542,7 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> with Presentati
               _gap,
               TextFormField(
                 controller: _pin,
-                decoration: _deco('Code PIN (4 à 6 chiffres, facultatif)'),
+                decoration: _deco(_pinExistant ? 'Nouveau code PIN (vide : code actuel conservé)' : 'Code PIN (4 à 6 chiffres, facultatif)'),
                 keyboardType: TextInputType.number,
                 obscureText: true,
                 validator: (v) {
@@ -547,6 +550,15 @@ class _EmployeeEditScreenState extends State<EmployeeEditScreen> with Presentati
                   return t.isEmpty || RegExp(r'^\d{4,6}$').hasMatch(t) ? null : '4 à 6 chiffres';
                 },
               ),
+              if (_pinExistant)
+                CheckboxListTile(
+                  key: const Key('employe_supprimer_pin'),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Supprimer le code PIN'),
+                  value: _supprimerPin,
+                  onChanged: (v) => setState(() => _supprimerPin = v ?? false),
+                ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Actif'),

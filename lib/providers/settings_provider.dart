@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/services/identifiants_securises.dart';
+import 'package:prestige_vente_app/services/pin_securise.dart';
 
 class SettingsProvider with ChangeNotifier {
   static const String _localIpKey = 'local_ip';
@@ -103,6 +104,10 @@ class SettingsProvider with ChangeNotifier {
     // Ancien mot de passe en clair : déplacé dans le stockage sécurisé (jamais bloquant).
     if (prefs.containsKey(IdentifiantsSecurises.cleClaire)) {
       await IdentifiantsSecurises.instance.migrer();
+    }
+    // Ancien code administrateur en clair : remplacé par une empreinte du stockage sécurisé (jamais bloquant).
+    if (prefs.containsKey(CodeAdmin.cleClaire)) {
+      await CodeAdmin.instance.migrer();
     }
     _isTestPrintMode = prefs.getBool(_isTestPrintModeKey) ?? false;
     _paperWidth = prefs.getInt(_paperWidthKey) ?? 58;

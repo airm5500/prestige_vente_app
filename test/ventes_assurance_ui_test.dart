@@ -416,6 +416,9 @@ class _FakeGateway implements VenteGateway {
 
 class _Auth extends AuthProvider {
   _Auth() : super(ApiService(baseUrl: 'http://localhost'));
+  // Compte administrateur : le bouton « Présentation » (choix A/B/C) lui est réservé.
+  @override
+  bool get isAdmin => true;
   @override
   User? get user => User(userId: 'U1', login: 'awa', firstName: 'Awa', lastName: 'Kouassi', officineName: 'TEST');
   @override

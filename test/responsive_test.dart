@@ -224,8 +224,12 @@ class _Gw implements VenteGateway {
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError('${invocation.memberName}');
 }
 
+// Compte administrateur : le bouton « Présentation » lui est réservé ; la référence 360 × 800 a été
+// relevée avec ce bouton, le rendu administrateur doit rester identique.
 class _Auth extends AuthProvider {
   _Auth() : super(ApiService(baseUrl: 'http://localhost'));
+  @override
+  bool get isAdmin => true;
   @override
   User? get user => User(userId: 'U1', login: 'awa', firstName: 'Awa', lastName: 'Kouassi', officineName: 'TEST');
   @override
@@ -433,8 +437,11 @@ class _Reception implements ReceptionGateway {
 }
 
 Future<void> _receptionBl(WidgetTester tester, ListPresentation style) async {
-  await tester.pumpWidget(MaterialApp(
-    home: ReceptionHomeScreen(gateway: _Reception(), settings: const ReceptionSettings(), clock: () => DateTime(2026, 10, 10, 9), presentation: style),
+  await tester.pumpWidget(ChangeNotifierProvider<AuthProvider>(
+    create: (_) => _Auth(),
+    child: MaterialApp(
+      home: ReceptionHomeScreen(gateway: _Reception(), settings: const ReceptionSettings(), clock: () => DateTime(2026, 10, 10, 9), presentation: style),
+    ),
   ));
   await tester.pumpAndSettle();
 }

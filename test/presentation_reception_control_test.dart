@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/reception_model.dart';
+import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/reception_provider.dart';
 import 'package:prestige_vente_app/screens/reception_control/reception_detail_screen.dart';
 import 'package:prestige_vente_app/screens/reception_control/reception_list_screen.dart';
@@ -74,6 +75,12 @@ class _FakeApi extends ApiService {
   }
 }
 
+class _Admin extends AuthProvider {
+  _Admin() : super(ApiService(baseUrl: 'http://localhost'));
+  @override
+  bool get isAdmin => true;
+}
+
 void main() {
   setUpAll(() => initializeDateFormatting('fr_FR'));
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -91,8 +98,12 @@ void main() {
     return p;
   }
 
-  Widget app(ReceptionProvider p, Widget home) => ChangeNotifierProvider<ReceptionProvider>.value(
-        value: p,
+  // Compte administrateur : le bouton « Présentation » (choix A/B/C) lui est réservé.
+  Widget app(ReceptionProvider p, Widget home) => MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthProvider>(create: (_) => _Admin()),
+          ChangeNotifierProvider<ReceptionProvider>.value(value: p),
+        ],
         child: MaterialApp(home: home),
       );
 

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_bl_screen.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_home_screen.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const gs = '\u001d';
@@ -461,8 +464,12 @@ void main() {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.0;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(
-      home: ReceptionHomeScreen(gateway: FakePrestige(), settings: const ReceptionSettings(), clock: () => now),
+    // Compte administrateur : le bouton « Présentation » lui est réservé.
+    await tester.pumpWidget(ChangeNotifierProvider<AuthProvider>(
+      create: (_) => _Auth(admin: true),
+      child: MaterialApp(
+        home: ReceptionHomeScreen(gateway: FakePrestige(), settings: const ReceptionSettings(), clock: () => now),
+      ),
     ));
     await tester.pumpAndSettle();
     expect(find.text('lignes à saisir'), findsOneWidget); // A par défaut
@@ -473,4 +480,29 @@ void main() {
     expect(find.text('ÉTAPE 1'), findsOneWidget);
     expect(await PresentationPrefs.load(), ListPresentation.guided);
   });
+
+  testWidgets('non-admin : bouton « Présentation » absent, présentation choisie par l\'admin respectée', (tester) async {
+    SharedPreferences.setMockInitialValues({'presentation_listes_v1': 'guided'});
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(ChangeNotifierProvider<AuthProvider>(
+      create: (_) => _Auth(admin: false),
+      child: MaterialApp(
+        home: ReceptionHomeScreen(gateway: FakePrestige(), settings: const ReceptionSettings(), clock: () => now),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Présentation'), findsNothing);
+    expect(find.byType(PresentationMenuButton), findsOneWidget, reason: 'point unique : le widget commun se masque');
+    expect(find.text('ÉTAPE 1'), findsOneWidget); // C, choisie par l'administrateur
+    expect(await PresentationPrefs.load(), ListPresentation.guided);
+  });
+}
+
+class _Auth extends AuthProvider {
+  _Auth({required this.admin}) : super(ApiService(baseUrl: 'http://localhost'));
+  final bool admin;
+  @override
+  bool get isAdmin => admin;
 }

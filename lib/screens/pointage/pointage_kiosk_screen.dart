@@ -290,11 +290,11 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
           obscureText: true,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(labelText: 'Code PIN'),
-          onSubmitted: (_) => Navigator.of(ctx).pop(controller.text == e.pin),
+          onSubmitted: (_) => Navigator.of(ctx).pop(e.verifierPin(controller.text)),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Annuler')),
-          ElevatedButton(onPressed: () => Navigator.of(ctx).pop(controller.text == e.pin), child: const Text('Valider')),
+          ElevatedButton(onPressed: () => Navigator.of(ctx).pop(e.verifierPin(controller.text)), child: const Text('Valider')),
         ],
       ),
     );
