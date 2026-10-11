@@ -22,7 +22,7 @@ String moduleDuChemin(String chemin) {
   if (a(r'/(vente|ventestats|caisse|billetage|reglement|modereglement|proforma|tierspayant|client|carnet|assurance|depot)')) return 'VENTE';
   if (a(r'/(commande|fichearticle|gestionperime|retourfournisseur|ajustement|produit|stock|inventaire|emplacement|info)')) return 'STOCK';
   if (a(r'/(pointage|employe|badge)')) return 'POINTAGE';
-  if (a(r'/mobile/')) return 'HORS_LIGNE';
+  if (a(r'/(mobile|app-vente)/')) return 'HORS_LIGNE';
   return 'MOBILE';
 }
 

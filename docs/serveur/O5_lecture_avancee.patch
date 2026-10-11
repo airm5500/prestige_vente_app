@@ -1,6 +1,6 @@
-From 1abcc1131c2427f7172fffa61166e05b3281daaf Mon Sep 17 00:00:00 2001
+From 35ce01727619200fc769eb389a4f37ab0bd207cd Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
-Date: Sun, 11 Oct 2026 01:33:40 +0000
+Date: Sun, 11 Oct 2026 02:20:04 +0000
 Subject: [PATCH] =?UTF-8?q?Prestige=20Mobile=20O5=20:=20lecture=20avanc?=
  =?UTF-8?q?=C3=A9e=20des=20ordonnances=20par=20un=20service=20externe,=20a?=
  =?UTF-8?q?vec=20consentement=20(cl=C3=A9=20c=C3=B4t=C3=A9=20serveur)?=
@@ -8,15 +8,19 @@ MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-POST v1/mobile/ordonnances/lecture-avancee : corps = image JPEG de la seule zone des médicaments (recadrée,
+POST v1/app-vente/ordonnances/lecture-avancee : corps = image JPEG de la seule zone des médicaments (recadrée,
 masquée, sans métadonnées par le téléphone) ; le serveur appelle le fournisseur configuré (API Claude par défaut,
 modèle claude-haiku-5-5 ; Google Cloud Vision possible) avec la clé gardée sur le serveur (variable d'environnement,
 propriété système ou lecture-avancee.properties, jamais renvoyée ni journalisée) et renvoie seulement les lignes de
 médicaments {nom, dosage, forme, posologie, quantite, confiance}, filtrées (données personnelles retirées).
 L'image n'est jamais enregistrée. Une seule lecture à la fois, délai maximal, aucune relance, quota par jour ;
 journal mobile_lecture_avancee_journal (date, utilisateur, taille, fournisseur, modèle, résultat, lignes, jetons,
-coût estimé, durée ; ni image ni texte). Capacité lectureAvancee annoncée seulement si un fournisseur est configuré.
-Migration V6.9.129.4 : table du journal (rejouable, aucune table existante modifiée).
+coût estimé, durée ; ni image ni texte). Capacité lectureAvancee annoncée (v1/app-vente/capacites) seulement si un
+fournisseur est configuré. Session habituelle (cookie) ; aucune modification de filter.AuthenticationFilter.
+Migration V6.9.132.4 : table du journal (rejouable, aucune table existante modifiée).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DmdojchP92w3JjfyVDXDv5
 ---
  .../java/rest/MobileCapacitesRessource.java   |   8 +
  .../java/rest/MobileOrdonnanceRessource.java  |  20 ++
@@ -26,7 +30,7 @@ Migration V6.9.129.4 : table du journal (rejouable, aucune table existante modif
  .../mobile/lecture/FournisseurLecture.java    |  48 +++++
  .../lecture/LectureAvanceeConfiguration.java  | 193 +++++++++++++++++
  .../service/mobile/lecture/LignesLues.java    |  62 ++++++
- .../V6.9.129.4__mobile_lecture_avancee.sql    |  21 ++
+ .../V6.9.132.4__mobile_lecture_avancee.sql    |  21 ++
  9 files changed, 769 insertions(+)
  create mode 100644 src/main/java/rest/service/mobile/MobileLectureAvanceeService.java
  create mode 100644 src/main/java/rest/service/mobile/lecture/FournisseurClaude.java
@@ -34,10 +38,10 @@ Migration V6.9.129.4 : table du journal (rejouable, aucune table existante modif
  create mode 100644 src/main/java/rest/service/mobile/lecture/FournisseurLecture.java
  create mode 100644 src/main/java/rest/service/mobile/lecture/LectureAvanceeConfiguration.java
  create mode 100644 src/main/java/rest/service/mobile/lecture/LignesLues.java
- create mode 100644 src/main/resources/db/migration/V6.9.129.4__mobile_lecture_avancee.sql
+ create mode 100644 src/main/resources/db/migration/V6.9.132.4__mobile_lecture_avancee.sql
 
 diff --git a/src/main/java/rest/MobileCapacitesRessource.java b/src/main/java/rest/MobileCapacitesRessource.java
-index 465642b7..f6b8ce27 100644
+index ec164643..2eb9b011 100644
 --- a/src/main/java/rest/MobileCapacitesRessource.java
 +++ b/src/main/java/rest/MobileCapacitesRessource.java
 @@ -9,6 +9,7 @@ import javax.ws.rs.core.Response;
@@ -48,17 +52,17 @@ index 465642b7..f6b8ce27 100644
  import rest.service.mobile.MobileOrdonnanceCorrectionService;
  
  /**
-@@ -24,6 +25,9 @@ import rest.service.mobile.MobileOrdonnanceCorrectionService;
+@@ -25,6 +26,9 @@ import rest.service.mobile.MobileOrdonnanceCorrectionService;
   * <p>
-  * {@code ordonnanceCorrections} (O4) : {@code POST/GET v1/mobile/ordonnances/corrections} (apprentissages des
+  * {@code ordonnanceCorrections} (O4) : {@code POST/GET v1/app-vente/ordonnances/corrections} (apprentissages des
   * ordonnances partages entre terminaux). Faux si la table mobile_ordonnance_correction n'existe pas.
 + * <p>
-+ * {@code lectureAvancee} (O5) : {@code POST v1/mobile/ordonnances/lecture-avancee}, vrai SEULEMENT si un fournisseur
++ * {@code lectureAvancee} (O5) : {@code POST v1/app-vente/ordonnances/lecture-avancee}, vrai SEULEMENT si un fournisseur
 + * est configure sur le serveur (cle presente) et la migration passee.
   */
- @Path("v1/mobile/capacites")
+ @Path("v1/app-vente/capacites")
  @Produces(MediaType.APPLICATION_JSON)
-@@ -35,6 +39,8 @@ public class MobileCapacitesRessource {
+@@ -36,6 +40,8 @@ public class MobileCapacitesRessource {
      private MobileCatalogueDeltaService catalogueDeltaService;
      @EJB
      private MobileOrdonnanceCorrectionService ordonnanceCorrectionService;
@@ -67,7 +71,7 @@ index 465642b7..f6b8ce27 100644
  
      @GET
      public Response capacites() {
-@@ -45,6 +51,8 @@ public class MobileCapacitesRessource {
+@@ -46,6 +52,8 @@ public class MobileCapacitesRessource {
                  MobileCatalogueDeltaService.format(catalogueDeltaService.maintenant()));
          boolean corrections = ordonnanceCorrectionService.disponible();
          o.put("ordonnanceCorrections", corrections).put("ordonnanceCorrectionsVersion", corrections ? 1 : 0);
@@ -77,7 +81,7 @@ index 465642b7..f6b8ce27 100644
      }
  }
 diff --git a/src/main/java/rest/MobileOrdonnanceRessource.java b/src/main/java/rest/MobileOrdonnanceRessource.java
-index 96f9689c..28938548 100644
+index 0c8642d0..bf259c78 100644
 --- a/src/main/java/rest/MobileOrdonnanceRessource.java
 +++ b/src/main/java/rest/MobileOrdonnanceRessource.java
 @@ -16,6 +16,7 @@ import org.json.JSONException;
@@ -92,15 +96,15 @@ index 96f9689c..28938548 100644
   * {@code {success, depuis, serveurMaintenant, total, start, limit, data:[{cle, segment, produitId, cip, nom, at,
   * recuLe}]}} ({@code depuis} absent : tout).
   * <p>
-+ * {@code POST v1/mobile/ordonnances/lecture-avancee} (O5) corps = image JPEG de la zone des medicaments (recadree et
++ * {@code POST v1/app-vente/ordonnances/lecture-avancee} (O5) corps = image JPEG de la zone des medicaments (recadree et
 + * masquee par le telephone) → {@code {success, lignes:[{nom, dosage, forme, posologie, quantite, confiance}],
 + * fournisseur, modele, coutEstime, quotaRestant}} ; l'image n'est jamais enregistree. 503 si non configuree, 429 quota
 + * / lecture deja en cours, 502 / 504 erreur / delai du fournisseur.
 + * <p>
-  * Authentification : session habituelle de l'application (cookie), comme H4 / H5 ; voir filter.AuthenticationFilter.
+  * Authentification : session habituelle de l'application (cookie), comme H4 / H5 ; aucune exception dans
+  * filter.AuthenticationFilter.
   */
- @Path("v1/mobile/ordonnances")
-@@ -40,6 +46,20 @@ public class MobileOrdonnanceRessource {
+@@ -41,6 +47,20 @@ public class MobileOrdonnanceRessource {
      private MobileOrdonnanceCorrectionService service;
      @EJB
      private SessionHelperService sessionHelperService;
@@ -877,11 +881,11 @@ index 00000000..d543556f
 +        return out;
 +    }
 +}
-diff --git a/src/main/resources/db/migration/V6.9.129.4__mobile_lecture_avancee.sql b/src/main/resources/db/migration/V6.9.129.4__mobile_lecture_avancee.sql
+diff --git a/src/main/resources/db/migration/V6.9.132.4__mobile_lecture_avancee.sql b/src/main/resources/db/migration/V6.9.132.4__mobile_lecture_avancee.sql
 new file mode 100644
 index 00000000..7b5a7a3a
 --- /dev/null
-+++ b/src/main/resources/db/migration/V6.9.129.4__mobile_lecture_avancee.sql
++++ b/src/main/resources/db/migration/V6.9.132.4__mobile_lecture_avancee.sql
 @@ -0,0 +1,21 @@
 +-- O5 (Prestige Mobile) : journal des lectures avancees d'ordonnances (service externe, avec consentement).
 +-- Une ligne par demande : date, utilisateur, taille de l'image, fournisseur, modele, resultat, nombre de lignes,

@@ -1,6 +1,6 @@
-From fd693df656bee468d39e7eb99585a2107d4482a7 Mon Sep 17 00:00:00 2001
+From fc56cb7e75170a9c9fde76de6bb6ab9399d68b2f Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
-Date: Sat, 10 Oct 2026 23:39:28 +0000
+Date: Sun, 11 Oct 2026 02:17:32 +0000
 Subject: [PATCH] =?UTF-8?q?Prestige=20Mobile=20H5=20:=20changements=20du?=
  =?UTF-8?q?=20catalogue=20depuis=20un=20instant=20(mise=20=C3=A0=20jour=20?=
  =?UTF-8?q?diff=C3=A9rentielle=20de=20la=20copie=20du=20t=C3=A9l=C3=A9phon?=
@@ -9,48 +9,27 @@ MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-GET v1/mobile/catalogue/changements?depuis=&jusqua=&start=&limit= : produits modifiés (t_famille.dt_UPDATED,
+GET v1/app-vente/catalogue/changements?depuis=&jusqua=&start=&limit= : produits modifiés (t_famille.dt_UPDATED,
 t_famille_stock.dt_UPDATED de l'emplacement, mouvements HMvtProduit, mouchard des prix t_mouvementprice), au
 format de v1/vente/search avec statut actif, ou statut supprime s'ils n'y apparaissent plus ; serveurMaintenant
-(horloge de la base) et total. Capacité catalogueDelta annoncée par v1/mobile/capacites (avec serveurMaintenant).
-Session habituelle (cookie), comme v1/vente/search. Migration V6.9.129.2 : index sur les colonnes de date
-(rejouable, aucune table ni donnée modifiée).
+(horloge de la base) et total. Capacité catalogueDelta annoncée par v1/app-vente/capacites (avec serveurMaintenant).
+Session habituelle (cookie), comme v1/vente/search ; aucune modification de filter.AuthenticationFilter.
+Migration V6.9.132.2 : index sur les colonnes de date (rejouable, aucune table ni donnée modifiée).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DmdojchP92w3JjfyVDXDv5
 ---
- .../java/filter/AuthenticationFilter.java     |   5 +-
  .../java/rest/MobileCapacitesRessource.java   |   8 +
  .../java/rest/MobileCatalogueRessource.java   |  65 ++++++
  .../mobile/MobileCatalogueDeltaService.java   | 185 ++++++++++++++++++
- .../V6.9.129.2__mobile_catalogue_delta.sql    |  47 +++++
- 5 files changed, 309 insertions(+), 1 deletion(-)
+ .../V6.9.132.2__mobile_catalogue_delta.sql    |  47 +++++
+ 4 files changed, 305 insertions(+)
  create mode 100644 src/main/java/rest/MobileCatalogueRessource.java
  create mode 100644 src/main/java/rest/service/mobile/MobileCatalogueDeltaService.java
- create mode 100644 src/main/resources/db/migration/V6.9.129.2__mobile_catalogue_delta.sql
+ create mode 100644 src/main/resources/db/migration/V6.9.132.2__mobile_catalogue_delta.sql
 
-diff --git a/src/main/java/filter/AuthenticationFilter.java b/src/main/java/filter/AuthenticationFilter.java
-index 0fecb40..b25a8e8 100644
---- a/src/main/java/filter/AuthenticationFilter.java
-+++ b/src/main/java/filter/AuthenticationFilter.java
-@@ -60,6 +60,8 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
-      */
-     private static final String CLIENT_REF_MOBILE = "v1/mobile/client-ref/";
-     private static final String CAPACITES_MOBILE = "v1/mobile/capacites";
-+    /* H5 (Prestige Mobile) : changements du catalogue, meme session que v1/vente/search. */
-+    private static final String CATALOGUE_MOBILE = "v1/mobile/catalogue/";
- 
-     @Inject
-     private HttpServletRequest servletRequest;
-@@ -86,7 +88,8 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
-          * L13 : les nouveaux chemins des telephones exigent le jeton signe, et rien d'autre (ni session, ni
-          * X-User-Info). Les chemins mobiles existants ne passent pas ici : leur fonctionnement est inchange.
-          */
--        if (path.startsWith(CHEMIN_MOBILE) && !path.startsWith(CLIENT_REF_MOBILE) && !CAPACITES_MOBILE.equals(path)) {
-+        if (path.startsWith(CHEMIN_MOBILE) && !path.startsWith(CLIENT_REF_MOBILE) && !CAPACITES_MOBILE.equals(path)
-+                && !path.startsWith(CATALOGUE_MOBILE)) {
-             if (!CONNEXION_MOBILE.equals(path)) {
-                 String a = requestContext.getHeaderString("Authorization");
-                 TUser u = a != null && a.startsWith("Bearer ")
 diff --git a/src/main/java/rest/MobileCapacitesRessource.java b/src/main/java/rest/MobileCapacitesRessource.java
-index df41719..76b6268 100644
+index e39d9f1d..ed1fe7a3 100644
 --- a/src/main/java/rest/MobileCapacitesRessource.java
 +++ b/src/main/java/rest/MobileCapacitesRessource.java
 @@ -7,6 +7,7 @@ import javax.ws.rs.Produces;
@@ -61,17 +40,17 @@ index df41719..76b6268 100644
  import rest.service.mobile.MobileClientRefService;
  
  /**
-@@ -16,6 +17,9 @@ import rest.service.mobile.MobileClientRefService;
+@@ -17,6 +18,9 @@ import rest.service.mobile.MobileClientRefService;
   * {@code clientRef} (H4) : en-tete {@code X-Client-Ref} pris en compte sur {@code v1/vente/add/vno},
   * {@code v1/vente/add/assurance}, {@code v1/vente/add/depot} et {@code v1/retourfournisseur/new}, et relecture par
-  * {@code GET v1/mobile/client-ref/{ref}}. Faux si la table mobile_client_ref n'existe pas.
+  * {@code GET v1/app-vente/client-ref/{ref}}. Faux si la table mobile_client_ref n'existe pas.
 + * <p>
-+ * {@code catalogueDelta} (H5) : {@code GET v1/mobile/catalogue/changements} (produits modifies depuis un instant) ;
++ * {@code catalogueDelta} (H5) : {@code GET v1/app-vente/catalogue/changements} (produits modifies depuis un instant) ;
 + * {@code serveurMaintenant} donne l'horloge du serveur (point de depart d'une copie complete du catalogue).
   */
- @Path("v1/mobile/capacites")
+ @Path("v1/app-vente/capacites")
  @Produces(MediaType.APPLICATION_JSON)
-@@ -23,12 +27,16 @@ public class MobileCapacitesRessource {
+@@ -24,12 +28,16 @@ public class MobileCapacitesRessource {
  
      @EJB
      private MobileClientRefService clientRefService;
@@ -90,7 +69,7 @@ index df41719..76b6268 100644
  }
 diff --git a/src/main/java/rest/MobileCatalogueRessource.java b/src/main/java/rest/MobileCatalogueRessource.java
 new file mode 100644
-index 0000000..4d3e0e9
+index 00000000..99a06ee0
 --- /dev/null
 +++ b/src/main/java/rest/MobileCatalogueRessource.java
 @@ -0,0 +1,65 @@
@@ -112,16 +91,16 @@ index 0000000..4d3e0e9
 +/**
 + * H5 (Prestige Mobile) : mise a jour differentielle de la copie du catalogue gardee sur le telephone.
 + * <p>
-+ * {@code GET v1/mobile/catalogue/changements?depuis=2026-10-10 23:00:00[&jusqua=...]&start=0&limit=500} →
++ * {@code GET v1/app-vente/catalogue/changements?depuis=2026-10-10 23:00:00[&jusqua=...]&start=0&limit=500} →
 + * {@code {success, depuis, serveurMaintenant, total, start, limit, data:[{...produit comme v1/vente/search...,
 + * statut:"actif"} | {lgFAMILLEID, statut:"supprime"}]}}. Les dates sont celles de l'horloge de la base
 + * ({@code yyyy-MM-dd HH:mm:ss}) ; le telephone repasse {@code serveurMaintenant} en {@code jusqua} pour les pages
 + * suivantes, puis en {@code depuis} (moins une marge) a la mise a jour suivante.
 + * <p>
-+ * Authentification : session habituelle de l'application (cookie), comme {@code v1/vente/search} ; voir
-+ * filter.AuthenticationFilter.
++ * Authentification : session habituelle de l'application (cookie), comme {@code v1/vente/search} ; le prefixe
++ * {@code v1/app-vente/} n'a aucune exception dans filter.AuthenticationFilter (distinct de {@code v1/mobile/}).
 + */
-+@Path("v1/mobile/catalogue")
++@Path("v1/app-vente/catalogue")
 +@Produces(MediaType.APPLICATION_JSON)
 +public class MobileCatalogueRessource {
 +
@@ -161,7 +140,7 @@ index 0000000..4d3e0e9
 +}
 diff --git a/src/main/java/rest/service/mobile/MobileCatalogueDeltaService.java b/src/main/java/rest/service/mobile/MobileCatalogueDeltaService.java
 new file mode 100644
-index 0000000..abc1f20
+index 00000000..abc1f207
 --- /dev/null
 +++ b/src/main/java/rest/service/mobile/MobileCatalogueDeltaService.java
 @@ -0,0 +1,185 @@
@@ -350,20 +329,20 @@ index 0000000..abc1f20
 +        return out;
 +    }
 +}
-diff --git a/src/main/resources/db/migration/V6.9.129.2__mobile_catalogue_delta.sql b/src/main/resources/db/migration/V6.9.129.2__mobile_catalogue_delta.sql
+diff --git a/src/main/resources/db/migration/V6.9.132.2__mobile_catalogue_delta.sql b/src/main/resources/db/migration/V6.9.132.2__mobile_catalogue_delta.sql
 new file mode 100644
-index 0000000..292080a
+index 00000000..fa761721
 --- /dev/null
-+++ b/src/main/resources/db/migration/V6.9.129.2__mobile_catalogue_delta.sql
++++ b/src/main/resources/db/migration/V6.9.132.2__mobile_catalogue_delta.sql
 @@ -0,0 +1,47 @@
-+-- H5 (Prestige Mobile) : mise a jour differentielle du catalogue (GET v1/mobile/catalogue/changements).
++-- H5 (Prestige Mobile) : mise a jour differentielle du catalogue (GET v1/app-vente/catalogue/changements).
 +--
 +-- La route cherche les produits modifies depuis un instant donne dans quatre colonnes de date. Sans index, chaque
 +-- appel (toutes les 5 minutes par telephone) balaierait t_famille, t_famille_stock, HMvtProduit (souvent des millions
 +-- de lignes) et t_mouvementprice. Ces index rendent l'appel proportionnel au nombre de changements.
 +--
 +-- Aucune table, colonne ni donnee modifiee : seuls des index sont ajoutes. Rejouable (index cree s'il manque).
-+-- Numero 6.9.129.2 intercale apres 6.9.129.1 (H4) : pas de collision avec la suite 6.9.130... (Flyway outOfOrder).
++-- Numero 6.9.132.2, juste apres 6.9.132.1 (H4) et au-dessus de la derniere migration amont 6.9.132.
 +-- Sur une tres grosse table HMvtProduit, la creation de l'index peut prendre quelques minutes (InnoDB la fait sans
 +-- bloquer les ecritures).
 +

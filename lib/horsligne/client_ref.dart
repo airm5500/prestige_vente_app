@@ -4,11 +4,12 @@
 // Chaque création envoyée depuis la file hors ligne (1ʳᵉ ligne d'une vente, création d'un retour
 // fournisseur) porte l'en-tête HTTP `X-Client-Ref` (identifiant local, stable entre deux envois).
 // Un serveur avec le patch H4 ne crée jamais deux fois pour la même clé (il renvoie la réponse de la
-// création initiale) et permet de relire la création : GET /mobile/client-ref/{ref}.
+// création initiale) et permet de relire la création : GET /app-vente/client-ref/{ref} (ancien préfixe /mobile/ :
+// premières versions du patch ; préfixe détecté par routes_app_vente.dart).
 // Un serveur sans le patch ignore l'en-tête : l'appli garde alors exactement son fonctionnement
 // d'origine (anomalie « vérifiez sur Prestige » si la réponse de la création est perdue).
 //
-// La capacité du serveur (GET /mobile/capacites → `clientRef: true`) est lue AVANT l'envoi de la
+// La capacité du serveur (GET /app-vente/capacites, repli /mobile/capacites → `clientRef: true`) est lue AVANT l'envoi de la
 // création et mise en cache par adresse de serveur (nouveau serveur = nouvelle vérification ; oui gardé
 // 30 min, non gardé 5 min, réponse indéterminée jamais gardée).
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
@@ -59,7 +60,8 @@ abstract final class CapaciteClientRef {
   /// Oublie tout (changement de serveur, tests).
   static void vider() => _cache.clear();
 
-  /// Lecture de GET /mobile/capacites. 404, ou 401 « expire » (chemin v1/mobile/ d'un serveur sans H4) = non.
+  /// Lecture de GET …/capacites (RoutesAppVente.lireCapacites). 404, ou 401 « expire » (repli sur v1/mobile/, API à
+  /// jeton d'un serveur sans H4) = non.
   static bool? depuisReponse(int status, dynamic body) {
     if (status == 200 && body is Map) return body['clientRef'] == true;
     if (status == 404) return false;
@@ -68,7 +70,7 @@ abstract final class CapaciteClientRef {
   }
 }
 
-/// Lecture de GET /mobile/client-ref/{ref} : info, null = clé inconnue (création jamais faite), échec sinon.
+/// Lecture de GET /app-vente/client-ref/{ref} (ou /mobile/…) : info, null = clé inconnue (création jamais faite), échec sinon.
 VenteResult<ClientRefInfo?> clientRefDepuisReponse(int status, dynamic body) {
   if (status == 200 && body is Map && body['success'] == true && '${body['id'] ?? ''}'.isNotEmpty) {
     String? s(Object? v) => v == null || '$v'.isEmpty ? null : '$v';

@@ -1,10 +1,11 @@
 // lib/ordonnances/o4/partage_o4.dart
 // Étape O4 : partage des apprentissages entre terminaux via le serveur (patch docs/serveur/O4_corrections_ordonnances.patch).
 //
-// Serveur avec le patch : GET /mobile/capacites → `ordonnanceCorrections: true`, puis
-//  - POST /mobile/ordonnances/corrections {corrections:[{cle, segment, produitId, cip, nom, at}]} : envoi par lot,
+// Serveur avec le patch : GET /app-vente/capacites (repli : ancien /mobile/capacites, préfixe détecté par
+// routes_app_vente.dart et utilisé pour les routes suivantes) → `ordonnanceCorrections: true`, puis
+//  - POST /app-vente/ordonnances/corrections {corrections:[{cle, segment, produitId, cip, nom, at}]} : envoi par lot,
 //    idempotent (la clé `cle` est générée ici, un renvoi ne crée rien de plus) ;
-//  - GET /mobile/ordonnances/corrections?depuis=&jusqua=&start=&limit= : validations des autres terminaux, en
+//  - GET /app-vente/ordonnances/corrections?depuis=&jusqua=&start=&limit= : validations des autres terminaux, en
 //    différentiel avec l'horloge du SERVEUR (comme H5 : curseur = serveurMaintenant, chevauchement 2 min, clés déjà
 //    appliquées ignorées).
 // Seul le SEGMENT médicament est envoyé (jamais le texte lu complet ni donnée patient).
@@ -23,6 +24,7 @@ import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_delta.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
+import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/ordonnances/o4/apprentissage_o4.dart';
 import 'package:prestige_vente_app/ordonnances/o4/segment_medicament.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -93,19 +95,23 @@ class DioServeurCorrections implements ServeurCorrections {
 
   @override
   Future<({int status, Object? body})> capacites() async {
-    final r = await _d.get('/mobile/capacites');
-    return (status: r.statusCode ?? 0, body: r.data);
+    // /app-vente/capacites, repli sur l'ancien /mobile/capacites (voir routes_app_vente.dart).
+    final r = await RoutesAppVente.lireCapacites(adresse, (chemin) async {
+      final x = await _d.get(chemin);
+      return (status: x.statusCode ?? 0, body: x.data);
+    });
+    return (status: r.status, body: r.body);
   }
 
   @override
   Future<({int status, Object? body})> envoyer(List<Map<String, dynamic>> lot) async {
-    final r = await _d.post(PartageO4.route, data: {'corrections': lot});
+    final r = await _d.post(PartageO4.routePour(adresse), data: {'corrections': lot});
     return (status: r.statusCode ?? 0, body: r.data);
   }
 
   @override
   Future<({int status, Object? body})> changements(Map<String, dynamic> query) async {
-    final r = await _d.get(PartageO4.route, queryParameters: query);
+    final r = await _d.get(PartageO4.routePour(adresse), queryParameters: query);
     return (status: r.statusCode ?? 0, body: r.data);
   }
 }
@@ -119,7 +125,9 @@ class BilanPartage {
 }
 
 class PartageO4 {
-  static const String route = '/mobile/ordonnances/corrections';
+  /// Route des corrections (préfixe actuel `/app-vente` ; [routePour] : préfixe détecté pour un serveur).
+  static const String route = '${RoutesAppVente.prefixe}/ordonnances/corrections';
+  static String routePour(String serveur) => RoutesAppVente.ordonnancesCorrections(RoutesAppVente.prefixePour(serveur));
   static const int lot = 200;
   static const int page = 500;
   static const int clesMax = 5000;
@@ -241,7 +249,7 @@ class PartageO4 {
     return segment;
   }
 
-  /// GET /mobile/capacites → `ordonnanceCorrections` (oui gardé 30 min, non 5 min, indéterminé jamais gardé).
+  /// GET …/capacites → `ordonnanceCorrections` (oui gardé 30 min, non 5 min, indéterminé jamais gardé).
   static bool? capaciteDepuisReponse(int status, Object? body) {
     if (status == 200 && body is Map) return body['ordonnanceCorrections'] == true;
     if (status == 404) return false;

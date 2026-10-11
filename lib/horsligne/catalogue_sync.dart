@@ -16,11 +16,13 @@ import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/horsligne/activite_app.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_delta.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
+import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 
 /// Appel GET du serveur : renvoie le corps JSON ; lève [CatalogueSyncException] en cas d'échec.
 typedef CatalogueFetch = Future<Map<String, dynamic>> Function(String path, Map<String, dynamic> query);
 
-/// H5 : GET /mobile/capacites (code HTTP et corps, sans lever d'exception pour un 401 / 404).
+/// H5 : GET /app-vente/capacites, repli sur l'ancien /mobile/capacites (code HTTP et corps, sans lever d'exception
+/// pour un 401 / 404 ; le préfixe trouvé est retenu par RoutesAppVente pour l'adresse [CatalogueSync.serveur]).
 typedef CatalogueCapacites = Future<({int status, Object? body})> Function();
 
 class CatalogueSyncException implements Exception {
@@ -343,6 +345,8 @@ class CatalogueSync extends ChangeNotifier {
           CatalogueDelta.kComplet: now.toIso8601String(),
           CatalogueDelta.kMaj: now.toIso8601String(),
           CatalogueDelta.kN: null,
+          // Préfixe des routes trouvé avec la capacité (gardé : vaut aussi après un redémarrage de l'appli).
+          CatalogueDelta.kPrefixe: RoutesAppVente.prefixePour(_serveurCle),
         },
       // Le serveur n'a pas (ou plus) la capacité : on oublie le curseur.
       (ok: false, heure: _) when _delta.curseur != null || _delta.complet != null => CatalogueDelta.oubli,
@@ -374,7 +378,8 @@ class CatalogueSync extends ChangeNotifier {
     _page = null;
     _nbPages = null;
     _progress('${CatalogueCategorie.produits.label} (changements)', 0, null);
-    final ch = await telechargerChangements(f, _delta.curseur!, pageSize: pageSize, progress: (d, t) {
+    final ch = await telechargerChangements(f, _delta.curseur!, pageSize: pageSize, route: CatalogueDelta.routePour(_delta.prefixe),
+        progress: (d, t) {
       // Même affichage que la copie complète : « page 2/3 (1 000 / 1 200) ».
       _page = d == 0 ? 1 : (d + pageSize - 1) ~/ pageSize;
       _nbPages = t == null ? null : (t == 0 ? 1 : (t + pageSize - 1) ~/ pageSize);

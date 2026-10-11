@@ -12,12 +12,13 @@
 //    Les produits suivants (add-item) sont relus dans /retourfournisseur/retours-items.
 //    H4 (serveur avec le patch docs/serveur/H4_client_ref.patch) : la création porte la clé client
 //    `X-Client-Ref` (clé de l'opération HL3-…) ; le serveur ne crée jamais deux fois et, si la réponse est
-//    perdue, le retour est relu par sa clé (GET /mobile/client-ref/{ref}) : reprise sans anomalie.
+//    perdue, le retour est relu par sa clé (GET /app-vente/client-ref/{ref}, ancien /mobile/…) : reprise sans anomalie.
 // Les refus du serveur (BL clôturé, ligne déjà pointée, produit inconnu…) donnent une ligne « rejected »
 // avec le motif ; une panne réseau ou une session expirée interrompt l'envoi ([StockStopException]).
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/client_ref.dart';
+import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 
@@ -123,12 +124,20 @@ class StockSender {
 
   /// H4 : le serveur gère la clé client (lu une fois par envoi ; cache commun par adresse de serveur).
   Future<bool> clientRefSupporte() async => _clientRef ??= await CapaciteClientRef.verifier(
-        server is DioStockServer ? (server as DioStockServer).dio.options.baseUrl : 'stock-${identityHashCode(server)}',
+        _serveurCle,
         () async {
-          final r = await server.call('GET', '/mobile/capacites');
+          // /app-vente/capacites, repli sur l'ancien /mobile/capacites (voir routes_app_vente.dart).
+          final r = await RoutesAppVente.lireCapacites(_serveurCle, (chemin) async {
+            final x = await server.call('GET', chemin);
+            return (status: x.status, body: x.body);
+          });
           return CapaciteClientRef.depuisReponse(r.status, r.body);
         },
       );
+
+  /// Adresse du serveur (clé des caches de capacité et du préfixe des routes).
+  String get _serveurCle =>
+      server is DioStockServer ? (server as DioStockServer).dio.options.baseUrl : 'stock-${identityHashCode(server)}';
 
   /// Envoie les lignes restantes de [op] (états mis à jour dans [op]).
   Future<void> apply(StockOp op) async {
@@ -316,7 +325,7 @@ class StockSender {
 
     // H4 : retour relu par la clé de l'opération ; true = trouvé (enregistré), false = jamais créé.
     Future<bool> relire(StockOpLine first) async {
-      final r = await server.call('GET', '/mobile/client-ref/${Uri.encodeComponent(op.id)}');
+      final r = await server.call('GET', RoutesAppVente.clientRef(op.id, RoutesAppVente.prefixePour(_serveurCle)));
       final lu = clientRefDepuisReponse(r.status, r.body);
       if (lu is! VenteOk<ClientRefInfo?>) {
         throw StockStopException('${lu.message ?? 'Relecture du retour impossible.'} Envoi interrompu, rien n\'est perdu.');

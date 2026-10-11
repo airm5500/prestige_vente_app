@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_interceptor.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
+import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/horsligne/ventes_sync.dart';
@@ -154,7 +155,7 @@ class HorsLigne {
     _bindSupport(dio);
     monitor.ping ??= _ping;
     sync.fetch ??= _fetch;
-    // H5 : mise à jour différentielle du catalogue si le serveur l'annonce (GET /mobile/capacites).
+    // H5 : mise à jour différentielle du catalogue si le serveur l'annonce (GET /app-vente/capacites, repli /mobile/).
     sync.capacites ??= _capacites;
     sync.serveur ??= () => _baseUrl;
     // B2 : images des produits (API existante du serveur, même session ; hors ligne : cache seulement).
@@ -219,10 +220,14 @@ class HorsLigne {
     return d;
   }
 
-  /// H5 : GET /mobile/capacites (code et corps, 401 / 404 compris) ; lève une exception si le serveur ne répond pas.
+  /// H5 : GET /app-vente/capacites, repli sur l'ancien /mobile/capacites (code et corps, 401 / 404 compris ; le
+  /// préfixe trouvé est retenu par RoutesAppVente pour ce serveur) ; lève une exception si le serveur ne répond pas.
   Future<({int status, Object? body})> _capacites() async {
-    final r = await _dioSync.get('/mobile/capacites', options: Options(validateStatus: (_) => true));
-    return (status: r.statusCode ?? 0, body: r.data);
+    final r = await RoutesAppVente.lireCapacites(_baseUrl, (chemin) async {
+      final x = await _dioSync.get(chemin, options: Options(validateStatus: (_) => true));
+      return (status: x.statusCode ?? 0, body: x.data);
+    });
+    return (status: r.status, body: r.body);
   }
 
   /// GET pour la synchro : même session (cookies) que l'appli, sans le journal des réponses.

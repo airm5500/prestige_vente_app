@@ -1,22 +1,58 @@
-# H5 — Mise à jour différentielle du catalogue (`/mobile/catalogue/changements`) : patch serveur Prestige
+# H5 — Mise à jour différentielle du catalogue (`/app-vente/catalogue/changements`) : patch serveur Prestige
 
 > Pour le développeur Prestige. Patch : `docs/serveur/H5_catalogue_delta.patch` (un commit, à appliquer avec `git am`
-> **après** le patch H4 `docs/serveur/H4_client_ref.patch`, dont il complète la route `v1/mobile/capacites`).
-> Construit sur `h4-client-ref-upstream` (= `origin/claude/new-session-xm8ptu` `88a2a4b` + H4) ; compilé sur cette base
-> (`mvn compile`) ; H4 + H5 s'appliquent aussi sans conflit sur `9872b89` (dernier commit de la branche).
-> Vérifié sur le serveur de test (Payara 5 + MariaDB 10.11). **Rien n'a été poussé sur le dépôt `airm5500/prestige`.**
+> **après** H4 `docs/serveur/H4_client_ref.patch`, dont il complète la route `v1/app-vente/capacites` ; ordre
+> H4 → H5 → O4 → O5 → B3). Construit sur `h4u2` (= `origin/claude/new-session-xm8ptu` à jour `b9e03367` + H4) ;
+> compilé (`mvn -o compile`, JDK 11). **Rien n'a été poussé sur le dépôt `airm5500/prestige`.** Voir § 0.
+
+## 0. Mise à jour du 11/10/2026 : préfixe `v1/app-vente/`, filtre non modifié, migrations renumérotées
+
+**Ce qui change par rapport à la version précédente de ce patch** (les 4 patchs H4, H5, O4, O5 ont été refaits ensemble) :
+
+- **Routes déplacées** de `v1/mobile/…` vers le préfixe unique **`v1/app-vente/…`** :
+
+  | Avant | Maintenant |
+  |---|---|
+  | `GET v1/mobile/capacites` | `GET v1/app-vente/capacites` |
+  | `GET v1/mobile/client-ref/{ref}` (H4) | `GET v1/app-vente/client-ref/{ref}` |
+  | `GET v1/mobile/catalogue/changements` (H5) | `GET v1/app-vente/catalogue/changements` |
+  | `POST/GET v1/mobile/ordonnances/corrections` (O4) | `POST/GET v1/app-vente/ordonnances/corrections` |
+  | `POST v1/mobile/ordonnances/lecture-avancee` (O5) | `POST v1/app-vente/ordonnances/lecture-avancee` |
+
+  L'en-tête `X-Client-Ref` (H4) sur `v1/vente/add/*` et `v1/retourfournisseur/new` ne change pas.
+- **`filter/AuthenticationFilter.java` n'est plus modifié** par aucun des 4 patchs. Sur la branche à jour, le préfixe
+  `v1/mobile/` est réservé à l'API mobile à jeton Bearer (`AuthenticationFilter`, `MobileRessource`) ; les anciennes
+  versions devaient y ajouter des exceptions. Les routes `v1/app-vente/` suivent simplement le contrôle de **session
+  habituel** (cookie, ou `X-User-Info`/`X-Token-Exp`), comme le reste de l'application (`v1/vente/…`). Sans session : 401.
+- **Pas de collision** : aucune ressource existante ne commence par `v1/app-vente` (la plus proche est
+  `v1/app-params`, chemin distinct) et le préfixe n'est pas dans `SKIP_PATHS` (aucun accès public).
+- **Migrations renumérotées** au-dessus de la dernière migration amont (`V6.9.132__types_etiquette_par_produit.sql`) :
+  `6.9.129.1 → 6.9.132.1` (H4), `6.9.129.2 → 6.9.132.2` (H5), `6.9.129.3 → 6.9.132.3` (O4), `6.9.129.4 → 6.9.132.4` (O5).
+  **Ces patchs n'ont encore été appliqués chez aucun client : aucune migration à défaire.** (Sur un serveur de test qui
+  aurait déjà joué les anciens numéros, les nouveaux scripts sont rejouables — `CREATE TABLE IF NOT EXISTS`, index
+  créés s'ils manquent — et Flyway est configuré avec `ignoreMissingMigrations(true)` : rien à faire.)
+- **Ordre d'application** (chaque patch s'applique sur le précédent) : **H4 → H5 → O4 → O5 → B3**, sur
+  `origin/claude/new-session-xm8ptu` à jour (`b9e03367`). `git apply --check` vérifié pour chacun, dans cet ordre,
+  sur `b9e03367` : H4 OK, H5 OK, O4 OK, O5 OK, puis `B3_paiements_mobile.patch` OK (B3 utilise ses propres routes
+  `v1/paiements-mobile/…`, indépendantes). Résultat identique, fichier pour fichier, aux branches locales de
+  vérification ; chaque étape compile (`mvn -o compile`, JDK 11). Branches locales (non poussées) :
+  `h4u2` `20e2ef0b`, `h5u2` `fc56cb7e`, `o4u2` `820ce988`, `o5u2` `35ce0172`.
+- **Application** : Prestige Mobile appelle d'abord `v1/app-vente/capacites`, puis, en repli, l'ancien
+  `v1/mobile/capacites` (serveur portant encore les anciens patchs) ; il utilise ensuite le préfixe de la route qui a
+  répondu. Si aucune ne répond (serveur non patché : 404, ou 401 « expire » de l'API à jeton), les fonctions restent
+  désactivées comme avant.
 
 ## 1. Quoi
 
 | Élément | Détail |
 |---|---|
-| Nouvelle route | `GET v1/mobile/catalogue/changements?depuis=<yyyy-MM-dd HH:mm:ss>[&jusqua=…]&start=0&limit=500` |
+| Nouvelle route | `GET v1/app-vente/catalogue/changements?depuis=<yyyy-MM-dd HH:mm:ss>[&jusqua=…]&start=0&limit=500` |
 | Réponse | `{success, depuis, serveurMaintenant, total, start, limit, data:[…]}` ; chaque élément = **la ligne exacte de `v1/vente/search`** (mêmes champs, mêmes valeurs) + `statut:"actif"`, ou `{lgFAMILLEID, statut:"supprime"}` si le produit ne sortirait plus dans la recherche de vente (désactivé, supprimé, plus de stock pour l'emplacement…). Tri par identifiant ; `limit` 500 par défaut, 2 000 au plus. |
 | Horloge | `serveurMaintenant` = `NOW()` de la base (celle qui date les modifications). Le téléphone repasse cette valeur en `jusqua` pour les pages suivantes (ensemble figé pendant la pagination), puis en `depuis` (moins 2 min de chevauchement) à la mise à jour suivante : **l'heure du téléphone n'intervient jamais**. |
 | Erreurs | `depuis` absent / illisible → 400 `{success:false, msg}` ; sans session → 401 (comme les autres routes). |
-| Capacité | `GET v1/mobile/capacites` → `{…, catalogueDelta:true, catalogueDeltaVersion:1, serveurMaintenant:"2026-10-10 23:20:01"}`. L'application n'utilise H5 que si `catalogueDelta:true`. |
-| Authentification | Session habituelle de l'application (cookie), comme `v1/vente/search` ; `v1/mobile/catalogue/…` est exclu du contrôle par jeton Bearer des autres chemins `v1/mobile/` (même principe que H4). Emplacement = celui de l'utilisateur connecté (comme la recherche). |
-| Migration | `V6.9.129.2__mobile_catalogue_delta.sql` : **uniquement des index** (aucune table, colonne ni donnée modifiée). |
+| Capacité | `GET v1/app-vente/capacites` → `{…, catalogueDelta:true, catalogueDeltaVersion:1, serveurMaintenant:"2026-10-10 23:20:01"}`. L'application n'utilise H5 que si `catalogueDelta:true`. |
+| Authentification | Session habituelle de l'application (cookie), comme `v1/vente/search` ; préfixe `v1/app-vente/`, aucune modification du filtre (voir § 0). Emplacement = celui de l'utilisateur connecté (comme la recherche). |
+| Migration | `V6.9.132.2__mobile_catalogue_delta.sql` : **uniquement des index** (aucune table, colonne ni donnée modifiée). |
 
 Fichiers du patch :
 
@@ -25,8 +61,8 @@ Fichiers du patch :
   identifiants de la page) ;
 - `src/main/java/rest/MobileCatalogueRessource.java` (nouveau) ;
 - `src/main/java/rest/MobileCapacitesRessource.java` : `catalogueDelta`, `catalogueDeltaVersion`, `serveurMaintenant` ;
-- `src/main/java/filter/AuthenticationFilter.java` : exclusion `v1/mobile/catalogue/` (une condition) ;
-- `src/main/resources/db/migration/V6.9.129.2__mobile_catalogue_delta.sql`.
+- `filter/AuthenticationFilter.java` : **non modifié** ;
+- `src/main/resources/db/migration/V6.9.132.2__mobile_catalogue_delta.sql`.
 
 ## 2. Pourquoi
 
@@ -81,8 +117,8 @@ Remarque : un traitement de nuit a touché 878 produits d'un coup le 07/10 à 02
 
 ## 4. Script SQL de migration (idempotent)
 
-Joué automatiquement par Flyway (`V6.9.129.2__mobile_catalogue_delta.sql`). Numéro intercalé après `6.9.129.1` (H4) :
-pas de collision avec la suite `6.9.130…` (`outOfOrder(true)`). Chaque index n'est créé que s'il manque
+Joué automatiquement par Flyway (`V6.9.132.2__mobile_catalogue_delta.sql`). Numéro `6.9.132.2` (anciennement `6.9.129.2`, voir
+§ 0), après `6.9.132.1` (H4) et la dernière migration amont `6.9.132`. Chaque index n'est créé que s'il manque
 (`information_schema.STATISTICS` + `PREPARE`, comme `V6.9.14`) :
 
 ```sql
@@ -98,31 +134,35 @@ Sur une très grosse table `HMvtProduit`, la création de l'index peut prendre q
 ## 5. Appliquer
 
 ```bash
-git checkout claude/new-session-xm8ptu        # ou la branche de travail
-git am /chemin/vers/docs/serveur/H4_client_ref.patch      # si pas déjà fait
-git am /chemin/vers/docs/serveur/H5_catalogue_delta.patch
+git checkout claude/new-session-xm8ptu        # à jour (b9e03367) ou la branche de travail
+git am docs/serveur/H4_client_ref.patch \
+       docs/serveur/H5_catalogue_delta.patch \
+       docs/serveur/O4_corrections_ordonnances.patch \
+       docs/serveur/O5_lecture_avancee.patch \
+       docs/serveur/B3_paiements_mobile.patch          # dans cet ordre ; s'arrêter au patch voulu
 mvn -DskipTests package                       # JDK 11
 asadmin redeploy --name prestige --contextroot prestige target/prestige.war
 ```
 
-Au démarrage : « Flyway migration completed », version `6.9.129.2` dans `flyway_schema_history`, et
+Au démarrage : « Flyway migration completed », version `6.9.132.2` dans `flyway_schema_history`, et
 `SHOW INDEX FROM t_famille WHERE Key_name = 'idx_famille_dt_updated'` répond une ligne.
-En cas de conflit `git am`, seuls points touchés dans des fichiers existants : la condition du filtre
-(`path.startsWith(CHEMIN_MOBILE) …`) et la méthode `capacites()`.
+En cas de conflit `git am`, seuls points touchés dans des fichiers existants : la méthode
+`capacites()` de `MobileCapacitesRessource` (fichier créé par H4).
 
 ## 6. Tester (curl)
 
 ```bash
 B=http://localhost:8080/prestige/api/v1
 curl -s -c cj -H 'Content-Type: application/json' -d '{"login":"admin","password":"…"}' $B/user/auth
-curl -s -b cj $B/mobile/capacites                    # {…,"catalogueDelta":true,"serveurMaintenant":"2026-10-10 23:20:01"}
-curl -s -b cj "$B/mobile/catalogue/changements?depuis=2026-10-10%2023:00:00&limit=5"
+curl -s -b cj $B/app-vente/capacites                    # {…,"catalogueDelta":true,"serveurMaintenant":"2026-10-10 23:20:01"}
+curl -s -b cj "$B/app-vente/catalogue/changements?depuis=2026-10-10%2023:00:00&limit=5"
 # → {"total":2,"serveurMaintenant":"…","data":[{"lgFAMILLEID":"…","intNUMBERAVAILABLE":10,…,"statut":"actif"},…]}
-curl -s -b cj "$B/mobile/catalogue/changements?depuis=hier"    # 400
-curl -s "$B/mobile/catalogue/changements?depuis=2026-10-10%2000:00:00"   # 401 (sans session)
+curl -s -b cj "$B/app-vente/catalogue/changements?depuis=hier"    # 400
+curl -s "$B/app-vente/catalogue/changements?depuis=2026-10-10%2000:00:00"   # 401 (sans session)
 ```
 
-**Vérifié sur le serveur de test** (10/10/2026), script `verif.py` + test d'intégration de l'application :
+**Vérifié sur le serveur de test** (10/10/2026, anciennes routes `v1/mobile/…` ; mêmes traitements, chemins seuls
+changés le 11/10), script `verif.py` + test d'intégration de l'application :
 
 | Cas | Résultat |
 |---|---|

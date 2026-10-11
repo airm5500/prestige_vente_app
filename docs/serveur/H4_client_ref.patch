@@ -1,4 +1,4 @@
-From f9532d96469e902341721e19c7f1620092ece9fb Mon Sep 17 00:00:00 2001
+From 20e2ef0b96a6e375673f9dfad860b5693f8d59bf Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sat, 10 Oct 2026 22:55:23 +0000
 Subject: [PATCH] =?UTF-8?q?Prestige=20Mobile=20H4=20:=20cl=C3=A9=20client?=
@@ -13,59 +13,35 @@ Content-Transfer-Encoding: 8bit
   y compris pour des envois simultanés (clé primaire posée dans la même transaction que la création).
 - Création refusée ou en erreur : tout est annulé, la clé n'est pas gardée.
 - Sans en-tête, ou table absente : comportement d'origine inchangé.
-- GET v1/mobile/client-ref/{ref} : {type, id, reference, statut} ou 404 ; GET v1/mobile/capacites :
-  {clientRef: true}. Ces deux chemins suivent la session habituelle (pas le jeton Bearer des autres v1/mobile).
-- Migration V6.9.129.1 (numéro intercalé, sans collision avec la suite 6.9.x) : table mobile_client_ref (CREATE TABLE IF NOT EXISTS, aucune table existante modifiée).
+- GET v1/app-vente/client-ref/{ref} : {type, id, reference, statut} ou 404 ; GET v1/app-vente/capacites :
+  {clientRef: true}. Préfixe v1/app-vente/ distinct de v1/mobile/ (réservé à l'API à jeton Bearer) :
+  session habituelle (cookie), AUCUNE modification de filter.AuthenticationFilter.
+- SalesRessource : l'injection MobileClientRefService s'ajoute à côté du suivi des tickets lents
+  (SuiviImpressionTicket, login()) de l'amont, conservé tel quel.
+- Migration V6.9.132.1 (au-dessus de la dernière migration amont V6.9.132) : table mobile_client_ref
+  (CREATE TABLE IF NOT EXISTS, aucune table existante modifiée).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01DmdojchP92w3JjfyVDXDv5
 ---
- .../java/filter/AuthenticationFilter.java     |   9 +-
- .../java/rest/MobileCapacitesRessource.java   |  34 +++
- .../java/rest/MobileClientRefRessource.java   |  46 ++++
+ .../java/rest/MobileCapacitesRessource.java   |  35 +++
+ .../java/rest/MobileClientRefRessource.java   |  47 ++++
  .../java/rest/RetourFournisseurRessource.java |  27 +-
- src/main/java/rest/SalesRessource.java        |  50 +++-
+ src/main/java/rest/SalesRessource.java        |  51 +++-
  .../mobile/MobileClientRefService.java        | 233 ++++++++++++++++++
- .../V6.9.129.1__mobile_client_ref.sql         |  14 ++
- 7 files changed, 400 insertions(+), 13 deletions(-)
+ .../V6.9.132.1__mobile_client_ref.sql         |  14 ++
+ 6 files changed, 395 insertions(+), 12 deletions(-)
  create mode 100644 src/main/java/rest/MobileCapacitesRessource.java
  create mode 100644 src/main/java/rest/MobileClientRefRessource.java
  create mode 100644 src/main/java/rest/service/mobile/MobileClientRefService.java
- create mode 100644 src/main/resources/db/migration/V6.9.129.1__mobile_client_ref.sql
+ create mode 100644 src/main/resources/db/migration/V6.9.132.1__mobile_client_ref.sql
 
-diff --git a/src/main/java/filter/AuthenticationFilter.java b/src/main/java/filter/AuthenticationFilter.java
-index 8296f72..0fecb40 100644
---- a/src/main/java/filter/AuthenticationFilter.java
-+++ b/src/main/java/filter/AuthenticationFilter.java
-@@ -53,6 +53,13 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
- 
-     private static final String CHEMIN_MOBILE = "v1/mobile/";
-     private static final String CONNEXION_MOBILE = "v1/mobile/connexion";
-+    /*
-+     * H4 (Prestige Mobile) : relecture par cle client et capacites. Appeles par l'application de vente avec sa session
-+     * habituelle (cookie), comme les routes de creation de vente : ils suivent donc le controle de session ci-dessous
-+     * et non celui du jeton Bearer des autres chemins v1/mobile/.
-+     */
-+    private static final String CLIENT_REF_MOBILE = "v1/mobile/client-ref/";
-+    private static final String CAPACITES_MOBILE = "v1/mobile/capacites";
- 
-     @Inject
-     private HttpServletRequest servletRequest;
-@@ -79,7 +86,7 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
-          * L13 : les nouveaux chemins des telephones exigent le jeton signe, et rien d'autre (ni session, ni
-          * X-User-Info). Les chemins mobiles existants ne passent pas ici : leur fonctionnement est inchange.
-          */
--        if (path.startsWith(CHEMIN_MOBILE)) {
-+        if (path.startsWith(CHEMIN_MOBILE) && !path.startsWith(CLIENT_REF_MOBILE) && !CAPACITES_MOBILE.equals(path)) {
-             if (!CONNEXION_MOBILE.equals(path)) {
-                 String a = requestContext.getHeaderString("Authorization");
-                 TUser u = a != null && a.startsWith("Bearer ")
 diff --git a/src/main/java/rest/MobileCapacitesRessource.java b/src/main/java/rest/MobileCapacitesRessource.java
 new file mode 100644
-index 0000000..df41719
+index 00000000..e39d9f1d
 --- /dev/null
 +++ b/src/main/java/rest/MobileCapacitesRessource.java
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,35 @@
 +package rest;
 +
 +import javax.ejb.EJB;
@@ -79,13 +55,14 @@ index 0000000..df41719
 +
 +/**
 + * Capacites du serveur pour Prestige Mobile : l'application n'utilise une evolution du serveur que si celui-ci
-+ * l'annonce ici (un ancien serveur repond 401/404 : l'application garde alors son fonctionnement d'origine).
++ * l'annonce ici (un ancien serveur repond 401/404 : l'application garde alors son fonctionnement d'origine). Prefixe
++ * {@code v1/app-vente/} : session habituelle (cookie), sans exception dans filter.AuthenticationFilter.
 + * <p>
 + * {@code clientRef} (H4) : en-tete {@code X-Client-Ref} pris en compte sur {@code v1/vente/add/vno},
 + * {@code v1/vente/add/assurance}, {@code v1/vente/add/depot} et {@code v1/retourfournisseur/new}, et relecture par
-+ * {@code GET v1/mobile/client-ref/{ref}}. Faux si la table mobile_client_ref n'existe pas.
++ * {@code GET v1/app-vente/client-ref/{ref}}. Faux si la table mobile_client_ref n'existe pas.
 + */
-+@Path("v1/mobile/capacites")
++@Path("v1/app-vente/capacites")
 +@Produces(MediaType.APPLICATION_JSON)
 +public class MobileCapacitesRessource {
 +
@@ -102,10 +79,10 @@ index 0000000..df41719
 +}
 diff --git a/src/main/java/rest/MobileClientRefRessource.java b/src/main/java/rest/MobileClientRefRessource.java
 new file mode 100644
-index 0000000..e32f9ff
+index 00000000..3869d54c
 --- /dev/null
 +++ b/src/main/java/rest/MobileClientRefRessource.java
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,47 @@
 +package rest;
 +
 +import java.util.Optional;
@@ -122,13 +99,14 @@ index 0000000..e32f9ff
 +/**
 + * H4 (Prestige Mobile) : relecture d'une creation faite avec l'en-tete {@code X-Client-Ref}.
 + * <p>
-+ * {@code GET v1/mobile/client-ref/{ref}} : {@code {success, type, id, reference, statut}} ou 404 si la cle est inconnue
-+ * (la creation n'a jamais eu lieu : le telephone peut la renvoyer sans risque de doublon).
++ * {@code GET v1/app-vente/client-ref/{ref}} : {@code {success, type, id, reference, statut}} ou 404 si la cle est
++ * inconnue (la creation n'a jamais eu lieu : le telephone peut la renvoyer sans risque de doublon).
 + * <p>
-+ * Authentification : session habituelle de l'application (cookie), comme les routes de vente ; voir
-+ * filter.AuthenticationFilter (ces chemins ne demandent pas le jeton Bearer des autres chemins v1/mobile).
++ * Authentification : session habituelle de l'application (cookie), comme les routes de vente. Le prefixe
++ * {@code v1/app-vente/} est volontairement distinct de {@code v1/mobile/} (reserve a l'API a jeton Bearer) : aucune
++ * exception n'est ajoutee a filter.AuthenticationFilter.
 + */
-+@Path("v1/mobile/client-ref")
++@Path("v1/app-vente/client-ref")
 +@Produces(MediaType.APPLICATION_JSON)
 +public class MobileClientRefRessource {
 +
@@ -153,7 +131,7 @@ index 0000000..e32f9ff
 +    }
 +}
 diff --git a/src/main/java/rest/RetourFournisseurRessource.java b/src/main/java/rest/RetourFournisseurRessource.java
-index cccd6d7..832a942 100644
+index 41a650d8..069a15a3 100644
 --- a/src/main/java/rest/RetourFournisseurRessource.java
 +++ b/src/main/java/rest/RetourFournisseurRessource.java
 @@ -16,6 +16,7 @@ import javax.servlet.http.HttpSession;
@@ -181,7 +159,7 @@ index cccd6d7..832a942 100644
      private rest.service.MvtProduitService mvtProduitService;
      @EJB
      private rest.service.InventaireService inventaireService;
-@@ -144,9 +148,26 @@ public class RetourFournisseurRessource {
+@@ -151,9 +155,26 @@ public class RetourFournisseurRessource {
  
      @POST
      @Path("new")
@@ -212,7 +190,7 @@ index cccd6d7..832a942 100644
              return Response.ok().entity(ResultFactory.getSuccessResult(data, 1)).build();
          }
 diff --git a/src/main/java/rest/SalesRessource.java b/src/main/java/rest/SalesRessource.java
-index a5c3fc9..ddc408b 100644
+index c11d3454..a8472ee7 100644
 --- a/src/main/java/rest/SalesRessource.java
 +++ b/src/main/java/rest/SalesRessource.java
 @@ -20,6 +20,7 @@ import javax.servlet.http.HttpSession;
@@ -231,19 +209,20 @@ index a5c3fc9..ddc408b 100644
  import util.CommonUtils;
  
  import util.Constant;
-@@ -60,6 +62,11 @@ public class SalesRessource {
-     SmsService smsService;
-     @EJB
-     private job.SupportClotureMonitor supportClotureMonitor;
+@@ -73,6 +75,12 @@ public class SalesRessource {
+         return u == null ? "" : u.getStrLOGIN();
+     }
+ 
 +    @EJB
 +    private MobileClientRefService mobileClientRefService;
 +
 +    /** H4 : cle client anti-doublon envoyee par Prestige Mobile (facultative). */
 +    static final String X_CLIENT_REF = "X-Client-Ref";
- 
++
      @POST
      @Path("ticket/vno")
-@@ -119,20 +126,44 @@ public class SalesRessource {
+     public Response getTicket(ClotureVenteParams clotureVenteParams) throws JSONException {
+@@ -135,20 +143,44 @@ public class SalesRessource {
  
      @POST
      @Path("add/vno")
@@ -294,7 +273,7 @@ index a5c3fc9..ddc408b 100644
      }
  
      @POST
-@@ -463,7 +494,8 @@ public class SalesRessource {
+@@ -479,7 +511,8 @@ public class SalesRessource {
  
      @POST
      @Path("add/depot")
@@ -304,7 +283,7 @@ index a5c3fc9..ddc408b 100644
          HttpSession hs = servletRequest.getSession();
          TUser tu = (TUser) hs.getAttribute(Constant.AIRTIME_USER);
  
-@@ -471,8 +503,8 @@ public class SalesRessource {
+@@ -487,8 +520,8 @@ public class SalesRessource {
          params.setDepot(true);
          params.setTypeVenteId((params.getTypeDepoId().equals("1") ? "4" : "5"));
          params.setStatut(Constant.STATUT_IS_PROGRESS);
@@ -317,7 +296,7 @@ index a5c3fc9..ddc408b 100644
      @POST
 diff --git a/src/main/java/rest/service/mobile/MobileClientRefService.java b/src/main/java/rest/service/mobile/MobileClientRefService.java
 new file mode 100644
-index 0000000..ac77e41
+index 00000000..8cfc113c
 --- /dev/null
 +++ b/src/main/java/rest/service/mobile/MobileClientRefService.java
 @@ -0,0 +1,233 @@
@@ -430,7 +409,7 @@ index 0000000..ac77e41
 +        }
 +        tableVerifieeA = now;
 +        if (!tablePresente) {
-+            LOG.warning("Table mobile_client_ref absente : X-Client-Ref ignore (migration V6.9.129.1 non passee).");
++            LOG.warning("Table mobile_client_ref absente : X-Client-Ref ignore (migration V6.9.132.1 non passee).");
 +        }
 +        return tablePresente;
 +    }
@@ -554,11 +533,11 @@ index 0000000..ac77e41
 +        return o == null ? null : o.toString();
 +    }
 +}
-diff --git a/src/main/resources/db/migration/V6.9.129.1__mobile_client_ref.sql b/src/main/resources/db/migration/V6.9.129.1__mobile_client_ref.sql
+diff --git a/src/main/resources/db/migration/V6.9.132.1__mobile_client_ref.sql b/src/main/resources/db/migration/V6.9.132.1__mobile_client_ref.sql
 new file mode 100644
-index 0000000..0dae3b4
+index 00000000..0dae3b40
 --- /dev/null
-+++ b/src/main/resources/db/migration/V6.9.129.1__mobile_client_ref.sql
++++ b/src/main/resources/db/migration/V6.9.132.1__mobile_client_ref.sql
 @@ -0,0 +1,14 @@
 +-- H4 (Prestige Mobile) : cle client anti-doublon des creations faites depuis le telephone.
 +-- Une ligne par creation (vente ou retour fournisseur) envoyee avec l'en-tete HTTP X-Client-Ref.

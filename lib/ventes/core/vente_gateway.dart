@@ -15,6 +15,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
 import 'package:prestige_vente_app/horsligne/client_ref.dart';
+import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
@@ -176,14 +177,19 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
 
   @override
   Future<bool> clientRefSupporte() => CapaciteClientRef.verifier(_dio.options.baseUrl, () async {
-        final r = await _dio.get('/mobile/capacites', options: Options(validateStatus: (_) => true));
-        return CapaciteClientRef.depuisReponse(r.statusCode ?? 0, r.data);
+        // /app-vente/capacites, repli sur l'ancien /mobile/capacites (voir routes_app_vente.dart).
+        final r = await RoutesAppVente.lireCapacites(_dio.options.baseUrl, (chemin) async {
+          final x = await _dio.get(chemin, options: Options(validateStatus: (_) => true));
+          return (status: x.statusCode ?? 0, body: x.data);
+        });
+        return CapaciteClientRef.depuisReponse(r.status, r.body);
       });
 
   @override
   Future<VenteResult<ClientRefInfo?>> lireClientRef(String ref) async {
     try {
-      final r = await _dio.get('/mobile/client-ref/${Uri.encodeComponent(ref)}', options: Options(validateStatus: (_) => true));
+      final chemin = RoutesAppVente.clientRef(ref, RoutesAppVente.prefixePour(_dio.options.baseUrl));
+      final r = await _dio.get(chemin, options: Options(validateStatus: (_) => true));
       return clientRefDepuisReponse(r.statusCode ?? 0, r.data);
     } on DioException catch (e) {
       return VenteFailed(_networkMessage(e, 'relire la création'));
