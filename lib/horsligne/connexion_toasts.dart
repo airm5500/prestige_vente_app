@@ -6,6 +6,7 @@
 // Rien au démarrage ; rien quand l'utilisateur passe lui-même hors ligne (interrupteur des Réglages).
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 
 class ConnexionToasts extends StatefulWidget {
@@ -72,6 +73,8 @@ class _ConnexionToastsState extends State<ConnexionToasts> {
   }
 
   void _montrer(String texte, Color couleur, IconData icon, Key key) {
+    // Borne libre-service ouverte : aucun message de l'appli (la borne gère son propre écran).
+    if (HorsLigneScope.masquer.value) return;
     final m = widget.messengerKey?.currentState ?? ScaffoldMessenger.maybeOf(context);
     if (m == null) return;
     m.hideCurrentSnackBar();

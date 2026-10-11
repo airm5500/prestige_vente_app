@@ -13,6 +13,8 @@ class MainActivity : FlutterActivity() {
         SunmiFingerprintBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         // Badges NFC (pointage) : lecteur actif seulement quand l'écran de pointage le demande.
         nfc = NfcBadgeBridge(this, flutterEngine.dartExecutor.binaryMessenger)
+        // Borne libre-service (B1) : épinglage d'écran, seulement quand la borne le demande.
+        KiosqueBridge(this, flutterEngine.dartExecutor.binaryMessenger)
     }
 
     override fun onResume() {

@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:prestige_vente_app/borne/borne_launcher.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
@@ -52,6 +53,14 @@ class _SplashScreenState extends State<SplashScreen> {
       LicenceStatus status = await licenceProvider.checkLicence();
 
       if (!mounted) return;
+
+      // Borne libre-service (B1) active sur cet appareil : ouverture directe de la borne
+      // (connexion de l'utilisateur borne ; serveur injoignable = « borne momentanément indisponible »).
+      if (BorneLauncher.auDemarrage && (status == LicenceStatus.valid || status == LicenceStatus.error)) {
+        Provider.of<AuthProvider>(context, listen: false).updateApiService(apiService);
+        BorneLauncher.ouvrir(context);
+        return;
+      }
 
       if (status == LicenceStatus.valid) {
         // --- CAS 1 : LICENCE VALIDE ---
