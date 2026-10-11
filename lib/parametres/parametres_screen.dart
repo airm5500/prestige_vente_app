@@ -21,6 +21,8 @@ import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/splash_screen.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
+import 'package:prestige_vente_app/support/support_centre.dart';
+import 'package:prestige_vente_app/support/support_page.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -255,6 +257,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
       rows.add(_row(r, summary, _unavailable(r, auth), selected: split && r == _selected));
     }
     final showLogout = connected && rubriqueMatchesText('se deconnecter deconnexion quitter sortir', query);
+    if (rubriqueMatchesText('centre de support signaler un probleme anomalie erreur bug envoi automatique', query)) rows.add(_supportRow());
     final list = _list(rows, connected, showLogout, query);
 
     return Scaffold(
@@ -286,6 +289,42 @@ class _ParametresScreenState extends State<ParametresScreen> {
           : ContentWidth(child: list),
     );
   }
+
+  /// Centre de support : envoi automatique des anomalies, « Signaler un problème ».
+  Widget _supportRow() => Material(
+        color: Colors.white,
+        child: InkWell(
+          key: const Key('reglages_support'),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SupportPage(adminCheck: (_) => _adminOk()))),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 64),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEEF1F5)))),
+            child: Row(children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: const Color(0xFFE3ECF7), borderRadius: BorderRadius.circular(11)),
+                child: const Icon(Icons.support_agent, color: Pal.navy, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Centre de support', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: Pal.ink)),
+                  const SizedBox(height: 2),
+                  Text(
+                      'Signaler un problème · envoi automatique ${SupportCentre.instance.envoiAuto ? 'activé' : 'désactivé'}'
+                      '${SupportCentre.instance.enAttente > 0 ? ' · ${SupportCentre.instance.enAttente} en attente' : ''}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
+                ]),
+              ),
+              const Icon(Icons.chevron_right, color: Pal.muted),
+            ]),
+          ),
+        ),
+      );
 
   Widget _list(List<Widget> rows, bool connected, bool showLogout, String query) => SafeArea(
         top: false,

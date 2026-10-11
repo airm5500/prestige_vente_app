@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_ui.dart';
 import 'package:prestige_vente_app/horsligne/ventes_hors_ligne_screen.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
+import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:provider/provider.dart';
 
 enum BandeauHorsLigne { injoignable, horsLigne, retour, envoi, enAttente, aVerifier }
@@ -80,6 +81,9 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     if (connecte == _connecte) return;
     _connecte = connecte;
     if (connecte) {
+      // Centre de support : nouvelle session (compteurs anti-tempête), puis anomalies gardées renvoyées.
+      SupportCentre.instance.nouvelleSession(user.login);
+      SupportCentre.instance.renvoyer();
       // Historique au-delà de la durée de conservation (90 jours par défaut) : purge automatique.
       _bound.purgerHistorique().then((_) => _stock.queue.purger(JournalTerminal.instance.limiteConservation)).catchError((_) => 0);
       // Après la connexion : copie mise à jour si elle a plus de 12 h, puis toutes les 30 min.
@@ -90,6 +94,7 @@ class _HorsLigneScopeState extends State<HorsLigneScope> {
     } else {
       _bound.sync.stopAuto();
       JournalTerminal.instance.utilisateur = '';
+      SupportCentre.instance.login = '';
     }
   }
 

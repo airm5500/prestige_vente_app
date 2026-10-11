@@ -17,6 +17,8 @@ import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/horsligne/ventes_sync.dart';
+import 'package:prestige_vente_app/support/support_capture.dart';
+import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -57,7 +59,11 @@ class HorsLigne {
     final avant = _etat;
     _etat = monitor.etat;
     if (_etat != avant) _journalEtat(avant);
-    if (_etat == EtatServeur.enLigne && avant != EtatServeur.enLigne) ventes.demanderConfirmation();
+    if (_etat == EtatServeur.enLigne && avant != EtatServeur.enLigne) {
+      ventes.demanderConfirmation();
+      // Centre de support : anomalies gardées pendant la coupure, renvoyées au retour.
+      SupportCentre.instance.renvoyer();
+    }
   }
 
   /// Passage en / hors ligne noté dans le journal du terminal.
@@ -139,6 +145,7 @@ class HorsLigne {
       dio.interceptors.add(JournalInterceptor(fileEnCours: () => HorsLigne.instance.ventes.running));
     }
     JournalTerminal.instance.horsLigne = () => HorsLigne.instance.offline;
+    _bindSupport(dio);
     monitor.ping ??= _ping;
     sync.fetch ??= _fetch;
     // H5 : mise à jour différentielle du catalogue si le serveur l'annonce (GET /mobile/capacites).
@@ -149,6 +156,23 @@ class HorsLigne {
   }
 
   String get _baseUrl => _api?.dio.options.baseUrl ?? '';
+
+  DioSupportEnvoi? _supportEnvoi;
+  String? _supportUrl;
+
+  /// Centre de support (s'il est en service) : fil d'Ariane / échecs HTTP de l'app, envoi par la session de l'app.
+  void _bindSupport(Dio dio) {
+    final support = SupportCentre.instance;
+    if (!support.actif) return;
+    if (!dio.interceptors.any((i) => i is SupportInterceptor)) dio.interceptors.add(SupportInterceptor());
+    support.horsLigne = () => HorsLigne.instance.offline;
+    final url = _baseUrl;
+    if (_supportUrl != null && _supportUrl != url) support.serveurChange();
+    _supportUrl = url;
+    final envoi = _supportEnvoi ??= DioSupportEnvoi(() => _baseUrl);
+    support.envoi ??= envoi.call;
+    support.contact ??= envoi.contacter;
+  }
 
   /// GET /officine, délai court, sans journal ni session.
   Future<bool> _ping() async {

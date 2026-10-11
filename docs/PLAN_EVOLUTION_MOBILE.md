@@ -598,3 +598,70 @@ sur le téléphone le montre meilleur que la référence.**
 - Le serveur cherche « commence par » (`LIKE 'texte%'`) et **accepte le joker `%`** : `%1000MG` trouve 26 produits contenant « 1000MG », `DOLI% 1000` trouve « DOLIPRANE 1000MG… », en 0,03 s.
 - Vrai pour les **produits**, les **clients** (assurance et carnet) et les **tiers payants**.
 - ⇒ L'option « Contient » est possible **sans modifier le serveur** : l'appli ajoute `%` devant et entre les mots. En « Commence par », les caractères `%` et `_` tapés par l'utilisateur sont neutralisés.
+
+## 8. Centre de support : envoi des anomalies de l'app mobile (réalisé, sans modification du serveur)
+
+L'app utilise **l'API existante** du centre de support, telle quelle (exigence du client : aucune modification du serveur) :
+`POST /api/v1/support/events` (`SupportEventRessource.collect`), avec **la session de l'app** (cookie obtenu par `/user/auth`).
+Le serveur ajoute lui-même l'utilisateur, l'IP et le poste ; il déduplique par signature
+(`type|module|message (chiffres → #)|1ʳᵉ ligne de la pile|écran`), crée les tickets automatiques (FATAL, ou ERROR au-delà
+du seuil `SUPPORT_AUTO_TICKET_SEUIL`) et envoie les e-mails : les événements du mobile sont donc traités **exactement comme
+ceux de l'application web**. Code : `lib/support/`.
+
+### 8.1 Ce qui est envoyé (même format que le web)
+| Origine | type | niveau | module | messageCourt | urlOuEcran | stack |
+|---|---|---|---|---|---|---|
+| Erreur Flutter non gérée (`FlutterError.onError`, `PlatformDispatcher.onError`) | `MOBILE` (texte libre ≤ 50 accepté par le serveur, défaut « AUTRE ») | ERROR (WARN pour un débordement de mise en page) | module de l'écran (VENTE, STOCK, POINTAGE, HORS_LIGNE) sinon MOBILE | 1ʳᵉ ligne de l'exception | nom de l'écran (ex. `VenteScreen`) | exception + pile |
+| Échec HTTP inattendu (intercepteur Dio) — format `AJAX` du web | `AJAX` | ERROR si ≥ 500, sinon WARN | module du chemin (VENTE, STOCK…) sinon MOBILE | `Échec Ajax HTTP <code> <libellé>` | chemin de l'URL **sans paramètres** | corps de la réponse filtré (JSON réduit à `success/msg/message/error/status/code`, HTML sans balises) |
+| Refus à l'envoi d'une file hors ligne (rapport d'anomalies H2 ventes / H3 stock) — format `VenteCtr.signalerReponsePerdue` | `APPLICATION` | WARN | VENTE / STOCK | `Synchronisation hors ligne : <quoi> refusé(e) (<nature>)` | `SYNCHRO ventes hors ligne` / `SYNCHRO stock hors ligne` | motif du serveur |
+| Signalement manuel | `APPLICATION` | gravité choisie (INFO / WARN / ERROR) | module choisi | objet saisi | écran d'où le problème est signalé | description |
+
+Non signalés : les **401** (session expirée), les **échecs réseau purs** (aucune réponse, délai, annulation / doublon bloqué),
+les appels **du support lui-même** (`/support/events`, `/support-contact`) ; un échec d'envoi n'est **jamais** re-signalé
+(Dio dédié sans les intercepteurs de l'app, mêmes cookies).
+
+`payloadJson` (chaîne JSON ≤ 4000, toujours valide : le fil d'Ariane est raccourci en premier) : données métier
+(`vente` ou `operation`, `issue`, `explication` pour la synchro ; `signalement`, `objet` pour le manuel) +
+`application` « Prestige Mobile », `version` (= pubspec, vérifié par test), `terminal` {`id` T-XXXXXX du journal du
+terminal, `modele`}, `utilisateur` (login), `ecran`, `fil_ariane` (15 dernières actions « HH:mm:ss  Écran X » /
+« HH:mm:ss  API GET /prestige/api/v1/… », ≤ 200 caractères, **sans paramètres**). Bornes du serveur appliquées côté app :
+messageCourt 500, urlOuEcran 255, stack 4000, payloadJson 4000.
+
+### 8.2 Données sensibles (filtrées avant tout envoi)
+Mots de passe / PIN, jetons, cookies / JSESSIONID, en-têtes `Authorization` / `Bearer`, e-mails, n° de téléphone ou de
+sécurité sociale (9 à 15 chiffres ; les identifiants techniques plus longs restent lisibles) ; aucune donnée patient /
+ordonnance : paramètres d'URL retirés (une recherche peut porter un nom), corps de réponse réduit au message du serveur,
+synchro hors ligne sans nom du client ni n° de bon (masqués `***`).
+
+### 8.3 Fiabilité et anti-tempête
+- Comme le web : **20 envois automatiques au plus par session** (remis à zéro à la connexion) et jamais deux fois la même
+  paire `messageCourt|urlOuEcran` ; en plus **30 par heure** au plus. Les signalements manuels ne sont pas limités.
+- **File locale** (SharedPreferences, 50 événements, 7 jours) : hors ligne, session absente, erreur 5xx → gardé et
+  **renvoyé au retour en ligne et à la connexion** (arrêt au premier échec, abandon après 8 essais).
+- **Serveur sans la route** (version plus ancienne, HTTP 404) : envoi automatique suspendu proprement pour cette session
+  (noté une fois au journal du terminal), **file conservée** ; nouvel essai au redémarrage, au changement de serveur ou
+  par « Renvoyer maintenant ».
+- Journal du terminal : nouveau type « Centre de support », résultat « Info » (transmis / en attente / route absente /
+  réglage modifié).
+
+### 8.4 Écrans
+- **« Signaler un problème »** : menu ⋮ de l'accueil et Réglages › Centre de support. Objet (obligatoire), description,
+  module (proposé d'après l'écran), gravité (Information / Gênant / Bloquant = INFO / WARN / ERROR), case « Joindre le
+  contexte technique » (cochée). Confirmation à l'utilisateur (« transmis » ou « gardé sur le terminal »).
+  Option « Être recontacté par le support » : demande de contact `POST /prestige/support-contact` (multipart, API existante
+  `SupportContactServlet` : objet, message, moduleConcerne, urgence BASSE / MOYENNE / HAUTE, `pieceJointe1` = capture choisie
+  dans la galerie ≤ 10 Mo ; réponse text/html contenant le JSON `{success, msg}` avec la référence de la demande).
+- **Réglages › Centre de support** : « Envoyer automatiquement les anomalies au centre de support » (**activé par défaut**,
+  comme le web ; modification protégée par le **code administrateur**), état de la file, « Renvoyer maintenant ».
+
+### 8.5 Vérification sur le serveur de test (sans redéploiement)
+- La route `POST /api/v1/support/events` existe sur la version déployée (GET de la liste : 200).
+- Envoi réel depuis le code de l'app (Dio + session admin) : 3 événements enregistrés dans `t_application_event`
+  (MOBILE / ERROR / VENTE, AJAX / WARN 404, APPLICATION / WARN synchro) avec l'utilisateur ajouté par le serveur
+  (« Super Admin (admin) [IP … - poste …] »), payloadJson complet, accents corrects ; **deux erreurs ne différant que par un
+  chiffre fusionnées** (occurrences = 2) ; sans session : réponse « Veuillez vous connecter » → événement gardé ; route
+  absente (404) détectée. Événements, occurrences et fichiers de log d'essai supprimés ensuite.
+- La demande de contact (`/support-contact`) n'a pas été envoyée au serveur de test (elle crée une demande et envoie un
+  e-mail) : format vérifié par test sur faux serveur.
+
+Tests : `test/support_centre_test.dart` (ligne 32 du workflow) ; branchement H2 vérifié dans `test/horsligne_ventes_test.dart`.

@@ -39,6 +39,9 @@ import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
+import 'package:prestige_vente_app/support/support_capture.dart';
+import 'package:prestige_vente_app/support/support_centre.dart';
+import 'package:prestige_vente_app/support/support_file.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,6 +53,10 @@ Future<void> main() async {
   JournalTerminal.instance = JournalTerminal.app(HorsLigne.instance.store);
   await JournalTerminal.chargerReglages();
   await JournalTerminal.instance.chargerIdentite(materiel: FingerprintService.hardwareInfo);
+  // Centre de support : file locale des anomalies, réglage d'envoi automatique, capture des erreurs Flutter.
+  SupportCentre.instance = SupportCentre(file: PrefsSupportFileStore());
+  await SupportCentre.instance.chargerReglage();
+  installerCaptureErreurs();
   runApp(const MyApp());
 }
 
@@ -173,6 +180,8 @@ class MyApp extends StatelessWidget {
         title: 'Prestige Vente',
         // Navigateur global : le bandeau hors ligne ouvre « Ventes hors ligne ».
         navigatorKey: HorsLigne.navigatorKey,
+        // Centre de support : écran courant et fil d'Ariane des écrans.
+        navigatorObservers: [SupportNavigatorObserver()],
         theme: AppTheme.lightTheme,
         // Tablette : fenêtres de dialogue à largeur raisonnable (téléphone inchangé).
         debugShowCheckedModeBanner: false,
