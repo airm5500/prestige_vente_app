@@ -17,6 +17,8 @@ import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart' show TicketReglement;
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
+import 'package:prestige_vente_app/paiements/attente_paiement_screen.dart';
+import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/ventes/core/paiement_multiple.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart' show maxReglements;
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -103,6 +105,9 @@ class EncaissementPage extends StatefulWidget {
   /// Hors ligne : avertissement affiché en tête ; les modes fournis ne sont pas filtrés par les Réglages.
   final String? horsLigneNote;
 
+  /// B3 : paiement par QR mobile money (agrégateur) ; null : celui de l'appli (désactivé par défaut).
+  final PaiementsMobile? paiementsMobile;
+
   const EncaissementPage({
     super.key,
     this.controller,
@@ -117,6 +122,7 @@ class EncaissementPage extends StatefulWidget {
     this.totalLabel = 'Total à payer',
     this.stepsHeader,
     this.horsLigneNote,
+    this.paiementsMobile,
   }) : assert(controller != null || actions != null);
 
   @override
@@ -187,7 +193,44 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
       } catch (_) {}
     }
     _loadMethods();
+    _chargerMobile();
   }
+
+  // --- B3 : paiement par QR mobile money (agrégateur) ----------------------------
+  /// Opérateurs proposés par le serveur (vide : réglage désactivé, hors ligne ou serveur sans module).
+  List<String> _opsMobile = const [];
+  PaiementsMobile get _pm => widget.paiementsMobile ?? PaiementsMobile.instance;
+
+  Future<void> _chargerMobile() async {
+    if (widget.horsLigneNote != null || widget.summary.venteId.isEmpty) return;
+    final o = await _pm.operateurs();
+    if (mounted && o.isNotEmpty) setState(() => _opsMobile = o);
+  }
+
+  /// Opérateur proposable pour ce mode (null : bouton masqué, écran d'origine).
+  String? _opMobile(PaymentMethod m) {
+    final op = operateurDuMode(m.id);
+    return op != null && _opsMobile.contains(op) && widget.horsLigneNote == null ? op : null;
+  }
+
+  Future<PaiementMobile?> _payerParQr(String op, int? part) async {
+    final api = _pm.api;
+    if (api == null || _busy) return null;
+    final exp = _pm.capacitesConnues?.expirationMin ?? 10;
+    return Navigator.of(context).push<PaiementMobile>(MaterialPageRoute(
+      builder: (_) => AttentePaiementScreen(api: api, venteId: widget.summary.venteId, operateur: op, part: part, delai: Duration(minutes: exp)),
+    ));
+  }
+
+  Widget _boutonQr(String op, String cle, Future<void> Function() onTap) => Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: OutlinedButton.icon(
+          key: ValueKey(cle),
+          onPressed: _busy ? null : onTap,
+          icon: const Icon(Icons.qr_code_2),
+          label: Text('Payer par QR / lien ${nomOperateur[op] ?? op}'),
+        ),
+      );
 
   @override
   void dispose() {
@@ -845,6 +888,13 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
           Expanded(child: Text('Reçu : ${_f(l.montant)} par ${l.method.name}', style: const TextStyle(fontSize: 14, color: Pal.ink))),
         ]),
       ),
+      // B3 : la part mobile money payée par QR (montant contrôlé par le serveur) coche « Reçu » automatiquement.
+      if (!l.confirme && l.montant > 0)
+        if (_opMobile(l.method) case final op?)
+          _boutonQr(op, 'pm-qr-$id', () async {
+            final paye = await _payerParQr(op, l.montant);
+            if (paye != null && mounted) setState(() => p.setConfirme(i, true));
+          }),
     ]);
   }
 
@@ -1040,6 +1090,12 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
           Text('Encaissez le montant par ${m.name}, puis validez.', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
         const SizedBox(height: 2),
         Text('${m.name} · ${Constants.formatNumber(_net)} F', textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted)),
+        // B3 : QR du montant exact, confirmation automatique, puis encaissement comme d'habitude.
+        if (_opMobile(m) case final op?)
+          _boutonQr(op, 'pm-qr-unique', () async {
+            final p = await _payerParQr(op, null);
+            if (p != null && mounted) await _validate(m);
+          }),
       ]),
     );
   }

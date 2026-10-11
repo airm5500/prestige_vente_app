@@ -16,9 +16,24 @@ class BorneTicket {
   /// 'QR_CODE' ou 'BARCODE' (réglage Impression).
   final String codeType;
   final int largeur;
-  const BorneTicket({required this.officine, required this.prevente, this.discret = false, this.codeType = 'QR_CODE', this.largeur = 58});
+
+  /// B3 : vente payée par mobile money (nom de l'opérateur) ; null : prévente à payer en caisse.
+  final String? payePar;
+  const BorneTicket({
+    required this.officine,
+    required this.prevente,
+    this.discret = false,
+    this.codeType = 'QR_CODE',
+    this.largeur = 58,
+    this.payePar,
+  });
 
   static const String invitation = 'Présentez ce ticket à la caisse';
+  static const String invitationPayee = 'Présentez ce ticket au comptoir pour récupérer vos produits';
+
+  bool get paye => payePar != null;
+  String get titre => paye ? 'VENTE BORNE - PAYEE' : 'PRE-VENTE BORNE';
+  String get invitationTexte => paye ? invitationPayee : invitation;
 
   String get date => DateFormat('dd/MM/yyyy HH:mm').format(prevente.at);
 
@@ -39,7 +54,8 @@ class BorneTicket {
       }
     }
     out.add(List.filled(cols, '-').join());
-    out.add('TOTAL A PAYER: ${Constants.formatNumber(prevente.total)} F');
+    out.add(paye ? 'TOTAL: ${Constants.formatNumber(prevente.total)} F' : 'TOTAL A PAYER: ${Constants.formatNumber(prevente.total)} F');
+    if (paye) out.add('PAYE PAR ${payePar!.toUpperCase()}');
     return out;
   }
 
@@ -48,13 +64,13 @@ class BorneTicket {
     const s = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     return Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
       Text(officine.toUpperCase(), style: s.copyWith(fontWeight: FontWeight.bold, fontSize: 14), textAlign: TextAlign.center),
-      Text('PRE-VENTE BORNE', style: s.copyWith(fontWeight: FontWeight.bold)),
+      Text(titre, key: const ValueKey('borne-ticket-titre'), style: s.copyWith(fontWeight: FontWeight.bold)),
       Text('N° ${prevente.numero}', key: const ValueKey('borne-ticket-numero'), style: s.copyWith(fontWeight: FontWeight.w900, fontSize: 30)),
       const SizedBox(height: 4),
       Align(alignment: Alignment.centerLeft, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [for (final l in lignes) Text(l, style: s)])),
       const SizedBox(height: 6),
       Text(prevente.reference, key: const ValueKey('borne-ticket-reference'), style: s),
-      Text(invitation, style: s.copyWith(fontWeight: FontWeight.bold)),
+      Text(invitationTexte, style: s.copyWith(fontWeight: FontWeight.bold)),
       Text(date, style: s),
     ]);
   }
@@ -78,7 +94,8 @@ class SunmiBorneImprimante implements BorneImprimante {
       numero: t.prevente.numero,
       reference: t.prevente.reference,
       lignes: t.lignes,
-      pied: [BorneTicket.invitation, t.date],
+      pied: [t.invitationTexte, t.date],
+      titre: t.titre,
       codeType: t.codeType,
     );
   }

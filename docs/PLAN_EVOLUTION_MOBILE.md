@@ -370,7 +370,7 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 |---|---|
 | B1 | Borne : accueil, recherche, fiche, panier, ticket espèces ; 3 présentations ; désactivée par défaut ; mode kiosque — **réalisé** (§3.7) |
 | B2 | Images : pictogrammes, puis photo produit (avec évolution serveur) — **réalisé** côté appli avec l'API images EXISTANTE du serveur (§3.8) |
-| B3 | Mobile money via agrégateur (module serveur + notifications) — sert aussi aux ventes du comptoir et au paiement multiple |
+| B3 | Mobile money via agrégateur (module serveur + notifications) — sert aussi aux ventes du comptoir et au paiement multiple — **réalisé**, désactivé par défaut (§3.9) |
 
 ### 3.7 B1 — Borne libre-service : réalisé (désactivée par défaut)
 Réponses du client appliquées (§7) : matériel tablette Sunmi / borne avec ticket / terminal Sunmi ; **aucun produit exclu**
@@ -447,6 +447,41 @@ telle quelle, en session cookie (pas de nouvelle table, route ni patch serveur).
 - **Code** : `lib/images/` (`produit_images.dart`, `produit_image_widget.dart`, `images_reglages.dart`, `images_reglages_page.dart`,
   `photo_produit.dart`). **Tests** : `test/images_produits_test.dart` (CI) + intégration réelle (ajout d'une image sur un produit
   sans image, liste, vignette, puis suppression).
+
+
+### 3.9 B3 — Mobile money par agrégateur : réalisé (désactivé par défaut, agrégateur à choisir)
+Le client n'a pas encore choisi d'agrégateur : module **générique** (interface fournisseur) avec un **simulateur complet**
+(tests, démonstration), un adaptateur **CinetPay** (OM, MTN, Moov, Wave, cartes) et un adaptateur **Wave Business** — ces deux
+derniers écrits d'après la documentation publique connue, **à valider avec la documentation du compte marchand**.
+Vérification préalable du serveur : aucun module agrégateur existant (la branche `mobilemoney` = « Point Mobile Money »,
+rapports ; `MobileMoneyCache` = classement des modes) ; style repris du webhook WhatsApp.
+
+- **Serveur** (`docs/serveur/B3_paiements_mobile.patch`, notice `docs/serveur/B3_PAIEMENTS.md`) : routes
+  `v1/paiements-mobile` (session cookie, rien sous `v1/mobile/`), webhook public `…/notification/{fournisseur}` (signature
+  HMAC **puis** statut relu chez le fournisseur, montant et devise contrôlés, idempotent), table `paiement_mobile`
+  (migration V6.9.129.20), montant **fixé par le serveur** (net de la vente ; part contrôlée pour 2 modes), `X-Client-Ref`,
+  clôture automatique de la vente comptant avec le mode de l'opérateur (7 Orange, 8 Moov, 9 MTN, 10 Wave) par le service de
+  clôture existant, expiration automatique, « paye_apres_annulation » = à régulariser (jamais de double encaissement).
+  Clés secrètes uniquement en variables d'environnement. Tests Java : signatures, rejeu, idempotence, transitions.
+- **Appli** (`lib/paiements/`) : Réglages › **Paiements mobile money** (désactivé par défaut ; actif seulement si le serveur
+  annonce des opérateurs) ;
+  - **comptoir** (encaissement nouvelle version : comptant et part client assurance) : sur un mode Orange / Moov / MTN / Wave,
+    bouton « Payer par QR / lien » → écran QR + compte à rebours + « En attente du paiement… » (barre animée) → « Paiement
+    reçu ✓ » automatique (statut toutes les 3 s, arrêt à l'expiration) → encaissement habituel ; **paiement en 2 modes** : la
+    part mobile money payée par QR coche « Reçu » (une seule clôture à 2 règlements) ; annulation possible tant que rien
+    n'est payé ; paiement arrivé après l'annulation : alerte « à régulariser » ;
+  - **borne** : après le panier, « Payer en caisse » (ticket de prévente, B1) ou « Payer par mobile money » → opérateur →
+    prévente créée puis QR du montant exact → payé : la vente est clôturée par le serveur et le ticket **« VENTE BORNE –
+    PAYÉE »** (avec les produits) s'imprime ; annulé / expiré / échoué : « Payer en caisse » (ticket de prévente) ou abandon ;
+  - écran **« Paiements mobile money »** (Réglages › Paiements mobile money) : à régulariser (alerte), reçus, en attente,
+    échoués ; filtre par jour ; PDF ; journal du terminal (demandé, reçu, échoué, expiré, annulé, à régulariser — sans
+    double comptage : l'encaissement est compté à la clôture) ;
+  - **hors ligne** : mobile money indisponible (espèces seulement).
+- **Tests** : `test/paiements_mobile_test.dart` (CI).
+- **Ce que la pharmacie doit fournir** : choix de l'agrégateur et compte marchand ; clés (API, site, secret de signature /
+  du webhook) posées dans la configuration du serveur ; **adresse publique HTTPS** du serveur Prestige pour les notifications
+  (+ accès internet sortant) ; URL de notification déclarée chez l'agrégateur ; pour la borne, un utilisateur borne avec une
+  caisse ouverte (clôture automatique).
 
 ---
 

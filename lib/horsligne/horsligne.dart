@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
 import 'package:prestige_vente_app/horsligne/ventes_sync.dart';
 import 'package:prestige_vente_app/images/produit_images.dart';
+import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -149,6 +150,10 @@ class HorsLigne {
     final images = ProduitImages.instance;
     images.api ??= DioProduitImagesApi(() => _baseUrl);
     images.horsLigne = () => HorsLigne.instance.offline;
+    // B3 : paiements mobile money (module serveur, même session) ; hors ligne : indisponibles.
+    final pm = PaiementsMobile.instance;
+    pm.api ??= DioPaiementsMobileApi(() => _api!.dio);
+    pm.horsLigne = () => HorsLigne.instance.offline;
     // Mêmes appels que la vente en ligne (session de l'appli).
     if (ventes.gateway == null || ventes.gateway is DioVenteGateway) ventes.gateway = DioVenteGateway(api);
   }

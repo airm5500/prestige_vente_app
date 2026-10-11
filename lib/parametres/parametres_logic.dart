@@ -50,7 +50,7 @@ class ParametresChecks {
 }
 
 /// Rubriques de la page d'entrée des réglages.
-enum Rubrique { connexion, ventes, impression, stock, apparence, equipe, securite, licence, horsLigne, borne, images }
+enum Rubrique { connexion, ventes, impression, stock, apparence, equipe, securite, licence, horsLigne, borne, images, paiementsMobile }
 
 extension RubriqueInfo on Rubrique {
   String get title => switch (this) {
@@ -65,11 +65,12 @@ extension RubriqueInfo on Rubrique {
         Rubrique.licence => 'Licence & appareil',
         Rubrique.borne => 'Borne libre-service',
         Rubrique.images => 'Images des produits',
+        Rubrique.paiementsMobile => 'Paiements mobile money',
       };
 
   /// Protégée par le code administrateur (décision Q7).
   bool get locked => switch (this) {
-        Rubrique.connexion || Rubrique.ventes || Rubrique.stock || Rubrique.equipe || Rubrique.securite || Rubrique.borne || Rubrique.images => true,
+        Rubrique.connexion || Rubrique.ventes || Rubrique.stock || Rubrique.equipe || Rubrique.securite || Rubrique.borne || Rubrique.images || Rubrique.paiementsMobile => true,
         _ => false,
       };
 
@@ -92,6 +93,7 @@ extension RubriqueInfo on Rubrique {
         Rubrique.borne => 'borne libre service self kiosque client vitrine liste guidee ticket discret inactivite '
             'categories produits mis en avant epinglage ecran',
         Rubrique.images => 'images photos produits vignettes cache telechargement prechargement hors ligne photo appareil',
+        Rubrique.paiementsMobile => 'mobile money wave orange mtn moov qr agregateur cinetpay paiement automatique notifications historique',
       };
 }
 

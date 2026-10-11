@@ -180,6 +180,7 @@ class ReceiptService {
   Future<bool> printBorneTicket({
     required String officine, required String numero, required String reference,
     required List<String> lignes, required List<String> pied, required String codeType,
+    String titre = 'PRE-VENTE BORNE',
   }) async {
     try {
       final bool? ok = await SunmiPrinter.bindingPrinter();
@@ -188,7 +189,7 @@ class ReceiptService {
       await SunmiPrinter.startTransactionPrint(true);
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.printText(officine.toUpperCase(), style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
-      await SunmiPrinter.printText('PRE-VENTE BORNE', style: SunmiStyle(bold: true));
+      await SunmiPrinter.printText(titre, style: SunmiStyle(bold: true));
       await SunmiPrinter.printText('N° $numero', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.XL));
       await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
       for (final l in lignes) { await SunmiPrinter.printText(l); }

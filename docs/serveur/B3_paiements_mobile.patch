@@ -1,0 +1,1857 @@
+From 83cbb6004d498ad5f927f8118d0aba278849dba8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 01:52:46 +0000
+Subject: [PATCH] =?UTF-8?q?Prestige=20Mobile=20B3=20:=20paiements=20mobile?=
+ =?UTF-8?q?=20money=20par=20agr=C3=A9gateur=20(d=C3=A9sactiv=C3=A9s=20par?=
+ =?UTF-8?q?=20d=C3=A9faut)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- v1/paiements-mobile (session cookie habituelle) : capacites, création (montant fixé par le
+  serveur à partir du net de la vente, part d'un paiement en deux modes contrôlée, X-Client-Ref
+  idempotent), statut (revérifié chez le fournisseur), annulation, historique du jour,
+  simulateur (paiement / refus simulés).
+- Webhook PUBLIC v1/paiements-mobile/notification/{cinetpay|wave|simulateur} (exempté dans
+  AuthenticationFilter, comme les webhooks WhatsApp) : signature HMAC du fournisseur PUIS statut
+  relu auprès de son API ; montant et devise contrôlés ; idempotent (ligne verrouillée).
+- Confirmation : clôture de la vente comptant avec le mode de l'opérateur (7 Orange, 8 Moov,
+  9 MTN, 10 Wave) par le service de clôture existant (double clôture refusée) ; paiement reçu
+  après annulation / expiration ou second paiement : « à régulariser », jamais de clôture.
+- Expiration automatique (minute par minute) après une dernière vérification.
+- Fournisseurs : simulateur complet, CinetPay et Wave Business (à valider avec la documentation
+  du compte marchand). Clés secrètes uniquement en variables d'environnement, jamais renvoyées ni
+  journalisées. Sans configuration : désactivé (capacité vide).
+- Migration V6.9.129.20 : table paiement_mobile (CREATE TABLE IF NOT EXISTS).
+- Tests : signatures (simulateur, CinetPay, Wave + rejeu), revérification, transitions,
+  idempotence des notifications, configuration.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DmdojchP92w3JjfyVDXDv5
+---
+ .../java/filter/AuthenticationFilter.java     |  23 +-
+ .../java/rest/PaiementsMobileRessource.java   | 155 ++++++
+ .../paiements/PaiementsMobileService.java     | 491 ++++++++++++++++++
+ .../util/paiements/CinetPayFournisseur.java   | 131 +++++
+ .../java/util/paiements/ConfigPaiements.java  | 101 ++++
+ .../util/paiements/FournisseurPaiement.java   |  86 +++
+ .../java/util/paiements/HttpPaiements.java    |  43 ++
+ src/main/java/util/paiements/Operateur.java   |  42 ++
+ src/main/java/util/paiements/Signatures.java  |  39 ++
+ .../util/paiements/SimulateurPaiement.java    |  89 ++++
+ .../java/util/paiements/StatutPaiement.java   |  38 ++
+ .../util/paiements/TransitionsPaiement.java   |  66 +++
+ .../java/util/paiements/WaveFournisseur.java  | 118 +++++
+ .../V6.9.129.20__paiement_mobile.sql          |  32 ++
+ .../util/paiements/PaiementsMobileTest.java   | 243 +++++++++
+ 15 files changed, 1688 insertions(+), 9 deletions(-)
+ create mode 100644 src/main/java/rest/PaiementsMobileRessource.java
+ create mode 100644 src/main/java/rest/service/paiements/PaiementsMobileService.java
+ create mode 100644 src/main/java/util/paiements/CinetPayFournisseur.java
+ create mode 100644 src/main/java/util/paiements/ConfigPaiements.java
+ create mode 100644 src/main/java/util/paiements/FournisseurPaiement.java
+ create mode 100644 src/main/java/util/paiements/HttpPaiements.java
+ create mode 100644 src/main/java/util/paiements/Operateur.java
+ create mode 100644 src/main/java/util/paiements/Signatures.java
+ create mode 100644 src/main/java/util/paiements/SimulateurPaiement.java
+ create mode 100644 src/main/java/util/paiements/StatutPaiement.java
+ create mode 100644 src/main/java/util/paiements/TransitionsPaiement.java
+ create mode 100644 src/main/java/util/paiements/WaveFournisseur.java
+ create mode 100644 src/main/resources/db/migration/V6.9.129.20__paiement_mobile.sql
+ create mode 100644 src/test/java/util/paiements/PaiementsMobileTest.java
+
+diff --git a/src/main/java/filter/AuthenticationFilter.java b/src/main/java/filter/AuthenticationFilter.java
+index 8296f722..55091966 100644
+--- a/src/main/java/filter/AuthenticationFilter.java
++++ b/src/main/java/filter/AuthenticationFilter.java
+@@ -32,15 +32,20 @@ public class AuthenticationFilter implements ContainerRequestFilter, ContainerRe
+     private static final Set<String> SKIP_PATHS = Set.of("v1/sms/dr-callback",
+             // Webhooks WhatsApp (plan d'octobre, 4.2) : appeles par Meta / le service compagnon, sans session ; chaque
+             // appel est authentifie par signature HMAC ou jeton partage - voir rest.WhatsAppRessource.
+-            "v1/whatsapp/webhook", "v1/whatsapp/webhook-web", "v1/user/auth", "v1/user/logout", "v1/ws/",
+-            "v1/valorisation", "v1/valorisation/all", "v1/ca-comptant", "v1/ca-credit", "v1/reglements", "v1/factures",
+-            "v1/fournisseurs", "v1/achats-fournisseurs", "v1/stock", "v1/tierspayants", "v1/avoirs-fournisseurs",
+-            "v1/whareouse-vno", "v1/whareouse-maxmin", "v1/ca-all", "v1/checkproduit", "v1/ws/ca-achats-ventes",
+-            "v1/ws/inventaires", "v1/ws/inventaires/rayons", "v1/ws/inventaires/details", "v1/balance/etat-annuel",
+-            "v1/etat-control-bon/etat-annuel", "v1/balance/balanceventecaisse", "v1/recap/dashboardmob",
+-            "v1/recap/creditsmob", "v1/recap/credits/totauxmob", "v3/tvamobile", "v1/produit/stats/vente-annuellep",
+-            "v1/evaluation-vente/produit", "v1/info", "v1/officine", "v1/modereglement", "v1/licence/find",
+-            "v1/licence/save/", "v1/motifreglement", "v1/modereglement/all",
++            "v1/whatsapp/webhook", "v1/whatsapp/webhook-web",
++            // B3 (Prestige Mobile) : notifications des agregateurs de paiement, sans session ; chaque appel est
++            // authentifie par la signature du fournisseur PUIS le statut relu aupres de son API - voir
++            // rest.PaiementsMobileRessource.
++            "v1/paiements-mobile/notification/cinetpay", "v1/paiements-mobile/notification/wave",
++            "v1/paiements-mobile/notification/simulateur", "v1/paiements-mobile/retour", "v1/user/auth",
++            "v1/user/logout", "v1/ws/", "v1/valorisation", "v1/valorisation/all", "v1/ca-comptant", "v1/ca-credit",
++            "v1/reglements", "v1/factures", "v1/fournisseurs", "v1/achats-fournisseurs", "v1/stock", "v1/tierspayants",
++            "v1/avoirs-fournisseurs", "v1/whareouse-vno", "v1/whareouse-maxmin", "v1/ca-all", "v1/checkproduit",
++            "v1/ws/ca-achats-ventes", "v1/ws/inventaires", "v1/ws/inventaires/rayons", "v1/ws/inventaires/details",
++            "v1/balance/etat-annuel", "v1/etat-control-bon/etat-annuel", "v1/balance/balanceventecaisse",
++            "v1/recap/dashboardmob", "v1/recap/creditsmob", "v1/recap/credits/totauxmob", "v3/tvamobile",
++            "v1/produit/stats/vente-annuellep", "v1/evaluation-vente/produit", "v1/info", "v1/officine",
++            "v1/modereglement", "v1/licence/find", "v1/licence/save/", "v1/motifreglement", "v1/modereglement/all",
+             // Espace produit de l'ecran de connexion : consultation libre assumee par l'officine.
+             // La ressource ne sert que CIP, designation, emplacement, prix de vente et stocks,
+             // 50 lignes au plus - voir rest.EspaceProduitRessource.
+diff --git a/src/main/java/rest/PaiementsMobileRessource.java b/src/main/java/rest/PaiementsMobileRessource.java
+new file mode 100644
+index 00000000..3909c938
+--- /dev/null
++++ b/src/main/java/rest/PaiementsMobileRessource.java
+@@ -0,0 +1,155 @@
++package rest;
++
++import dal.TUser;
++import java.time.LocalDate;
++import java.time.format.DateTimeParseException;
++import javax.ejb.EJB;
++import javax.inject.Inject;
++import javax.servlet.http.HttpServletRequest;
++import javax.ws.rs.Consumes;
++import javax.ws.rs.GET;
++import javax.ws.rs.POST;
++import javax.ws.rs.Path;
++import javax.ws.rs.PathParam;
++import javax.ws.rs.Produces;
++import javax.ws.rs.QueryParam;
++import javax.ws.rs.core.Context;
++import javax.ws.rs.core.HttpHeaders;
++import javax.ws.rs.core.MediaType;
++import javax.ws.rs.core.Response;
++import org.json.JSONObject;
++import rest.service.paiements.PaiementsMobileService;
++import util.Constant;
++
++/**
++ * B3 (Prestige Mobile) : paiements mobile money par agrégateur. Session cookie habituelle (comme les ventes), SAUF le
++ * webhook {@code notification/{fournisseur}} : public (exempté dans AuthenticationFilter), protégé par la signature du
++ * fournisseur ET la revérification du statut auprès de son API.
++ * <ul>
++ * <li>GET capacites → {paiementsMobile: [opérateurs], fournisseur, expirationMin} (liste vide = désactivé)</li>
++ * <li>POST / {venteId, operateur, part?, cloturer} (en-tête X-Client-Ref facultatif) → paiement créé (montant du
++ * serveur), lien / QR</li>
++ * <li>GET {id} → statut (revérifié chez le fournisseur) ; POST {id}/annuler</li>
++ * <li>GET ?date=AAAA-MM-JJ → historique du jour</li>
++ * <li>POST notification/{fournisseur} → webhook</li>
++ * <li>POST {id}/simuler?payer=true|false → simulateur seulement</li>
++ * </ul>
++ */
++@Path("v1/paiements-mobile")
++@Produces(MediaType.APPLICATION_JSON)
++public class PaiementsMobileRessource {
++
++    @Inject
++    private HttpServletRequest servletRequest;
++    @EJB
++    private PaiementsMobileService service;
++
++    private TUser utilisateur() {
++        return (TUser) servletRequest.getSession().getAttribute(Constant.AIRTIME_USER);
++    }
++
++    private static Response ok(JSONObject o) {
++        return Response.ok(o.toString(), MediaType.APPLICATION_JSON).build();
++    }
++
++    private static Response deconnecte() {
++        return ok(new JSONObject().put("success", false).put("message", Constant.DECONNECTED_MESSAGE));
++    }
++
++    @GET
++    @Path("capacites")
++    public Response capacites() {
++        return ok(service.capacites());
++    }
++
++    @POST
++    @Consumes(MediaType.APPLICATION_JSON)
++    public Response creer(String corps, @Context HttpHeaders h) {
++        TUser u = utilisateur();
++        if (u == null) {
++            return deconnecte();
++        }
++        JSONObject b;
++        try {
++            b = new JSONObject(corps == null || corps.isBlank() ? "{}" : corps);
++        } catch (RuntimeException e) {
++            return ok(new JSONObject().put("success", false).put("message", "Demande illisible."));
++        }
++        // Le montant éventuellement envoyé est IGNORÉ : seul « part » (paiement en deux modes) est accepté, contrôlé
++        // par le serveur (inférieur ou égal au net de la vente).
++        Integer part = b.has("part") && !b.isNull("part") ? b.optInt("part") : null;
++        return ok(service.creer(u, b.optString("venteId", null), b.optString("operateur", null), part,
++                b.optBoolean("cloturer", false), h.getHeaderString("X-Client-Ref")));
++    }
++
++    @GET
++    @Path("{id}")
++    public Response statut(@PathParam("id") String id) {
++        if (utilisateur() == null) {
++            return deconnecte();
++        }
++        return ok(service.statut(id));
++    }
++
++    @POST
++    @Path("{id}/annuler")
++    public Response annuler(@PathParam("id") String id) {
++        if (utilisateur() == null) {
++            return deconnecte();
++        }
++        return ok(service.annuler(id));
++    }
++
++    @GET
++    public Response historique(@QueryParam("date") String date) {
++        if (utilisateur() == null) {
++            return deconnecte();
++        }
++        LocalDate j;
++        try {
++            j = date == null || date.isBlank() ? LocalDate.now() : LocalDate.parse(date);
++        } catch (DateTimeParseException e) {
++            return ok(new JSONObject().put("success", false).put("message", "Date invalide (AAAA-MM-JJ)."));
++        }
++        return ok(service.historique(j));
++    }
++
++    @POST
++    @Path("{id}/simuler")
++    public Response simuler(@PathParam("id") String id, @QueryParam("payer") boolean payer,
++            @QueryParam("montant") Integer montant) {
++        if (utilisateur() == null) {
++            return deconnecte();
++        }
++        return ok(service.simuler(id, payer, montant));
++    }
++
++    /** Webhook PUBLIC du fournisseur : corps brut (la signature porte sur les octets reçus). */
++    @POST
++    @Path("notification/{fournisseur}")
++    @Consumes(MediaType.WILDCARD)
++    public Response notification(@PathParam("fournisseur") String fournisseur, String corps, @Context HttpHeaders h) {
++        int code = service.notification(fournisseur, corps, h::getHeaderString);
++        return Response.status(code).entity(new JSONObject().put("success", code == 200).toString())
++                .type(MediaType.APPLICATION_JSON).build();
++    }
++
++    /** Page de retour du navigateur du client après paiement (publique, aucune donnée). */
++    @GET
++    @Path("retour")
++    @Produces(MediaType.TEXT_HTML)
++    public Response retour() {
++        return Response
++                .ok("<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">"
++                        + "<p style=\"font-family:sans-serif;font-size:20px;text-align:center;margin-top:40px\">Merci. "
++                        + "Retournez à la borne ou au comptoir de la pharmacie.</p>", MediaType.TEXT_HTML)
++                .build();
++    }
++
++    /** Certains fournisseurs testent l'adresse par un GET : simple accusé de réception. */
++    @GET
++    @Path("notification/{fournisseur}")
++    public Response notificationPing(@PathParam("fournisseur") String fournisseur) {
++        return ok(new JSONObject().put("success", true));
++    }
++}
+diff --git a/src/main/java/rest/service/paiements/PaiementsMobileService.java b/src/main/java/rest/service/paiements/PaiementsMobileService.java
+new file mode 100644
+index 00000000..143b9780
+--- /dev/null
++++ b/src/main/java/rest/service/paiements/PaiementsMobileService.java
+@@ -0,0 +1,491 @@
++package rest.service.paiements;
++
++import com.fasterxml.jackson.databind.DeserializationFeature;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import commonTasks.dto.ClotureVenteParams;
++import commonTasks.dto.SalesParams;
++import dal.TPreenregistrement;
++import dal.TUser;
++import java.io.IOException;
++import java.sql.Timestamp;
++import java.time.LocalDate;
++import java.time.LocalDateTime;
++import java.util.List;
++import java.util.UUID;
++import java.util.function.Function;
++import java.util.logging.Level;
++import java.util.logging.Logger;
++import javax.ejb.EJB;
++import javax.ejb.Schedule;
++import javax.ejb.Stateless;
++import javax.persistence.EntityManager;
++import javax.persistence.PersistenceContext;
++import org.json.JSONArray;
++import org.json.JSONObject;
++import rest.service.SalesService;
++import rest.service.SessionHelperService;
++import util.paiements.ConfigPaiements;
++import util.paiements.FournisseurPaiement;
++import util.paiements.FournisseurPaiement.Etat;
++import util.paiements.HttpPaiements;
++import util.paiements.Operateur;
++import util.paiements.SimulateurPaiement;
++import util.paiements.StatutPaiement;
++import util.paiements.TransitionsPaiement;
++
++/**
++ * B3 (Prestige Mobile) : paiements mobile money par agrégateur (table {@code paiement_mobile}).
++ * <ul>
++ * <li>création : montant FIXÉ ICI à partir du net de la vente (jamais celui envoyé par le téléphone ; une part
++ * inférieure au net est acceptée pour un paiement en deux modes, sans clôture automatique), idempotente par
++ * {@code X-Client-Ref} ;</li>
++ * <li>confirmation (notification signée, puis statut relu chez le fournisseur ; ou interrogation du statut) : contrôle
++ * montant / devise, transitions de {@link TransitionsPaiement}, puis clôture de la vente comptant avec le mode de
++ * l'opérateur par le service de clôture existant (qui refuse une double clôture) ;</li>
++ * <li>paiement reçu après annulation / expiration, ou second paiement d'une même vente : « à régulariser », jamais de
++ * clôture ;</li>
++ * <li>expiration automatique (minute par minute) des paiements en attente, après une dernière vérification.</li>
++ * </ul>
++ * Les secrets du fournisseur ne sont jamais renvoyés ni journalisés.
++ */
++@Stateless
++public class PaiementsMobileService {
++
++    private static final Logger LOG = Logger.getLogger(PaiementsMobileService.class.getName());
++    static final String DEVISE = "XOF";
++    private static final String COLONNES = "id, client_ref, vente_id, reference_vente, montant, devise, operateur, type_reglement, "
++            + "fournisseur, statut, ref_fournisseur, lien, cloture_auto, cloture, message, user_id, created_at, updated_at, expire_at, "
++            + "paye_at, verifie_at";
++
++    private static volatile ConfigPaiements config;
++    private static volatile FournisseurPaiement fournisseur;
++    private static volatile boolean tablePresente;
++
++    @PersistenceContext(unitName = "JTA_UNIT")
++    private EntityManager em;
++    @EJB
++    private SalesService salesService;
++    @EJB
++    private SessionHelperService sessionHelperService;
++
++    // -------------------------------------------------------------------------
++    // Configuration
++    // -------------------------------------------------------------------------
++
++    static synchronized FournisseurPaiement fournisseur() {
++        if (config == null) {
++            config = ConfigPaiements.systeme();
++            fournisseur = config.creerFournisseur(HttpPaiements.java());
++            LOG.info("Paiements mobile money : " + config + (fournisseur == null ? " (désactivés)" : " (actifs)"));
++        }
++        return fournisseur;
++    }
++
++    /** Fournisseur pour les tests / la relecture de la configuration. */
++    static synchronized void configurer(ConfigPaiements c, FournisseurPaiement f) {
++        config = c;
++        fournisseur = f;
++    }
++
++    public boolean disponible() {
++        if (fournisseur() == null) {
++            return false;
++        }
++        if (!tablePresente) {
++            try {
++                Number n = (Number) em
++                        .createNativeQuery("SELECT COUNT(*) FROM information_schema.tables "
++                                + "WHERE table_schema = DATABASE() AND table_name = 'paiement_mobile'")
++                        .getSingleResult();
++                tablePresente = n != null && n.intValue() > 0;
++            } catch (RuntimeException e) {
++                tablePresente = false;
++            }
++        }
++        return tablePresente;
++    }
++
++    /** Capacité annoncée au téléphone (aucun secret). */
++    public JSONObject capacites() {
++        JSONArray ops = new JSONArray();
++        boolean ok = disponible();
++        if (ok) {
++            for (Operateur o : fournisseur.operateurs()) {
++                ops.put(o.code());
++            }
++        }
++        return new JSONObject().put("success", true).put("paiementsMobile", ops)
++                .put("paiementsMobileVersion", ok ? 1 : 0).put("fournisseur", ok ? fournisseur.code() : JSONObject.NULL)
++                .put("expirationMin", config == null ? 10 : config.expirationMin).put("typesReglement",
++                        new JSONObject().put("orange", "7").put("moov", "8").put("mtn", "9").put("wave", "10"));
++    }
++
++    private static JSONObject echec(String m) {
++        return new JSONObject().put("success", false).put("message", m);
++    }
++
++    // -------------------------------------------------------------------------
++    // Lecture / écriture de la table
++    // -------------------------------------------------------------------------
++
++    private Object[] lire(String id, boolean verrou) {
++        @SuppressWarnings("unchecked")
++        List<Object[]> l = em
++                .createNativeQuery(
++                        "SELECT " + COLONNES + " FROM paiement_mobile WHERE id = ?1" + (verrou ? " FOR UPDATE" : ""))
++                .setParameter(1, id).getResultList();
++        return l.isEmpty() ? null : l.get(0);
++    }
++
++    private Object[] parClientRef(String ref) {
++        @SuppressWarnings("unchecked")
++        List<Object[]> l = em.createNativeQuery("SELECT " + COLONNES + " FROM paiement_mobile WHERE client_ref = ?1")
++                .setParameter(1, ref).getResultList();
++        return l.isEmpty() ? null : l.get(0);
++    }
++
++    static JSONObject versJson(Object[] r) {
++        StatutPaiement s = StatutPaiement.de(String.valueOf(r[9]));
++        return new JSONObject().put("id", r[0]).put("venteId", r[2]).put("reference", r[3] == null ? "" : r[3])
++                .put("montant", ((Number) r[4]).intValue()).put("devise", r[5]).put("operateur", r[6])
++                .put("typeReglement", r[7]).put("fournisseur", r[8]).put("statut", s.code)
++                .put("lien", r[11] == null ? "" : r[11]).put("clotureAuto", vrai(r[12])).put("cloture", vrai(r[13]))
++                .put("message", r[14] == null ? "" : r[14]).put("creeLe", str(r[16])).put("expireLe", str(r[18]))
++                .put("payeLe", str(r[19])).put("aRegulariser", s == StatutPaiement.PAYE_APRES_ANNULATION);
++    }
++
++    private static boolean vrai(Object o) {
++        return o instanceof Boolean ? (Boolean) o : o instanceof Number && ((Number) o).intValue() != 0;
++    }
++
++    private static String str(Object o) {
++        return o == null ? "" : o.toString();
++    }
++
++    private void maj(String id, StatutPaiement s, String message, boolean paye) {
++        em.createNativeQuery(
++                "UPDATE paiement_mobile SET statut = ?1, message = ?2, updated_at = NOW(), verifie_at = NOW()"
++                        + (paye ? ", paye_at = COALESCE(paye_at, NOW())" : "") + " WHERE id = ?3")
++                .setParameter(1, s.code).setParameter(2, message == null ? null : tronque(message, 250))
++                .setParameter(3, id).executeUpdate();
++    }
++
++    private static String tronque(String s, int n) {
++        return s.length() > n ? s.substring(0, n) : s;
++    }
++
++    // -------------------------------------------------------------------------
++    // Création
++    // -------------------------------------------------------------------------
++
++    /**
++     * Crée le paiement d'une vente. {@code part} : montant d'un paiement en deux modes (inférieur au net), null = tout
++     * le net. {@code cloturer} : clôture automatique de la vente comptant à la confirmation (ignorée pour une part ou
++     * une vente non comptant : c'est alors le comptoir qui clôture).
++     */
++    public JSONObject creer(TUser user, String venteId, String operateurCode, Integer part, boolean cloturer,
++            String clientRef) {
++        if (!disponible()) {
++            return echec("Paiement mobile money non configuré sur ce serveur.");
++        }
++        if (user == null) {
++            return echec("Session expirée : reconnectez-vous.");
++        }
++        Operateur op = Operateur.de(operateurCode);
++        if (op == null || !fournisseur.operateurs().contains(op)) {
++            return echec("Opérateur non proposé : " + operateurCode);
++        }
++        String ref = clientRef == null || clientRef.isBlank() ? null : tronque(clientRef.trim(), 64);
++        if (ref != null) {
++            Object[] deja = parClientRef(ref);
++            if (deja != null) {
++                return new JSONObject().put("success", true).put("data", versJson(deja)).put("deja", true);
++            }
++        }
++        TPreenregistrement tp = venteId == null ? null : em.find(TPreenregistrement.class, venteId);
++        if (tp == null) {
++            return echec("Vente introuvable.");
++        }
++        if ("is_Closed".equals(tp.getStrSTATUT())) {
++            return echec("Vente déjà clôturée.");
++        }
++        boolean comptant = tp.getLgTYPEVENTEID() != null && "1".equals(tp.getLgTYPEVENTEID().getLgTYPEVENTEID());
++        int net;
++        try {
++            if (comptant) {
++                JSONObject n = salesService.shownetpayVno(tp);
++                JSONObject d = n.optJSONObject("data");
++                net = d == null ? -1 : d.optInt("montantNet", -1);
++            } else {
++                net = tp.getIntCUSTPART() == null ? -1 : tp.getIntCUSTPART();
++            }
++        } catch (RuntimeException e) {
++            LOG.log(Level.WARNING, "Paiements mobile : net de la vente illisible", e);
++            net = -1;
++        }
++        if (net <= 0) {
++            return echec("Net à payer de la vente non calculable : vérifiez la vente.");
++        }
++        int montant = net;
++        boolean auto = cloturer && comptant;
++        if (part != null) {
++            if (part <= 0 || part > net) {
++                return echec("Montant du paiement invalide (1 à " + net + ").");
++            }
++            montant = part;
++            auto = auto && part == net;
++        }
++        String id = UUID.randomUUID().toString();
++        LocalDateTime exp = LocalDateTime.now().plusMinutes(config.expirationMin);
++        em.createNativeQuery(
++                "INSERT INTO paiement_mobile (id, client_ref, vente_id, reference_vente, montant, devise, operateur, "
++                        + "type_reglement, fournisseur, statut, cloture_auto, cloture, user_id, created_at, updated_at, expire_at) "
++                        + "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, NOW(), NOW(), ?13)")
++                .setParameter(1, id).setParameter(2, ref).setParameter(3, venteId).setParameter(4, tp.getStrREF())
++                .setParameter(5, montant).setParameter(6, DEVISE).setParameter(7, op.code())
++                .setParameter(8, op.typeReglement).setParameter(9, fournisseur.code())
++                .setParameter(10, StatutPaiement.EN_ATTENTE.code).setParameter(11, auto ? 1 : 0)
++                .setParameter(12, user.getLgUSERID()).setParameter(13, Timestamp.valueOf(exp)).executeUpdate();
++        String base = config.urlPublique;
++        FournisseurPaiement.Demande d = new FournisseurPaiement.Demande(id, montant, DEVISE, op,
++                "Pharmacie - vente " + (tp.getStrREF() == null ? "" : tp.getStrREF()),
++                base + "/paiements-mobile/notification/" + fournisseur.code(), base + "/paiements-mobile/retour");
++        try {
++            FournisseurPaiement.Creation c = fournisseur.creer(d);
++            em.createNativeQuery(
++                    "UPDATE paiement_mobile SET ref_fournisseur = ?1, lien = ?2, updated_at = NOW() WHERE id = ?3")
++                    .setParameter(1, tronque(c.refFournisseur, 100)).setParameter(2, c.lien).setParameter(3, id)
++                    .executeUpdate();
++        } catch (IOException | RuntimeException e) {
++            LOG.log(Level.WARNING, "Paiements mobile : création refusée par le fournisseur ({0})", e.getMessage());
++            maj(id, StatutPaiement.ECHOUE, "Création refusée par le fournisseur", false);
++            return echec("Le service de paiement n'a pas créé la transaction. Réessayez ou payez autrement.");
++        }
++        return new JSONObject().put("success", true).put("data", versJson(lire(id, false)));
++    }
++
++    // -------------------------------------------------------------------------
++    // Confirmation
++    // -------------------------------------------------------------------------
++
++    /**
++     * Statut relu chez le fournisseur et appliqué (ligne verrouillée : notifications simultanées sans effet double).
++     */
++    private Object[] confirmer(String id) {
++        Object[] r = lire(id, true);
++        if (r == null) {
++            return null;
++        }
++        StatutPaiement avant = StatutPaiement.de(String.valueOf(r[9]));
++        Etat e;
++        try {
++            e = fournisseur().verifier(id, r[10] == null ? null : r[10].toString());
++        } catch (IOException | RuntimeException ex) {
++            LOG.log(Level.INFO, "Paiements mobile : vérification impossible ({0})", ex.getMessage());
++            return r;
++        }
++        TransitionsPaiement.Decision dec = TransitionsPaiement.appliquer(avant, ((Number) r[4]).intValue(),
++                String.valueOf(r[5]), e);
++        StatutPaiement apres = dec.statut;
++        // Un second paiement reçu pour une vente déjà payée : jamais deux encaissements.
++        if (apres == StatutPaiement.PAYE && avant != StatutPaiement.PAYE && dejaPayee(String.valueOf(r[2]), id)) {
++            apres = StatutPaiement.PAYE_APRES_ANNULATION;
++        }
++        if (apres != avant || dec.anomalie != null) {
++            maj(id, apres, dec.anomalie, apres.argentRecu());
++            if (dec.anomalie != null) {
++                LOG.warning("Paiements mobile : " + dec.anomalie + " (paiement " + id + ")");
++            }
++        } else {
++            em.createNativeQuery("UPDATE paiement_mobile SET verifie_at = NOW() WHERE id = ?1").setParameter(1, id)
++                    .executeUpdate();
++        }
++        r = lire(id, false);
++        if (StatutPaiement.de(String.valueOf(r[9])) == StatutPaiement.PAYE && vrai(r[12]) && !vrai(r[13])) {
++            cloturer(r);
++            r = lire(id, false);
++        }
++        return r;
++    }
++
++    private boolean dejaPayee(String venteId, String autre) {
++        Number n = (Number) em
++                .createNativeQuery(
++                        "SELECT COUNT(*) FROM paiement_mobile WHERE vente_id = ?1 AND id <> ?2 AND statut = 'paye'")
++                .setParameter(1, venteId).setParameter(2, autre).getSingleResult();
++        return n != null && n.intValue() > 0;
++    }
++
++    /**
++     * Clôture de la vente comptant avec le mode de l'opérateur, par le service existant, au nom du créateur du
++     * paiement.
++     */
++    private void cloturer(Object[] r) {
++        String id = String.valueOf(r[0]);
++        String venteId = String.valueOf(r[2]);
++        TUser u = em.find(TUser.class, String.valueOf(r[15]));
++        TUser avant = sessionHelperService.getCurrentUser();
++        String message;
++        boolean ok;
++        try {
++            sessionHelperService.setCurrentUser(u);
++            TPreenregistrement tp = em.find(TPreenregistrement.class, venteId);
++            JSONObject net = tp == null ? null : salesService.shownetpayVno(tp).optJSONObject("data");
++            int montant = ((Number) r[4]).intValue();
++            if (net == null || net.optInt("montantNet", -1) != montant) {
++                ok = false;
++                message = "Net de la vente modifié depuis la demande de paiement : clôture à faire au comptoir";
++            } else {
++                Operateur op = Operateur.de(String.valueOf(r[6]));
++                JSONObject b = new JSONObject().put("banque", "").put("clientId", op.code())
++                        .put("commentaire", "Mobile money " + id).put("data", net).put("devis", false).put("lieux", "")
++                        .put("marge", net.optInt("marge", 0)).put("montantPaye", montant).put("montantRecu", montant)
++                        .put("montantRemis", 0).put("natureVenteId", "1").put("nom", "").put("partTP", 0)
++                        .put("reglements",
++                                new JSONArray().put(new JSONObject().put("montant", montant)
++                                        .put("montantAttentu", montant).put("typeReglement", op.typeReglement)))
++                        .put("totalRecap", montant).put("typeRegleId", op.typeReglement).put("typeVenteId", "1")
++                        .put("userVendeurId", u == null ? JSONObject.NULL : u.getLgUSERID()).put("venteId", venteId);
++                ClotureVenteParams p = new ObjectMapper()
++                        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
++                        .readValue(b.toString(), ClotureVenteParams.class);
++                JSONObject res = salesService.updateVenteClotureComptant(p);
++                ok = res.optBoolean("success", false);
++                message = ok ? null : "Clôture refusée : " + res.optString("msg", res.optString("message", ""));
++                if (!ok && "is_Closed".equals(tp.getStrSTATUT())) {
++                    ok = true; // déjà clôturée (le service refuse une double clôture)
++                    message = null;
++                }
++            }
++        } catch (Exception e) {
++            ok = false;
++            message = "Clôture impossible : " + e.getMessage();
++        } finally {
++            sessionHelperService.setCurrentUser(avant);
++        }
++        em.createNativeQuery("UPDATE paiement_mobile SET cloture = ?1, message = ?2, updated_at = NOW() WHERE id = ?3")
++                .setParameter(1, ok ? 1 : 0).setParameter(2, message == null ? null : tronque(message, 250))
++                .setParameter(3, id).executeUpdate();
++    }
++
++    /** Statut (le téléphone interroge toutes les 3 s) : revérifié chez le fournisseur au plus toutes les 3 s. */
++    public JSONObject statut(String id) {
++        if (!disponible()) {
++            return echec("Paiement mobile money non configuré sur ce serveur.");
++        }
++        Object[] r = lire(id, false);
++        if (r == null) {
++            return echec("Paiement introuvable.");
++        }
++        StatutPaiement s = StatutPaiement.de(String.valueOf(r[9]));
++        boolean aVerifier = s == StatutPaiement.EN_ATTENTE || (s == StatutPaiement.PAYE && vrai(r[12]) && !vrai(r[13]));
++        if (aVerifier && recemment(r[20], 3)) {
++            aVerifier = s == StatutPaiement.PAYE; // clôture à retenter
++        }
++        if (aVerifier) {
++            r = confirmer(id);
++            s = StatutPaiement.de(String.valueOf(r[9]));
++        }
++        if (s == StatutPaiement.EN_ATTENTE && r[18] != null
++                && ((Timestamp) r[18]).toLocalDateTime().isBefore(LocalDateTime.now())) {
++            maj(id, TransitionsPaiement.expirer(s), "Délai de paiement dépassé", false);
++            r = lire(id, false);
++        }
++        return new JSONObject().put("success", true).put("data", versJson(r));
++    }
++
++    private static boolean recemment(Object verifie, int secondes) {
++        return verifie instanceof Timestamp
++                && ((Timestamp) verifie).toLocalDateTime().isAfter(LocalDateTime.now().minusSeconds(secondes));
++    }
++
++    /** Annulation par le comptoir / la borne (seulement en attente ; un paiement tardif sera signalé). */
++    public JSONObject annuler(String id) {
++        Object[] r = lire(id, true);
++        if (r == null) {
++            return echec("Paiement introuvable.");
++        }
++        StatutPaiement s = StatutPaiement.de(String.valueOf(r[9]));
++        if (s == StatutPaiement.EN_ATTENTE) {
++            maj(id, TransitionsPaiement.annuler(s), "Annulé au comptoir", false);
++        }
++        return new JSONObject().put("success", true).put("data", versJson(lire(id, false)));
++    }
++
++    /** Notification du fournisseur (webhook public) : signature, puis revérification ; idempotente. */
++    public int notification(String code, String corps, Function<String, String> entete) {
++        FournisseurPaiement f = fournisseur();
++        if (f == null || !f.code().equals(code) || !disponible()) {
++            return 404;
++        }
++        String id = f.lireNotification(corps, entete);
++        if (id == null) {
++            LOG.warning("Paiements mobile : notification " + code + " rejetée (signature invalide ou incomplète)");
++            return 401;
++        }
++        if (lire(id, false) == null) {
++            return 200; // transaction inconnue : rien à faire, pas de nouvel envoi
++        }
++        confirmer(id);
++        return 200;
++    }
++
++    /**
++     * Simulateur : le « client » paie ou refuse ; la notification signée passe par le même chemin qu'un vrai webhook.
++     */
++    public JSONObject simuler(String id, boolean payer, Integer montant) {
++        if (!(fournisseur() instanceof SimulateurPaiement)) {
++            return echec("Simulateur non actif.");
++        }
++        SimulateurPaiement sim = (SimulateurPaiement) fournisseur;
++        String corps = payer ? sim.payer(id, montant) : sim.refuser(id);
++        String sig = sim.signer(corps);
++        int code = notification(sim.code(), corps,
++                h -> SimulateurPaiement.ENTETE_SIGNATURE.equalsIgnoreCase(h) ? sig : null);
++        Object[] r = lire(id, false);
++        return new JSONObject().put("success", code == 200 && r != null).put("data",
++                r == null ? JSONObject.NULL : versJson(r));
++    }
++
++    /** Historique d'un jour (reçus / en attente / échoués). */
++    public JSONObject historique(LocalDate jour) {
++        if (!disponible()) {
++            return echec("Paiement mobile money non configuré sur ce serveur.");
++        }
++        @SuppressWarnings("unchecked")
++        List<Object[]> l = em
++                .createNativeQuery(
++                        "SELECT " + COLONNES + " FROM paiement_mobile WHERE created_at >= ?1 AND created_at < ?2 "
++                                + "ORDER BY created_at DESC")
++                .setParameter(1, Timestamp.valueOf(jour.atStartOfDay()))
++                .setParameter(2, Timestamp.valueOf(jour.plusDays(1).atStartOfDay())).getResultList();
++        JSONArray a = new JSONArray();
++        for (Object[] r : l) {
++            a.put(versJson(r));
++        }
++        return new JSONObject().put("success", true).put("data", a).put("total", a.length());
++    }
++
++    /** Expiration automatique des paiements en attente (dernière vérification chez le fournisseur avant). */
++    @Schedule(minute = "*", hour = "*", persistent = false)
++    public void expirer() {
++        if (!disponible()) {
++            return;
++        }
++        try {
++            @SuppressWarnings("unchecked")
++            List<Object> ids = em.createNativeQuery(
++                    "SELECT id FROM paiement_mobile WHERE statut = 'en_attente' AND expire_at < NOW() "
++                            + "ORDER BY expire_at LIMIT 50")
++                    .getResultList();
++            for (Object id : ids) {
++                Object[] r = confirmer(String.valueOf(id));
++                if (r != null && StatutPaiement.de(String.valueOf(r[9])) == StatutPaiement.EN_ATTENTE) {
++                    maj(String.valueOf(id), StatutPaiement.EXPIRE, "Délai de paiement dépassé", false);
++                }
++            }
++        } catch (RuntimeException e) {
++            LOG.log(Level.WARNING, "Paiements mobile : expiration automatique", e);
++        }
++    }
++}
+diff --git a/src/main/java/util/paiements/CinetPayFournisseur.java b/src/main/java/util/paiements/CinetPayFournisseur.java
+new file mode 100644
+index 00000000..af91db4f
+--- /dev/null
++++ b/src/main/java/util/paiements/CinetPayFournisseur.java
+@@ -0,0 +1,131 @@
++package util.paiements;
++
++import java.io.IOException;
++import java.net.URLDecoder;
++import java.nio.charset.StandardCharsets;
++import java.util.Arrays;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.function.Function;
++import org.json.JSONObject;
++
++/**
++ * B3 : adaptateur CinetPay (Orange Money, MTN, Moov, Wave, cartes en Côte d'Ivoire), API Checkout v2.
++ * <p>
++ * <b>À VALIDER AVEC LA DOCUMENTATION DU COMPTE MARCHAND</b> (la documentation en ligne n'était pas accessible depuis
++ * l'environnement de développement) — écrit d'après la documentation publique CinetPay connue :
++ * <ul>
++ * <li>création : {@code POST https://api-checkout.cinetpay.com/v2/payment} (JSON : apikey, site_id, transaction_id,
++ * amount — multiple de 5 —, currency XOF, description, notify_url, return_url, channels) → {@code data.payment_url}
++ * ;</li>
++ * <li>notification (IPN) : POST formulaire (cpm_site_id, cpm_trans_id, …) sur notify_url, en-tête {@code x-token} =
++ * HMAC-SHA256 (hex) de la concaténation des champs ci-dessous, clé = « secret key » du compte ;</li>
++ * <li>vérification : {@code POST https://api-checkout.cinetpay.com/v2/payment/check} (apikey, site_id, transaction_id)
++ * → {@code data.status} ACCEPTED / REFUSED / WAITING_FOR_CUSTOMER…, {@code data.amount}, {@code data.currency}.</li>
++ * </ul>
++ */
++public final class CinetPayFournisseur implements FournisseurPaiement {
++
++    static final String BASE = "https://api-checkout.cinetpay.com/v2";
++    /** Champs signés, dans l'ordre de la documentation CinetPay (HMAC du « x-token »). */
++    static final String[] CHAMPS_TOKEN = { "cpm_site_id", "cpm_trans_id", "cpm_trans_date", "cpm_amount",
++            "cpm_currency", "signature", "payment_method", "cel_phone_num", "cpm_phone_prefixe", "cpm_language",
++            "cpm_version", "cpm_payment_config", "cpm_page_action", "cpm_custom", "cpm_designation",
++            "cpm_error_message" };
++
++    private final HttpPaiements http;
++    private final String apiKey;
++    private final String siteId;
++    private final String secret;
++
++    public CinetPayFournisseur(HttpPaiements http, String apiKey, String siteId, String secret) {
++        this.http = http;
++        this.apiKey = apiKey;
++        this.siteId = siteId;
++        this.secret = secret;
++    }
++
++    @Override
++    public String code() {
++        return "cinetpay";
++    }
++
++    @Override
++    public List<Operateur> operateurs() {
++        return Arrays.asList(Operateur.ORANGE, Operateur.MTN, Operateur.MOOV, Operateur.WAVE);
++    }
++
++    @Override
++    public Creation creer(Demande d) throws IOException {
++        JSONObject b = new JSONObject().put("apikey", apiKey).put("site_id", siteId)
++                .put("transaction_id", d.transactionId).put("amount", d.montant).put("currency", d.devise)
++                .put("description", d.description).put("notify_url", d.urlNotification).put("return_url", d.urlRetour)
++                .put("channels", "MOBILE_MONEY").put("lang", "fr");
++        HttpPaiements.Reponse r = http.envoyer("POST", BASE + "/payment", Map.of("Content-Type", "application/json"),
++                b.toString());
++        JSONObject o = new JSONObject(r.corps == null || r.corps.isBlank() ? "{}" : r.corps);
++        JSONObject data = o.optJSONObject("data");
++        if (r.statut / 100 != 2 || data == null || data.optString("payment_url").isEmpty()) {
++            throw new IOException(
++                    "CinetPay a refusé la création (" + o.optString("code") + " " + o.optString("message") + ")");
++        }
++        return new Creation(data.optString("payment_token", d.transactionId), data.getString("payment_url"));
++    }
++
++    /** Champs d'un corps « application/x-www-form-urlencoded ». */
++    static Map<String, String> formulaire(String corps) {
++        Map<String, String> m = new HashMap<>();
++        if (corps == null) {
++            return m;
++        }
++        for (String p : corps.split("&")) {
++            int i = p.indexOf('=');
++            String k = URLDecoder.decode(i < 0 ? p : p.substring(0, i), StandardCharsets.UTF_8);
++            String v = i < 0 ? "" : URLDecoder.decode(p.substring(i + 1), StandardCharsets.UTF_8);
++            m.put(k, v);
++        }
++        return m;
++    }
++
++    static String donneesToken(Map<String, String> f) {
++        StringBuilder sb = new StringBuilder();
++        for (String c : CHAMPS_TOKEN) {
++            sb.append(f.getOrDefault(c, ""));
++        }
++        return sb.toString();
++    }
++
++    @Override
++    public String lireNotification(String corpsBrut, Function<String, String> entete) {
++        Map<String, String> f = formulaire(corpsBrut);
++        if (!siteId.equals(f.get("cpm_site_id"))) {
++            return null;
++        }
++        if (!Signatures.valide(secret, donneesToken(f), entete.apply("x-token"))) {
++            return null;
++        }
++        String id = f.getOrDefault("cpm_trans_id", "");
++        return id.isEmpty() ? null : id;
++    }
++
++    @Override
++    public Etat verifier(String transactionId, String refFournisseur) throws IOException {
++        JSONObject b = new JSONObject().put("apikey", apiKey).put("site_id", siteId).put("transaction_id",
++                transactionId);
++        HttpPaiements.Reponse r = http.envoyer("POST", BASE + "/payment/check",
++                Map.of("Content-Type", "application/json"), b.toString());
++        JSONObject o = new JSONObject(r.corps == null || r.corps.isBlank() ? "{}" : r.corps);
++        JSONObject data = o.optJSONObject("data");
++        if (data == null) {
++            return new Etat(Resultat.EN_ATTENTE, null, null, null, o.optString("message"));
++        }
++        String s = data.optString("status", "");
++        Integer montant = data.has("amount") ? (int) Math.round(Double.parseDouble(String.valueOf(data.get("amount"))))
++                : null;
++        Resultat res = "ACCEPTED".equals(s) ? Resultat.PAYE
++                : ("REFUSED".equals(s) || "CANCELED".equals(s) || "CANCELLED".equals(s)) ? Resultat.ECHOUE
++                        : Resultat.EN_ATTENTE;
++        return new Etat(res, montant, data.optString("currency", null), data.optString("operator_id", null), s);
++    }
++}
+diff --git a/src/main/java/util/paiements/ConfigPaiements.java b/src/main/java/util/paiements/ConfigPaiements.java
+new file mode 100644
+index 00000000..5c2beaf8
+--- /dev/null
++++ b/src/main/java/util/paiements/ConfigPaiements.java
+@@ -0,0 +1,101 @@
++package util.paiements;
++
++import java.util.function.Function;
++
++/**
++ * B3 : configuration des paiements mobile money, lue dans les variables d'environnement (ou propriétés système -D…) du
++ * serveur. DÉSACTIVÉ PAR DÉFAUT : sans {@code PRESTIGE_PAIEMENTS_FOURNISSEUR}, aucune route ne crée de paiement et la
++ * capacité annonce une liste vide. Les secrets ne sont jamais renvoyés ni journalisés ({@link #toString()} les masque).
++ *
++ * <pre>
++ * PRESTIGE_PAIEMENTS_FOURNISSEUR   simulateur | cinetpay | wave      (vide = désactivé)
++ * PRESTIGE_PAIEMENTS_URL_PUBLIQUE  https://pharmacie.exemple.ci/prestige/api/v1   (notifications du fournisseur)
++ * PRESTIGE_PAIEMENTS_EXPIRATION_MIN  10 (1 à 60)
++ * PRESTIGE_PAIEMENTS_SIMULATEUR_SECRET  secret HMAC des notifications du simulateur
++ * CINETPAY_APIKEY, CINETPAY_SITE_ID, CINETPAY_SECRET_KEY
++ * WAVE_API_KEY, WAVE_WEBHOOK_SECRET
++ * </pre>
++ */
++public final class ConfigPaiements {
++
++    public final String fournisseur;
++    public final String urlPublique;
++    public final int expirationMin;
++    final String simulateurSecret;
++    final String cinetpayApiKey;
++    final String cinetpaySiteId;
++    final String cinetpaySecret;
++    final String waveApiKey;
++    final String waveWebhookSecret;
++
++    ConfigPaiements(String fournisseur, String urlPublique, int expirationMin, String simulateurSecret,
++            String cinetpayApiKey, String cinetpaySiteId, String cinetpaySecret, String waveApiKey,
++            String waveWebhookSecret) {
++        this.fournisseur = fournisseur == null ? "" : fournisseur.trim().toLowerCase(java.util.Locale.ROOT);
++        this.urlPublique = urlPublique == null ? "" : urlPublique.trim().replaceAll("/+$", "");
++        this.expirationMin = Math.max(1, Math.min(60, expirationMin));
++        this.simulateurSecret = simulateurSecret;
++        this.cinetpayApiKey = cinetpayApiKey;
++        this.cinetpaySiteId = cinetpaySiteId;
++        this.cinetpaySecret = cinetpaySecret;
++        this.waveApiKey = waveApiKey;
++        this.waveWebhookSecret = waveWebhookSecret;
++    }
++
++    /** Lecture : {@code lire} renvoie la valeur d'une clé (variable d'environnement, sinon propriété système). */
++    public static ConfigPaiements depuis(Function<String, String> lire) {
++        int exp;
++        try {
++            exp = Integer.parseInt(nz(lire.apply("PRESTIGE_PAIEMENTS_EXPIRATION_MIN"), "10").trim());
++        } catch (NumberFormatException e) {
++            exp = 10;
++        }
++        return new ConfigPaiements(lire.apply("PRESTIGE_PAIEMENTS_FOURNISSEUR"),
++                lire.apply("PRESTIGE_PAIEMENTS_URL_PUBLIQUE"), exp, lire.apply("PRESTIGE_PAIEMENTS_SIMULATEUR_SECRET"),
++                lire.apply("CINETPAY_APIKEY"), lire.apply("CINETPAY_SITE_ID"), lire.apply("CINETPAY_SECRET_KEY"),
++                lire.apply("WAVE_API_KEY"), lire.apply("WAVE_WEBHOOK_SECRET"));
++    }
++
++    /** Configuration du serveur (environnement, puis propriétés système). */
++    public static ConfigPaiements systeme() {
++        return depuis(k -> {
++            String v = System.getenv(k);
++            return v != null && !v.isBlank() ? v : System.getProperty(k);
++        });
++    }
++
++    private static String nz(String v, String d) {
++        return v == null || v.isBlank() ? d : v;
++    }
++
++    private static boolean ok(String... v) {
++        for (String s : v) {
++            if (s == null || s.isBlank()) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++    /** Fournisseur configuré et complet, sinon null (paiements désactivés). */
++    public FournisseurPaiement creerFournisseur(HttpPaiements http) {
++        switch (fournisseur) {
++        case "simulateur":
++            return ok(simulateurSecret) ? new SimulateurPaiement(simulateurSecret) : null;
++        case "cinetpay":
++            return ok(cinetpayApiKey, cinetpaySiteId, cinetpaySecret, urlPublique)
++                    ? new CinetPayFournisseur(http, cinetpayApiKey, cinetpaySiteId, cinetpaySecret) : null;
++        case "wave":
++            return ok(waveApiKey, waveWebhookSecret, urlPublique)
++                    ? new WaveFournisseur(http, waveApiKey, waveWebhookSecret) : null;
++        default:
++            return null;
++        }
++    }
++
++    @Override
++    public String toString() {
++        return "ConfigPaiements{fournisseur=" + fournisseur + ", urlPublique=" + urlPublique + ", expirationMin="
++                + expirationMin + ", secrets=***}";
++    }
++}
+diff --git a/src/main/java/util/paiements/FournisseurPaiement.java b/src/main/java/util/paiements/FournisseurPaiement.java
+new file mode 100644
+index 00000000..97049a53
+--- /dev/null
++++ b/src/main/java/util/paiements/FournisseurPaiement.java
+@@ -0,0 +1,86 @@
++package util.paiements;
++
++import java.io.IOException;
++import java.util.List;
++import java.util.function.Function;
++
++/**
++ * B3 (Prestige Mobile) : agrégateur de paiement mobile money (CinetPay, Wave Business, simulateur…).
++ * <p>
++ * Règles communes : les clés secrètes viennent de la configuration du serveur ({@link ConfigPaiements}) et ne sont
++ * jamais renvoyées ni journalisées ; une notification n'est crue qu'après vérification de sa signature PUIS
++ * revérification du statut auprès de l'API du fournisseur ({@link #verifier}).
++ */
++public interface FournisseurPaiement {
++
++    /** « simulateur », « cinetpay », « wave » (chemin du webhook : v1/paiements-mobile/notification/{code}). */
++    String code();
++
++    /** Opérateurs proposés par ce fournisseur. */
++    List<Operateur> operateurs();
++
++    /** Crée la transaction chez le fournisseur : lien de paiement (le QR affiché encode ce lien). */
++    Creation creer(Demande d) throws IOException;
++
++    /**
++     * Lit une notification : identifiant de NOTRE transaction si la signature est valide, null sinon (notification
++     * rejetée). {@code entete} donne la valeur d'un en-tête HTTP (insensible à la casse).
++     */
++    String lireNotification(String corpsBrut, Function<String, String> entete);
++
++    /** Statut lu auprès de l'API du fournisseur (jamais d'après la notification seule). */
++    Etat verifier(String transactionId, String refFournisseur) throws IOException;
++
++    /** Demande de paiement : montant FIXÉ PAR LE SERVEUR (net de la vente). */
++    final class Demande {
++        public final String transactionId;
++        public final int montant;
++        public final String devise;
++        public final Operateur operateur;
++        public final String description;
++        public final String urlNotification;
++        public final String urlRetour;
++
++        public Demande(String transactionId, int montant, String devise, Operateur operateur, String description,
++                String urlNotification, String urlRetour) {
++            this.transactionId = transactionId;
++            this.montant = montant;
++            this.devise = devise;
++            this.operateur = operateur;
++            this.description = description;
++            this.urlNotification = urlNotification;
++            this.urlRetour = urlRetour;
++        }
++    }
++
++    final class Creation {
++        public final String refFournisseur;
++        public final String lien;
++
++        public Creation(String refFournisseur, String lien) {
++            this.refFournisseur = refFournisseur;
++            this.lien = lien;
++        }
++    }
++
++    /** Statut chez le fournisseur. */
++    enum Resultat {
++        PAYE, ECHOUE, EN_ATTENTE
++    }
++
++    final class Etat {
++        public final Resultat resultat;
++        public final Integer montant;
++        public final String devise;
++        public final String refOperateur;
++        public final String message;
++
++        public Etat(Resultat resultat, Integer montant, String devise, String refOperateur, String message) {
++            this.resultat = resultat;
++            this.montant = montant;
++            this.devise = devise;
++            this.refOperateur = refOperateur;
++            this.message = message;
++        }
++    }
++}
+diff --git a/src/main/java/util/paiements/HttpPaiements.java b/src/main/java/util/paiements/HttpPaiements.java
+new file mode 100644
+index 00000000..dbfc744f
+--- /dev/null
++++ b/src/main/java/util/paiements/HttpPaiements.java
+@@ -0,0 +1,43 @@
++package util.paiements;
++
++import java.io.IOException;
++import java.net.URI;
++import java.net.http.HttpClient;
++import java.net.http.HttpRequest;
++import java.net.http.HttpResponse;
++import java.time.Duration;
++import java.util.Map;
++
++/** Appels HTTP vers l'agrégateur (remplaçable dans les tests). Délais courts : jamais d'attente sans fin. */
++public interface HttpPaiements {
++
++    final class Reponse {
++        public final int statut;
++        public final String corps;
++
++        public Reponse(int statut, String corps) {
++            this.statut = statut;
++            this.corps = corps;
++        }
++    }
++
++    Reponse envoyer(String methode, String url, Map<String, String> entetes, String corps) throws IOException;
++
++    /** Implémentation Java 11 (java.net.http). */
++    static HttpPaiements java() {
++        HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
++        return (methode, url, entetes, corps) -> {
++            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(15));
++            entetes.forEach(b::header);
++            b.method(methode,
++                    corps == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(corps));
++            try {
++                HttpResponse<String> r = c.send(b.build(), HttpResponse.BodyHandlers.ofString());
++                return new Reponse(r.statusCode(), r.body());
++            } catch (InterruptedException e) {
++                Thread.currentThread().interrupt();
++                throw new IOException("Appel interrompu", e);
++            }
++        };
++    }
++}
+diff --git a/src/main/java/util/paiements/Operateur.java b/src/main/java/util/paiements/Operateur.java
+new file mode 100644
+index 00000000..18a32146
+--- /dev/null
++++ b/src/main/java/util/paiements/Operateur.java
+@@ -0,0 +1,42 @@
++package util.paiements;
++
++import java.util.Locale;
++
++/**
++ * Opérateurs mobile money de Côte d'Ivoire et leur mode de règlement Prestige (t_type_reglement) : la vente payée est
++ * clôturée avec ce mode (7 Orange, 8 Moov, 9 MTN, 10 Wave).
++ */
++public enum Operateur {
++    ORANGE("7", "OM"), MOOV("8", "MOOV"), MTN("9", "MTN"), WAVE("10", "WAVE");
++
++    /** Identifiant du type de règlement Prestige. */
++    public final String typeReglement;
++    /** Canal / code opérateur côté agrégateur. */
++    public final String canal;
++
++    Operateur(String typeReglement, String canal) {
++        this.typeReglement = typeReglement;
++        this.canal = canal;
++    }
++
++    public String code() {
++        return name().toLowerCase(Locale.ROOT);
++    }
++
++    /** null si inconnu. */
++    public static Operateur de(String code) {
++        if (code == null) {
++            return null;
++        }
++        String c = code.trim().toUpperCase(Locale.ROOT);
++        if ("OM".equals(c) || "ORANGE MONEY".equals(c)) {
++            return ORANGE;
++        }
++        for (Operateur o : values()) {
++            if (o.name().equals(c) || o.typeReglement.equals(c)) {
++                return o;
++            }
++        }
++        return null;
++    }
++}
+diff --git a/src/main/java/util/paiements/Signatures.java b/src/main/java/util/paiements/Signatures.java
+new file mode 100644
+index 00000000..4db52eb8
+--- /dev/null
++++ b/src/main/java/util/paiements/Signatures.java
+@@ -0,0 +1,39 @@
++package util.paiements;
++
++import java.nio.charset.StandardCharsets;
++import java.security.MessageDigest;
++import java.util.Locale;
++import javax.crypto.Mac;
++import javax.crypto.spec.SecretKeySpec;
++
++/** HMAC-SHA256 et comparaison à temps constant (même principe que le webhook WhatsApp). */
++public final class Signatures {
++
++    private Signatures() {
++    }
++
++    public static String hmacHex(String secret, String donnees) {
++        try {
++            Mac mac = Mac.getInstance("HmacSHA256");
++            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
++            byte[] h = mac.doFinal(donnees.getBytes(StandardCharsets.UTF_8));
++            StringBuilder sb = new StringBuilder(h.length * 2);
++            for (byte b : h) {
++                sb.append(String.format("%02x", b));
++            }
++            return sb.toString();
++        } catch (Exception e) {
++            throw new IllegalStateException("HMAC indisponible", e);
++        }
++    }
++
++    /** Signature hexadécimale attendue, comparée sans fuite de temps ; faux si un élément manque. */
++    public static boolean valide(String secret, String donnees, String recue) {
++        if (secret == null || secret.isBlank() || donnees == null || recue == null || recue.isBlank()) {
++            return false;
++        }
++        byte[] a = hmacHex(secret, donnees).getBytes(StandardCharsets.US_ASCII);
++        byte[] b = recue.trim().toLowerCase(Locale.ROOT).getBytes(StandardCharsets.US_ASCII);
++        return MessageDigest.isEqual(a, b);
++    }
++}
+diff --git a/src/main/java/util/paiements/SimulateurPaiement.java b/src/main/java/util/paiements/SimulateurPaiement.java
+new file mode 100644
+index 00000000..8b966f52
+--- /dev/null
++++ b/src/main/java/util/paiements/SimulateurPaiement.java
+@@ -0,0 +1,89 @@
++package util.paiements;
++
++import java.util.Arrays;
++import java.util.List;
++import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.function.Function;
++import org.json.JSONObject;
++
++/**
++ * B3 : agrégateur FACTICE complet (tests, démonstration, formation) : lien « simulateur://… », paiement simulé par
++ * {@link #payer} / {@link #refuser} (route réservée aux utilisateurs connectés, active seulement avec ce fournisseur),
++ * notification signée HMAC-SHA256 (en-tête {@code X-Simulateur-Signature}) et revérification du statut, exactement
++ * comme un vrai fournisseur. Aucun argent ne circule.
++ */
++public final class SimulateurPaiement implements FournisseurPaiement {
++
++    public static final String ENTETE_SIGNATURE = "X-Simulateur-Signature";
++
++    /** Transactions simulées (mémoire du serveur). */
++    private static final Map<String, Etat> ETATS = new ConcurrentHashMap<>();
++    private static final Map<String, Integer> MONTANTS = new ConcurrentHashMap<>();
++
++    private final String secret;
++
++    public SimulateurPaiement(String secret) {
++        this.secret = secret;
++    }
++
++    @Override
++    public String code() {
++        return "simulateur";
++    }
++
++    @Override
++    public List<Operateur> operateurs() {
++        return Arrays.asList(Operateur.values());
++    }
++
++    @Override
++    public Creation creer(Demande d) {
++        MONTANTS.put(d.transactionId, d.montant);
++        ETATS.put(d.transactionId, new Etat(Resultat.EN_ATTENTE, d.montant, d.devise, null, null));
++        return new Creation("SIM-" + d.transactionId,
++                "simulateur://payer/" + d.transactionId + "?montant=" + d.montant + "&operateur=" + d.operateur.code());
++    }
++
++    /** Le client « paie » ; renvoie le corps de la notification (à signer par {@link #signer}). */
++    public String payer(String transactionId, Integer montantPaye) {
++        Integer m = montantPaye != null ? montantPaye : MONTANTS.get(transactionId);
++        ETATS.put(transactionId, new Etat(Resultat.PAYE, m, "XOF", "SIM-OP-" + transactionId, null));
++        return new JSONObject().put("transaction_id", transactionId).put("statut", "paye").toString();
++    }
++
++    public String refuser(String transactionId) {
++        ETATS.put(transactionId,
++                new Etat(Resultat.ECHOUE, MONTANTS.get(transactionId), "XOF", null, "Solde insuffisant"));
++        return new JSONObject().put("transaction_id", transactionId).put("statut", "echoue").toString();
++    }
++
++    public String signer(String corps) {
++        return Signatures.hmacHex(secret, corps);
++    }
++
++    @Override
++    public String lireNotification(String corpsBrut, Function<String, String> entete) {
++        if (!Signatures.valide(secret, corpsBrut, entete.apply(ENTETE_SIGNATURE))) {
++            return null;
++        }
++        try {
++            String id = new JSONObject(corpsBrut).optString("transaction_id", "");
++            return id.isEmpty() ? null : id;
++        } catch (RuntimeException e) {
++            return null;
++        }
++    }
++
++    @Override
++    public Etat verifier(String transactionId, String refFournisseur) {
++        Etat e = ETATS.get(transactionId);
++        return e != null ? e : new Etat(Resultat.EN_ATTENTE, null, null, null, "Transaction inconnue du simulateur");
++    }
++
++    /** Oublie tout (tests). */
++    static void vider() {
++        ETATS.clear();
++        MONTANTS.clear();
++    }
++}
+diff --git a/src/main/java/util/paiements/StatutPaiement.java b/src/main/java/util/paiements/StatutPaiement.java
+new file mode 100644
+index 00000000..d89842ef
+--- /dev/null
++++ b/src/main/java/util/paiements/StatutPaiement.java
+@@ -0,0 +1,38 @@
++package util.paiements;
++
++/**
++ * B3 (Prestige Mobile) : statut d'un paiement mobile money. Les transitions sont dans {@link TransitionsPaiement} : un
++ * paiement payé ne redevient jamais « en attente », une vente n'est jamais clôturée deux fois, un paiement arrivé APRÈS
++ * une annulation ou une expiration est signalé (régularisation) et ne clôture rien.
++ */
++public enum StatutPaiement {
++    EN_ATTENTE("en_attente"), PAYE("paye"), ECHOUE("echoue"), EXPIRE("expire"), ANNULE("annule"),
++    /**
++     * Argent reçu alors que le paiement était annulé ou expiré : à régulariser au comptoir (remboursement ou vente).
++     */
++    PAYE_APRES_ANNULATION("paye_apres_annulation");
++
++    public final String code;
++
++    StatutPaiement(String code) {
++        this.code = code;
++    }
++
++    /** Plus rien n'est attendu du fournisseur (sauf un paiement tardif, toujours signalé). */
++    public boolean termine() {
++        return this != EN_ATTENTE;
++    }
++
++    public boolean argentRecu() {
++        return this == PAYE || this == PAYE_APRES_ANNULATION;
++    }
++
++    public static StatutPaiement de(String code) {
++        for (StatutPaiement s : values()) {
++            if (s.code.equals(code)) {
++                return s;
++            }
++        }
++        return EN_ATTENTE;
++    }
++}
+diff --git a/src/main/java/util/paiements/TransitionsPaiement.java b/src/main/java/util/paiements/TransitionsPaiement.java
+new file mode 100644
+index 00000000..3a0af9e5
+--- /dev/null
++++ b/src/main/java/util/paiements/TransitionsPaiement.java
+@@ -0,0 +1,66 @@
++package util.paiements;
++
++import util.paiements.FournisseurPaiement.Etat;
++import util.paiements.FournisseurPaiement.Resultat;
++
++/**
++ * B3 : application d'un statut lu chez le fournisseur à un paiement. Idempotent (une notification répétée ne change
++ * rien), montant et devise contrôlés, aucun retour en arrière.
++ */
++public final class TransitionsPaiement {
++
++    private TransitionsPaiement() {
++    }
++
++    /** Résultat : nouveau statut (égal à l'ancien si rien ne change) et motif éventuel (anomalie). */
++    public static final class Decision {
++        public final StatutPaiement statut;
++        public final String anomalie;
++
++        Decision(StatutPaiement statut, String anomalie) {
++            this.statut = statut;
++            this.anomalie = anomalie;
++        }
++
++        public boolean change(StatutPaiement avant) {
++            return statut != avant;
++        }
++    }
++
++    public static Decision appliquer(StatutPaiement actuel, int montantAttendu, String deviseAttendue, Etat e) {
++        if (e == null || e.resultat == Resultat.EN_ATTENTE) {
++            return new Decision(actuel, null);
++        }
++        if (e.resultat == Resultat.ECHOUE) {
++            return new Decision(actuel == StatutPaiement.EN_ATTENTE ? StatutPaiement.ECHOUE : actuel, null);
++        }
++        // PAYE : montant et devise doivent correspondre exactement (jamais le montant envoyé par un client).
++        if (e.montant == null || e.montant != montantAttendu) {
++            return new Decision(actuel,
++                    "Montant payé (" + e.montant + ") différent du montant attendu (" + montantAttendu + ")");
++        }
++        if (e.devise != null && deviseAttendue != null && !deviseAttendue.equalsIgnoreCase(e.devise)) {
++            return new Decision(actuel, "Devise payée (" + e.devise + ") différente de " + deviseAttendue);
++        }
++        switch (actuel) {
++        case EN_ATTENTE:
++        case ECHOUE:
++            return new Decision(StatutPaiement.PAYE, null);
++        case ANNULE:
++        case EXPIRE:
++            return new Decision(StatutPaiement.PAYE_APRES_ANNULATION, "Paiement reçu après annulation : à régulariser");
++        default:
++            return new Decision(actuel, null); // déjà payé : notification répétée
++        }
++    }
++
++    /** Annulation demandée : seulement si le paiement est encore en attente. */
++    public static StatutPaiement annuler(StatutPaiement actuel) {
++        return actuel == StatutPaiement.EN_ATTENTE ? StatutPaiement.ANNULE : actuel;
++    }
++
++    /** Expiration : seulement si le paiement est encore en attente. */
++    public static StatutPaiement expirer(StatutPaiement actuel) {
++        return actuel == StatutPaiement.EN_ATTENTE ? StatutPaiement.EXPIRE : actuel;
++    }
++}
+diff --git a/src/main/java/util/paiements/WaveFournisseur.java b/src/main/java/util/paiements/WaveFournisseur.java
+new file mode 100644
+index 00000000..3c11f83d
+--- /dev/null
++++ b/src/main/java/util/paiements/WaveFournisseur.java
+@@ -0,0 +1,118 @@
++package util.paiements;
++
++import java.io.IOException;
++import java.util.Collections;
++import java.util.List;
++import java.util.Map;
++import java.util.function.Function;
++import org.json.JSONObject;
++
++/**
++ * B3 : adaptateur Wave Business (API Checkout), Wave seulement.
++ * <p>
++ * <b>À VALIDER AVEC LA DOCUMENTATION DU COMPTE MARCHAND</b> — écrit d'après la documentation publique Wave connue :
++ * <ul>
++ * <li>création : {@code POST https://api.wave.com/v1/checkout/sessions}, {@code Authorization: Bearer <clé API>}, JSON
++ * amount (texte), currency XOF, success_url, error_url, client_reference → id (cos-…), wave_launch_url ;</li>
++ * <li>webhook : en-tête {@code Wave-Signature: t=<horodatage>,v1=<hex>} = HMAC-SHA256(horodatage + corps brut) avec le
++ * secret du webhook ; événement checkout.session.completed (data.client_reference = notre transaction) ;</li>
++ * <li>vérification : {@code GET https://api.wave.com/v1/checkout/sessions/{id}} → checkout_status, payment_status
++ * (succeeded), amount, currency.</li>
++ * </ul>
++ * Les notifications de plus de 5 minutes sont refusées (rejeu).
++ */
++public final class WaveFournisseur implements FournisseurPaiement {
++
++    static final String BASE = "https://api.wave.com/v1";
++    static final long FENETRE_SECONDES = 300;
++
++    private final HttpPaiements http;
++    private final String apiKey;
++    private final String webhookSecret;
++    /** Horloge (tests). */
++    java.util.function.LongSupplier maintenant = () -> System.currentTimeMillis() / 1000;
++
++    public WaveFournisseur(HttpPaiements http, String apiKey, String webhookSecret) {
++        this.http = http;
++        this.apiKey = apiKey;
++        this.webhookSecret = webhookSecret;
++    }
++
++    @Override
++    public String code() {
++        return "wave";
++    }
++
++    @Override
++    public List<Operateur> operateurs() {
++        return Collections.singletonList(Operateur.WAVE);
++    }
++
++    private Map<String, String> entetes() {
++        return Map.of("Authorization", "Bearer " + apiKey, "Content-Type", "application/json");
++    }
++
++    @Override
++    public Creation creer(Demande d) throws IOException {
++        JSONObject b = new JSONObject().put("amount", String.valueOf(d.montant)).put("currency", d.devise)
++                .put("success_url", d.urlRetour).put("error_url", d.urlRetour).put("client_reference", d.transactionId);
++        HttpPaiements.Reponse r = http.envoyer("POST", BASE + "/checkout/sessions", entetes(), b.toString());
++        JSONObject o = new JSONObject(r.corps == null || r.corps.isBlank() ? "{}" : r.corps);
++        if (r.statut / 100 != 2 || o.optString("wave_launch_url").isEmpty()) {
++            throw new IOException("Wave a refusé la création (" + r.statut + " " + o.optString("message") + ")");
++        }
++        return new Creation(o.getString("id"), o.getString("wave_launch_url"));
++    }
++
++    @Override
++    public String lireNotification(String corpsBrut, Function<String, String> entete) {
++        String sig = entete.apply("Wave-Signature");
++        if (sig == null || corpsBrut == null) {
++            return null;
++        }
++        String t = null;
++        String v1 = null;
++        for (String part : sig.split(",")) {
++            String[] kv = part.trim().split("=", 2);
++            if (kv.length == 2 && "t".equals(kv[0])) {
++                t = kv[1];
++            } else if (kv.length == 2 && "v1".equals(kv[0])) {
++                v1 = kv[1];
++            }
++        }
++        if (t == null || v1 == null || !Signatures.valide(webhookSecret, t + corpsBrut, v1)) {
++            return null;
++        }
++        try {
++            if (Math.abs(maintenant.getAsLong() - Long.parseLong(t)) > FENETRE_SECONDES) {
++                return null;
++            }
++            JSONObject data = new JSONObject(corpsBrut).optJSONObject("data");
++            String ref = data == null ? "" : data.optString("client_reference", "");
++            return ref.isEmpty() ? null : ref;
++        } catch (RuntimeException e) {
++            return null;
++        }
++    }
++
++    @Override
++    public Etat verifier(String transactionId, String refFournisseur) throws IOException {
++        if (refFournisseur == null || refFournisseur.isBlank()) {
++            return new Etat(Resultat.EN_ATTENTE, null, null, null, "Session Wave inconnue");
++        }
++        HttpPaiements.Reponse r = http.envoyer("GET", BASE + "/checkout/sessions/" + refFournisseur, entetes(), null);
++        JSONObject o = new JSONObject(r.corps == null || r.corps.isBlank() ? "{}" : r.corps);
++        if (r.statut / 100 != 2) {
++            return new Etat(Resultat.EN_ATTENTE, null, null, null, "Wave : code " + r.statut);
++        }
++        if (!transactionId.equals(o.optString("client_reference"))) {
++            return new Etat(Resultat.EN_ATTENTE, null, null, null, "Session Wave d'une autre transaction");
++        }
++        String ps = o.optString("payment_status", "");
++        String cs = o.optString("checkout_status", "");
++        Integer montant = o.has("amount") ? (int) Math.round(Double.parseDouble(o.optString("amount", "0"))) : null;
++        Resultat res = "succeeded".equals(ps) ? Resultat.PAYE
++                : ("cancelled".equals(ps) || "expired".equals(cs)) ? Resultat.ECHOUE : Resultat.EN_ATTENTE;
++        return new Etat(res, montant, o.optString("currency", null), o.optString("transaction_id", null), ps);
++    }
++}
+diff --git a/src/main/resources/db/migration/V6.9.129.20__paiement_mobile.sql b/src/main/resources/db/migration/V6.9.129.20__paiement_mobile.sql
+new file mode 100644
+index 00000000..b48925b5
+--- /dev/null
++++ b/src/main/resources/db/migration/V6.9.129.20__paiement_mobile.sql
+@@ -0,0 +1,32 @@
++-- B3 (Prestige Mobile) : paiements mobile money par agrégateur (CinetPay, Wave Business, simulateur).
++-- Une ligne par demande de paiement ; montant fixé par le serveur ; client_ref unique = création idempotente
++-- (en-tête X-Client-Ref). Statuts : en_attente, paye, echoue, expire, annule, paye_apres_annulation (à régulariser).
++-- Script rejouable (CREATE TABLE IF NOT EXISTS) ; aucune table existante n'est modifiée. Aucune clé secrète en base.
++CREATE TABLE IF NOT EXISTS paiement_mobile (
++    id               VARCHAR(40)  NOT NULL,
++    client_ref       VARCHAR(64)  NULL,
++    vente_id         VARCHAR(40)  NOT NULL,
++    reference_vente  VARCHAR(40)  NULL,
++    montant          INT          NOT NULL,
++    devise           VARCHAR(3)   NOT NULL DEFAULT 'XOF',
++    operateur        VARCHAR(10)  NOT NULL,
++    type_reglement   VARCHAR(10)  NOT NULL,
++    fournisseur      VARCHAR(20)  NOT NULL,
++    statut           VARCHAR(30)  NOT NULL,
++    ref_fournisseur  VARCHAR(100) NULL,
++    lien             TEXT         NULL,
++    cloture_auto     TINYINT(1)   NOT NULL DEFAULT 0,
++    cloture          TINYINT(1)   NOT NULL DEFAULT 0,
++    message          VARCHAR(255) NULL,
++    user_id          VARCHAR(40)  NULL,
++    created_at       DATETIME     NOT NULL,
++    updated_at       DATETIME     NOT NULL,
++    expire_at        DATETIME     NULL,
++    paye_at          DATETIME     NULL,
++    verifie_at       DATETIME     NULL,
++    PRIMARY KEY (id),
++    UNIQUE KEY uk_paiement_mobile_client_ref (client_ref),
++    KEY idx_paiement_mobile_vente (vente_id),
++    KEY idx_paiement_mobile_statut (statut, expire_at),
++    KEY idx_paiement_mobile_date (created_at)
++) ENGINE = InnoDB DEFAULT CHARSET = utf8;
+diff --git a/src/test/java/util/paiements/PaiementsMobileTest.java b/src/test/java/util/paiements/PaiementsMobileTest.java
+new file mode 100644
+index 00000000..19af96c7
+--- /dev/null
++++ b/src/test/java/util/paiements/PaiementsMobileTest.java
+@@ -0,0 +1,243 @@
++package util.paiements;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertNotNull;
++import static org.junit.jupiter.api.Assertions.assertNull;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++import java.net.URLEncoder;
++import java.nio.charset.StandardCharsets;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.function.Function;
++import org.json.JSONObject;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import util.paiements.FournisseurPaiement.Etat;
++import util.paiements.FournisseurPaiement.Resultat;
++
++/** B3 : signatures des notifications (simulateur, CinetPay, Wave), revérification, transitions et idempotence. */
++public class PaiementsMobileTest {
++
++    private static Function<String, String> entetes(Map<String, String> m) {
++        return k -> {
++            for (Map.Entry<String, String> e : m.entrySet()) {
++                if (e.getKey().equalsIgnoreCase(k)) {
++                    return e.getValue();
++                }
++            }
++            return null;
++        };
++    }
++
++    /** Serveur HTTP de l'agrégateur, simulé : enregistre les appels et rend une réponse préparée. */
++    static final class FauxHttp implements HttpPaiements {
++        final List<String> appels = new ArrayList<>();
++        final Map<String, Reponse> reponses = new HashMap<>();
++
++        @Override
++        public Reponse envoyer(String methode, String url, Map<String, String> entetes, String corps) {
++            appels.add(methode + " " + url + " " + (corps == null ? "" : corps));
++            Reponse r = reponses.get(methode + " " + url);
++            return r != null ? r : new Reponse(404, "{}");
++        }
++    }
++
++    @BeforeEach
++    public void avant() {
++        SimulateurPaiement.vider();
++    }
++
++    @Test
++    public void signatures() {
++        String h = Signatures.hmacHex("secret", "message");
++        assertEquals("8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b", h,
++                "même référence que WhatsApp");
++        assertTrue(Signatures.valide("secret", "message", h.toUpperCase()));
++        assertFalse(Signatures.valide("autre", "message", h));
++        assertFalse(Signatures.valide("secret", "message ", h), "corps modifié");
++        assertFalse(Signatures.valide("", "message", h), "secret absent : tout est refusé");
++        assertFalse(Signatures.valide("secret", "message", null));
++    }
++
++    @Test
++    public void configurationDesactiveeParDefautEtSecretsMasques() {
++        Map<String, String> env = new HashMap<>();
++        assertNull(ConfigPaiements.depuis(env::get).creerFournisseur(new FauxHttp()), "aucun fournisseur : désactivé");
++        env.put("PRESTIGE_PAIEMENTS_FOURNISSEUR", "cinetpay");
++        env.put("CINETPAY_APIKEY", "CLE-SECRETE");
++        env.put("CINETPAY_SITE_ID", "123");
++        env.put("CINETPAY_SECRET_KEY", "HMAC-SECRET");
++        assertNull(ConfigPaiements.depuis(env::get).creerFournisseur(new FauxHttp()), "sans URL publique : désactivé");
++        env.put("PRESTIGE_PAIEMENTS_URL_PUBLIQUE", "https://pharmacie.exemple.ci/prestige/api/v1/");
++        ConfigPaiements c = ConfigPaiements.depuis(env::get);
++        assertNotNull(c.creerFournisseur(new FauxHttp()));
++        assertEquals("https://pharmacie.exemple.ci/prestige/api/v1", c.urlPublique);
++        assertFalse(c.toString().contains("CLE-SECRETE"));
++        assertFalse(c.toString().contains("HMAC-SECRET"));
++        env.put("PRESTIGE_PAIEMENTS_EXPIRATION_MIN", "999");
++        assertEquals(60, ConfigPaiements.depuis(env::get).expirationMin);
++    }
++
++    @Test
++    public void transitions() {
++        Etat paye = new Etat(Resultat.PAYE, 6300, "XOF", "OP1", null);
++        assertEquals(StatutPaiement.PAYE,
++                TransitionsPaiement.appliquer(StatutPaiement.EN_ATTENTE, 6300, "XOF", paye).statut);
++        // Notification répétée : rien ne change (idempotence).
++        assertEquals(StatutPaiement.PAYE, TransitionsPaiement.appliquer(StatutPaiement.PAYE, 6300, "XOF", paye).statut);
++        // Montant différent : jamais payé, anomalie.
++        TransitionsPaiement.Decision d = TransitionsPaiement.appliquer(StatutPaiement.EN_ATTENTE, 6300, "XOF",
++                new Etat(Resultat.PAYE, 100, "XOF", null, null));
++        assertEquals(StatutPaiement.EN_ATTENTE, d.statut);
++        assertNotNull(d.anomalie);
++        assertEquals(StatutPaiement.EN_ATTENTE, TransitionsPaiement.appliquer(StatutPaiement.EN_ATTENTE, 6300, "XOF",
++                new Etat(Resultat.PAYE, 6300, "EUR", null, null)).statut);
++        // Paiement tardif après annulation / expiration : à régulariser.
++        assertEquals(StatutPaiement.PAYE_APRES_ANNULATION,
++                TransitionsPaiement.appliquer(StatutPaiement.ANNULE, 6300, "XOF", paye).statut);
++        assertEquals(StatutPaiement.PAYE_APRES_ANNULATION,
++                TransitionsPaiement.appliquer(StatutPaiement.EXPIRE, 6300, "XOF", paye).statut);
++        // Échec puis en attente : rien ne régresse.
++        Etat echec = new Etat(Resultat.ECHOUE, 6300, "XOF", null, null);
++        assertEquals(StatutPaiement.ECHOUE,
++                TransitionsPaiement.appliquer(StatutPaiement.EN_ATTENTE, 6300, "XOF", echec).statut);
++        assertEquals(StatutPaiement.PAYE,
++                TransitionsPaiement.appliquer(StatutPaiement.PAYE, 6300, "XOF", echec).statut);
++        assertEquals(StatutPaiement.ANNULE, TransitionsPaiement.annuler(StatutPaiement.EN_ATTENTE));
++        assertEquals(StatutPaiement.PAYE, TransitionsPaiement.annuler(StatutPaiement.PAYE));
++        assertEquals(StatutPaiement.PAYE, TransitionsPaiement.expirer(StatutPaiement.PAYE));
++    }
++
++    @Test
++    public void simulateurNotificationSigneeEtRevérifiee() {
++        SimulateurPaiement s = new SimulateurPaiement("sim-secret");
++        FournisseurPaiement.Creation c = s
++                .creer(new FournisseurPaiement.Demande("T1", 6300, "XOF", Operateur.WAVE, "vente", "u", "r"));
++        assertTrue(c.lien.startsWith("simulateur://payer/T1"));
++        assertEquals(Resultat.EN_ATTENTE, s.verifier("T1", c.refFournisseur).resultat);
++        String corps = s.payer("T1", null);
++        String sig = s.signer(corps);
++        assertEquals("T1", s.lireNotification(corps, entetes(Map.of("x-simulateur-signature", sig))));
++        assertNull(s.lireNotification(corps, entetes(Map.of(SimulateurPaiement.ENTETE_SIGNATURE, "00"))),
++                "signature fausse");
++        assertNull(s.lireNotification(corps.replace("T1", "T2"),
++                entetes(Map.of(SimulateurPaiement.ENTETE_SIGNATURE, sig))));
++        Etat e = s.verifier("T1", c.refFournisseur);
++        assertEquals(Resultat.PAYE, e.resultat);
++        assertEquals(6300, e.montant);
++        // Idempotence : la même notification rejouée 3 fois donne toujours « payé », sans autre effet.
++        StatutPaiement st = StatutPaiement.EN_ATTENTE;
++        int changements = 0;
++        for (int i = 0; i < 3; i++) {
++            TransitionsPaiement.Decision d = TransitionsPaiement.appliquer(st, 6300, "XOF", s.verifier(
++                    s.lireNotification(corps, entetes(Map.of(SimulateurPaiement.ENTETE_SIGNATURE, sig))), null));
++            if (d.change(st)) {
++                changements++;
++            }
++            st = d.statut;
++        }
++        assertEquals(StatutPaiement.PAYE, st);
++        assertEquals(1, changements, "une seule transition (une seule clôture)");
++        // Montant payé falsifié par le « client » : refusé.
++        s.payer("T1", 100);
++        assertEquals(StatutPaiement.EN_ATTENTE,
++                TransitionsPaiement.appliquer(StatutPaiement.EN_ATTENTE, 6300, "XOF", s.verifier("T1", null)).statut);
++    }
++
++    private static String form(Map<String, String> m) {
++        StringBuilder sb = new StringBuilder();
++        for (Map.Entry<String, String> e : m.entrySet()) {
++            if (sb.length() > 0) {
++                sb.append('&');
++            }
++            sb.append(URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8)).append('=')
++                    .append(URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8));
++        }
++        return sb.toString();
++    }
++
++    @Test
++    public void cinetPay() throws Exception {
++        FauxHttp http = new FauxHttp();
++        CinetPayFournisseur f = new CinetPayFournisseur(http, "APIKEY", "445566", "SECRET");
++        http.reponses.put("POST " + CinetPayFournisseur.BASE + "/payment", new HttpPaiements.Reponse(200,
++                "{\"code\":\"201\",\"message\":\"CREATED\",\"data\":{\"payment_token\":\"tok1\",\"payment_url\":\"https://checkout.cinetpay.com/payment/tok1\"}}"));
++        FournisseurPaiement.Creation c = f.creer(new FournisseurPaiement.Demande("T9", 6300, "XOF", Operateur.ORANGE,
++                "vente", "https://ph/notif", "https://ph/retour"));
++        assertEquals("https://checkout.cinetpay.com/payment/tok1", c.lien);
++        JSONObject envoye = new JSONObject(http.appels.get(0).substring(http.appels.get(0).indexOf('{')));
++        assertEquals(6300, envoye.getInt("amount"));
++        assertEquals("https://ph/notif", envoye.getString("notify_url"));
++        // Notification signée (x-token = HMAC des champs dans l'ordre documenté).
++        Map<String, String> champs = new java.util.LinkedHashMap<>();
++        champs.put("cpm_site_id", "445566");
++        champs.put("cpm_trans_id", "T9");
++        champs.put("cpm_trans_date", "2026-10-11 10:00:00");
++        champs.put("cpm_amount", "6300");
++        champs.put("cpm_currency", "XOF");
++        champs.put("payment_method", "OM");
++        String corps = form(champs);
++        String token = Signatures.hmacHex("SECRET",
++                CinetPayFournisseur.donneesToken(CinetPayFournisseur.formulaire(corps)));
++        assertEquals("T9", f.lireNotification(corps, entetes(Map.of("X-TOKEN", token))));
++        assertNull(f.lireNotification(corps, entetes(Map.of("x-token", Signatures.hmacHex("AUTRE", "x")))));
++        assertNull(f.lireNotification(corps.replace("6300", "100"), entetes(Map.of("x-token", token))),
++                "montant modifié");
++        assertNull(f.lireNotification(corps.replace("445566", "999"), entetes(Map.of("x-token", token))), "autre site");
++        // Revérification auprès de l'API.
++        http.reponses.put("POST " + CinetPayFournisseur.BASE + "/payment/check", new HttpPaiements.Reponse(200,
++                "{\"code\":\"00\",\"message\":\"SUCCES\",\"data\":{\"amount\":\"6300\",\"currency\":\"XOF\",\"status\":\"ACCEPTED\",\"operator_id\":\"MP1\"}}"));
++        Etat e = f.verifier("T9", "tok1");
++        assertEquals(Resultat.PAYE, e.resultat);
++        assertEquals(6300, e.montant);
++        http.reponses.put("POST " + CinetPayFournisseur.BASE + "/payment/check",
++                new HttpPaiements.Reponse(200, "{\"code\":\"627\",\"data\":{\"status\":\"REFUSED\",\"amount\":6300}}"));
++        assertEquals(Resultat.ECHOUE, f.verifier("T9", "tok1").resultat);
++        for (String a : http.appels) {
++            assertFalse(a.contains("SECRET\""), "la clé de signature n'est jamais envoyée");
++        }
++    }
++
++    @Test
++    public void wave() throws Exception {
++        FauxHttp http = new FauxHttp();
++        WaveFournisseur f = new WaveFournisseur(http, "wave_sn_prod_x", "whsec");
++        f.maintenant = () -> 1_760_000_000L;
++        http.reponses.put("POST " + WaveFournisseur.BASE + "/checkout/sessions", new HttpPaiements.Reponse(200,
++                "{\"id\":\"cos-1\",\"wave_launch_url\":\"https://pay.wave.com/c/cos-1\",\"checkout_status\":\"open\"}"));
++        FournisseurPaiement.Creation c = f
++                .creer(new FournisseurPaiement.Demande("T5", 2100, "XOF", Operateur.WAVE, "v", "n", "r"));
++        assertEquals("cos-1", c.refFournisseur);
++        assertEquals("https://pay.wave.com/c/cos-1", c.lien);
++        String corps = "{\"type\":\"checkout.session.completed\",\"data\":{\"id\":\"cos-1\",\"client_reference\":\"T5\"}}";
++        String t = "1760000000";
++        String sig = "t=" + t + ",v1=" + Signatures.hmacHex("whsec", t + corps);
++        assertEquals("T5", f.lireNotification(corps, entetes(Map.of("wave-signature", sig))));
++        assertNull(f.lireNotification(corps, entetes(Map.of("Wave-Signature", "t=" + t + ",v1=00"))));
++        f.maintenant = () -> 1_760_000_000L + 3600;
++        assertNull(f.lireNotification(corps, entetes(Map.of("Wave-Signature", sig))),
++                "notification trop ancienne (rejeu)");
++        http.reponses.put("GET " + WaveFournisseur.BASE + "/checkout/sessions/cos-1", new HttpPaiements.Reponse(200,
++                "{\"id\":\"cos-1\",\"client_reference\":\"T5\",\"amount\":\"2100\",\"currency\":\"XOF\",\"checkout_status\":\"complete\",\"payment_status\":\"succeeded\"}"));
++        Etat e = f.verifier("T5", "cos-1");
++        assertEquals(Resultat.PAYE, e.resultat);
++        assertEquals(2100, e.montant);
++        assertEquals(Resultat.EN_ATTENTE, f.verifier("T6", "cos-1").resultat, "session d'une autre transaction");
++    }
++
++    @Test
++    public void operateursEtModesDeReglement() {
++        assertEquals("7", Operateur.ORANGE.typeReglement);
++        assertEquals("8", Operateur.MOOV.typeReglement);
++        assertEquals("9", Operateur.MTN.typeReglement);
++        assertEquals("10", Operateur.WAVE.typeReglement);
++        assertEquals(Operateur.ORANGE, Operateur.de("om"));
++        assertEquals(Operateur.WAVE, Operateur.de("10"));
++        assertNull(Operateur.de("paypal"));
++        assertEquals(StatutPaiement.PAYE_APRES_ANNULATION, StatutPaiement.de("paye_apres_annulation"));
++    }
++}
+-- 
+2.43.0
+

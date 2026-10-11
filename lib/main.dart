@@ -37,6 +37,7 @@ import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:prestige_vente_app/images/produit_images.dart';
+import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
 import 'dart:io';
@@ -56,6 +57,8 @@ Future<void> main() async {
   await BorneReglages.charger();
   // Images des produits (B2) : réglages et cache disque (affichage hors ligne).
   await ImagesReglages.charger();
+  // Paiements mobile money (B3, désactivés par défaut).
+  await PaiementsMobileReglages.charger();
   ProduitImages.instance.dossier = () async => Directory('${(await getApplicationSupportDirectory()).path}/images_produits');
   unawaited(ProduitImages.instance.init());
   // Journal du terminal (SQLite, fichier du catalogue) : durée de conservation et identité du terminal.
