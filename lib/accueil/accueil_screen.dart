@@ -30,6 +30,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/bl_control/bl_list_screen.dart';
+import 'package:prestige_vente_app/support/signaler_probleme_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
@@ -556,6 +557,8 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
                 _actualiser();
               case 'organiser':
                 _organiser();
+              case 'signaler':
+                ouvrirSignalement(context);
               case 'deconnexion':
                 _deconnexion();
             }
@@ -563,6 +566,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'actualiser', child: ListTile(leading: Icon(Icons.refresh), title: Text('Actualiser'), contentPadding: EdgeInsets.zero)),
             PopupMenuItem(value: 'organiser', child: ListTile(leading: Icon(Icons.dashboard_customize), title: Text('Organiser l\'accueil'), contentPadding: EdgeInsets.zero)),
+            PopupMenuItem(value: 'signaler', child: ListTile(leading: Icon(Icons.report_problem_outlined), title: Text('Signaler un problème'), contentPadding: EdgeInsets.zero)),
             PopupMenuItem(value: 'deconnexion', child: ListTile(leading: Icon(Icons.logout), title: Text('Se déconnecter'), contentPadding: EdgeInsets.zero)),
           ],
         ),
