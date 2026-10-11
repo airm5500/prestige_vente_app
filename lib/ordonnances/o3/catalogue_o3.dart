@@ -32,13 +32,15 @@ class CatalogueO3 {
   /// Correspondance O3 : copie locale complète si disponible, sinon recherche serveur [recherche].
   /// O4 : [apprentissages] (apprentissages par correction) prioritaires ; leurs validations reçues des autres
   /// terminaux nourrissent aussi le bonus « produits vendus ».
-  static Future<CorrespondanceO3> creer(ProductPageSearch recherche, {LocalStore? store, SourceApprentissages? apprentissages}) async {
+  static Future<CorrespondanceO3> creer(ProductPageSearch recherche,
+      {LocalStore? store, SourceApprentissages? apprentissages, bool fragments = false}) async {
     final pop = await PopulariteLocale.charger();
     return CorrespondanceO3.auto(
       recherche,
       chargerTout: () => copieLocale(store),
       popularite: apprentissages == null ? pop : PopulariteAvecApprentissages(pop, apprentissages),
       apprentissages: apprentissages,
+      fragments: fragments,
     );
   }
 }

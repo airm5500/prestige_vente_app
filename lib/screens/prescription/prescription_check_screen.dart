@@ -68,6 +68,9 @@ class _RxLine {
 
   /// O4 : la proposition retenue vient d'un apprentissage.
   bool apprise = false;
+
+  /// O3b : produits trouvés par fragments sûrs → indication (« …PHOS… »).
+  Map<String, String> fragments = const {};
   _RxLine(this.line, {this.lu}) : quantity = line.quantity ?? 1;
 
   _LineStatus get status {
@@ -88,6 +91,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
   bool _creating = false;
   int _generation = 0; // Ignore les recherches d'une ordonnance précédente
   Future<CorrespondanceO3>? _o3; // correspondance O3 (catalogue chargé une fois)
+  bool _o3Fragments = false;
   late ListPresentation _style = widget.presentation ?? ListPresentation.dashboard;
 
   @override
@@ -95,7 +99,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     super.initState();
     // Nouvelle lecture O2 / O3 (« Actuelle » par défaut) ; O3 : apprentissages des autres terminaux (O4).
     LectureO2.charger().then((_) {
-      if (LectureO2.mode.value == ModeLecture.o3) PartageO4.instance.synchroniser();
+      if (LectureO2.correspondanceO3) PartageO4.instance.synchroniser();
     });
     if (widget.presentation == null) {
       PresentationPrefs.load().then((p) {
@@ -169,7 +173,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     final api = Provider.of<ApiService>(context, listen: false);
     setState(() => rx.searching = true);
 
-    if (LectureO2.mode.value == ModeLecture.o3) return _searchO3(rx, generation, api);
+    if (LectureO2.correspondanceO3) return _searchO3(rx, generation, api);
     final r = await PrescriptionMatcher.match(rx.line, apiPageSearch(api));
     final chosen = r.chosen;
     final failure = r.failure;
@@ -212,7 +216,10 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
         return;
       }
     }
-    final o3 = await (_o3 ??= ApprentissagesO4.charger().then((a) => CatalogueO3.creer(search, apprentissages: a)));
+    final fragments = LectureO2.mode.value == ModeLecture.o3Fragments;
+    if (_o3Fragments != fragments) _o3 = null;
+    _o3Fragments = fragments;
+    final o3 = await (_o3 ??= ApprentissagesO4.charger().then((a) => CatalogueO3.creer(search, apprentissages: a, fragments: fragments)));
     final r = await o3.proposer(rx.line);
     if (!mounted || generation != _generation) return;
     final best = r.meilleure;
@@ -221,6 +228,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       rx.selected = best?.produit;
       rx.confiance = best?.confiance;
       rx.apprise = best?.apprise != null;
+      rx.fragments = {for (final p in r.propositions) if (p.fragment != null) p.produit.lgFAMILLEID: p.fragment!};
       rx.match = best == null ? _Match.none : (r.sur ? _Match.probable : _Match.toVerify);
       rx.alternatives = [for (final p in r.propositions.skip(1)) p.produit];
       rx.include = best != null && r.sur && best.produit.intNUMBERAVAILABLE > 0;
@@ -315,7 +323,8 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                     for (final p in choices)
                       ListTile(
                         title: Text(p.strNAME),
-                        subtitle: Text('CIP: ${p.intCIP} | ${Constants.formatNumber(p.intPRICE)} F'),
+                        subtitle: Text('CIP: ${p.intCIP} | ${Constants.formatNumber(p.intPRICE)} F'
+                            '${rx.fragments[p.lgFAMILLEID] == null ? '' : '\nTrouvé par fragment : ${rx.fragments[p.lgFAMILLEID]} (à vérifier)'}'),
                         trailing: _stockChip(p),
                         selected: p.lgFAMILLEID == rx.selected?.lgFAMILLEID,
                         onTap: () => Navigator.of(ctx).pop(p),
@@ -337,6 +346,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
       rx.match = _Match.manual;
       rx.confiance = null;
       rx.apprise = false;
+      rx.fragments = const {};
       rx.include = true;
     });
   }
@@ -386,7 +396,7 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
     );
     if (confirmed != true || !mounted) return;
     // O3 : produits validés par le pharmacien → bonus « réellement vendu » (compteur sur l'appareil).
-    if (LectureO2.mode.value == ModeLecture.o3) {
+    if (LectureO2.correspondanceO3) {
       PopulariteLocale.enregistrer([for (final l in toSell) l.selected!.lgFAMILLEID]);
       _apprendre(toSell);
     }
@@ -831,6 +841,9 @@ class _PrescriptionCheckScreenState extends State<PrescriptionCheckScreen> {
                               Text(p.strNAME, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                               Text('CIP: ${p.intCIP} | ${Constants.formatNumber(p.intPRICE)} F', style: const TextStyle(fontSize: 12)),
                               _matchBadge(rx.match, rx.confiance),
+                              if (rx.fragments[p.lgFAMILLEID] case final f?)
+                                Text('Trouvé par fragment : $f',
+                                    style: TextStyle(fontSize: 11.5, color: Colors.orange.shade900, fontStyle: FontStyle.italic)),
                               if (rx.apprise)
                                 const Text('Appris des validations précédentes',
                                     style: TextStyle(fontSize: 11.5, color: Pal.muted, fontStyle: FontStyle.italic)),

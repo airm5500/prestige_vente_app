@@ -23,16 +23,22 @@ List<PipelineOrdonnance> pipelinesBanc(
       ...candidatsO2(recherche, lecteur: lecteur),
       candidatO3(recherche, lecteur: lecteur, correspondance: correspondanceO3),
       candidatO3Appris(recherche, lecteur: lecteur, correspondance: correspondanceO3, apprentissages: apprentissages),
+      candidatO3Appris(recherche, lecteur: lecteur, correspondance: correspondanceO3, apprentissages: apprentissages, fragments: true),
     ];
 
 /// Candidat O4 : O3 + apprentissages par correction (réels ; ou simulés en deux passages, voir banc_o4.dart).
+/// [fragments] (O3b) : + propositions par fragments sûrs, après les correspondances complètes.
 PipelineO3Appris candidatO3Appris(
   ProductPageSearch recherche, {
   LecteurTexte? lecteur,
   Future<CorrespondanceO3> Function()? correspondance,
   Future<SourceApprentissages> Function()? apprentissages,
+  bool fragments = false,
 }) =>
     PipelineO3Appris(
+      id: fragments ? 'o3_fragments' : 'o3_appris',
+      libelle: fragments ? 'O3 + fragments + apprentissages' : 'O3 + apprentissages',
+      fragments: fragments,
       lecteur: lecteur,
       recherche: recherche,
       correspondance: correspondance ?? () => CatalogueO3.creer(recherche),

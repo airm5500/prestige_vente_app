@@ -320,7 +320,7 @@ class _LectureO2ReglagesState extends State<LectureO2Reglages> {
                 const SizedBox(height: 6),
                 Segmented<ModeLecture>(
                   key: const Key('lecture_mode'),
-                  options: const [(ModeLecture.actuelle, 'Actuelle'), (ModeLecture.o2, 'O2'), (ModeLecture.o3, 'O3')],
+                  options: const [(ModeLecture.actuelle, 'Actuelle'), (ModeLecture.o2, 'O2'), (ModeLecture.o3, 'O3'), (ModeLecture.o3Fragments, 'O3+')],
                   value: mode,
                   onChanged: LectureO2.definirMode,
                 ),
@@ -330,6 +330,7 @@ class _LectureO2ReglagesState extends State<LectureO2Reglages> {
                     ModeLecture.actuelle => 'Lecture d\'origine.',
                     ModeLecture.o2 => 'Photo guidée de la page, zone des médicaments, lignes numérotées.',
                     ModeLecture.o3 => 'O2 + correspondance catalogue améliorée (3 propositions avec confiance).',
+                    ModeLecture.o3Fragments => 'O3 + propositions par fragments sûrs (« …PHOS… »), toujours à vérifier.',
                   } +
                       (mode == ModeLecture.actuelle ? '' : ' À garder seulement si le banc d\'essai donne un meilleur score.'),
                   style: const TextStyle(fontSize: 12.5, color: Pal.muted),

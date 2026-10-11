@@ -11,7 +11,6 @@ import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/pipelines_disponibles.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/score_banc.dart';
-import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
 import 'package:prestige_vente_app/ordonnances/o3/correspondance_o3.dart';
 import 'package:prestige_vente_app/ordonnances/o4/apprentissage_o4.dart';
 import 'package:prestige_vente_app/ordonnances/o4/apprentissages_screen.dart';
@@ -368,7 +367,7 @@ void main() {
         correspondanceO3: () async => _o3(),
         apprentissages: () async => ApprentissagesO4.memoire(),
       );
-      final p = pipelines.whereType<PipelineO3Appris>().single;
+      final p = pipelines.whereType<PipelineO3Appris>().firstWhere((p) => p.id == 'o3_appris');
       expect(p.libelle, 'O3 + apprentissages');
       final s = await simulerApprentissage(p, lectures.keys.toList(), vt);
       expect(s.lignesApprises, greaterThanOrEqualTo(2));

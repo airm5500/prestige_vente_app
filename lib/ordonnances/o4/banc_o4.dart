@@ -61,6 +61,9 @@ class PipelineO3Appris implements PipelineApprenant {
   /// Préparation d'image facultative (O2 image améliorée).
   final PreparationImage? preparation;
 
+  /// O3b : propositions par fragments sûrs (après les correspondances complètes).
+  final bool fragments;
+
   PipelineO3Appris({
     this.id = 'o3_appris',
     this.libelle = 'O3 + apprentissages',
@@ -70,6 +73,7 @@ class PipelineO3Appris implements PipelineApprenant {
     required this.correspondance,
     Future<SourceApprentissages> Function()? apprentissagesReels,
     this.preparation,
+    this.fragments = false,
   })  : lecteur = lecteur ?? OcrService.readImageFile,
         decoupage = decoupage ?? DecoupageOrdonnance.extraire,
         apprentissagesReels = apprentissagesReels ?? ApprentissagesO4.charger;
@@ -125,7 +129,7 @@ class PipelineO3Appris implements PipelineApprenant {
       return ResultatPipeline(produits: const [], erreur: 'Lecture impossible : ${e.runtimeType}');
     }
     final base = await (_base ??= correspondance());
-    final o3 = base.avec(apprentissages: _simule ?? await apprentissagesReels());
+    final o3 = base.avec(apprentissages: _simule ?? await apprentissagesReels(), fragments: fragments);
     final lignes = decoupage(texte);
     final produits = <String>[];
     final lues = <_LigneLue>[];

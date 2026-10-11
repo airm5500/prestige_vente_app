@@ -95,6 +95,9 @@ abstract class SourceApprentissages {
 
   /// Validations reçues des autres terminaux pour ce produit (bonus « produits vendus »).
   int validationsPartagees(String produitId);
+
+  /// Confirmations des associations actives vers ce produit (bonus des propositions par fragments O3b).
+  int confirmationsProduit(String produitId);
 }
 
 class ApprentissagesO4 extends ChangeNotifier implements SourceApprentissages {
@@ -191,6 +194,10 @@ class ApprentissagesO4 extends ChangeNotifier implements SourceApprentissages {
 
   @override
   int validationsPartagees(String produitId) => _partagees[produitId] ?? 0;
+
+  @override
+  int confirmationsProduit(String produitId) =>
+      _parCle.values.where((a) => a.produitId == produitId && a.active).fold(0, (s, a) => s + a.confirmations);
 
   /// Ressemblance de deux segments (forme compacte), 0 si trop différents.
   static double ressemblance(String a, String b) {

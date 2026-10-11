@@ -25,8 +25,8 @@ abstract final class SegmentMedicament {
     'date', 'le', 'fait', 'abidjan', 'dakar', 'ordonnance', 'medecin', 'infirmier', 'sage', 'femme', 'enfant de',
   };
 
-  /// Début de posologie / quantité : la suite de la ligne est ignorée.
-  static final _posologie = RegExp(
+  /// Début de posologie / quantité : la suite de la ligne est ignorée (aussi utilisé par les fragments O3b).
+  static final posologie = RegExp(
     r'(\s[x×]\s*\d|\d\s*[x×]\s*\d|\d+\s*(?:fois|f)\s*/|/\s*j\b|/\s*jour|\bpar\s+jour|\bpdt\b|\bpendant\b|\bmatin\b|\bmidi\b|'
     r'\bsoir\b|\bfois\b|\b\d+\s*(?:cp|cps|cpr|comprimes?|gel|gelules?|doses?|gouttes?|gtt|sachets?|cuill\w*|cas|cac|amp|suppos?)\b|'
     r'\bqsp\b|->|→|=>|\b\d+\s*(?:bte|btes|bts|bt|boites?|fl|flacons?|tubes?)\b|\bjrs?\b|\bjours?\b|\bsemaines?\b)',
@@ -44,7 +44,7 @@ abstract final class SegmentMedicament {
     if (t.isEmpty || t.length > 120) return null;
     if (_email.hasMatch(t) || _telephone.hasMatch(t) || _date.hasMatch(t)) return null;
     t = t.replaceFirst(_listePrefixe, '');
-    final p = _posologie.firstMatch(t);
+    final p = posologie.firstMatch(t);
     if (p != null) t = t.substring(0, p.start);
     t = NormalisationProduit.sansAccents(t);
     // Dosages collés ou séparés (« 1 g » → « 1g ») ; seuls lettres, chiffres et % / . , restent.

@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:prestige_vente_app/ordonnances/o3/fragments_o3.dart';
 import 'package:printing/printing.dart';
 
 class OcrService {
@@ -64,6 +65,12 @@ class OcrService {
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
     try {
       final recognized = await recognizer.processImage(InputImage.fromFilePath(path));
+      // O3b : confiance par caractère (symboles ML Kit, Android) pour les fragments sûrs ; en mémoire seulement.
+      ConfianceLecture.remplacer({
+        for (final block in recognized.blocks)
+          for (final line in block.lines)
+            if (masqueConfiance(line) case final m?) line.text.trim(): m,
+      });
       return groupIntoRows([
         for (final block in recognized.blocks)
           for (final line in block.lines) (box: line.boundingBox, text: line.text),
@@ -71,6 +78,29 @@ class OcrService {
     } finally {
       recognizer.close();
     }
+  }
+
+  /// Masque « 1 » (caractère sûr) / « 0 » (douteux) d'une ligne ML Kit, à partir de la confiance des symboles ;
+  /// null si ML Kit ne la donne pas (iOS) ou si les symboles ne correspondent pas au texte de la ligne.
+  static String? masqueConfiance(TextLine line) {
+    final texte = line.text.trim();
+    final b = StringBuffer();
+    var avecConfiance = false;
+    for (final e in line.elements) {
+      if (b.isNotEmpty) b.write('1'); // espace entre deux éléments
+      if (e.symbols.isEmpty) {
+        b.write(((e.confidence ?? 1) >= ConfianceLecture.seuil ? '1' : '0') * e.text.length);
+        avecConfiance |= e.confidence != null;
+        continue;
+      }
+      for (final s in e.symbols) {
+        final c = s.confidence;
+        avecConfiance |= c != null;
+        b.write(((c ?? 1) >= ConfianceLecture.seuil ? '1' : '0') * s.text.length);
+      }
+    }
+    final m = b.toString();
+    return avecConfiance && m.length == texte.length ? m : null;
   }
 
   /// Regroupe les morceaux de texte situés à la même hauteur en une seule ligne,

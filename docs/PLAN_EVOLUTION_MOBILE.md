@@ -401,6 +401,7 @@ Responsive : 1 colonne (téléphone/terminal), 2-3 colonnes (tablette portrait),
 | O1 | Banc d'essai des 17 ordonnances + mesure de la lecture actuelle (référence) — **réalisé** (§4.5) |
 | O2 | Capture guidée page + découpage par lignes numérotées — **réalisé** (§4.6) |
 | O3 | Correspondance catalogue améliorée (abréviations, phonétique, produits vendus) — **réalisé** (§4.7) |
+| O3b | Reconnaissance par fragments sûrs (« contient », avec prudence) — **réalisé** (§4.9) |
 | O4 | Apprentissage par correction — **réalisé** (§4.8 ; partage : patch serveur à appliquer) |
 | O5 | (option) Lecture avancée en ligne, avec consentement |
 
@@ -609,6 +610,47 @@ Tests : `test/ordonnances_o4_test.dart` (CI), lectures et catalogue **synthétiq
 (correctes · rappel · précision). Sans apprentissage, « O3 + apprentissages » = O3 exactement. Le gain est limité
 par tesseract, qui ne détecte qu'une partie des lignes manuscrites (une ligne non lue ne peut pas être apprise) :
 **la mesure sur le téléphone (ML Kit) fait foi** ; le banc simulé y montre l'effet sur vos ordonnances.
+
+### 4.9 O3b — Reconnaissance par fragments sûrs (« contient », avec prudence) : réalisé
+
+**Code** : `lib/ordonnances/o3/fragments_o3.dart` ; points d'accroche : `CorrespondanceO3` (`fragments: true`),
+`OcrService.readImageFile` (confiance par caractère), écran Ordonnance (mode **O3+**), Réglages › Ventes ›
+Ordonnances (choix **Actuelle / O2 / O3 / O3+**, « Actuelle » toujours par défaut), banc d'essai (candidat
+« O3 + fragments + apprentissages »). Tests : `test/ordonnances_o3b_test.dart` (CI), catalogue et lectures **synthétiques**.
+
+- **Fragments sûrs** d'une ligne (partie médicament, avant la posologie) : `google_mlkit_text_recognition` 0.15.1 donne
+  une **confiance par symbole** (Android seulement ; null sur iOS) : les caractères sous 0,6 coupent les fragments
+  (masque gardé en mémoire le temps de la lecture, jamais enregistré). Sans confiance (iOS, PDF, tesseract) :
+  **heuristique** — coupure aux lettres nées d'une confusion à plusieurs lettres (m ↔ rn / nn / iu, d ↔ cl,
+  w ↔ vv) et retrait des groupes « rn », « cl », « ii », « nn », « iu » ; les confusions d'une lettre (u/n, a/o,
+  i/l/1, e/c, o/0) sont neutralisées par un **pliage** identique du fragment et du catalogue. Fragments de **4
+  caractères au moins** (3 interdits) ; formes et qualificatifs (cp, sp, plus, pro…) ignorés.
+- **Recherche « contient »** : index de **trigrammes** du catalogue local (construit une fois), vérification
+  « contient » sur le nom plié ; ≈ 6 ms par ligne sur 10 000 produits (correspondance complète + fragments, exigence
+  < 50 ms). Sans copie locale : recherche serveur avec le joker `%` (`%frag1%frag2`), 50 produits au plus.
+- **Classement** : couverture des fragments (ET pondéré par la longueur), bonus si l'ordre des fragments est
+  respecté, **dosage lu** (différent : produit écarté ; commun : bonus), forme lue (bonus / malus), bonus
+  apprentissages O4, produits vendus et en stock.
+- **Garde-fous** : propositions **après** les correspondances complètes (qui gardent leur rang et leur « sûr »),
+  **3 au plus**, confiance plafonnée à 79 % → toujours **« À vérifier »**, **jamais cochées** ; mention « Trouvé par
+  fragment : …LUFAR… » sous le produit et dans « Changer ». Fragment trop fréquent (> 30 produits : « para »,
+  « amox »…) ignoré, sauf si le dosage / la forme lus ramènent le choix à 30 produits au plus ; un fragment de 4
+  lettres seulement doit être confirmé par le dosage lu. Jamais sur une phrase, un en-tête ou une ligne refusée par
+  le filtre du segment O4 (Dr, Patient, Clinique, date, téléphone…). Rien ne passe au panier sans validation.
+
+**Mesure indicative (tesseract, 15 ordonnances / 45 produits)** — correctes · rappel · précision :
+
+| Lecture | Catalogue | O3 | O3 + fragments + apprentissages | idem, 2ᵉ passage (apprentissage simulé) |
+|---|---|---|---|---|
+| photo brute (psm 6) | indicatif (153) | 1/15 · 16 % · 100 % | 1/15 · 16 % · 100 % | 2/15 · 18 % · 100 % |
+| image améliorée (psm 6) | indicatif (153) | 1/15 · 11 % · 83 % | 1/15 · 11 % · 83 % | 2/15 · 24 % · 100 % |
+| photo brute (psm 6) | serveur de test (10 898) | 1/15 · 13 % · 86 % | 1/15 · 13 % · 86 % | — |
+| image améliorée (psm 6) | serveur de test (10 898) | 1/15 · 11 % · 83 % | 1/15 · 11 % · 71 % (1 proposition « par fragment » en trop) | 2/15 · 24 % · 100 % |
+
+Sur le texte de tesseract (mots manuscrits presque entièrement faux), les fragments n'apportent **aucun produit de
+plus** et ajoutent au pire une proposition « à vérifier » en trop (comptée comme faux positif au banc, mais jamais
+cochée à l'écran). Leur intérêt attendu est sur ML Kit, dont la lecture est partiellement juste et qui fournit la
+confiance par caractère : **O3+ ne s'active qu'après un banc meilleur sur le téléphone**.
 
 ---
 
