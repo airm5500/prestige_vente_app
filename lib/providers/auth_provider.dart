@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
+import 'package:prestige_vente_app/services/identifiants_securises.dart';
 
 enum AuthStatus { Uninitialized, Authenticated, Unauthenticated, Loading }
 
@@ -78,7 +79,7 @@ class AuthProvider with ChangeNotifier {
 
       // 2. Récupérer les identifiants sauvegardés
       final savedLogin = prefs.getString('saved_login');
-      final savedPassword = prefs.getString('saved_password');
+      final savedPassword = await IdentifiantsSecurises.instance.lire();
 
       if (savedLogin == null || savedPassword == null) {
         _status = AuthStatus.Unauthenticated;

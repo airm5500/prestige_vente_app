@@ -6,7 +6,8 @@
 //   2. code-barres / QR du badge par la caméra (scanner de l'appli) ;
 //   3. badge NFC (pont NFC natif de l'appli, déjà utilisé par le pointage local) si l'appareil en a un.
 // Écran de confirmation 3 s, en grand : « Bonjour <Prénom> — ENTRÉE 08:02 » ; le sens proposé (inverse du
-// dernier pointage du jour) peut être corrigé ; son et vibration au résultat. Même badge relu < 2 min : ignoré.
+// dernier pointage du jour) peut être corrigé ; son et vibration au résultat. Même badge relu < 2 min (ou doublon du serveur) : rien n'est renvoyé,
+// « Awa, vous avez déjà pointé (ENTRÉE à 08:02) » en orange (information), son et vibration distincts.
 // Hors ligne : pointages gardés en file avec l'heure de lecture, envoyés au retour après confirmation.
 // Mode « borne » plein écran optionnel (barres système masquées, sortie par appui long + confirmation).
 import 'dart:async';
@@ -65,8 +66,15 @@ class _Affiche {
   final String detail;
   final bool ok;
   final DateTime at;
-  const _Affiche(this.titre, this.detail, this.ok, this.at);
+
+  /// Information (orange) : « vous avez déjà pointé » — ni succès ni erreur.
+  final bool info;
+  const _Affiche(this.titre, this.detail, this.ok, this.at, {this.info = false});
 }
+
+const _orangeFond = Color(0xFFFFF1D6);
+const _orange = Color(0xFFE07B00);
+const _orangeTexte = Color(0xFF8A5300);
 
 class _TerminalPointageScreenState extends State<TerminalPointageScreen> with PresentationAware, WidgetsBindingObserver {
   @override
@@ -87,6 +95,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
 
   _Affiche? _resultat;
   Timer? _resultatTimer;
+  Timer? _signalTimer;
   final List<_Affiche> _derniers = [];
 
   NfcAvailability? _nfcEtat;
@@ -159,6 +168,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     _debounce?.cancel();
     _compteRebours?.cancel();
     _resultatTimer?.cancel();
+    _signalTimer?.cancel();
     _nfcSub?.cancel();
     _nfc.stop();
     if (_borne) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -247,7 +257,9 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         _afficher(_Affiche('Badge non reconnu', 'Badge « $code » inconnu : faites-le associer à votre fiche (menu RH de Prestige).', false, _rh.now));
         _signal(false);
       case BadgeIgnore(:final message):
-        _afficher(_Affiche('Déjà pointé', message, false, _rh.now), garder: false);
+        // Aucun nouveau pointage : information claire (orange), son et vibration distincts.
+        _afficher(_Affiche('Déjà pointé', message, true, _rh.now, info: true), garder: false);
+        _signalInfo();
       case BadgeAConfirmer():
         _resultatTimer?.cancel();
         setState(() {
@@ -298,7 +310,11 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       case IssueBadge.enregistre:
         _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', 'Pointage enregistré.', true, _rh.now));
       case IssueBadge.dejaEnregistre:
-        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', 'Déjà enregistré sur le serveur.', true, _rh.now));
+        // Doublon du serveur (« Un pointage existe déjà à cette heure ») : même message que la relecture.
+        _afficher(_Affiche('Déjà pointé', r.message, true, _rh.now, info: true));
+        _signalInfo();
+        _refocus();
+        return;
       case IssueBadge.enFile:
         _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', r.message, true, _rh.now));
       case IssueBadge.refuse:
@@ -313,6 +329,22 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       SystemSound.play(ok ? SystemSoundType.click : SystemSoundType.alert);
       ok ? HapticFeedback.mediumImpact() : HapticFeedback.heavyImpact();
     } catch (_) {}
+  }
+
+  /// « Déjà pointé » : double clic léger (distinct du succès et du refus).
+  void _signalInfo() {
+    void un() {
+      try {
+        SystemSound.play(SystemSoundType.click);
+        HapticFeedback.lightImpact();
+      } catch (_) {}
+    }
+
+    un();
+    _signalTimer?.cancel();
+    _signalTimer = Timer(const Duration(milliseconds: 180), () {
+      if (mounted) un();
+    });
   }
 
   void _afficher(_Affiche a, {bool garder = true}) {
@@ -407,7 +439,8 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(d.ok ? Icons.check_circle : Icons.error_outline, color: d.ok ? Pal.green : const Color(0xFFB91C1C)),
+                    leading: Icon(d.info ? Icons.info_outline : (d.ok ? Icons.check_circle : Icons.error_outline),
+                        color: d.info ? _orange : (d.ok ? Pal.green : const Color(0xFFB91C1C))),
                     title: Text(d.titre, style: const TextStyle(fontWeight: FontWeight.w600)),
                     subtitle: Text('${DateFormat('HH:mm').format(d.at)} · ${d.detail}', maxLines: 2, overflow: TextOverflow.ellipsis),
                   ),
@@ -606,17 +639,25 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         onTap: () => setState(() => _resultat = null),
         child: Container(
           key: const Key('rh_resultat'),
-          color: r.ok ? const Color(0xFFDCF5E7) : const Color(0xFFFDECEC),
+          color: r.info ? _orangeFond : (r.ok ? const Color(0xFFDCF5E7) : const Color(0xFFFDECEC)),
           padding: const EdgeInsets.all(24),
           child: Center(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(r.ok ? Icons.check_circle : Icons.error_outline, size: 96, color: r.ok ? Pal.green : const Color(0xFFB91C1C)),
+              Icon(r.info ? Icons.info_outline : (r.ok ? Icons.check_circle : Icons.error_outline),
+                  size: 96, color: r.info ? _orange : (r.ok ? Pal.green : const Color(0xFFB91C1C))),
               const SizedBox(height: 12),
               Text(r.titre,
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: r.ok ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C))),
+                  style: TextStyle(
+                      fontSize: r.info ? 22 : 30,
+                      fontWeight: FontWeight.bold,
+                      color: r.info ? _orangeTexte : (r.ok ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C)))),
               const SizedBox(height: 8),
-              Text(r.detail, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Pal.ink)),
+              Text(r.detail,
+                  textAlign: TextAlign.center,
+                  style: r.info
+                      ? const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: _orangeTexte)
+                      : const TextStyle(fontSize: 16, color: Pal.ink)),
             ]),
           ),
         ),

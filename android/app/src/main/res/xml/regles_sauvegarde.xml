@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Sauvegarde Android (jusqu'à Android 11) : le stockage sécurisé (jeton du téléphone, modèles
+<!-- Sauvegarde Android (jusqu'à Android 11) : le stockage sécurisé (mot de passe mémorisé, jeton du téléphone, modèles
      d'empreinte du pointage RH) n'est JAMAIS sauvegardé ni restauré sur un autre appareil. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
