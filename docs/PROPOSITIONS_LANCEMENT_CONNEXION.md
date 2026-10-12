@@ -159,3 +159,22 @@ Raisons : A est cohérente avec tout ce qui a déjà été refait, montre les vr
 9. **Réessai automatique** quand le serveur ne répond pas : toutes les 10 s, est-ce adapté ?
 10. **Proposition B** : la croix verte de pharmacie peut-elle être utilisée dans l'application (règles de l'Ordre des pharmaciens de Côte d'Ivoire) ?
 11. Faut-il une version **tablette** dédiée pour la proposition retenue (deux colonnes, comme l'aperçu A), ou l'écran téléphone centré suffit-il ?
+
+---
+
+## 8. Mise en œuvre (réponses du client)
+
+Statut : **réalisé** dans la nouvelle interface (`lib/connexion/`), branché par l'interrupteur `InterfaceVersion` ;
+désactivé, l'écran de démarrage et l'écran de connexion d'origine (`AncienSplashScreen`, `AncienLoginScreen`) s'ouvrent, inchangés.
+
+- **Proposition A** + **option C « Qui êtes-vous ? »** (Paramètres › Sécurité › « Connexion rapide par utilisateur », désactivée par défaut).
+- **Pas de « Continuer hors ligne »** : serveur injoignable → message, « Réessayer », réessai automatique toutes les **10 s**.
+- **« Changer de serveur »** et « Configuration » (depuis le lancement / la connexion) : **code PIN administrateur**.
+- **Terminal partagé** (Paramètres › Sécurité, désactivé par défaut) : « Rester connecté » masqué, identifiants mémorisés effacés, pas de connexion automatique ; active la connexion rapide.
+- **PIN personnel** : 4 chiffres, proposé (facultatif) après une connexion par mot de passe, empreinte PBKDF2 salée (stockage sécurisé), règles anti-PIN faibles, **3 erreurs → mot de passe**. Il débloque le mot de passe gardé chiffré **pour cet utilisateur** ; la connexion au serveur est toujours faite. Mot de passe refusé par le serveur → PIN effacé. Réinitialisation : Paramètres › Sécurité.
+- **6 derniers utilisateurs** avec leur **rôle**, grille sans défilement (360 × 800 compris).
+- **Nom de l'officine** gardé après une connexion réussie (croix verte d'accent) ; **logo** : aucune route du serveur ne fournit de logo d'officine → logo de l'application.
+- **Assistance** : 0708080068 par défaut, modifiable (Paramètres › Sécurité), bouton « Appeler l'assistance » (composeur ; repli : numéro copié).
+- **Attente de 2 s** de l'écran d'origine : purement visuelle (« Délai visuel initial », aucune vérification). Elle est **gardée** dans l'écran d'origine. Le nouveau lancement n'a **aucune attente fixe** : il affiche les vraies étapes et reste visible **au minimum 1,2 s** (pour que le logo ne clignote pas) ; au-delà, l'écran suivant s'ouvre dès que les étapes sont finies.
+- **Tablette** : connexion en deux colonnes à partir de 900 px.
+- Aperçus réels : `docs/maquettes/apercus/app_connexion_*.png` (`APERCUS=1 flutter test test/outils/apercus_connexion_test.dart --update-goldens`).

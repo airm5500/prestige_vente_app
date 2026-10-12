@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
+import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
@@ -242,6 +243,10 @@ void main() {
 
     testWidgets('écran de connexion : identifiant et mot de passe pré-remplis depuis le stockage sûr', (t) async {
       debugPrint = ancienPrint!; // les tests d'écran vérifient que debugPrint est rétabli
+      // Pré-remplissage du mot de passe : propre à l'écran de connexion d'origine (ancienne interface).
+      // Le nouvel écran (lib/connexion) n'affiche jamais le mot de passe gardé : voir connexion_lancement_test.
+      InterfaceVersion.useNew.value = false;
+      addTearDown(() => InterfaceVersion.useNew.value = true);
       SharedPreferences.setMockInitialValues({'saved_login': 'awa', 'saved_password': mdp, 'stay_connected': true});
       final settings = SettingsProvider();
       await t.runAsync(settings.loadSettings);
