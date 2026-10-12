@@ -450,6 +450,16 @@ class PresentationScaffold extends StatelessWidget {
   final Widget? floatingActionButton;
   final bool wide;
 
+  /// Écrans de saisie (ventes) : clavier ouvert, l'en-tête se réduit (sous-titre et étapes masqués,
+  /// [headerClavier] / [compactHeaderClavier] à la place de [header] / [compactHeader]), la barre du bas
+  /// ([bottomClavier], sinon [bottomNavigationBar]) se pose au-dessus du clavier, et le clavier se ferme
+  /// en touchant hors d'un champ ou en faisant défiler une liste (le curseur reste dans le champ).
+  /// Faux (par défaut) : affichage inchangé.
+  final bool clavierCompact;
+  final List<Widget>? headerClavier;
+  final List<Widget>? compactHeaderClavier;
+  final Widget? bottomClavier;
+
   const PresentationScaffold({
     super.key,
     required this.style,
@@ -463,11 +473,28 @@ class PresentationScaffold extends StatelessWidget {
     this.bottomNavigationBar,
     this.floatingActionButton,
     this.wide = false,
+    this.clavierCompact = false,
+    this.headerClavier,
+    this.compactHeaderClavier,
+    this.bottomClavier,
   });
 
   @override
   Widget build(BuildContext context) {
-    final bottom = bottomNavigationBar == null ? null : BottomBarWidth(wide: wide, child: bottomNavigationBar!);
+    if (!clavierCompact) return _build(context, clavier: false);
+    // Même arborescence clavier ouvert ou fermé (aucun champ recréé, le focus est conservé).
+    return FermeClavier(child: _build(context, clavier: clavierOuvert(context)));
+  }
+
+  Widget _build(BuildContext context, {required bool clavier}) {
+    final subtitle = clavier ? null : this.subtitle;
+    final header = clavier ? (headerClavier ?? this.header) : this.header;
+    final compactHeader = clavier ? (compactHeaderClavier ?? this.compactHeader) : this.compactHeader;
+    final bottomNavigationBar = clavier ? null : this.bottomNavigationBar;
+    final dessus = clavier ? (bottomClavier ?? this.bottomNavigationBar) : null;
+    // Corps : barre du bas posée au-dessus du clavier (même position du corps dans l'arbre).
+    final body = clavierCompact ? Column(children: [Expanded(child: this.body), if (dessus != null) dessus]) : this.body;
+    final bottom = bottomNavigationBar == null ? null : BottomBarWidth(wide: wide, child: bottomNavigationBar);
     if (style == ListPresentation.compact) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -480,7 +507,7 @@ class PresentationScaffold extends StatelessWidget {
           scrolledUnderElevation: 0,
           title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Pal.navy, fontSize: 18)),
-            if (subtitle != null) Text(subtitle!, style: const TextStyle(fontSize: 12, color: Pal.muted)),
+            if (subtitle != null) Text(subtitle, style: const TextStyle(fontSize: 12, color: Pal.muted)),
           ]),
           actions: actions(Pal.navy),
           bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
@@ -509,7 +536,8 @@ class PresentationScaffold extends StatelessWidget {
           wide: wide,
           actions: actions(Colors.white),
           children: [
-            if (!dashboard && steps != null) steps!,
+            // Clavier ouvert : étapes masquées (place gardée dans l'arbre, rien n'est recréé).
+            if (!dashboard && steps != null) clavier ? const SizedBox.shrink() : steps!,
             ...header,
           ],
         ),
@@ -517,6 +545,37 @@ class PresentationScaffold extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// Clavier logiciel ouvert (hauteur du clavier dans MediaQuery.viewInsets).
+bool clavierOuvert(BuildContext context) => MediaQuery.viewInsetsOf(context).bottom > 0;
+
+/// Ferme le clavier logiciel SANS retirer le curseur du champ : la douchette continue d'écrire dans
+/// le champ, et toucher le champ rouvre le clavier.
+void fermerClavier() {
+  SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+}
+
+/// Ferme le clavier en touchant hors d'un champ, ou dès qu'une liste défile au doigt
+/// (comme ScrollViewKeyboardDismissBehavior.onDrag, mais sans perdre le focus).
+class FermeClavier extends StatelessWidget {
+  final Widget child;
+  const FermeClavier({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) => NotificationListener<ScrollUpdateNotification>(
+        onNotification: (n) {
+          if (n.dragDetails != null && clavierOuvert(context)) fermerClavier();
+          return false;
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () {
+            if (clavierOuvert(context)) fermerClavier();
+          },
+          child: child,
+        ),
+      );
 }
 
 /// Barre blanche (B) : fond et filet sur toute la largeur, titre et actions alignés sur le corps.

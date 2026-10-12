@@ -23,7 +23,8 @@ import 'package:prestige_vente_app/api/models/bon_livraison.dart';
 import 'package:prestige_vente_app/api/models/licence_model.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
-import 'package:prestige_vente_app/api/models/product_info.dart';
+import 'package:dio/dio.dart' show CancelToken;
+import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/images/produit_images.dart';
@@ -78,12 +79,15 @@ class _Api extends ApiService {
     return const ProductPage([], 0);
   }
 
+  // Fiche produit : même route que le menu Analyse article (GET /info?search=CIP lu en ArticleAnalysis).
   @override
-  Future<ProductInfo?> getProductInfo(String codeCip) async {
+  Future<List<ArticleAnalysis>> fetchArticleAnalysisOrFail(String query, {CancelToken? cancelToken}) async {
     infos++;
     if (delaiInfo > Duration.zero) await Future<void>.delayed(delaiInfo);
-    return ProductInfo(
-        codeCip: codeCip, emplacement: 'SIROPS ET GOUTTES BUVABLES', grossiste: 'LABOREX-CI YOP', libelle: '', moyenne: 0, prixAchat: 0, prixVente: 0, produitId: '', stock: 1);
+    return [
+      ArticleAnalysis.fromJson(
+          {'codeCip': query, 'emplacement': 'SIROPS ET GOUTTES BUVABLES', 'grossiste': 'LABOREX-CI YOP', 'libelle': '', 'stock': 1}),
+    ];
   }
 
   @override
@@ -509,14 +513,16 @@ void main() {
   // 4) Fiche produit : immédiate, complément en arrière-plan
   // ---------------------------------------------------------------------------
   group('Fiche produit immédiate', () {
-    ProductInfo info(String cip) => ProductInfo(
-        codeCip: cip, emplacement: 'RAYON B2', grossiste: 'LABOREX', libelle: '', moyenne: 0, prixAchat: 0, prixVente: 0, produitId: '', stock: 1);
+    // Lignes de GET /info (route du menu Analyse article), lues en ArticleAnalysis.
+    List<ArticleAnalysis> info(String cip) => [
+          ArticleAnalysis.fromJson({'codeCip': cip, 'emplacement': 'RAYON B2', 'grossiste': 'LABOREX', 'libelle': '', 'stock': 1}),
+        ];
 
     testWidgets('données de la ligne tout de suite, squelettes, puis détails ; réouverture sans attente', (tester) async {
       _phone(tester);
       final cache = FicheInfoCache();
       var appels = 0;
-      Future<ProductInfo?> lent(String cip) async {
+      Future<List<ArticleAnalysis>> lent(String cip) async {
         appels++;
         await Future<void>.delayed(const Duration(milliseconds: 800));
         return info(cip);
@@ -524,7 +530,7 @@ void main() {
 
       // Avant : la fiche attendait GET /info (barre de progression) et le redemandait à chaque ouverture.
       // Après : 1ʳᵉ image = nom, CIP, prix, stock + squelettes ; détails à la réponse ; réouverture : 0 ms, 0 requête.
-      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _helicidine, loadInfo: lent, cache: cache)));
+      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _helicidine, loadAnalyse: lent, cache: cache)));
       expect(find.text('HELICIDINE 10% SS EDULCORE SPF/125ML'), findsOneWidget);
       expect(find.text('2238556'), findsOneWidget);
       expect(find.text('${Constants.formatNumber(2080)} F'), findsOneWidget);
@@ -541,7 +547,7 @@ void main() {
 
       // Réouverture (cache 60 s) : détails dès la 1ʳᵉ image, aucune requête.
       await tester.pumpWidget(const SizedBox());
-      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _helicidine, loadInfo: lent, cache: cache)));
+      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _helicidine, loadAnalyse: lent, cache: cache)));
       expect(find.text('RAYON B2'), findsOneWidget);
       expect(appels, 1);
       expect(cache.requetes, 1);
@@ -551,8 +557,8 @@ void main() {
     testWidgets('fiche quittée avant la réponse : requête abandonnée, aucune erreur', (tester) async {
       _phone(tester);
       final cache = FicheInfoCache();
-      final reponse = Completer<ProductInfo?>();
-      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _helicidine, loadInfo: (_) => reponse.future, cache: cache)));
+      final reponse = Completer<List<ArticleAnalysis>>();
+      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _helicidine, loadAnalyse: (_) => reponse.future, cache: cache)));
       await tester.pumpWidget(const SizedBox()); // on quitte
       expect(cache.abandons, 1);
       reponse.complete(info('2238556'));

@@ -915,17 +915,55 @@ class ApiService {
   // Analyse Article
   Future<List<ArticleAnalysis>> fetchArticleAnalysis(String query) async {
     try {
-      // URL: /info?search=...
-      final response = await _dio.get('/info', queryParameters: {'search': query});
-
-      if (response.statusCode == 200 && response.data != null) {
-        // L'API renvoie directement une liste [...]
-        return (response.data as List).map((e) => ArticleAnalysis.fromJson(e)).toList();
-      }
-      return [];
+      return await fetchArticleAnalysisOrFail(query);
     } catch (e) {
       print("Erreur fetchArticleAnalysis: $e");
       return [];
+    }
+  }
+
+  /// Même requête et même lecture que [fetchArticleAnalysis] (GET /info?search=…, menu Analyse article),
+  /// mais un échec lève [ApiLoadException] avec sa cause précise (code HTTP, délai, réseau) au lieu
+  /// d'une liste vide ; une requête annulée ([cancelToken]) relance l'exception Dio d'annulation.
+  Future<List<ArticleAnalysis>> fetchArticleAnalysisOrFail(String query, {CancelToken? cancelToken}) async {
+    final Response<dynamic> response;
+    try {
+      // URL: /info?search=... ; l'API renvoie directement une liste [...]
+      response = await _dio.get('/info', queryParameters: {'search': query}, cancelToken: cancelToken);
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.cancel) rethrow;
+      throw ApiLoadException(analyseErreurMessage(e));
+    }
+    final code = response.statusCode ?? 0;
+    if (code != 200) throw ApiLoadException('Le serveur a répondu HTTP $code (GET /info).');
+    final data = response.data;
+    if (data == null) return [];
+    if (data is! List) throw ApiLoadException('Réponse inattendue du serveur (GET /info, HTTP $code) : session expirée ? Reconnectez-vous.');
+    try {
+      return [for (final e in data) ArticleAnalysis.fromJson(Map<String, dynamic>.from(e as Map))];
+    } catch (e) {
+      throw ApiLoadException('Données illisibles (GET /info) : $e');
+    }
+  }
+
+  /// Message précis d'un échec de GET /info : délai (avec sa durée), code HTTP, réseau.
+  static String analyseErreurMessage(DioException e) {
+    String secondes(Duration? d) => d == null ? '' : ' en ${d.inSeconds} s';
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+        return 'Délai dépassé : serveur non joint${secondes(e.requestOptions.connectTimeout)} (GET /info).';
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'Délai dépassé : pas de réponse du serveur${secondes(e.requestOptions.receiveTimeout)} (GET /info).';
+      case DioExceptionType.badResponse:
+        final code = e.response?.statusCode ?? 0;
+        if (code == 401 || code == 403) return 'Session expirée ou accès refusé (HTTP $code, GET /info). Reconnectez-vous.';
+        return 'Le serveur a répondu HTTP $code (GET /info).';
+      case DioExceptionType.connectionError:
+        return 'Serveur injoignable (GET /info). Vérifiez le Wi-Fi ou les données mobiles.';
+      default:
+        if (e.error is SocketException) return 'Serveur injoignable (GET /info). Vérifiez le Wi-Fi ou les données mobiles.';
+        return 'Échec de GET /info : ${e.message ?? e.type.name}.';
     }
   }
 

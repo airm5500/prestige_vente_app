@@ -12,7 +12,8 @@ import 'package:prestige_vente_app/api/models/bon_livraison.dart';
 import 'package:prestige_vente_app/api/models/licence_model.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
-import 'package:prestige_vente_app/api/models/product_info.dart';
+import 'package:dio/dio.dart' show CancelToken;
+import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -59,9 +60,14 @@ class _FakeApi extends ApiService {
     return const ProductPage([], 0);
   }
 
+  // Fiche produit : même route que le menu Analyse article (GET /info lu en ArticleAnalysis).
   @override
-  Future<ProductInfo?> getProductInfo(String codeCip) async => ProductInfo(
-      codeCip: codeCip, emplacement: 'RAYON B2', grossiste: 'LABOREX', libelle: 'STOCKOVIT CP B/30', moyenne: 0, prixAchat: 3000, prixVente: 4500, produitId: 'f1', stock: 12);
+  Future<List<ArticleAnalysis>> fetchArticleAnalysisOrFail(String query, {CancelToken? cancelToken}) async => [
+        ArticleAnalysis.fromJson({
+          'codeCip': query, 'emplacement': 'RAYON B2', 'grossiste': 'LABOREX', 'libelle': 'STOCKOVIT CP B/30', 'moyenne': 0, //
+          'prixAchat': 3000, 'prixVente': 4500, 'produitId': 'f1', 'stock': 12,
+        }),
+      ];
 }
 
 class _FakeLicence extends LicenceProvider {

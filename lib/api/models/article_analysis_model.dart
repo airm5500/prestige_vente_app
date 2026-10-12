@@ -28,19 +28,22 @@ class ArticleAnalysis {
   });
 
   factory ArticleAnalysis.fromJson(Map<String, dynamic> json) {
+    // Valeurs lues sans échec : texte (ou nombre rendu en texte), nombre (ou texte numérique).
+    String str(dynamic v) => v == null ? '' : '$v';
+    num? n(dynamic v) => v is num ? v : (v is String ? num.tryParse(v.trim()) : null);
     return ArticleAnalysis(
-      produitId: json['produitId'] ?? '',
-      codeCip: json['codeCip'] ?? '',
-      libelle: json['libelle'] ?? '',
-      emplacement: json['emplacement'] ?? '',
-      grossiste: json['grossiste'] ?? '',
-      moyenne: (json['moyenne'] as num?)?.toDouble() ?? 0.0,
-      prixAchat: (json['prixAchat'] as num?)?.toInt() ?? 0,
-      prixVente: (json['prixVente'] as num?)?.toInt() ?? 0,
-      quantiteVendue: (json['quantiteVendue'] as num?)?.toInt() ?? 0,
-      // Si l'API renvoie "stock" ou "intNUMBERAVAILABLE", adaptez la clé ici :
-      stock: (json['stock'] ?? json['intNUMBERAVAILABLE'] ?? 0) as int,
-      quantiteMoisBrut: json['quantiteMois'] ?? '',
+      produitId: str(json['produitId']),
+      codeCip: str(json['codeCip']),
+      libelle: str(json['libelle']),
+      emplacement: str(json['emplacement']),
+      grossiste: str(json['grossiste']),
+      moyenne: n(json['moyenne'])?.toDouble() ?? 0.0,
+      prixAchat: n(json['prixAchat'])?.toInt() ?? 0,
+      prixVente: n(json['prixVente'])?.toInt() ?? 0,
+      quantiteVendue: n(json['quantiteVendue'])?.toInt() ?? 0,
+      // Si l'API renvoie "stock" ou "intNUMBERAVAILABLE"
+      stock: n(json['stock'] ?? json['intNUMBERAVAILABLE'])?.toInt() ?? 0,
+      quantiteMoisBrut: str(json['quantiteMois']),
     );
   }
 

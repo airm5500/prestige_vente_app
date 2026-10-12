@@ -13,7 +13,8 @@ import 'package:prestige_vente_app/api/models/bon_livraison.dart';
 import 'package:prestige_vente_app/api/models/licence_model.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
-import 'package:prestige_vente_app/api/models/product_info.dart';
+import 'package:dio/dio.dart' show CancelToken;
+import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
 import 'package:prestige_vente_app/horsligne/connexion_toasts.dart';
@@ -60,10 +61,15 @@ class _FakeApi extends ApiService {
   }
 
   @override
-  Future<ProductInfo?> getProductInfo(String codeCip) async {
+  // Fiche produit : même route que le menu Analyse article (GET /info lu en ArticleAnalysis).
+  Future<List<ArticleAnalysis>> fetchArticleAnalysisOrFail(String query, {CancelToken? cancelToken}) async {
     infos++;
-    return ProductInfo(
-        codeCip: codeCip, emplacement: 'RAYON B2', grossiste: 'LABOREX', libelle: 'STOCKOVIT CP B/30', moyenne: 0, prixAchat: 3000, prixVente: 4500, produitId: 'f1', stock: 12);
+    return [
+      ArticleAnalysis.fromJson({
+        'codeCip': query, 'emplacement': 'RAYON B2', 'grossiste': 'LABOREX', 'libelle': 'STOCKOVIT CP B/30', 'moyenne': 0, //
+        'prixAchat': 3000, 'prixVente': 4500, 'produitId': 'f1', 'stock': 12,
+      }),
+    ];
   }
 }
 
@@ -434,7 +440,7 @@ void main() {
       final inst = _Install();
       await inst.hl.sync.refreshStats();
       inst.monitor.goOffline();
-      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: produitRecu, loadInfo: (_) async => throw StateError('pas d\'appel'))));
+      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: produitRecu, loadAnalyse: (_) async => throw StateError('pas d\'appel'))));
       await tester.pumpAndSettle();
       expect(find.textContaining('aucun catalogue local'), findsOneWidget);
       expect(find.text('12'), findsOneWidget);
