@@ -2,8 +2,9 @@
 // Entrée « Pointage présence » (menu Équipe, identifiant `pointage_rh`) : choix de la voie selon ce que le serveur et le compte permettent.
 // - « Mon pointage » (voie A, téléphone de l'employé) : API v1/mobile présente et active ;
 // - « Terminal de pointage » (voie B, badge, NFC, empreinte) : droit P_SM_RH du compte connecté ;
-// - « Présences du jour » (responsable) : droit P_SM_RH, en ligne ;
-// - « Pointages en attente » : file hors ligne du terminal (confirmation avant envoi, liste décochable).
+// - « Pointages en attente » : file hors ligne du terminal (confirmation avant envoi, liste décochable) ;
+// - suivi (« Présences du jour ») : UNIQUEMENT pour le gestionnaire (administrateur de l'application ou compte
+//   ayant le droit RH P_SM_RH) ; pour un employé, l'écran ne sert qu'à POINTER (capture), sans analyse.
 // Ce qui n'est pas disponible reste visible mais désactivé, avec l'explication (route absente : 404,
 // module désactivé, droit manquant, hors ligne). Présentations A / B / C et tablette comme les autres écrans.
 import 'package:flutter/material.dart';
@@ -24,7 +25,10 @@ class RhPointageScreen extends StatefulWidget {
   /// Module (tests) ; sinon [PointageRh.instance].
   final PointageRh? rh;
   final ListPresentation? presentation;
-  const RhPointageScreen({super.key, this.rh, this.presentation});
+
+  /// Gestionnaire (suivi, présences) : par défaut administrateur de l'application ou droit RH (P_SM_RH).
+  final bool? gestion;
+  const RhPointageScreen({super.key, this.rh, this.presentation, this.gestion});
 
   @override
   State<RhPointageScreen> createState() => _RhPointageScreenState();
@@ -96,6 +100,17 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
     }
   }
 
+  bool get _adminAppli {
+    try {
+      return Provider.of<AuthProvider>(context, listen: false).isAdmin;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Suivi et analyse réservés au gestionnaire : administrateur de l'application ou droit RH (P_SM_RH).
+  bool get _gestionnaire => widget.gestion ?? estGestionnaireRh(admin: _adminAppli, acces: _rh.acces);
+
   String? get _loginConnecte {
     try {
       return Provider.of<AuthProvider>(context, listen: false).user?.login;
@@ -130,6 +145,7 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
   Widget build(BuildContext context) {
     final voieB = _rh.acces == AccesRh.autorise;
     final presences = voieB && !_rh.horsLigne();
+    final gestion = _gestionnaire;
     final tuiles = [
       _tuile(
         key: const Key('rh_voie_a'),
@@ -145,20 +161,22 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
         titre: 'Terminal de pointage',
         detail: _voieBExplication,
         actif: voieB,
-        onTap: () => _ouvrir(TerminalPointageScreen(rh: _rh, presentation: style)),
+        onTap: () => _ouvrir(TerminalPointageScreen(rh: _rh, presentation: style, gestion: gestion)),
       ),
-      _tuile(
-        key: const Key('rh_presences'),
-        icon: Icons.fact_check_outlined,
-        titre: 'Présences du jour',
-        detail: presences
-            ? 'Entrées, sorties, retards et anomalies de l\'équipe.'
-            : voieB
-                ? 'Disponible en ligne uniquement.'
-                : 'Réservé aux comptes ayant le droit RH (P_SM_RH).',
-        actif: presences,
-        onTap: () => _ouvrir(PresencesScreen(rh: _rh, presentation: style)),
-      ),
+      // Suivi : jamais proposé à un employé (capture seule).
+      if (gestion)
+        _tuile(
+          key: const Key('rh_presences'),
+          icon: Icons.fact_check_outlined,
+          titre: 'Présences du jour',
+          detail: presences
+              ? 'Suivi (pharmacien) : entrées, sorties, retards et anomalies de l\'équipe.'
+              : voieB
+                  ? 'Disponible en ligne uniquement.'
+                  : 'Réservé aux comptes ayant le droit RH (P_SM_RH).',
+          actif: presences,
+          onTap: () => _ouvrir(PresencesScreen(rh: _rh, presentation: style)),
+        ),
       if (_rh.file.isNotEmpty)
         _tuile(
           key: const Key('rh_file'),
@@ -180,10 +198,10 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
         IconButton(key: const Key('rh_verifier'), tooltip: 'Vérifier à nouveau', onPressed: _verifier, icon: Icon(Icons.refresh, color: col)),
         PresentationMenuButton(value: style, onChanged: _setStyle, color: col),
       ],
-      steps: const StepsBar(active: 1, steps: [
+      steps: StepsBar(active: 1, steps: [
         (title: 'Choisir', detail: 'téléphone ou badge', onTap: null),
-        (title: 'Pointer', detail: 'entrée, sortie', onTap: null),
-        (title: 'Suivre', detail: 'présences', onTap: null),
+        (title: 'Pointer', detail: 'envoi à Prestige', onTap: null),
+        if (gestion) (title: 'Suivre', detail: 'présences', onTap: null),
       ]),
       header: [
         if (style == ListPresentation.dashboard)
@@ -213,8 +231,9 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
             ...cardColumn(tuiles, Responsive.isCompact(context) ? 1 : 2, spacing: 10),
           const SizedBox(height: 12),
           const Text(
-            'Ne pas confondre avec le « Pointage BL Stock » (contrôle des quantités) ni avec le pointage local '
-            'par empreinte : ces écrans restent inchangés.',
+            'Les pointages faits ici sont envoyés à Prestige (RH › Présence du jour). Le menu « Pointage local » '
+            '(empreinte / PIN sur cet appareil) n\'envoie rien à Prestige ; le « Pointage BL Stock » contrôle les quantités.',
+            key: Key('rh_note_envoi'),
             style: TextStyle(fontSize: 12, color: Pal.muted),
           ),
         ],
@@ -262,6 +281,10 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
     );
   }
 }
+
+/// Suivi et analyse (présences, empreintes) : administrateur de l'application, ou compte ayant le droit RH
+/// (P_SM_RH, vérifié par `GET rh/droits`). Les autres comptes ne font que pointer.
+bool estGestionnaireRh({required bool admin, required AccesRh acces}) => admin || acces == AccesRh.autorise;
 
 // -----------------------------------------------------------------------------
 // File des pointages du terminal (hors ligne) et confirmation d'envoi

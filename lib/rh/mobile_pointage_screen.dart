@@ -10,6 +10,8 @@
 //    historique des 16 dernières heures. Refus du serveur affiché tel quel. Code saisi à la main en secours.
 //    Rien n'est journalisé (ni QR, ni position, ni réponse du serveur).
 // Hors ligne : « Disponible en ligne uniquement » (l'heure du serveur et le QR l'imposent).
+// Sous le résultat, l'état de l'envoi : « Envoyé à Prestige ✓ » ou « Refusé par Prestige ». Si le téléphone est
+// connecté avec un AUTRE compte que celui de l'application, un bandeau le dit (le pointage irait à cet autre employé).
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/rh/localisation.dart';
@@ -61,6 +63,9 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
   bool _messageInfo = false;
   bool _reglagesPosition = false;
 
+  /// État de l'envoi du dernier pointage (sous le message) : envoyé à Prestige, ou refusé par Prestige.
+  String? _etatEnvoi;
+
   late final TextEditingController _login = TextEditingController(text: widget.login ?? '');
   final TextEditingController _mdp = TextEditingController();
   bool _voirMdp = false;
@@ -81,13 +86,14 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
 
   bool get _horsLigne => widget.rh.horsLigne();
 
-  void _dire(String? m, {bool ok = false, bool reglages = false, bool info = false}) {
+  void _dire(String? m, {bool ok = false, bool reglages = false, bool info = false, String? envoi}) {
     if (!mounted) return;
     setState(() {
       _message = m;
       _messageOk = ok;
       _messageInfo = info;
       _reglagesPosition = reglages;
+      _etatEnvoi = envoi;
     });
   }
 
@@ -288,7 +294,7 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
       if (r.ok) {
         HapticFeedback.mediumImpact();
         SystemSound.play(SystemSoundType.click);
-        _dire(r.valeur!.message, ok: true);
+        _dire(r.valeur!.message, ok: true, envoi: etatEnvoyePrestige);
         await _chargerHistorique();
       } else if (estRefusDeuxMinutes(r.refus!)) {
         // Refus « moins de deux minutes » : l'employé a déjà pointé — heure du dernier pointage connu.
@@ -297,10 +303,10 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
         final hm = _historique.isEmpty ? '' : heureMinute(_historique.last.heure);
         HapticFeedback.lightImpact();
         SystemSound.play(SystemSoundType.click);
-        _dire(messageDejaPointeMobile(hm), info: true);
+        _dire(messageDejaPointeMobile(hm), info: true, envoi: 'Déjà enregistré dans Prestige : rien de nouveau envoyé.');
       } else {
         HapticFeedback.heavyImpact();
-        _dire(r.refus);
+        _dire(r.refus, envoi: '$etatRefusPrestige : ce pointage n\'est pas enregistré.');
       }
     } on MobileSessionExpiree catch (e) {
       _expire(e.message);
@@ -376,11 +382,18 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
                 color: _messageInfo ? const Color(0xFFE07B00) : (_messageOk ? Pal.green : const Color(0xFFB91C1C)), size: 30),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(_message!,
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: _messageInfo ? const Color(0xFF8A5300) : (_messageOk ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C)))),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                Text(_message!,
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _messageInfo ? const Color(0xFF8A5300) : (_messageOk ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C)))),
+                if (_etatEnvoi != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(_etatEnvoi!, key: const Key('rh_mobile_etat_envoi'), style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: Pal.ink)),
+                  ),
+              ]),
             ),
             if (_reglagesPosition)
               TextButton(onPressed: widget.localisateur.ouvrirReglages, child: const Text('Réglages')),
@@ -438,7 +451,26 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
         ),
       );
 
+  /// Le téléphone est connecté avec un autre compte que celui de l'application : le pointage irait à cet employé-là.
+  bool _autreCompte(SessionMobile s) {
+    final app = (widget.login ?? '').trim().toLowerCase();
+    return app.isNotEmpty && s.login.trim().isNotEmpty && s.login.trim().toLowerCase() != app;
+  }
+
   List<Widget> _pointage(SessionMobile s) {
+    final autre = _autreCompte(s)
+        ? KeyedSubtree(
+            key: const Key('rh_mobile_autre_compte'),
+            child: _bandeau(
+                'Ce téléphone est connecté au compte « ${s.login} »${s.aEmploye ? ' (${s.employeNom})' : ''}, pas à « ${widget.login!.trim()} » '
+                'connecté à l\'application : les pointages iront à ce compte. Déconnectez ce téléphone (icône en haut) pour changer.',
+                false),
+          )
+        : null;
+    return [if (autre != null) autre, ..._pointageCompte(s)];
+  }
+
+  List<Widget> _pointageCompte(SessionMobile s) {
     if (!s.aEmploye) {
       return [_bandeau('Votre compte n\'est rattaché à aucun employé actif : voyez le responsable RH.', false)];
     }

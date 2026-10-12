@@ -10,6 +10,9 @@
 // « Awa, vous avez déjà pointé (ENTRÉE à 08:02) » en orange (information), son et vibration distincts.
 // Hors ligne : pointages gardés en file avec l'heure de lecture, envoyés au retour après confirmation.
 // Mode « borne » plein écran optionnel (barres système masquées, sortie par appui long + confirmation).
+// CAPTURE UNIQUEMENT : chaque résultat dit où en est l'envoi (« Envoyé à Prestige ✓ », « En attente d'envoi
+// (hors ligne) », « Refusé par Prestige : … »). La gestion des empreintes n'est proposée qu'au gestionnaire
+// (administrateur ou droit RH P_SM_RH), jamais en mode borne.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -45,6 +48,9 @@ class TerminalPointageScreen extends StatefulWidget {
   /// Rafraîchir employés et présence à l'ouverture (désactivable pour les tests).
   final bool rafraichirAuDemarrage;
 
+  /// Gestion des empreintes proposée (administrateur / droit RH) ; par défaut : accès RH autorisé du module.
+  final bool? gestion;
+
   const TerminalPointageScreen({
     super.key,
     required this.rh,
@@ -54,6 +60,7 @@ class TerminalPointageScreen extends StatefulWidget {
     this.delaiConfirmation = const Duration(seconds: 3),
     this.delaiResultat = const Duration(seconds: 4),
     this.rafraichirAuDemarrage = true,
+    this.gestion,
   });
 
   @override
@@ -69,7 +76,10 @@ class _Affiche {
 
   /// Information (orange) : « vous avez déjà pointé » — ni succès ni erreur.
   final bool info;
-  const _Affiche(this.titre, this.detail, this.ok, this.at, {this.info = false});
+
+  /// Pointage gardé en attente d'envoi (orange) : titre en grand, explication lisible.
+  final bool attente;
+  const _Affiche(this.titre, this.detail, this.ok, this.at, {this.info = false, this.attente = false});
 }
 
 const _orangeFond = Color(0xFFFFF1D6);
@@ -239,16 +249,25 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     _refocus();
   }
 
-  void _lu(String brut, {MoyenIdentification moyen = MoyenIdentification.scan}) {
+  bool _lecture = false;
+
+  Future<void> _lu(String brut, {MoyenIdentification moyen = MoyenIdentification.scan}) async {
     _debounce?.cancel();
     _champ.clear();
     if (!mounted || brut.trim().isEmpty) return;
-    // Une confirmation est à l'écran : les lectures suivantes sont ignorées.
-    if (_attente != null || _enregistrement) {
+    // Une confirmation est à l'écran (ou une lecture en cours) : les lectures suivantes sont ignorées.
+    if (_attente != null || _enregistrement || _lecture) {
       _refocus();
       return;
     }
-    _traiter(_rh.lire(brut, moyen: moyen));
+    _lecture = true;
+    try {
+      // Badge inconnu en ligne : copie des employés relue (employé ou badge ajouté depuis l'ouverture).
+      final l = await _rh.lireAvecRafraichissement(brut, moyen: moyen);
+      if (mounted) _traiter(l);
+    } finally {
+      _lecture = false;
+    }
   }
 
   void _traiter(LectureBadge l) {
@@ -308,7 +327,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     final hm = r.pointage.heure;
     switch (r.issue) {
       case IssueBadge.enregistre:
-        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', 'Pointage enregistré.', true, _rh.now));
+        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', etatEnvoyePrestige, true, _rh.now));
       case IssueBadge.dejaEnregistre:
         // Doublon du serveur (« Un pointage existe déjà à cette heure ») : même message que la relecture.
         _afficher(_Affiche('Déjà pointé', r.message, true, _rh.now, info: true));
@@ -316,9 +335,11 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         _refocus();
         return;
       case IssueBadge.enFile:
-        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', r.message, true, _rh.now));
+        // Gardé sur le terminal : information (orange), jamais présenté comme envoyé.
+        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm', '$etatEnAttenteEnvoi\n${r.message}', true, _rh.now,
+            info: true, attente: true));
       case IssueBadge.refuse:
-        _afficher(_Affiche('${a.employe.prenomAffiche} : pointage refusé', r.message, false, _rh.now));
+        _afficher(_Affiche('${a.employe.prenomAffiche} : pointage refusé', '$etatRefusPrestige : ${r.message}', false, _rh.now));
     }
     _signal(r.accepte);
     _refocus();
@@ -471,7 +492,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
               child: Icon(Icons.cloud_upload_outlined, color: col),
             ),
           ),
-        if (_capacites.empreinte && !_borne)
+        if (_capacites.empreinte && !_borne && (widget.gestion ?? _rh.acces == AccesRh.autorise))
           IconButton(
             key: const Key('rh_gerer_empreintes'),
             tooltip: 'Empreintes des employés',
@@ -642,23 +663,27 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
           color: r.info ? _orangeFond : (r.ok ? const Color(0xFFDCF5E7) : const Color(0xFFFDECEC)),
           padding: const EdgeInsets.all(24),
           child: Center(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(r.info ? Icons.info_outline : (r.ok ? Icons.check_circle : Icons.error_outline),
-                  size: 96, color: r.info ? _orange : (r.ok ? Pal.green : const Color(0xFFB91C1C))),
-              const SizedBox(height: 12),
-              Text(r.titre,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: r.info ? 22 : 30,
-                      fontWeight: FontWeight.bold,
-                      color: r.info ? _orangeTexte : (r.ok ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C)))),
-              const SizedBox(height: 8),
-              Text(r.detail,
-                  textAlign: TextAlign.center,
-                  style: r.info
-                      ? const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: _orangeTexte)
-                      : const TextStyle(fontSize: 16, color: Pal.ink)),
-            ]),
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(r.info ? Icons.info_outline : (r.ok ? Icons.check_circle : Icons.error_outline),
+                    size: 96, color: r.info ? _orange : (r.ok ? Pal.green : const Color(0xFFB91C1C))),
+                const SizedBox(height: 12),
+                Text(r.titre,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: r.info && !r.attente ? 22 : 30,
+                        fontWeight: FontWeight.bold,
+                        color: r.info ? _orangeTexte : (r.ok ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C)))),
+                const SizedBox(height: 8),
+                Text(r.detail,
+                    textAlign: TextAlign.center,
+                    style: r.attente
+                        ? const TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: _orangeTexte)
+                        : r.info
+                            ? const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: _orangeTexte)
+                            : const TextStyle(fontSize: 16, color: Pal.ink)),
+              ]),
+            ),
           ),
         ),
       );

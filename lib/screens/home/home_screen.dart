@@ -164,13 +164,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'ordonnance': MenuItem(id: 'ordonnance', label: 'Vérification Ordonnance', icon: Icons.receipt_long, color: Colors.teal.shade600, onTap: () => navigate(const PrescriptionCheckScreen())),
       'reception_bl': MenuItem(id: 'reception_bl', label: 'Réception BL', icon: Icons.local_shipping, color: Colors.teal.shade700, onTap: () => navigate(const ReceptionHomeScreen())),
       'retour_frs': MenuItem(id: 'retour_frs', label: 'Retour Fournisseur', icon: Icons.assignment_return, color: Colors.red.shade400, onTap: () => navigate(const RetourHomeScreen())),
-      'empreinte': MenuItem(id: 'empreinte', label: 'Pointage', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, onTap: () => navigate(const PointageHomeScreen())),
+      'empreinte': MenuItem(id: 'empreinte', label: 'Pointage local (non envoyé)', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, onTap: () => navigate(const PointageHomeScreen())),
       'pointage_rh': MenuItem(id: 'pointage_rh', label: 'Pointage présence', icon: Icons.how_to_reg, color: Colors.indigo.shade500, onTap: () => navigate(const RhPointageScreen())),
     };
 
     final settings = Provider.of<SettingsProvider>(context);
     List<String> order = settings.menuOrder;
-    List<String> hidden = settings.hiddenMenuIds;
+    List<String> hidden = settings.menusMasques; // + pointage local s'il n'est pas réactivé
 
     List<MenuItem> newList = [];
 

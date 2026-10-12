@@ -100,7 +100,9 @@ final List<AccueilMenu> accueilMenus = [
   AccueilMenu(id: 'update_ean', label: 'Mise à jour EAN', short: 'EAN', icon: Icons.qr_code_scanner, color: Colors.indigo.shade400, famille: MenuFamille.produits, screen: () => const EanUpdateScreen()),
   AccueilMenu(id: 'update_emplacement', label: 'Mise à jour Emplacement', short: 'Emplacement', icon: Icons.location_on, color: Colors.brown.shade400, famille: MenuFamille.produits, screen: () => const EmplacementUpdateScreen()),
   // Équipe
-  AccueilMenu(id: 'empreinte', label: 'Pointage', short: 'Pointage', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, famille: MenuFamille.equipe, screen: () => const PointageHomeScreen()),
+  // Pointage LOCAL (empreinte / PIN, lib/pointage) : rien n'est envoyé à Prestige. Libellé explicite et menu masqué
+  // par défaut (SettingsProvider.menusMasques ; réaffichable par un administrateur : Paramètres › Équipe).
+  AccueilMenu(id: 'empreinte', label: 'Pointage local (non envoyé à Prestige)', short: 'Pointage local', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, famille: MenuFamille.equipe, screen: () => const PointageHomeScreen()),
   // Pointage présence sur le serveur Prestige (« Mon pointage » au téléphone, « Terminal de pointage » :
   // badge, NFC, empreinte ; présences) : voies proposées selon les routes du serveur et le droit RH du compte
   // (désactivées et expliquées sinon). Identifiant `pointage_rh` conservé (favoris, ordre, menus masqués).
