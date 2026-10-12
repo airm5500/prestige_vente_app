@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/quantity_dialog.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
@@ -192,7 +193,7 @@ Future<PaymentMethod?> showPaymentMethodPicker(BuildContext context, List<Paymen
                 itemCount: methods.length,
                 itemBuilder: (_, i) => ListTile(
                   minTileHeight: 48,
-                  leading: Icon(methods[i].id == '1' ? Icons.payments_outlined : Icons.account_balance_wallet_outlined),
+                  leading: ModePaiementLogo(modeId: methods[i].id, libelle: methods[i].name, size: 32),
                   title: Text(methods[i].name),
                   onTap: () => Navigator.of(ctx).pop(methods[i]),
                 ),
@@ -212,7 +213,11 @@ Future<bool> showPaymentConfirmDialog(BuildContext context, {required String met
       title: const Text('Confirmation de paiement'),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Mode : $methodName', style: const TextStyle(fontWeight: FontWeight.bold)),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            ModePaiementLogo(libelle: methodName, size: 28),
+            const SizedBox(width: 8),
+            Flexible(child: Text('Mode : $methodName', style: const TextStyle(fontWeight: FontWeight.bold))),
+          ]),
           const SizedBox(height: 8),
           Text('Montant net : ${Constants.formatNumber(montantNet)} F',
               style: const TextStyle(fontSize: 18, color: Colors.blue, fontWeight: FontWeight.bold)),

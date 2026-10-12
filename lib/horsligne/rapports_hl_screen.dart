@@ -11,6 +11,7 @@ import 'package:prestige_vente_app/horsligne/rapports_hl.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
@@ -280,9 +281,10 @@ class _RapportJourHorsLigneScreenState extends State<RapportJourHorsLigneScreen>
 
   void _decaler(int jours) => setState(() => _jour = DateTime(_jour.year, _jour.month, _jour.day + jours));
 
-  Widget _row(String a, String b, {bool strong = false}) => Padding(
+  Widget _row(String a, String b, {bool strong = false, Widget? lead}) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        child: Row(crossAxisAlignment: lead == null ? CrossAxisAlignment.start : CrossAxisAlignment.center, children: [
+          if (lead != null) ...[lead, const SizedBox(width: 8)],
           Expanded(child: Text(a, style: TextStyle(fontSize: 13.5, color: strong ? Pal.ink : Pal.muted, fontWeight: strong ? FontWeight.bold : null))),
           const SizedBox(width: 8),
           Text(b, style: TextStyle(fontSize: 13.5, fontWeight: strong ? FontWeight.bold : FontWeight.w600, color: Pal.ink)),
@@ -328,7 +330,8 @@ class _RapportJourHorsLigneScreenState extends State<RapportJourHorsLigneScreen>
                   _row('Anomalies', '${r.compte(StatutVenteHL.aVerifier)}'),
                   const Divider(height: 14, color: Pal.line),
                   _row('Montant total', _f(r.montantTotal)),
-                  _row('Espèces encaissées (provisoire)', _f(r.especes), strong: true),
+                  _row('Espèces encaissées (provisoire)', _f(r.especes),
+                      strong: true, lead: const ModePaiementLogo(modeId: '1', libelle: 'Espèces', size: 24)),
                 ]),
               ),
               const SizedBox(height: 12),

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 //import 'package:prestige_vente_app/api/models/product_search_result.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
@@ -352,7 +353,11 @@ class _VenteTabState extends State<VenteTab> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text("Mode : ${method.name}", style: const TextStyle(fontWeight: FontWeight.bold)),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                ModePaiementLogo(modeId: method.id, libelle: method.name, size: 28),
+                const SizedBox(width: 8),
+                Flexible(child: Text("Mode : ${method.name}", style: const TextStyle(fontWeight: FontWeight.bold))),
+              ]),
               const SizedBox(height: 8),
               Text("Montant Net : ${Constants.formatNumber(saleProvider.saleSummary.montantNet)} F",
                   style: const TextStyle(fontSize: 18, color: Colors.blue, fontWeight: FontWeight.bold)),
@@ -442,6 +447,7 @@ class _VenteTabState extends State<VenteTab> {
             itemBuilder: (context, index) {
               final method = filteredMethods[index];
               return ListTile(
+                  leading: ModePaiementLogo(modeId: method.id, libelle: method.name, size: 32),
                   title: Text(method.name),
                   onTap: () async {
                     Navigator.of(ctx).pop();

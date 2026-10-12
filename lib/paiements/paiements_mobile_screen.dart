@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
@@ -163,6 +164,7 @@ class _PaiementsMobileScreenState extends State<PaiementsMobileScreen> {
                     Card(
                       key: ValueKey('pm-ligne-${p.id}'),
                       child: ListTile(
+                        leading: ModePaiementLogo(modeId: typeReglementOperateur[p.operateur], libelle: nomOperateur[p.operateur] ?? p.operateur, size: 36),
                         title: Text('${Constants.formatNumber(p.montant)} F · ${nomOperateur[p.operateur] ?? p.operateur}'),
                         subtitle: Text([
                           if (p.reference.isNotEmpty) 'Vente ${p.reference}',

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/banc_essai_screen.dart';
@@ -247,6 +248,7 @@ class _VentesPageState extends State<VentesPage> {
               child: CheckboxListTile(
                 controlAffinity: ListTileControlAffinity.leading,
                 activeColor: Pal.navy,
+                secondary: ModePaiementLogo(modeId: m.id, libelle: m.name, size: 32),
                 title: Text(m.name, style: const TextStyle(fontWeight: FontWeight.w600)),
                 subtitle: m.qrCode != null ? const Text('QR configuré') : null,
                 value: s.enabledPaymentMethodIds.contains(m.id),

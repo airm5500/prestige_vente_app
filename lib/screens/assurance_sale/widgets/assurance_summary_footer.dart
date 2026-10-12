@@ -1,6 +1,7 @@
 // lib/screens/assurance_sale/widgets/assurance_summary_footer.dart
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
@@ -128,7 +129,11 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text("Mode : ${method.name}", style: const TextStyle(fontWeight: FontWeight.bold)),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                ModePaiementLogo(modeId: method.id, libelle: method.name, size: 28),
+                const SizedBox(width: 8),
+                Flexible(child: Text("Mode : ${method.name}", style: const TextStyle(fontWeight: FontWeight.bold))),
+              ]),
               const SizedBox(height: 8),
               Text("Montant Net : ${Constants.formatNumber(summary.montantNet)} F",
                   style: const TextStyle(fontSize: 18, color: Colors.blue, fontWeight: FontWeight.bold)),

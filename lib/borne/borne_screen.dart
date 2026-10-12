@@ -17,6 +17,7 @@ import 'package:prestige_vente_app/borne/borne_ticket.dart';
 import 'package:prestige_vente_app/borne/borne_widgets.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/paiements/attente_paiement_screen.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
@@ -1293,6 +1294,7 @@ class BorneScreenState extends State<BorneScreen> {
                   child: BorneBouton(nomOperateur[op] ?? op,
                       key: ValueKey('borne-operateur-$op'),
                       icon: Icons.phone_android,
+                      leading: ModePaiementLogo(modeId: typeReglementOperateur[op], libelle: nomOperateur[op] ?? op, size: 40),
                       principal: false,
                       occupe: _validation && _opChoisi == op,
                       onPressed: _validation ? null : () => payer(operateur: op)),

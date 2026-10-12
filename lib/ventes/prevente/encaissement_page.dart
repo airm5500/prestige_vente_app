@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/services/receipt_service.dart' show TicketReg
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/paiements/attente_paiement_screen.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/ventes/core/paiement_multiple.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart' show maxReglements;
@@ -394,7 +395,7 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
             for (final m in candidates)
               ListTile(
                 key: ValueKey('ajout-mode-${m.id}'),
-                leading: Icon(_iconFor(m), color: Pal.navy),
+                leading: ModePaiementLogo(modeId: m.id, libelle: m.name, size: 32),
                 title: Text(m.name),
                 onTap: () => Navigator.of(ctx).pop(m),
               ),
@@ -644,9 +645,10 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
   Widget _resume(PaymentMethod? method, String totalText) {
     final p = _multi;
     final ref = widget.summary.reference;
-    Widget row(String label, String value, {bool strong = false}) => Padding(
+    Widget row(String label, String value, {bool strong = false, PaymentMethod? mode}) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child: Row(crossAxisAlignment: mode == null ? CrossAxisAlignment.start : CrossAxisAlignment.center, children: [
+            if (mode != null) ...[ModePaiementLogo(modeId: mode.id, libelle: mode.name, size: 24), const SizedBox(width: 8)],
             Expanded(child: Text(label, style: const TextStyle(fontSize: 13.5, color: Pal.muted))),
             const SizedBox(width: 8),
             Flexible(
@@ -668,10 +670,10 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
           row(widget.totalLabel, totalText, strong: true),
           const Divider(height: 16, color: Pal.line),
           if (p != null) ...[
-            for (final l in p.lignes) row(l.method.name, _f(l.montant)),
+            for (final l in p.lignes) row(l.method.name, _f(l.montant), mode: l.method),
             row('Reste à payer', _f(p.reste)),
           ] else
-            row('Mode de paiement', method?.name ?? '—'),
+            row('Mode de paiement', method?.name ?? '—', mode: method),
         ]),
       ),
     );
@@ -741,7 +743,7 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(_iconFor(l.method), color: Pal.navy, size: 22),
+          ModePaiementLogo(modeId: l.method.id, libelle: l.method.name, size: 28),
           const SizedBox(width: 8),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -969,17 +971,6 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
     return [_Notice(error: true, icon: Icons.error_outline, text: f.message), const SizedBox(height: 10)];
   }
 
-  IconData _iconFor(PaymentMethod m) {
-    final n = m.name.toLowerCase();
-    if (m.id == '1' || n.contains('esp')) return Icons.payments_outlined;
-    if (n.contains('carte') || n.contains('card') || n.contains('tpe') || n.contains('visa')) return Icons.credit_card;
-    if (n.contains('ch') && n.contains('que')) return Icons.receipt_long_outlined;
-    if (n.contains('wave') || n.contains('orange') || n.contains('mtn') || n.contains('moov') || n.contains('money') || n.contains('momo')) {
-      return Icons.phone_android;
-    }
-    return Icons.account_balance_wallet_outlined;
-  }
-
   Widget _tile(PaymentMethod m, {required bool selected}) => Material(
         color: selected ? const Color(0xFFE3ECF7) : Colors.white,
         shape: RoundedRectangleBorder(
@@ -1000,7 +991,7 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(_iconFor(m), color: selected ? Pal.navy : Pal.muted, size: 24),
+                ModePaiementLogo(modeId: m.id, libelle: m.name, size: 28),
                 const SizedBox(height: 4),
                 Text(m.name,
                     maxLines: 2,
@@ -1089,7 +1080,11 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         ] else
           Text('Encaissez le montant par ${m.name}, puis validez.', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
         const SizedBox(height: 2),
-        Text('${m.name} · ${Constants.formatNumber(_net)} F', textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted)),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          ModePaiementLogo(modeId: m.id, libelle: m.name, size: 28),
+          const SizedBox(width: 8),
+          Flexible(child: Text('${m.name} · ${Constants.formatNumber(_net)} F', textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted))),
+        ]),
         // B3 : QR du montant exact, confirmation automatique, puis encaissement comme d'habitude.
         if (_opMobile(m) case final op?)
           _boutonQr(op, 'pm-qr-unique', () async {

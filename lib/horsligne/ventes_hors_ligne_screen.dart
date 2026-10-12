@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/vente_dialogs.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
@@ -446,6 +447,10 @@ class _VenteTile extends StatelessWidget {
             ]),
             const SizedBox(height: 4),
             Row(children: [
+              if (v.fin == FinVenteHL.especes) ...[
+                const ModePaiementLogo(modeId: '1', libelle: 'Espèces', size: 24),
+                const SizedBox(width: 6),
+              ],
               Expanded(
                 child: Text(
                   '${v.type.label} · ${_finLabel(v)} · ${_date(v.createdAt)}${v.clientNom.isEmpty ? '' : ' · ${v.clientNom}'}',

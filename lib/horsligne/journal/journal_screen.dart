@@ -13,6 +13,7 @@ import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_rapport.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -258,10 +259,15 @@ class _JournalTerminalScreenState extends State<JournalTerminalScreen> {
               key: const Key('compteur_journal'), style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
           const SizedBox(height: 6),
           for (final m in t.parMode.entries)
-            Row(children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(children: [
+              ModePaiementLogo(modeId: m.key, libelle: m.key, size: 24),
+              const SizedBox(width: 8),
               Expanded(child: Text(m.key, style: const TextStyle(fontSize: 13, color: Pal.muted))),
               Text(_f(m.value), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Pal.ink)),
             ]),
+            ),
           Row(children: [
             const Expanded(child: Text('Total encaissé', style: TextStyle(fontWeight: FontWeight.bold, color: Pal.ink))),
             Text(_f(t.encaisse), key: const Key('total_encaisse_journal'), style: const TextStyle(fontWeight: FontWeight.bold, color: Pal.ink)),

@@ -44,18 +44,21 @@ class BornePicto extends StatelessWidget {
 class BorneBouton extends StatelessWidget {
   final String texte;
   final IconData? icon;
+
+  /// Image à gauche du texte (logo du mode de paiement), à la place de [icon].
+  final Widget? leading;
   final VoidCallback? onPressed;
   final bool principal;
   final bool contour;
   final bool occupe;
-  const BorneBouton(this.texte, {super.key, this.icon, this.onPressed, this.principal = true, this.contour = false, this.occupe = false});
+  const BorneBouton(this.texte, {super.key, this.icon, this.leading, this.onPressed, this.principal = true, this.contour = false, this.occupe = false});
 
   @override
   Widget build(BuildContext context) {
     final child = occupe
         ? const SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 3, color: Pal.onAmber))
         : Row(mainAxisSize: MainAxisSize.min, children: [
-            if (icon != null) ...[Icon(icon, size: 24), const SizedBox(width: 10)],
+            if (leading != null) ...[leading!, const SizedBox(width: 10)] else if (icon != null) ...[Icon(icon, size: 24), const SizedBox(width: 10)],
             Flexible(child: Text(texte, textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800))),
           ]);
     final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
