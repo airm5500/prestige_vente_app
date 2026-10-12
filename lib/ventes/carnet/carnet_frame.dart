@@ -48,6 +48,14 @@ class CarnetFrame {
         compactHeader: [CarnetStepPills(steps: steps, active: active, dark: false), ...(compactHeader ?? header)],
         body: body,
         bottomNavigationBar: bottom,
+        // Clavier ouvert : pastilles d'étapes masquées (place gardée), pied posé au-dessus du clavier,
+        // clavier fermé en touchant hors champ ou en faisant défiler une liste.
+        clavierCompact: true,
+        headerClavier: [
+          if (style == ListPresentation.dashboard && pills) const SizedBox.shrink(),
+          ...header,
+        ],
+        compactHeaderClavier: [const SizedBox.shrink(), ...(compactHeader ?? header)],
       );
 }
 

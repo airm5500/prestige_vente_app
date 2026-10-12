@@ -47,6 +47,11 @@ class AssuranceFrame {
         compactHeader: [AssuranceStepsBar(active: step, onDark: false, onTap: stepTap), ...(compactHeader ?? header)],
         body: progress ? Column(children: [const LinearProgressIndicator(minHeight: 2), Expanded(child: body)]) : body,
         bottomNavigationBar: bottom,
+        // Clavier ouvert : barre d'étapes masquée (place gardée), pied posé au-dessus du clavier,
+        // clavier fermé en touchant hors champ ou en faisant défiler une liste.
+        clavierCompact: true,
+        headerClavier: [const SizedBox.shrink(), ...header],
+        compactHeaderClavier: [const SizedBox.shrink(), ...(compactHeader ?? header)],
       );
 }
 

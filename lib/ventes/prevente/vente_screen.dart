@@ -523,7 +523,9 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
     );
     final total = c.hasCart ? c.summary.montantNet : 0;
     final cart = Column(children: [
-      _StatusBanner(controller: c, onTerminerHorsLigne: _paying ? null : _terminerHorsLigne),
+      // Clavier ouvert : bandeaux « Envoi… » / « enregistré ✓ » masqués (place pour le panier) ;
+      // les alertes (hors ligne, panier non relu, net non calculé) restent affichées.
+      _StatusBanner(controller: c, onTerminerHorsLigne: _paying ? null : _terminerHorsLigne, discret: clavierOuvert(context)),
       Expanded(
         child: VenteCart(
           onDone: _focusSearch,
@@ -587,6 +589,79 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
         wide: split,
         body: split ? VenteSplitBody(panelKey: const ValueKey('vente-panneau-recherche'), side: [search], main: cart) : cart,
         bottomNavigationBar: _footer(c),
+        // Clavier ouvert : tuiles / chiffres / étapes masqués (articles · boîtes · total sur une ligne dans
+        // le pied), panier redimensionné, total et Prévente / Encaisser au-dessus du clavier ; défiler le
+        // panier ou toucher hors champ ferme le clavier (le curseur reste dans la recherche).
+        clavierCompact: true,
+        headerClavier: [
+          if (style == ListPresentation.dashboard) const SizedBox.shrink(),
+          if (!split) search,
+        ],
+        compactHeaderClavier: [
+          const SizedBox.shrink(),
+          if (!split) search,
+        ],
+        bottomClavier: _footerClavier(c),
+      ),
+    );
+  }
+
+  /// Pied clavier ouvert (une ligne, au-dessus du clavier) : total et les deux fins, mêmes actions
+  /// et mêmes clés que le pied complet.
+  Widget _footerClavier(VenteController c) {
+    final hl = c.horsLigne;
+    final s = c.summary;
+    final enabled = c.canFinish && !_paying && !c.finished;
+    final netText = !c.hasCart
+        ? '0 F'
+        : hl || c.netUpToDate
+            ? '${Constants.formatNumber(s.montantNet)} F'
+            : (c.busy ? 'Calcul…' : '—');
+    ButtonStyle petit(ButtonStyle b) => b.copyWith(
+          minimumSize: const WidgetStatePropertyAll(Size(0, 44)),
+          padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 10)),
+        );
+    return Material(
+      key: const ValueKey('vente-pied-clavier'),
+      elevation: 8,
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+        child: Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text('${hl ? 'Total (provisoire)' : 'Total'} · ${c.items.length} article${c.items.length > 1 ? 's' : ''} · ${_boxes(c)} boîte${_boxes(c) > 1 ? 's' : ''}',
+                  key: const ValueKey('vente-pied-resume'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11.5, color: Pal.muted)),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(netText, key: const ValueKey('vente-net'), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Pal.ink)),
+              ),
+            ]),
+          ),
+          const SizedBox(width: 6),
+          OutlinedButton(
+            key: ValueKey(hl ? 'vente-hl-prevente' : 'vente-enregistrer-prevente'),
+            style: petit(OutlinedButton.styleFrom(
+              foregroundColor: Pal.navy,
+              side: BorderSide(color: enabled ? Pal.navy : Pal.line, width: 1.5),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            )),
+            onPressed: enabled ? _savePrevente : null,
+            child: Text(hl ? 'PRÉVENTE\n(PROV.)' : 'PRÉVENTE', textAlign: TextAlign.center),
+          ),
+          const SizedBox(width: 6),
+          ElevatedButton(
+            key: ValueKey(hl ? 'vente-hl-especes' : 'vente-encaisser'),
+            style: petit(style == ListPresentation.guided ? amberButton : navyButton),
+            onPressed: enabled ? _encaisser : null,
+            child: Text(hl ? 'ESPÈCES\n(PROV.)' : 'ENCAISSER', textAlign: TextAlign.center),
+          ),
+        ]),
       ),
     );
   }
@@ -765,7 +840,9 @@ class _TotalKpi extends StatelessWidget {
 class _StatusBanner extends StatelessWidget {
   final VenteController controller;
   final VoidCallback? onTerminerHorsLigne;
-  const _StatusBanner({required this.controller, this.onTerminerHorsLigne});
+  /// Clavier ouvert : seuls les bandeaux d'alerte sont affichés.
+  final bool discret;
+  const _StatusBanner({required this.controller, this.onTerminerHorsLigne, this.discret = false});
 
   @override
   Widget build(BuildContext context) {
@@ -809,6 +886,7 @@ class _StatusBanner extends StatelessWidget {
     if (c.netError != null && c.cartError == null && c.hasCart) {
       return LoadErrorBanner(message: 'Net à payer non calculé : ${venteMessage(c.netError)}', onRetry: c.busy ? null : c.reload);
     }
+    if (discret) return const SizedBox.shrink();
     if (c.busy && c.venteId != null) {
       return const _Strip(
         key: ValueKey('vente-etat-envoi'),
