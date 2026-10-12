@@ -2,9 +2,13 @@
 // Voie A — « Mon pointage » : l'employé pointe son entrée / sa sortie avec SON téléphone.
 // 1. Connexion (si pas de jeton valable) : identifiant (pré-rempli avec le compte de l'appli) et mot de
 //    passe, utilisé pour cet appel seulement (jamais conservé). Jeton gardé dans le stockage sécurisé.
-// 2. Écran de pointage : gros bouton « Pointer mon entrée / ma sortie » (sens proposé = inverse du dernier
-//    pointage), scan du QR affiché à l'officine si exigé, position si exigée, résultat du serveur en grand
-//    (heure = serveur), historique des 16 dernières heures. Refus du serveur affiché tel quel.
+// 2. Écran de pointage (en-tête : nom et matricule de l'employé) : deux gros boutons « Arrivée » (vert, ENTREE)
+//    et « Départ » (rouge doux, SORTIE) ; celui qui correspond à l'inverse du dernier pointage est mis en
+//    évidence (« suggéré »), sans être imposé. Un appui = scan du QR (si exigé) puis envoi : deux gestes,
+//    aucune confirmation. Position : exigée → demandée ; sinon envoyée seulement si l'autorisation est déjà
+//    accordée (jamais demandée, délai court, jamais bloquante). Résultat du serveur en grand (heure = serveur),
+//    historique des 16 dernières heures. Refus du serveur affiché tel quel. Code saisi à la main en secours.
+//    Rien n'est journalisé (ni QR, ni position, ni réponse du serveur).
 // Hors ligne : « Disponible en ligne uniquement » (l'heure du serveur et le QR l'imposent).
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -188,16 +192,22 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
     _dire('Téléphone déconnecté : le jeton a été effacé.', ok: true);
   }
 
-  /// Sens proposé : l'inverse du dernier pointage des 16 dernières heures.
-  SensPointage get _sensPropose => sensPropose(_historique.isEmpty ? null : _historique.last.sens);
+  /// Sens suggéré : l'inverse du dernier pointage des 16 dernières heures (mis en évidence, jamais imposé).
+  SensPointage get _sensSuggere => sensPropose(_historique.isEmpty ? null : _historique.last.sens);
 
   Future<String?> _scanner() =>
       (widget.scanner ?? (ctx) => CameraScanScreen.open(ctx, title: 'Scannez le QR code affiché à l\'officine'))(context);
 
-  Future<String?> _saisirCode() => showDialog<String>(
+  /// Secours : code affiché sous le QR saisi à la main, puis « Arrivée » ou « Départ ».
+  Future<({String code, SensPointage sens})?> _saisirCode() => showDialog<({String code, SensPointage sens})>(
         context: context,
         builder: (ctx) {
           final c = TextEditingController();
+          final suggere = _sensSuggere;
+          void valider(SensPointage sens) => Navigator.of(ctx).pop((code: c.text, sens: sens));
+          ButtonStyle style(SensPointage sens) => sens == suggere
+              ? ElevatedButton.styleFrom(backgroundColor: _couleurSens(sens), foregroundColor: Colors.white)
+              : ElevatedButton.styleFrom(foregroundColor: _couleurSens(sens));
           return AlertDialog(
             title: const Text('Code de pointage'),
             content: TextField(
@@ -206,18 +216,40 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
               autofocus: true,
               textCapitalization: TextCapitalization.characters,
               decoration: const InputDecoration(hintText: 'Code affiché sous le QR (6 caractères)'),
-              onSubmitted: (v) => Navigator.of(ctx).pop(v),
             ),
             actions: [
               TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler')),
-              ElevatedButton(onPressed: () => Navigator.of(ctx).pop(c.text), child: const Text('Valider')),
+              ElevatedButton(
+                  key: const Key('rh_code_arrivee'), style: style(SensPointage.entree), onPressed: () => valider(SensPointage.entree), child: const Text('Arrivée')),
+              ElevatedButton(
+                  key: const Key('rh_code_depart'), style: style(SensPointage.sortie), onPressed: () => valider(SensPointage.sortie), child: const Text('Départ')),
             ],
           );
         },
       );
 
-  /// Un pointage en deux gestes : bouton, puis scan (si exigé).
-  Future<void> _pointer(SensPointage sens, {bool saisieManuelle = false}) async {
+  Future<void> _pointerAvecCodeSaisi() async {
+    if (_occupe || _horsLigne) return;
+    final r = await _saisirCode();
+    if (!mounted || r == null || r.code.trim().isEmpty) return;
+    await _pointer(r.sens, codeSaisi: r.code);
+  }
+
+  /// Position facultative (GPS non exigé) : seulement si l'autorisation est déjà accordée, délai court ;
+  /// tout échec → pointage sans position (jamais bloquant).
+  Future<PositionPointage?> _positionFacultative() async {
+    try {
+      final p = await widget.localisateur
+          .position(exigee: false)
+          .timeout(delaiPositionFacultative, onTimeout: () => const ResultatPosition.echec('Délai dépassé.'));
+      return p.ok ? p.position : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Un pointage en deux gestes : bouton « Arrivée » / « Départ », puis scan (si exigé). Pas de confirmation.
+  Future<void> _pointer(SensPointage sens, {String? codeSaisi}) async {
     final api = _api;
     final s = _session;
     if (api == null || s == null || _occupe) return;
@@ -229,9 +261,9 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
     try {
       String? code;
       if (s.qr) {
-        final lu = saisieManuelle ? await _saisirCode() : await _scanner();
+        final lu = codeSaisi ?? await _scanner();
         if (!mounted || lu == null || lu.trim().isEmpty) return;
-        if (!saisieManuelle && !estQrPointage(lu)) {
+        if (codeSaisi == null && !estQrPointage(lu)) {
           _dire('Ce n\'est pas le QR code de pointage de l\'officine (il commence par « $prefixeQrPointage »).');
           return;
         }
@@ -247,6 +279,9 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
           return;
         }
         position = p.position;
+      } else {
+        position = await _positionFacultative();
+        if (!mounted) return;
       }
       final r = await api.pointer(sens: sens, code: code, position: position);
       if (!mounted) return;
@@ -410,44 +445,37 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
     if (!s.droitPointage) {
       return [_bandeau('Le pointage par téléphone est désactivé par l\'officine.', false)];
     }
-    final sens = _sensPropose;
-    final entree = sens == SensPointage.entree;
+    final suggere = _sensSuggere;
+    final arrivee = _boutonSens(SensPointage.entree, suggere == SensPointage.entree);
+    final depart = _boutonSens(SensPointage.sortie, suggere == SensPointage.sortie);
     return [
       Wrap(spacing: 8, runSpacing: 6, children: [
         _puce(s.qr ? Icons.qr_code_2 : Icons.qr_code_2_outlined, s.qr ? 'QR code de l\'officine exigé' : 'QR code non exigé', s.qr),
         _puce(s.gps ? Icons.location_on : Icons.location_off_outlined, s.gps ? 'Position exigée' : 'Position non exigée', s.gps),
       ]),
       const SizedBox(height: 14),
-      SizedBox(
-        height: 88,
-        child: ElevatedButton.icon(
-          key: const Key('rh_pointer'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: entree ? Pal.green : const Color(0xFFDC5A5A),
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          ),
-          onPressed: _occupe || _horsLigne ? null : () => _pointer(sens),
-          icon: Icon(entree ? Icons.login : Icons.logout, size: 34),
-          label: Text(entree ? 'Pointer mon entrée' : 'Pointer ma sortie', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        ),
+      // Deux gros boutons côte à côte (empilés si l'écran est trop étroit).
+      LayoutBuilder(
+        builder: (context, c) => c.maxWidth >= 280
+            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: arrivee),
+                const SizedBox(width: 12),
+                Expanded(child: depart),
+              ])
+            : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [arrivee, const SizedBox(height: 12), depart]),
       ),
-      const SizedBox(height: 6),
-      Wrap(alignment: WrapAlignment.spaceBetween, children: [
-        TextButton.icon(
-          key: const Key('rh_pointer_autre'),
-          onPressed: _occupe || _horsLigne ? null : () => _pointer(sens.inverse),
-          icon: Icon(sens.inverse == SensPointage.entree ? Icons.login : Icons.logout, size: 18),
-          label: Text(sens.inverse == SensPointage.entree ? 'Pointer plutôt mon entrée' : 'Pointer plutôt ma sortie'),
-        ),
-        if (s.qr)
-          TextButton.icon(
+      if (s.qr) ...[
+        const SizedBox(height: 6),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
             key: const Key('rh_saisir_code'),
-            onPressed: _occupe || _horsLigne ? null : () => _pointer(sens, saisieManuelle: true),
+            onPressed: _occupe || _horsLigne ? null : _pointerAvecCodeSaisi,
             icon: const Icon(Icons.keyboard, size: 18),
             label: const Text('Saisir le code affiché'),
           ),
-      ]),
+        ),
+      ],
       const SizedBox(height: 12),
       Row(children: [
         const Expanded(child: Text('MES POINTAGES (16 DERNIÈRES HEURES)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Pal.muted))),
@@ -471,6 +499,54 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
               ]),
       ),
     ];
+  }
+
+  static Color _couleurSens(SensPointage sens) => sens == SensPointage.entree ? Pal.green : const Color(0xFFDC5A5A);
+
+  /// « Arrivée » (vert, ENTREE) ou « Départ » (rouge doux, SORTIE). Le bouton suggéré (inverse du dernier
+  /// pointage) porte une bordure et un badge discret « suggéré » ; l'autre reste pleinement utilisable.
+  Widget _boutonSens(SensPointage sens, bool suggere) {
+    final entree = sens == SensPointage.entree;
+    return SizedBox(
+      height: 104,
+      child: ElevatedButton(
+        key: Key(entree ? 'rh_arrivee' : 'rh_depart'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _couleurSens(sens),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          elevation: suggere ? 4 : 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+            side: suggere ? BorderSide(color: entree ? const Color(0xFF0B6B45) : const Color(0xFF9B1C1C), width: 3) : BorderSide.none,
+          ),
+        ),
+        onPressed: _occupe || _horsLigne ? null : () => _pointer(sens),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(entree ? Icons.login : Icons.logout, size: 30),
+              const SizedBox(width: 8),
+              Text(entree ? 'Arrivée' : 'Départ', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            ]),
+            const SizedBox(height: 6),
+            // Place réservée même sans badge : les deux boutons gardent la même mise en page.
+            SizedBox(
+              height: 20,
+              child: suggere
+                  ? Container(
+                      key: Key(entree ? 'rh_suggere_arrivee' : 'rh_suggere_depart'),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(color: const Color(0x40FFFFFF), borderRadius: BorderRadius.circular(10)),
+                      child: const Text('suggéré', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    )
+                  : null,
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 
   Widget _puce(IconData i, String t, bool actif) => Chip(

@@ -1,13 +1,16 @@
-// Pointage RH (Prestige) : voie A (téléphone de l'employé, API v1/mobile, jeton Bearer) et voie B (terminal
+// Pointage présence (Prestige, menu `pointage_rh`) : voie A (téléphone de l'employé, API v1/mobile, jeton Bearer) et voie B (terminal
 // commun, API v1/rh, badge / NFC / empreinte, file hors ligne), présences du jour, mise en page 360 px / tablette.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:prestige_vente_app/accueil/accueil_menus.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
@@ -144,16 +147,53 @@ class FakeEmpreinte implements FournisseurEmpreinte {
 class FakeLocalisateur implements Localisateur {
   ResultatPosition r;
   int appels = 0;
+  final exigences = <bool>[];
+
+  /// Position qui ne vient jamais (délai court de la position facultative).
+  bool bloque = false;
   FakeLocalisateur(this.r);
   @override
-  Future<ResultatPosition> position({required bool exigee}) async {
+  Future<ResultatPosition> position({required bool exigee}) {
     appels++;
-    return r;
+    exigences.add(exigee);
+    return bloque ? Completer<ResultatPosition>().future : Future.value(r);
   }
 
   @override
   Future<void> ouvrirReglages() async {}
 }
+
+/// Plate-forme de localisation factice : compte les DEMANDES d'autorisation (jamais pour une position facultative).
+class FakePlateformeGeo implements PlateformeGeo {
+  bool service = true;
+  LocationPermission permission;
+  LocationPermission apresDemande;
+  int demandes = 0;
+  int lectures = 0;
+  FakePlateformeGeo(this.permission, {this.apresDemande = LocationPermission.whileInUse});
+  @override
+  Future<bool> serviceActif() async => service;
+  @override
+  Future<LocationPermission> verifierPermission() async => permission;
+  @override
+  Future<LocationPermission> demanderPermission() async {
+    demandes++;
+    return permission = apresDemande;
+  }
+
+  @override
+  Future<PositionPointage> positionActuelle(Duration limite) async {
+    lectures++;
+    return const PositionPointage(5.3364, -4.0267, 12);
+  }
+
+  @override
+  Future<void> ouvrirReglages() async {}
+}
+
+/// Position facultative indisponible (autorisation non accordée) : le pointage part sans position. Les tests
+/// d'écran l'utilisent au lieu du vrai plugin de localisation (absent sous `flutter test`).
+FakeLocalisateur sansPosition() => FakeLocalisateur(const ResultatPosition.echec('Localisation non autorisée.'));
 
 final DateTime h0802 = DateTime(2026, 10, 12, 8, 2);
 
@@ -327,7 +367,7 @@ void main() {
       return e;
     }
 
-    testWidgets('QR exigé : bouton puis scan → POST avec le code brut ; résultat du serveur en grand ; sens proposé ensuite', (t) async {
+    testWidgets('QR exigé : « Arrivée » puis scan → POST ENTREE avec le code brut ; résultat en grand ; « Départ » suggéré ensuite', (t) async {
       tailleTelephone(t);
       final e = connecte();
       var hist = <Map<String, dynamic>>[];
@@ -336,16 +376,21 @@ void main() {
         hist = [{'heure': '08:02', 'sens': 'ENTREE', 'source': 'MOBILE'}];
         return (status: 200, body: {'success': true, 'sens': 'ENTREE', 'heure': '08:02', 'message': 'Entrée enregistrée à 08:02.'});
       };
-      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, scanner: (_) async => 'PRESTIGE-POINTAGE:ABC234'));
+      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, scanner: (_) async => 'PRESTIGE-POINTAGE:ABC234', localisateur: sansPosition()));
       expect(find.text('QR code de l\'officine exigé'), findsOneWidget);
-      await t.tap(find.text('Pointer mon entrée'));
+      expect(find.byKey(const Key('rh_suggere_arrivee')), findsOneWidget); // aucun pointage : arrivée suggérée
+      await t.tap(find.byKey(const Key('rh_arrivee')));
       await t.pumpAndSettle();
       final corps = e.transport.corpsDe('POST', 'pointages').single!;
       expect(corps['code'], 'PRESTIGE-POINTAGE:ABC234');
       expect(corps['sens'], 'ENTREE');
       expect(corps.containsKey('latitude'), isFalse);
       expect(find.text('Entrée enregistrée à 08:02.'), findsOneWidget);
-      expect(find.text('Pointer ma sortie'), findsOneWidget);
+      // historique rechargé après le pointage : le départ devient le bouton suggéré
+      expect(e.transport.appels.where((a) => a.methode == 'GET' && a.chemin == 'pointages').length, greaterThanOrEqualTo(2));
+      expect(find.text('08:02 · Entrée'), findsOneWidget);
+      expect(find.byKey(const Key('rh_suggere_depart')), findsOneWidget);
+      expect(find.byKey(const Key('rh_suggere_arrivee')), findsNothing);
       expect(t.takeException(), isNull);
     });
 
@@ -355,13 +400,13 @@ void main() {
       var lu = '3400930000001';
       e.transport.routes['POST pointages'] =
           (_) => (status: 200, body: {'success': false, 'message': 'Code de pointage invalide ou expiré : scannez le QR code affiché à l\'officine.'});
-      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, scanner: (_) async => lu));
-      await t.tap(find.text('Pointer mon entrée'));
+      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, scanner: (_) async => lu, localisateur: sansPosition()));
+      await t.tap(find.byKey(const Key('rh_arrivee')));
       await t.pumpAndSettle();
       expect(find.textContaining('Ce n\'est pas le QR code de pointage'), findsOneWidget);
       expect(e.transport.corpsDe('POST', 'pointages'), isEmpty);
       lu = 'PRESTIGE-POINTAGE:OLD999';
-      await t.tap(find.text('Pointer mon entrée'));
+      await t.tap(find.byKey(const Key('rh_arrivee')));
       await t.pumpAndSettle();
       expect(find.text('Code de pointage invalide ou expiré : scannez le QR code affiché à l\'officine.'), findsOneWidget);
     });
@@ -373,16 +418,17 @@ void main() {
       final loc = FakeLocalisateur(const ResultatPosition.echec('Localisation refusée : l\'officine exige la position du téléphone pour pointer.'));
       await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, localisateur: loc));
       expect(find.text('Position exigée'), findsOneWidget);
-      await t.tap(find.text('Pointer mon entrée'));
+      await t.tap(find.byKey(const Key('rh_arrivee')));
       await t.pumpAndSettle();
       expect(find.textContaining('Localisation refusée'), findsOneWidget);
       expect(e.transport.corpsDe('POST', 'pointages'), isEmpty);
       loc.r = const ResultatPosition.ok(PositionPointage(5.3205, -4.02, 12));
-      await t.tap(find.text('Pointer mon entrée'));
+      await t.tap(find.byKey(const Key('rh_arrivee')));
       await t.pumpAndSettle();
       final c = e.transport.corpsDe('POST', 'pointages').single!;
       expect([c['latitude'], c['longitude'], c['precision']], [5.3205, -4.02, 12.0]);
       expect(c.containsKey('code'), isFalse);
+      expect(loc.exigences, [true, true]); // GPS exigé : position EXIGÉE (autorisation demandée si besoin)
     });
 
     testWidgets('401 pendant le pointage → retour à la connexion ; connexion par l\'écran (identifiant pré-rempli)', (t) async {
@@ -390,8 +436,8 @@ void main() {
       final e = connecte(qr: false);
       e.transport.routes['POST pointages'] = (_) => (status: 401, body: {'success': false, 'expire': true, 'message': 'Session du téléphone expirée : reconnectez-vous.'});
       e.transport.routes['POST connexion'] = (_) => (status: 200, body: {...moiJson(qr: false), 'jeton': 'J2', 'expiration': '2026-10-12T20:00:00Z'});
-      await pump(t, MobilePointageScreen(rh: e.pr, login: 'awa', presentation: ListPresentation.compact));
-      await t.tap(find.text('Pointer mon entrée'));
+      await pump(t, MobilePointageScreen(rh: e.pr, login: 'awa', presentation: ListPresentation.compact, localisateur: sansPosition()));
+      await t.tap(find.byKey(const Key('rh_arrivee')));
       await t.pumpAndSettle();
       expect(find.text('Session du téléphone expirée : reconnectez-vous.'), findsOneWidget);
       expect(find.byKey(const Key('rh_mobile_mdp')), findsOneWidget);
@@ -400,7 +446,8 @@ void main() {
       await t.enterText(find.byKey(const Key('rh_mobile_mdp')), 'secret');
       await t.tap(find.byKey(const Key('rh_mobile_connecter')));
       await t.pumpAndSettle();
-      expect(find.text('Pointer mon entrée'), findsOneWidget);
+      expect(find.byKey(const Key('rh_arrivee')), findsOneWidget);
+      expect(find.byKey(const Key('rh_depart')), findsOneWidget);
       expect(e.coffre.valeur, contains('J2'));
       expect(e.coffre.valeur, isNot(contains('secret')));
     });
@@ -410,14 +457,240 @@ void main() {
       final e = connecte(employe: false);
       await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.guided));
       expect(find.textContaining('rattaché à aucun employé'), findsOneWidget);
-      expect(find.text('Pointer mon entrée'), findsNothing);
+      expect(find.byKey(const Key('rh_arrivee')), findsNothing);
+      expect(find.byKey(const Key('rh_depart')), findsNothing);
 
       final e2 = connecte();
       e2.horsLigne = true;
       await pump(t, MobilePointageScreen(rh: e2.pr, presentation: ListPresentation.dashboard));
       expect(find.textContaining('Disponible en ligne uniquement'), findsWidgets);
-      expect(t.widget<ElevatedButton>(find.byKey(const Key('rh_pointer'))).onPressed, isNull);
+      expect(t.widget<ElevatedButton>(find.byKey(const Key('rh_arrivee'))).onPressed, isNull);
+      expect(t.widget<ElevatedButton>(find.byKey(const Key('rh_depart'))).onPressed, isNull);
     });
+
+    testWidgets('« Arrivée » → ENTREE, « Départ » → SORTIE ; le bouton suggéré n\'est jamais imposé', (t) async {
+      tailleTelephone(t);
+      final e = connecte(qr: false);
+      // dernier pointage : ENTREE → « Départ » suggéré
+      e.transport.routes['GET pointages'] = (_) => (status: 200, body: {'success': true, 'data': [{'heure': '07:58', 'sens': 'ENTREE', 'source': 'POINTEUSE'}]});
+      e.transport.routes['POST pointages'] = (c) => (status: 200, body: {'success': true, 'sens': c!['sens'], 'heure': '08:02', 'message': 'Enregistré.'});
+      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, localisateur: sansPosition()));
+      expect(find.text('KOUASSI Awa · M01'), findsOneWidget); // en-tête : nom et matricule
+      expect(find.byKey(const Key('rh_suggere_depart')), findsOneWidget);
+      expect(find.byKey(const Key('rh_suggere_arrivee')), findsNothing);
+      expect(find.descendant(of: find.byKey(const Key('rh_depart')), matching: find.text('suggéré')), findsOneWidget);
+      // l'arrivée reste utilisable même si le départ est suggéré
+      await t.tap(find.byKey(const Key('rh_arrivee')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const Key('rh_depart')));
+      await t.pumpAndSettle();
+      expect(e.transport.corpsDe('POST', 'pointages').map((c) => c!['sens']), ['ENTREE', 'SORTIE']);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('deux gestes : un appui → scan → POST aussitôt, aucune confirmation intermédiaire', (t) async {
+      tailleTelephone(t);
+      final e = connecte();
+      e.transport.routes['POST pointages'] = (_) => (status: 200, body: {'success': true, 'sens': 'SORTIE', 'heure': '08:02', 'message': 'Sortie enregistrée à 08:02.'});
+      var scans = 0;
+      await pump(
+          t,
+          MobilePointageScreen(
+            rh: e.pr,
+            presentation: ListPresentation.guided,
+            localisateur: sansPosition(),
+            scanner: (_) async {
+              scans++;
+              return 'PRESTIGE-POINTAGE:XYZ789';
+            },
+          ));
+      await t.tap(find.byKey(const Key('rh_depart'))); // geste 1 (le scan est le geste 2)
+      await t.pump();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(Dialog), findsNothing);
+      await t.pumpAndSettle();
+      expect(scans, 1);
+      final c = e.transport.corpsDe('POST', 'pointages').single!;
+      expect(c['sens'], 'SORTIE');
+      expect(c['code'], 'PRESTIGE-POINTAGE:XYZ789');
+      expect(find.text('Sortie enregistrée à 08:02.'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+    });
+
+    testWidgets('GPS non exigé : position envoyée si l\'autorisation est déjà accordée, sans elle sinon (jamais bloquant)', (t) async {
+      tailleTelephone(t);
+      final e = connecte(qr: false, gps: false);
+      e.transport.routes['POST pointages'] = (_) => (status: 200, body: {'success': true, 'sens': 'ENTREE', 'heure': '08:02', 'message': 'Entrée enregistrée à 08:02.'});
+      final loc = FakeLocalisateur(const ResultatPosition.ok(PositionPointage(5.3364, -4.0267, 12)));
+      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, localisateur: loc));
+      expect(find.text('Position non exigée'), findsOneWidget);
+      await t.tap(find.byKey(const Key('rh_arrivee')));
+      await t.pumpAndSettle();
+      var c = e.transport.corpsDe('POST', 'pointages').last!;
+      expect([c['latitude'], c['longitude'], c['precision']], [5.3364, -4.0267, 12.0]);
+      expect(loc.exigences, [false]); // jamais « exigée » : l'autorisation n'est pas demandée
+      // autorisation absente : envoi sans position, aucun message d'erreur de localisation
+      loc.r = const ResultatPosition.echec('Localisation non autorisée.');
+      await t.tap(find.byKey(const Key('rh_depart')));
+      await t.pumpAndSettle();
+      c = e.transport.corpsDe('POST', 'pointages').last!;
+      expect(c.keys.toSet().intersection({'latitude', 'longitude', 'precision'}), isEmpty);
+      expect(c['sens'], 'SORTIE');
+      expect(find.textContaining('Localisation'), findsNothing);
+      expect(loc.exigences, [false, false]);
+      // position qui ne vient pas : envoi sans elle après le délai court (~5 s)
+      loc.bloque = true;
+      final avant = e.transport.corpsDe('POST', 'pointages').length;
+      await t.tap(find.byKey(const Key('rh_arrivee')));
+      await t.pump(const Duration(seconds: 3));
+      expect(e.transport.corpsDe('POST', 'pointages'), hasLength(avant));
+      await t.pump(delaiPositionFacultative);
+      await t.pumpAndSettle();
+      expect(e.transport.corpsDe('POST', 'pointages'), hasLength(avant + 1));
+      expect(e.transport.corpsDe('POST', 'pointages').last!.containsKey('latitude'), isFalse);
+      expect(t.takeException(), isNull);
+    });
+
+    test('localisation : GPS non exigé → autorisation VÉRIFIÉE jamais demandée ; GPS exigé → demandée comme avant', () async {
+      // non exigé, autorisation déjà accordée → position
+      final ok = FakePlateformeGeo(LocationPermission.whileInUse);
+      final r1 = await GeoLocalisateur(ok).position(exigee: false);
+      expect(r1.ok, isTrue);
+      expect(r1.position!.latitude, 5.3364);
+      expect(ok.demandes, 0);
+      // non exigé, autorisation pas encore donnée → aucune demande, aucune lecture
+      for (final p in [LocationPermission.denied, LocationPermission.deniedForever, LocationPermission.unableToDetermine]) {
+        final f = FakePlateformeGeo(p);
+        expect((await GeoLocalisateur(f).position(exigee: false)).ok, isFalse);
+        expect(f.demandes, 0);
+        expect(f.lectures, 0);
+      }
+      // non exigé, localisation coupée → rien
+      final coupe = FakePlateformeGeo(LocationPermission.always)..service = false;
+      expect((await GeoLocalisateur(coupe).position(exigee: false)).ok, isFalse);
+      // exigé : autorisation demandée (comportement d'origine), messages et réglages inchangés
+      final ex = FakePlateformeGeo(LocationPermission.denied);
+      expect((await GeoLocalisateur(ex).position(exigee: true)).ok, isTrue);
+      expect(ex.demandes, 1);
+      final refus = FakePlateformeGeo(LocationPermission.denied, apresDemande: LocationPermission.denied);
+      expect((await GeoLocalisateur(refus).position(exigee: true)).erreur, 'Localisation refusée : l\'officine exige la position du téléphone pour pointer.');
+      final jamais = FakePlateformeGeo(LocationPermission.deniedForever);
+      final r3 = await GeoLocalisateur(jamais).position(exigee: true);
+      expect(r3.reglages, isTrue);
+      expect(jamais.demandes, 0);
+      final off = FakePlateformeGeo(LocationPermission.whileInUse)..service = false;
+      final r4 = await GeoLocalisateur(off).position(exigee: true);
+      expect(r4.erreur, contains('localisation du téléphone est coupée'));
+      expect(r4.reglages, isTrue);
+    });
+
+    testWidgets('saisie manuelle du code en secours : code puis « Départ » → SORTIE', (t) async {
+      tailleTelephone(t);
+      final e = connecte();
+      e.transport.routes['POST pointages'] = (_) => (status: 200, body: {'success': true, 'sens': 'SORTIE', 'heure': '08:02', 'message': 'Sortie enregistrée à 08:02.'});
+      var scans = 0;
+      await pump(
+          t,
+          MobilePointageScreen(
+              rh: e.pr,
+              presentation: ListPresentation.compact,
+              localisateur: sansPosition(),
+              scanner: (_) async {
+                scans++;
+                return null;
+              }));
+      await t.tap(find.byKey(const Key('rh_saisir_code')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('rh_code_saisi')), ' abc 234 ');
+      await t.tap(find.byKey(const Key('rh_code_depart')));
+      await t.pumpAndSettle();
+      final c = e.transport.corpsDe('POST', 'pointages').single!;
+      expect(c['code'], 'ABC234');
+      expect(c['sens'], 'SORTIE');
+      expect(scans, 0);
+      expect(find.text('Sortie enregistrée à 08:02.'), findsOneWidget);
+    });
+
+    testWidgets('déconnexion : le jeton est effacé du téléphone, retour à la connexion', (t) async {
+      tailleTelephone(t);
+      final e = connecte();
+      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, localisateur: sansPosition()));
+      expect(e.coffre.valeur, isNotNull);
+      await t.tap(find.byKey(const Key('rh_mobile_deconnexion')));
+      await t.pumpAndSettle();
+      expect(e.coffre.valeur, isNull);
+      expect(find.byKey(const Key('rh_mobile_mdp')), findsOneWidget);
+      expect(find.byKey(const Key('rh_arrivee')), findsNothing);
+    });
+
+    testWidgets('rien n\'est journalisé : ni QR, ni position, ni réponse du serveur', (t) async {
+      tailleTelephone(t);
+      final e = connecte();
+      e.transport.routes['POST pointages'] =
+          (_) => (status: 200, body: {'success': true, 'sens': 'ENTREE', 'heure': '08:02', 'message': 'Entrée enregistrée à 08:02.', 'secret': 'REPONSE-COMPLETE'});
+      final journal = <String>[];
+      final ancien = debugPrint;
+      debugPrint = (String? m, {int? wrapWidth}) => journal.add('$m');
+      try {
+        await runZoned(
+          () async {
+            await pump(
+                t,
+                MobilePointageScreen(
+                  rh: e.pr,
+                  presentation: ListPresentation.dashboard,
+                  scanner: (_) async => 'PRESTIGE-POINTAGE:QRSECRET1',
+                  localisateur: FakeLocalisateur(const ResultatPosition.ok(PositionPointage(5.987654, -4.123456, 9))),
+                ));
+            await t.tap(find.byKey(const Key('rh_arrivee')));
+            await t.pumpAndSettle();
+          },
+          zoneSpecification: ZoneSpecification(print: (_, __, ___, String m) => journal.add(m)),
+        );
+      } finally {
+        debugPrint = ancien;
+      }
+      expect(e.transport.corpsDe('POST', 'pointages').single!['latitude'], 5.987654); // bien envoyé…
+      final tout = journal.join('\n');
+      for (final secret in ['QRSECRET1', '5.987654', '-4.123456', 'REPONSE-COMPLETE']) {
+        expect(tout, isNot(contains(secret)), reason: '… mais jamais journalisé');
+      }
+      await e.journal.idle;
+      expect(jsonEncode((await e.journal.lire()).map((j) => j.action).toList()), isNot(contains('QRSECRET1')));
+    });
+  });
+
+  // =========================================================================
+  // Intégration (serveur de test) : sautée si le serveur est injoignable. Aucune donnée créée.
+  // =========================================================================
+  group('Voie A — intégration serveur de test', () {
+    final url = Platform.environment['PRESTIGE_TEST_URL'] ?? 'http://localhost:8080/prestige/api/v1';
+    test('connexion avec un mauvais mot de passe → message du serveur, aucun jeton gardé', () => HttpOverrides.runWithHttpOverrides(() async {
+          final coffre = CoffreJetonMemoire();
+          final api = MobileApi(
+            transport: DioTransportMobile(() => url),
+            coffre: coffre,
+            appareil: () => 'test-integration-mauvais-mdp',
+            nomAppareil: () => 'Test d\'intégration (aucun enregistrement)',
+          );
+          final sonde = await api.sonder();
+          if (sonde == null) {
+            markTestSkipped('Serveur de test injoignable : $url');
+            return;
+          }
+          if (!sonde.existe || !sonde.actif) {
+            markTestSkipped('API des téléphones absente ou désactivée sur $url');
+            return;
+          }
+          final login = Platform.environment['PRESTIGE_TEST_LOGIN'] ?? 'admin';
+          final r = await api.connexion(login, 'mauvais-mot-de-passe-${DateTime.now().microsecondsSinceEpoch}');
+          expect(r.ok, isFalse);
+          expect(r.refus, isNotNull);
+          expect(r.refus!.trim(), isNotEmpty);
+          expect(r.refus, isNot(startsWith('Réponse illisible')), reason: 'le serveur doit répondre en JSON avec son message');
+          expect(coffre.valeur, isNull);
+          expect(api.session, isNull);
+        }, _RealHttp()), timeout: const Timeout(Duration(minutes: 1)));
   });
 
   // =========================================================================
@@ -741,7 +1014,7 @@ void main() {
       expect(find.text('Employé introuvable.'), findsOneWidget);
     });
 
-    testWidgets('entrée « Pointage RH » : droits absents → terminal et présences désactivés et expliqués ; 404 mobile expliqué', (t) async {
+    testWidgets('entrée « Pointage présence » : droits absents → terminal et présences désactivés et expliqués ; 404 mobile expliqué', (t) async {
       tailleTelephone(t);
       final e = Env();
       e.rh.droits = {'success': false, 'message': 'Vous n\'avez pas accès aux ressources humaines.'};
@@ -755,7 +1028,7 @@ void main() {
       expect(t.takeException(), isNull);
     });
 
-    testWidgets('entrée « Pointage RH » : tout disponible ; module mobile inactif → message', (t) async {
+    testWidgets('entrée « Pointage présence » : tout disponible ; module mobile inactif → message', (t) async {
       tailleTablette(t);
       final e = Env();
       e.transport.routes['POST connexion'] = (_) => (status: 200, body: {'success': false, 'message': 'Identifiant, mot de passe et appareil obligatoires.'});
@@ -769,6 +1042,22 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text(messageModuleMobileInactif), findsOneWidget);
       expect(t.takeException(), isNull);
+      // libellés : « Pointage présence » › « Mon pointage » / « Terminal de pointage »
+      expect(find.text('Pointage présence'), findsOneWidget);
+      expect(find.text('Mon pointage'), findsOneWidget);
+      expect(find.text('Terminal de pointage'), findsOneWidget);
+    });
+
+    test('menu « Pointage présence » : même identifiant pointage_rh ; Pointage BL et Pointage local inchangés', () {
+      final m = accueilMenuById['pointage_rh']!;
+      expect(m.label, 'Pointage présence');
+      expect(m.icon, Icons.how_to_reg);
+      expect(accueilMenuById['bl_control']!.label, 'Pointage BL Stock');
+      expect(accueilMenuById['bl_control']!.short, 'Pointage BL');
+      expect(accueilMenuById['bl_control']!.icon, Icons.checklist);
+      expect(accueilMenuById['empreinte']!.label, 'Pointage');
+      expect(accueilMenuById['empreinte']!.short, 'Pointage');
+      expect(accueilMenuById['empreinte']!.icon, Icons.fingerprint);
     });
 
     testWidgets('enrôlement : PIN admin, consentement obligatoire, 3 captures, test, suppression ; rien envoyé', (t) async {
@@ -872,9 +1161,18 @@ void main() {
           expect(t.takeException(), isNull);
           await t.tap(find.byKey(const Key('rh_annuler')));
           await t.pump();
-          await pump(t, MobilePointageScreen(rh: e.pr, presentation: style));
+          await pump(t, MobilePointageScreen(rh: e.pr, presentation: style, localisateur: sansPosition()));
           await t.pumpAndSettle();
-          expect(find.text('Pointer ma sortie'), findsOneWidget);
+          // deux gros boutons côte à côte, sans débordement ; dernier pointage ENTREE → « Départ » suggéré
+          final a = t.getRect(find.byKey(const Key('rh_arrivee')));
+          final d = t.getRect(find.byKey(const Key('rh_depart')));
+          expect(a.top, d.top);
+          expect(a.right, lessThan(d.left));
+          expect(d.right, lessThanOrEqualTo(tablette ? 1280 : 360));
+          expect(find.text('Arrivée'), findsOneWidget);
+          expect(find.text('Départ'), findsOneWidget);
+          expect(find.byKey(const Key('rh_suggere_depart')), findsOneWidget);
+          expect(find.text('KOUASSI Awa · M01'), findsOneWidget);
           expect(t.takeException(), isNull);
         }
         await t.pumpWidget(const SizedBox());
@@ -1007,8 +1305,8 @@ void main() {
         hist = [{'heure': '2026-10-12 08:01:10', 'sens': 'ENTREE', 'source': 'MOBILE'}];
         return (status: 200, body: {'success': false, 'message': 'Pointage refusé : moins de deux minutes depuis le dernier pointage.'});
       };
-      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard));
-      await t.tap(find.text('Pointer mon entrée'));
+      await pump(t, MobilePointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, localisateur: sansPosition()));
+      await t.tap(find.byKey(const Key('rh_arrivee')));
       await t.pumpAndSettle();
       expect(find.text('Vous avez déjà pointé à 08:01'), findsOneWidget);
       expect(find.textContaining('moins de deux minutes'), findsNothing);
@@ -1017,7 +1315,7 @@ void main() {
       expect(e.transport.corpsDe('POST', 'pointages'), hasLength(1));
       // autre refus : toujours affiché tel quel (rouge)
       e.transport.routes['POST pointages'] = (_) => (status: 200, body: {'success': false, 'message': 'Hors de la zone de l\'officine.'});
-      await t.tap(find.text('Pointer ma sortie'));
+      await t.tap(find.byKey(const Key('rh_depart')));
       await t.pumpAndSettle();
       expect(find.text('Hors de la zone de l\'officine.'), findsOneWidget);
       final deco2 = t.widget<Container>(find.byKey(const Key('rh_mobile_message'))).decoration as BoxDecoration;
@@ -1026,3 +1324,5 @@ void main() {
     });
   });
 }
+
+class _RealHttp extends HttpOverrides {}

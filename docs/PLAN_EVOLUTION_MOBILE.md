@@ -917,7 +917,7 @@ Tests : `test/support_centre_test.dart` (ligne 32 du workflow) ; branchement H2 
 
 ## 9. Pointage RH (présence des employés sur le serveur Prestige) : réalisé côté app, sans modification du serveur
 
-Module `lib/rh/`, entrée **« Pointage RH (Prestige) »** dans la famille *Équipe* (nouvel accueil et accueil d'origine).
+Module `lib/rh/`, entrée **« Pointage présence »** (identifiant `pointage_rh`, ex-« Pointage RH (Prestige) ») dans la famille *Équipe* (nouvel accueil et accueil d'origine).
 À ne pas confondre avec le « Pointage BL Stock » ni avec le pointage local par empreinte / PIN (`lib/pointage`),
 inchangés. L'écran d'entrée vérifie le serveur et le compte et **désactive en l'expliquant** ce qui n'est pas
 disponible (route absente → 404 « n'existe pas sur cette version du serveur », module désactivé, droit manquant,
