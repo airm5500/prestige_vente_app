@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
+import 'package:prestige_vente_app/connexion/connexion_screen.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
@@ -12,14 +13,25 @@ import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
-class LoginScreen extends StatefulWidget {
+/// Écran de connexion : nouvel écran (proposition A, option « Qui êtes-vous ? ») dans la nouvelle interface ;
+/// écran d'origine ([AncienLoginScreen], inchangé) quand l'interrupteur InterfaceVersion est désactivé.
+/// Point d'entrée unique : déconnexion (accueils, réglages), licence enregistrée, lancement d'origine.
+class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  Widget build(BuildContext context) => InterfaceVersion.useNew.value ? const ConnexionEntree() : const AncienLoginScreen();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+/// Écran de connexion d'origine (logique et présentation inchangées).
+class AncienLoginScreen extends StatefulWidget {
+  const AncienLoginScreen({super.key});
+
+  @override
+  State<AncienLoginScreen> createState() => _AncienLoginScreenState();
+}
+
+class _AncienLoginScreenState extends State<AncienLoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _loginController = TextEditingController();
   final _passwordController = TextEditingController();

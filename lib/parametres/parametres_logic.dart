@@ -88,7 +88,8 @@ extension RubriqueInfo on Rubrique {
         Rubrique.apparence => 'présentation tableau de bord compact guidé a b c accueil organiser menu interface '
             'nouvel accueil version recherche commence par contient début milieu nom',
         Rubrique.equipe => 'pointage employés badge nfc empreinte pin rapport diagnostic lecteur',
-        Rubrique.securite => 'code pin administrateur admin mot de passe sécurité',
+        Rubrique.securite => 'code pin administrateur admin mot de passe sécurité connexion rapide qui etes vous terminal partage '
+            'rester connecte pin personnel assistance numero telephone appeler',
         Rubrique.licence => 'licence expiration jours appareil modèle android identifiant support',
         Rubrique.borne => 'borne libre service self kiosque client vitrine liste guidee ticket discret inactivite '
             'categories produits mis en avant epinglage ecran',

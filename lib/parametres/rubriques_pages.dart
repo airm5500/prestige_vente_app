@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
+import 'package:prestige_vente_app/connexion/reglages_connexion.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/ordonnances/banc_essai/banc_essai_screen.dart';
 import 'package:prestige_vente_app/ordonnances/o2/lecture_o2.dart';
@@ -782,6 +783,8 @@ class SecuritePage extends StatelessWidget {
           ),
           const InfoBanner('Le code (4 chiffres) est propre à cet appareil. Notez-le : il est demandé pour les rubriques '
               'marquées d\'un cadenas et pour les menus protégés.'),
+          // Écran de connexion (nouvelle interface) : connexion rapide, terminal partagé, PIN personnels, assistance.
+          const ReglagesEcranConnexion(),
         ],
       );
 }

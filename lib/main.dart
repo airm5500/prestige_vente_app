@@ -35,6 +35,7 @@ import 'package:prestige_vente_app/providers/proforma_provider.dart';
 import 'package:prestige_vente_app/providers/ajustement_provider.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
+import 'package:prestige_vente_app/connexion/connexion_reglages.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:prestige_vente_app/images/produit_images.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
@@ -58,6 +59,8 @@ Future<void> main() async {
   await SearchModePrefs.load();
   // Borne libre-service (désactivée par défaut) : réglages de cet appareil.
   await BorneReglages.charger();
+  // Écran de connexion (nouvelle interface) : connexion rapide, terminal partagé, assistance, nom de l'officine.
+  await ConnexionReglages.charger();
   // Images des produits (B2) : réglages et cache disque (affichage hors ligne).
   await ImagesReglages.charger();
   // Paiements mobile money (B3, désactivés par défaut).

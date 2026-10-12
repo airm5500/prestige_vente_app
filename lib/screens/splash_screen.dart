@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:prestige_vente_app/borne/borne_launcher.dart';
+import 'package:prestige_vente_app/connexion/lancement_screen.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
@@ -13,14 +14,24 @@ import 'package:prestige_vente_app/api/api_service.dart'; // IMPORTANT
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
 
-class SplashScreen extends StatefulWidget {
+/// Écran de lancement : nouvel écran (LancementScreen, proposition A) dans la nouvelle interface ;
+/// écran d'origine ([AncienSplashScreen], inchangé) quand l'interrupteur InterfaceVersion est désactivé.
+class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  Widget build(BuildContext context) => InterfaceVersion.useNew.value ? const LancementScreen() : const AncienSplashScreen();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+/// Écran de lancement d'origine (logique et présentation inchangées, attente visuelle de 2 s comprise).
+class AncienSplashScreen extends StatefulWidget {
+  const AncienSplashScreen({super.key});
+
+  @override
+  State<AncienSplashScreen> createState() => _AncienSplashScreenState();
+}
+
+class _AncienSplashScreenState extends State<AncienSplashScreen> {
   @override
   void initState() {
     super.initState();
