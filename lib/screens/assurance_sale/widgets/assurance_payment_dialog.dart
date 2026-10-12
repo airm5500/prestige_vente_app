@@ -1,6 +1,7 @@
 // lib/screens/assurance_sale/widgets/assurance_payment_dialog.dart
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/providers/assurance_sale_provider.dart';
 //import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -86,6 +87,7 @@ class _AssurancePaymentDialogState extends State<AssurancePaymentDialog> {
               itemBuilder: (context, index) {
                 final method = methods[index];
                 return ListTile(
+                  leading: ModePaiementLogo(modeId: method.id, libelle: method.name, size: 32),
                   title: Text(method.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                   onTap: () {

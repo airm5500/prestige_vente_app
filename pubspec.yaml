@@ -69,6 +69,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/ordonnances/verite_terrain.json
+    - assets/paiements/
 
 flutter_launcher_icons:
   android: "launcher_icon"

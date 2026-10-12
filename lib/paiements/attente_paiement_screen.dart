@@ -3,6 +3,7 @@
 // compte à rebours, « En attente du paiement… » (barre animée), « Paiement reçu ✓ » automatique,
 // annulation tant que rien n'est payé ; paiement arrivé après l'annulation : alerte « à régulariser ».
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -45,7 +46,12 @@ class AttentePaiementVue extends StatelessWidget {
             switch (p.statut) {
               case StatutPM.enAttente:
                 children.addAll([
-                  Text('Paiement $nom', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Pal.ink)),
+                  // Logo sur la ligne du titre (aucune hauteur ajoutée : boutons toujours visibles sur la borne).
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    ModePaiementLogo(modeId: typeReglementOperateur[operateur], libelle: nom, size: 24),
+                    const SizedBox(width: 8),
+                    Flexible(child: Text('Paiement $nom', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Pal.ink))),
+                  ]),
                   Text('Montant exact : $montant', key: const ValueKey('pm-montant'), style: const TextStyle(fontSize: 18, color: Pal.navy, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 10),
                   Container(
