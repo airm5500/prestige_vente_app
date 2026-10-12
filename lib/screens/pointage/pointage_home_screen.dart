@@ -1,9 +1,12 @@
 // lib/screens/pointage/pointage_home_screen.dart
-// Accueil du pointage : mode adapté à l'appareil, accès au pointage, aux employés et au rapport.
+// Accueil du pointage LOCAL : mode adapté à l'appareil, accès au pointage, aux employés et au rapport.
+// Rien n'est envoyé à Prestige (avertissement en tête, lien vers « Pointage présence ») ; menu masqué par défaut.
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/pointage/pointage_export.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
 import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
+import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/employees_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/pointage_kiosk_screen.dart';
@@ -196,8 +199,8 @@ class _PointageHomeScreenState extends State<PointageHomeScreen> with Presentati
     ];
     return PresentationScaffold(
       style: style,
-      title: 'Pointage',
-      subtitle: style == ListPresentation.dashboard ? 'Présence des employés' : null,
+      title: titrePointageLocal,
+      subtitle: style == ListPresentation.dashboard ? 'Sur cet appareil, non envoyé à Prestige' : null,
       actions: (col) => [PresentationMenuButton(value: style, onChanged: _setStyle, color: col)],
       steps: const StepsBar(active: 1, steps: [
         (title: 'Configurer', detail: 'méthode, employés', onTap: null),
@@ -224,6 +227,8 @@ class _PointageHomeScreenState extends State<PointageHomeScreen> with Presentati
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _avertissement(),
+          const SizedBox(height: 10),
           modeCard,
           const SizedBox(height: 16),
           pointer,
@@ -237,14 +242,37 @@ class _PointageHomeScreenState extends State<PointageHomeScreen> with Presentati
             for (final t in tiles) Padding(padding: const EdgeInsets.only(bottom: 10), child: t),
           const SizedBox(height: 12),
           Text(
-            'Données de test enregistrées sur cet appareil. La synchronisation avec le serveur Prestige '
-            'viendra avec la configuration des employés.',
+            '$avertissementPointageLocal Pointages et employés conservés ici, exportables depuis « Rapport et analyse ».',
+            key: const Key('pointage_local_note'),
             style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
           ),
         ],
       ),
     );
   }
+
+  /// Bandeau compact (en tête) : rien n'est envoyé à Prestige ; un appui ouvre le vrai pointage de présence.
+  Widget _avertissement() => Material(
+        color: const Color(0xFFFFF1D6),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          key: const Key('pointage_local_vers_presence'),
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RhPointageScreen())),
+          child: const Padding(
+            key: Key('pointage_local_avertissement'),
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(children: [
+              Icon(Icons.cloud_off, size: 20, color: Color(0xFF8A5300)),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('Non envoyé à Prestige : pointages gardés sur cet appareil. Pour Prestige : Pointage présence ›',
+                    style: TextStyle(color: Color(0xFF8A5300), fontWeight: FontWeight.w600, fontSize: 12.5)),
+              ),
+            ]),
+          ),
+        ),
+      );
 
   Widget _tile(IconData icon, String title, String subtitle, VoidCallback onTap, {bool locked = true}) {
     final row = Row(children: [

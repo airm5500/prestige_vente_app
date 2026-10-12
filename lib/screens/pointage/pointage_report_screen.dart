@@ -1,8 +1,10 @@
 // lib/screens/pointage/pointage_report_screen.dart
 // Rapport de présence et analyse de comportement des employés.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/pointage/pointage_analytics.dart';
+import 'package:prestige_vente_app/pointage/pointage_export.dart';
 import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -28,6 +30,7 @@ class _PointageReportScreenState extends State<PointageReportScreen> with Presen
   _Period _period = _Period.week;
   List<EmployeeReport> _reports = [];
   List<PointageRecord> _records = [];
+  List<Employee> _employees = [];
   bool _loading = true;
 
   DateTime _now() => (widget.clock ?? DateTime.now)();
@@ -69,9 +72,20 @@ class _PointageReportScreenState extends State<PointageReportScreen> with Presen
     if (!mounted) return;
     setState(() {
       _records = records;
+      _employees = employees;
       _reports = reports;
       _loading = false;
     });
+  }
+
+  /// Export des pointages locaux de la période (CSV, presse-papiers) : à reprendre à la main dans Prestige si besoin.
+  Future<void> _exporter() async {
+    final csv = csvPointagesLocaux(_employees, _records);
+    await Clipboard.setData(ClipboardData(text: csv));
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      content: Text('${_records.length} pointage(s) local(aux) copié(s) (CSV) : collez-les dans un tableur.'),
+    ));
   }
 
   static const _periodLabels = {
@@ -109,6 +123,12 @@ class _PointageReportScreenState extends State<PointageReportScreen> with Presen
       subtitle: compact ? null : rangeText,
       actions: (col) => [
         IconButton(icon: Icon(Icons.refresh, color: col), tooltip: 'Actualiser', onPressed: _load),
+        IconButton(
+          key: const Key('pointage_local_export'),
+          icon: Icon(Icons.file_download_outlined, color: col),
+          tooltip: 'Exporter (CSV)',
+          onPressed: _loading ? null : _exporter,
+        ),
         PresentationMenuButton(value: style, onChanged: _setStyle, color: col),
       ],
       steps: StepsBar(active: _period.index, steps: [

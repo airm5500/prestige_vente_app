@@ -3,17 +3,26 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:prestige_vente_app/accueil/accueil_menus.dart';
+import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
+import 'package:prestige_vente_app/parametres/rubriques_pages.dart';
+import 'package:prestige_vente_app/pointage/pointage_export.dart';
+import 'package:prestige_vente_app/pointage/pointage_logic.dart';
+import 'package:prestige_vente_app/pointage/pointage_models.dart';
+import 'package:prestige_vente_app/pointage/pointage_repository.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/rh/empreintes_screen.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
 import 'package:prestige_vente_app/rh/localisation.dart';
@@ -26,8 +35,11 @@ import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
 import 'package:prestige_vente_app/rh/rh_store.dart';
 import 'package:prestige_vente_app/rh/terminal_pointage_screen.dart';
+import 'package:prestige_vente_app/screens/pointage/pointage_home_screen.dart';
+import 'package:prestige_vente_app/screens/pointage/pointage_report_screen.dart';
 import 'package:prestige_vente_app/services/nfc_service.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ---------------------------------------------------------------------------
@@ -73,6 +85,10 @@ class FakeRh implements RhServeur {
   final _deja = <String>{};
   String? refus;
 
+  /// Code HTTP imposé aux POST (401 : session de l'application expirée, corps non JSON comme Prestige).
+  int? postStatus;
+  int getsEmployes = 0;
+
   @override
   Future<ReponseRh> get(String chemin, [Map<String, dynamic> query = const {}]) async {
     if (offline) throw const RhHorsLigne();
@@ -80,6 +96,7 @@ class FakeRh implements RhServeur {
       case '/rh/droits':
         return (status: droitsStatus, body: droitsStatus == 404 ? null : droits);
       case '/rh/employes':
+        getsEmployes++;
         return (status: 200, body: {'success': true, 'data': employes});
       case '/rh/presence':
         return (status: 200, body: {'success': true, 'data': presences, 'pointages': pointagesJour});
@@ -90,6 +107,7 @@ class FakeRh implements RhServeur {
   @override
   Future<ReponseRh> post(String chemin, Map<String, dynamic> corps) async {
     if (offline) throw const RhHorsLigne();
+    if (postStatus != null) return (status: postStatus!, body: null);
     posts.add(corps);
     if (refus != null) return (status: 200, body: {'success': false, 'msg': refus, 'message': refus});
     // INSERT IGNORE du serveur : même employé, même minute → refus « existe déjà ».
@@ -1023,7 +1041,8 @@ void main() {
       expect(find.textContaining('n\'existe pas sur cette version'), findsOneWidget);
       expect(find.textContaining('P_SM_RH'), findsWidgets);
       expect(t.widget<InkWell>(find.byKey(const Key('rh_voie_b'))).onTap, isNull);
-      expect(t.widget<InkWell>(find.byKey(const Key('rh_presences'))).onTap, isNull);
+      // ni administrateur ni droit RH : capture seule, le suivi (présences) n'est pas proposé du tout
+      expect(find.byKey(const Key('rh_presences')), findsNothing);
       expect(t.widget<InkWell>(find.byKey(const Key('rh_voie_a'))).onTap, isNull);
       expect(t.takeException(), isNull);
     });
@@ -1048,15 +1067,15 @@ void main() {
       expect(find.text('Terminal de pointage'), findsOneWidget);
     });
 
-    test('menu « Pointage présence » : même identifiant pointage_rh ; Pointage BL et Pointage local inchangés', () {
+    test('menu « Pointage présence » : même identifiant pointage_rh ; Pointage BL inchangé ; Pointage local explicite', () {
       final m = accueilMenuById['pointage_rh']!;
       expect(m.label, 'Pointage présence');
       expect(m.icon, Icons.how_to_reg);
       expect(accueilMenuById['bl_control']!.label, 'Pointage BL Stock');
       expect(accueilMenuById['bl_control']!.short, 'Pointage BL');
       expect(accueilMenuById['bl_control']!.icon, Icons.checklist);
-      expect(accueilMenuById['empreinte']!.label, 'Pointage');
-      expect(accueilMenuById['empreinte']!.short, 'Pointage');
+      expect(accueilMenuById['empreinte']!.label, 'Pointage local (non envoyé à Prestige)');
+      expect(accueilMenuById['empreinte']!.short, 'Pointage local');
       expect(accueilMenuById['empreinte']!.icon, Icons.fingerprint);
     });
 
@@ -1322,6 +1341,383 @@ void main() {
       expect(deco2.color, const Color(0xFFFDECEC));
       expect(t.takeException(), isNull);
     });
+  });
+
+  // =========================================================================
+  // Retour client : « j'ai pointé mais je ne vois rien dans Prestige »
+  // Capture seule pour l'employé, suivi réservé au gestionnaire, état de l'envoi toujours dit, pointage local
+  // explicite et masqué par défaut, aucune perte (session expirée → file).
+  // =========================================================================
+  group('Capture seule et envoi à Prestige', () {
+    Future<Env> pret() async {
+      final e = Env();
+      await e.pr.verifierAcces();
+      await e.pr.rafraichirEmployes();
+      return e;
+    }
+
+    test('gestionnaire = administrateur de l\'application OU droit RH (P_SM_RH) ; sinon capture seule', () {
+      expect(estGestionnaireRh(admin: true, acces: AccesRh.refuse), isTrue);
+      expect(estGestionnaireRh(admin: false, acces: AccesRh.autorise), isTrue);
+      expect(estGestionnaireRh(admin: false, acces: AccesRh.refuse), isFalse);
+      expect(estGestionnaireRh(admin: false, acces: AccesRh.absent), isFalse);
+      expect(estGestionnaireRh(admin: false, acces: AccesRh.inconnu), isFalse);
+    });
+
+    testWidgets('employé (non gestionnaire) : « Mon pointage » et « Terminal » seulement, aucun écran d\'analyse', (t) async {
+      tailleTelephone(t);
+      final e = Env();
+      await pump(t, RhPointageScreen(rh: e.pr, presentation: ListPresentation.guided, gestion: false));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('rh_voie_a')), findsOneWidget);
+      expect(find.byKey(const Key('rh_voie_b')), findsOneWidget);
+      expect(find.byKey(const Key('rh_presences')), findsNothing);
+      expect(find.text('Présences du jour'), findsNothing);
+      expect(find.text('Suivre'), findsNothing);
+      expect(find.byKey(const Key('rh_note_envoi')), findsOneWidget);
+      expect(t.takeException(), isNull);
+
+      // gestionnaire (droit RH) : le suivi est proposé
+      await pump(t, RhPointageScreen(rh: e.pr, presentation: ListPresentation.guided));
+      await t.pumpAndSettle();
+      expect(t.widget<InkWell>(find.byKey(const Key('rh_presences'))).onTap, isNotNull);
+      await t.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('terminal : gestion des empreintes réservée au gestionnaire', (t) async {
+      tailleTelephone(t);
+      final e = await pret();
+      e.empreinte.present = true;
+      await pump(t, TerminalPointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, identification: e.identification, rafraichirAuDemarrage: false, gestion: false));
+      await t.pump();
+      expect(find.byKey(const Key('rh_gerer_empreintes')), findsNothing);
+      await t.pumpWidget(const SizedBox());
+      await pump(t, TerminalPointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, identification: e.identification, rafraichirAuDemarrage: false, gestion: true));
+      await t.pump();
+      expect(find.byKey(const Key('rh_gerer_empreintes')), findsOneWidget);
+      await t.pumpWidget(const SizedBox());
+    });
+
+    Future<void> badger(WidgetTester t, String badge) async {
+      await t.enterText(find.byKey(const Key('rh_badge_champ')), badge);
+      await t.testTextInput.receiveAction(TextInputAction.done);
+      await t.pump();
+      await t.tap(find.byKey(const Key('rh_valider')));
+      await t.pump();
+      await t.pump();
+    }
+
+    Color? fond(WidgetTester t) => t.widget<Container>(find.byKey(const Key('rh_resultat'))).color;
+
+    testWidgets('terminal : « Envoyé à Prestige ✓ », « En attente d\'envoi (hors ligne) », « Refusé par Prestige : … »', (t) async {
+      tailleTelephone(t);
+      final e = await pret();
+      await pump(t, TerminalPointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, identification: e.identification, rafraichirAuDemarrage: false));
+      await badger(t, 'PV12AB34');
+      expect(find.text(etatEnvoyePrestige), findsWidgets);
+      expect(fond(t), const Color(0xFFDCF5E7));
+      await t.pump(const Duration(seconds: 5));
+
+      e.horsLigne = true;
+      await badger(t, '04A1B2C3');
+      expect(find.textContaining(etatEnAttenteEnvoi), findsWidgets);
+      expect(find.descendant(of: find.byKey(const Key('rh_resultat')), matching: find.textContaining(etatEnvoyePrestige)), findsNothing,
+          reason: 'un pointage gardé n\'est jamais présenté comme envoyé');
+      expect(fond(t), const Color(0xFFFFF1D6));
+      expect(e.pr.enAttente, 1);
+      await t.pump(const Duration(seconds: 5));
+
+      e.horsLigne = false;
+      e.now = DateTime(2026, 10, 12, 8, 30);
+      e.rh.refus = 'Un pointage ne peut pas être dans le futur.';
+      await badger(t, 'PV12AB34');
+      expect(find.text('$etatRefusPrestige : Un pointage ne peut pas être dans le futur.'), findsWidgets);
+      expect(fond(t), const Color(0xFFFDECEC));
+      expect(t.takeException(), isNull);
+      await t.pump(const Duration(seconds: 5));
+      await t.pumpWidget(const SizedBox());
+    });
+
+    test('session Prestige expirée (401) : pointage GARDÉ en file (jamais refusé), envoi arrêté au 401 puis repris', () async {
+      final e = await pret();
+      e.rh.postStatus = 401;
+      final l = e.pr.lire('PV12AB34') as BadgeAConfirmer;
+      final r = await e.pr.enregistrer(l, SensPointage.entree);
+      expect(r.issue, IssueBadge.enFile);
+      expect(r.message, messageSessionExpireeFile('08:02'));
+      expect(e.pr.enAttente, 1);
+      expect(e.pr.anomaliesNonTraitees, 0);
+      // toujours 401 : rien n'est marqué refusé, tout reste en attente
+      final b = await e.pr.envoyer();
+      expect(b.sessionExpiree, isTrue);
+      expect(b.refuses, 0);
+      expect(b.message, contains('session Prestige expirée'));
+      expect(e.pr.enAttente, 1);
+      // après reconnexion : envoyé
+      e.rh.postStatus = null;
+      final b2 = await e.pr.envoyer();
+      expect(b2.envoyes, 1);
+      expect(b2.message, startsWith('1 pointage(s) envoyé(s) à Prestige'));
+      expect(e.pr.enAttente, 0);
+      expect(e.rh.posts.single['heure'], '08:02');
+    });
+
+    test('badge inconnu en ligne : copie des employés relue (employé créé depuis l\'ouverture), au plus une fois par 30 s', () async {
+      final e = await pret();
+      final avant = e.rh.getsEmployes;
+      e.rh.employes = [
+        ...e.rh.employes,
+        {'id': 'E3', 'matricule': 'M03', 'badge': 'NOUVEAU01', 'nom': 'TRAORE', 'prenoms': 'Fanta', 'statut': 'ACTIF'},
+      ];
+      final l = await e.pr.lireAvecRafraichissement('nouveau01');
+      expect(l, isA<BadgeAConfirmer>());
+      expect((l as BadgeAConfirmer).employe.id, 'E3');
+      expect(e.rh.getsEmployes, avant + 1);
+      expect(await e.pr.lireAvecRafraichissement('INCONNU'), isA<BadgeInconnu>());
+      expect(e.rh.getsEmployes, avant + 1, reason: 'pas de nouvelle relecture avant 30 s');
+      // hors ligne : aucune requête
+      e.now = e.now.add(const Duration(minutes: 1));
+      e.horsLigne = true;
+      expect(await e.pr.lireAvecRafraichissement('AUTRE'), isA<BadgeInconnu>());
+      expect(e.rh.getsEmployes, avant + 1);
+    });
+
+    Env connecte({String login = 'awa'}) {
+      final e = Env();
+      final moi = {...moiJson(qr: false), 'utilisateur': {'id': 'U1', 'login': login, 'nom': 'X'}};
+      e.coffre.valeur = jsonEncode({...moi, 'jeton': 'J1', 'expiration': '2026-10-12T20:00:00Z'});
+      e.transport.routes['GET moi'] = (_) => (status: 200, body: moi);
+      e.transport.routes['GET pointages'] = (_) => (status: 200, body: {'success': true, 'data': []});
+      return e;
+    }
+
+    testWidgets('mon pointage : « Envoyé à Prestige ✓ » sous le résultat ; refus → « Refusé par Prestige »', (t) async {
+      tailleTelephone(t);
+      final e = connecte();
+      e.transport.routes['POST pointages'] = (_) => (status: 200, body: {'success': true, 'sens': 'ENTREE', 'heure': '08:02', 'message': 'Entrée enregistrée à 08:02.'});
+      await pump(t, MobilePointageScreen(rh: e.pr, login: 'awa', presentation: ListPresentation.dashboard, localisateur: sansPosition()));
+      expect(find.byKey(const Key('rh_mobile_autre_compte')), findsNothing);
+      await t.tap(find.byKey(const Key('rh_arrivee')));
+      await t.pumpAndSettle();
+      expect(find.text('Entrée enregistrée à 08:02.'), findsOneWidget);
+      expect(t.widget<Text>(find.byKey(const Key('rh_mobile_etat_envoi'))).data, etatEnvoyePrestige);
+      e.transport.routes['POST pointages'] = (_) => (status: 200, body: {'success': false, 'message': 'Le pointage par téléphone est désactivé par l\'officine.'});
+      await t.tap(find.byKey(const Key('rh_depart')));
+      await t.pumpAndSettle();
+      expect(find.text('Le pointage par téléphone est désactivé par l\'officine.'), findsOneWidget);
+      expect(t.widget<Text>(find.byKey(const Key('rh_mobile_etat_envoi'))).data, startsWith(etatRefusPrestige));
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('mon pointage : téléphone connecté avec un AUTRE compte que l\'application → bandeau explicite', (t) async {
+      tailleTelephone(t);
+      final e = connecte(login: 'caissiere');
+      await pump(t, MobilePointageScreen(rh: e.pr, login: 'admin', presentation: ListPresentation.dashboard, localisateur: sansPosition()));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('rh_mobile_autre_compte')), findsOneWidget);
+      expect(find.textContaining('connecté au compte « caissiere » (KOUASSI Awa), pas à « admin »'), findsOneWidget);
+      expect(find.byKey(const Key('rh_arrivee')), findsOneWidget, reason: 'information seulement : le pointage reste possible');
+      expect(t.takeException(), isNull);
+    });
+  });
+
+  group('Pointage local (non envoyé à Prestige)', () {
+    test('menu masqué par défaut, réaffichable par un administrateur ; les menus masqués de l\'utilisateur sont gardés', () async {
+      final s = SettingsProvider();
+      await s.saveMenuConfig(const [], const ['depot']);
+      expect(s.pointageLocalVisible, isFalse);
+      expect(s.menusMasques, containsAll(['depot', 'empreinte']));
+      expect(s.hiddenMenuIds, ['depot'], reason: 'le réglage ne touche pas aux menus masqués enregistrés');
+      final familles = menusByFamille(s.menuOrder, s.menusMasques);
+      expect(familles[MenuFamille.equipe]!.map((m) => m.id), ['pointage_rh']);
+      await s.setPointageLocalVisible(true);
+      expect(s.menusMasques, ['depot']);
+      expect(menusByFamille(s.menuOrder, s.menusMasques)[MenuFamille.equipe]!.map((m) => m.id), ['empreinte', 'pointage_rh']);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(SettingsProvider.pointageLocalVisibleKey), isTrue);
+      final relu = SettingsProvider();
+      await relu.loadSettings();
+      expect(relu.pointageLocalVisible, isTrue);
+    });
+
+    testWidgets('écran : titre « Pointage local », avertissement « non envoyé à Prestige », lien vers Pointage présence', (t) async {
+      tailleTelephone(t);
+      final repo = MemoryPointageRepository();
+      await pump(t, PointageHomeScreen(repository: repo, detectCapability: () async => const DeviceCapability(mode: PointageMode.pinOrName), presentation: ListPresentation.dashboard));
+      await t.pumpAndSettle();
+      expect(find.text(titrePointageLocal), findsWidgets);
+      expect(find.byKey(const Key('pointage_local_avertissement')), findsOneWidget);
+      expect(find.textContaining('Non envoyé à Prestige'), findsOneWidget);
+      expect(find.byKey(const Key('pointage_local_vers_presence')), findsOneWidget);
+      await t.scrollUntilVisible(find.byKey(const Key('pointage_local_note')), 200, scrollable: find.byType(Scrollable).last);
+      expect(find.textContaining(avertissementPointageLocal), findsOneWidget);
+      expect(find.textContaining('synchronisation'), findsNothing);
+      expect(t.takeException(), isNull);
+    });
+
+    test('export CSV : toutes les données locales, « Envoyé à Prestige : non », champs protégés', () {
+      final emp = [const Employee(id: 'a', name: 'Awa; Kouassi', matricule: 'M01')];
+      final recs = [
+        PointageRecord(id: '2', employeeId: 'a', type: PointageType.depart, time: DateTime(2026, 10, 12, 17, 5), method: PointageMethod.pin),
+        PointageRecord(id: '1', employeeId: 'a', type: PointageType.arrivee, time: DateTime(2026, 10, 12, 8, 2), method: PointageMethod.badge, device: 'SUNMI'),
+        PointageRecord(id: '3', employeeId: 'x', type: PointageType.arrivee, time: DateTime(2026, 10, 13, 8, 0), method: PointageMethod.manual),
+      ];
+      final l = csvPointagesLocaux(emp, recs).trim().split('\n');
+      expect(l.first, 'Date;Heure;Matricule;Employé;Type;Méthode;Appareil;Envoyé à Prestige');
+      expect(l[1], '2026-10-12;08:02;M01;"Awa; Kouassi";Arrivée;Badge;SUNMI;non');
+      expect(l[2], '2026-10-12;17:05;M01;"Awa; Kouassi";Départ;Nom + PIN;;non');
+      expect(l[3], '2026-10-13;08:00;;x;Arrivée;Nom seul;;non', reason: 'employé supprimé : le pointage n\'est pas perdu');
+    });
+
+    testWidgets('rapport : export (presse-papiers) des pointages locaux', (t) async {
+      tailleTelephone(t);
+      final repo = MemoryPointageRepository();
+      await repo.saveEmployee(const Employee(id: 'a', name: 'Awa', matricule: 'M01'));
+      await repo.addRecord(PointageRecord(id: '1', employeeId: 'a', type: PointageType.arrivee, time: DateTime(2026, 10, 12, 8, 2), method: PointageMethod.pin));
+      String? copie;
+      t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') copie = (call.arguments as Map)['text'] as String?;
+        return null;
+      });
+      addTearDown(() => t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+      await pump(t, PointageReportScreen(repository: repo, clock: () => DateTime(2026, 10, 12, 18), presentation: ListPresentation.dashboard));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const Key('pointage_local_export')));
+      await t.pumpAndSettle();
+      expect(copie, contains('2026-10-12;08:02;M01;Awa;Arrivée;Nom + PIN;;non'));
+      expect(find.textContaining('1 pointage(s) local(aux) copié(s)'), findsOneWidget);
+    });
+
+    testWidgets('Paramètres › Équipe : interrupteur « Afficher le menu Pointage local » (masqué par défaut)', (t) async {
+      tailleTelephone(t);
+      final s = SettingsProvider();
+      await t.pumpWidget(ChangeNotifierProvider<SettingsProvider>.value(
+        value: s,
+        child: MaterialApp(home: EquipePage(repository: MemoryPointageRepository())),
+      ));
+      await t.pumpAndSettle();
+      expect(find.textContaining('n\'apparaissent pas dans Prestige'), findsOneWidget);
+      expect(s.pointageLocalVisible, isFalse);
+      await t.tap(find.byKey(const Key('pointage_local_visible')));
+      await t.pumpAndSettle();
+      expect(s.pointageLocalVisible, isTrue);
+      expect(t.takeException(), isNull);
+    });
+  });
+
+  // =========================================================================
+  // Intégration réelle (serveur de test + base MySQL pour le nettoyage) : sautée si l'un manque.
+  // Employé créé et rattaché au compte, pointage voie B (terminal, v1/rh) puis voie A (téléphone, v1/mobile),
+  // les deux lus dans GET rh/presence?jour=<aujourd'hui> (ce qu'affiche « Présence du jour » de Prestige).
+  // Tout est supprimé ensuite (pointages, employé, téléphone enregistré).
+  // =========================================================================
+  group('Intégration : pointages visibles dans « Présence du jour »', () {
+    final url = Platform.environment['PRESTIGE_TEST_URL'] ?? 'http://localhost:8080/prestige/api/v1';
+    final login = Platform.environment['PRESTIGE_TEST_LOGIN'] ?? 'admin';
+    final mdp = Platform.environment['PRESTIGE_TEST_PASSWORD'] ?? 'Test1234';
+    final base = Platform.environment['PRESTIGE_TEST_DB'] ?? 'laborex';
+
+    Future<String?> sql(String requete) async {
+      try {
+        final r = await Process.run('mysql', ['-N', base, '-e', requete]);
+        return r.exitCode == 0 ? '${r.stdout}'.trim() : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    test('voie A et voie B → GET rh/presence du jour pour l\'employé, puis nettoyage', () => HttpOverrides.runWithHttpOverrides(() async {
+          final n0 = DateTime.now();
+          if (n0.hour == 0 && n0.minute < 10) {
+            markTestSkipped('Trop près de minuit (pointages à cheval sur deux jours).');
+            return;
+          }
+          final dio = Dio(BaseOptions(baseUrl: url, validateStatus: (_) => true, connectTimeout: const Duration(seconds: 5)))
+            ..interceptors.add(CookieManager(DioClient.cookieJar));
+          try {
+            await dio.get('/officine');
+          } on DioException {
+            markTestSkipped('Serveur de test injoignable : $url');
+            return;
+          }
+          final userId = await sql("SELECT lg_USER_ID FROM t_user WHERE str_LOGIN = '$login'");
+          if (userId == null || userId.isEmpty) {
+            markTestSkipped('Base de test inaccessible (mysql $base) : nettoyage impossible, test non lancé.');
+            return;
+          }
+          if ((await sql("SELECT COUNT(*) FROM t_employe WHERE lg_USER_ID = '$userId'")) != '0') {
+            markTestSkipped('Le compte $login est déjà rattaché à un employé : données existantes non touchées.');
+            return;
+          }
+          final auth = await dio.post('/user/auth', data: {'login': login, 'password': mdp});
+          if (auth.data is! Map || auth.data['success'] != true) {
+            markTestSkipped('Connexion $login refusée sur $url');
+            return;
+          }
+          final tag = DateTime.now().millisecondsSinceEpoch.toString();
+          final appareil = 'test-integration-presence-$tag';
+          final pr = PointageRh(
+            store: MemoryRhStore(),
+            serveur: DioRhServeur(() => url),
+            mobile: MobileApi(transport: DioTransportMobile(() => url), coffre: CoffreJetonMemoire(), appareil: () => appareil, nomAppareil: () => 'Test intégration'),
+            // heure de lecture 5 min plus tôt : le téléphone refuse un second pointage < 2 min
+            clock: () => DateTime.now().subtract(const Duration(minutes: 5)),
+            horsLigne: () => false,
+            nomTerminal: () => 'Test integration',
+            journal: () => JournalTerminal(store: MemoryJournalStore()),
+          );
+          if (await pr.verifierAcces() != AccesRh.autorise) {
+            markTestSkipped('Routes RH absentes ou droit P_SM_RH manquant : ${pr.accesMessage}');
+            return;
+          }
+          final badge = 'ZZIT$tag';
+          String? employeId;
+          try {
+            final c = await pr.serveur!.post('/rh/employes', {
+              'matricule': 'ZZIT-$tag',
+              'nom': 'ZZTEST',
+              'prenoms': 'Integration',
+              'badge': badge,
+              'userId': userId,
+              'dtEntree': PointageRh.jourCle(DateTime.now()),
+            });
+            employeId = await sql("SELECT id FROM t_employe WHERE matricule = 'ZZIT-$tag'");
+            expect(c.body?['success'], isTrue, reason: '${c.body}');
+
+            // Voie B : terminal (badge) → v1/rh/pointages
+            expect(await pr.rafraichirEmployes(), isNull);
+            final l = pr.lire(badge) as BadgeAConfirmer;
+            final rb = await pr.enregistrer(l, SensPointage.entree);
+            expect(rb.issue, IssueBadge.enregistre, reason: rb.message);
+
+            // Voie A : téléphone → v1/mobile/pointages (QR du moment)
+            final code = await pr.serveur!.get('/rh/mobile/code');
+            final s = await pr.mobile!.connexion(login, mdp);
+            expect(s.ok, isTrue, reason: s.refus);
+            expect(s.valeur!.employeId, employeId, reason: 'le compte doit être rattaché à l\'employé créé');
+            final ra = await pr.mobile!.pointer(sens: SensPointage.sortie, code: '${code.body?['contenu'] ?? ''}');
+            expect(ra.ok, isTrue, reason: ra.refus);
+
+            // « Présence du jour » de Prestige : même route
+            final p = await pr.presence(DateTime.now());
+            expect(p.erreur, isNull);
+            final ligne = p.presences.where((x) => x.employeId == employeId).toList();
+            expect(ligne, hasLength(1), reason: 'l\'employé doit figurer dans la présence du jour');
+            expect(ligne.single.entree, isNotEmpty);
+            expect(ligne.single.sortie, isNotEmpty);
+            final sources = p.pointages.where((x) => x.employeId == employeId).map((x) => x.source).toSet();
+            expect(sources, containsAll(['MANUEL', 'MOBILE']));
+          } finally {
+            await pr.mobile!.deconnecter();
+            if (employeId != null && employeId.isNotEmpty) {
+              await sql("DELETE FROM t_pointage WHERE employe_id = '$employeId'");
+            }
+            await sql("DELETE FROM t_mobile_terminal WHERE appareil = '$appareil'");
+            await sql("DELETE FROM t_employe WHERE matricule = 'ZZIT-$tag'");
+            expect(await sql("SELECT COUNT(*) FROM t_employe WHERE matricule = 'ZZIT-$tag'"), '0');
+            expect(await sql("SELECT COUNT(*) FROM t_mobile_terminal WHERE appareil = '$appareil'"), '0');
+          }
+        }, _RealHttp()), timeout: const Timeout(Duration(minutes: 2)));
   });
 }
 

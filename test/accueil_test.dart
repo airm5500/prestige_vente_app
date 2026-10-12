@@ -154,11 +154,11 @@ void main() {
         await scrollTo(tester, find.text('Voir tous les menus'));
         await tester.tap(find.text('Voir tous les menus'));
         await tester.pumpAndSettle();
-        await scrollTo(tester, find.text('Pointage'));
+        await scrollTo(tester, find.text('Pointage présence')); // « Pointage local » masqué par défaut
       } else {
         // Retour client : « À faire maintenant » remplacé par la cloche de l'en-tête (3 préventes + 2 BL).
         expect(find.descendant(of: find.byKey(const Key('accueil_cloche')), matching: find.text('5')), findsOneWidget);
-        await scrollTo(tester, find.text('Pointage'));
+        await scrollTo(tester, find.text('Pointage présence')); // « Pointage local » masqué par défaut
       }
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());

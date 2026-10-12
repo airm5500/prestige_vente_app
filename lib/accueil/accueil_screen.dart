@@ -387,7 +387,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
   }
 
   List<AccueilMenu> _visibles(SettingsProvider s) {
-    final hidden = s.hiddenMenuIds.toSet();
+    final hidden = s.menusMasques.toSet(); // menus masqués + pointage local s'il n'est pas réactivé
     return orderedMenus(s.menuOrder).where((m) => !hidden.contains(m.id)).toList();
   }
 
@@ -540,7 +540,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     final settings = Provider.of<SettingsProvider>(context);
     final visibles = _visibles(settings);
     final idsVisibles = visibles.map((m) => m.id).toSet();
-    final familles = menusByFamille(settings.menuOrder, settings.hiddenMenuIds);
+    final familles = menusByFamille(settings.menuOrder, settings.menusMasques);
     final taches = _taches(context, idsVisibles);
     final nb = _nombreTaches(taches);
 

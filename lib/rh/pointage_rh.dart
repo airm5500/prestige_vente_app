@@ -9,6 +9,8 @@
 // Hors ligne (ou serveur injoignable) : pointage mis en FILE persistante avec l'heure de lecture,
 // envoyé au retour après confirmation (liste décochable) ; refus du serveur → rapport d'anomalies
 // commun ([AnomalieSourceListe]) ; chaque étape notée dans le journal du terminal.
+// Session Prestige expirée (401) : le pointage n'est JAMAIS perdu — gardé en file, envoyé après reconnexion.
+// Badge inconnu en ligne : la copie des employés est relue (employé créé depuis l'ouverture du terminal).
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -79,6 +81,15 @@ class BadgeAConfirmer extends LectureBadge {
 /// Issue d'un enregistrement de pointage par badge.
 enum IssueBadge { enregistre, dejaEnregistre, refuse, enFile }
 
+/// Confirmations affichées à l'employé (capture seule) : où en est l'envoi à Prestige.
+const String etatEnvoyePrestige = 'Envoyé à Prestige ✓';
+const String etatEnAttenteEnvoi = 'En attente d\'envoi (hors ligne)';
+const String etatRefusPrestige = 'Refusé par Prestige';
+
+/// Message d'un pointage gardé faute de session Prestige (401) : envoyé après reconnexion de l'application.
+String messageSessionExpireeFile(String heure) =>
+    'Session Prestige expirée : pointage gardé sur le terminal ($heure), envoyé après reconnexion de l\'application.';
+
 class ResultatBadge {
   final IssueBadge issue;
   final String message;
@@ -93,12 +104,16 @@ class BilanEnvoiRh {
   final int dejaAppliques;
   final int refuses;
   final bool interrompu;
-  const BilanEnvoiRh({this.envoyes = 0, this.dejaAppliques = 0, this.refuses = 0, this.interrompu = false});
+
+  /// Session Prestige expirée (401) : envoi arrêté, pointages restants gardés en attente.
+  final bool sessionExpiree;
+  const BilanEnvoiRh({this.envoyes = 0, this.dejaAppliques = 0, this.refuses = 0, this.interrompu = false, this.sessionExpiree = false});
   String get message => [
-        '$envoyes pointage(s) envoyé(s)',
+        '$envoyes pointage(s) envoyé(s) à Prestige',
         if (dejaAppliques > 0) '$dejaAppliques déjà enregistré(s)',
         if (refuses > 0) '$refuses refusé(s) (voir les anomalies)',
-        if (interrompu) 'envoi interrompu : serveur injoignable',
+        if (interrompu && !sessionExpiree) 'envoi interrompu : serveur injoignable',
+        if (sessionExpiree) 'session Prestige expirée : reconnectez l\'application, les autres restent en attente',
       ].join(' · ');
 }
 
@@ -425,6 +440,21 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     return lireEmploye(e, moyen: moyen);
   }
 
+  DateTime? _dernierRafraichissement;
+
+  /// Comme [lire] ; badge inconnu EN LIGNE : la copie des employés est relue (au plus une fois par 30 s) puis le
+  /// badge relu — un employé créé ou un badge ajouté dans Prestige depuis l'ouverture du terminal est reconnu.
+  Future<LectureBadge> lireAvecRafraichissement(String brut, {MoyenIdentification moyen = MoyenIdentification.scan}) async {
+    final l = lire(brut, moyen: moyen);
+    if (l is! BadgeInconnu || serveur == null || horsLigne()) return l;
+    final n = _clock();
+    final d = _dernierRafraichissement;
+    if (d != null && n.difference(d) < const Duration(seconds: 30)) return l;
+    _dernierRafraichissement = n;
+    if (await rafraichirEmployes() != null) return l;
+    return lire(brut, moyen: moyen);
+  }
+
   /// Employé identifié (empreinte, badge) → sens proposé, avec l'anti double lecture.
   LectureBadge lireEmploye(EmployeRh e, {MoyenIdentification moyen = MoyenIdentification.scan}) {
     final n = _clock();
@@ -508,6 +538,10 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     if (s == null || horsLigne()) return _mettreEnFile(p);
     try {
       final r = await s.post('/rh/pointages', p.corps);
+      if (r.status == 401) {
+        // Session de l'application expirée : rien n'est perdu, le pointage attend la reconnexion.
+        return _mettreEnFile(p, message: messageSessionExpireeFile(p.heure));
+      }
       final res = await _issue(p, r, source: SourceJournal.enLigne);
       if (res.issue == IssueBadge.refuse) {
         // Refus en ligne : affiché tout de suite (pas d'anomalie), relecture possible.
@@ -525,11 +559,13 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     }
   }
 
-  Future<ResultatBadge> _mettreEnFile(PointageBadge p0) async {
+  Future<ResultatBadge> _mettreEnFile(PointageBadge p0, {String? message}) async {
     final p = PointageBadge.fromJson({...p0.toJson(), 'horsLigne': true});
     await _sauver(p);
-    _noter(p, 'Pointage ${p.sens.majuscules} mis en file (hors ligne)', ResultatJournal.info, source: SourceJournal.horsLigne);
-    return ResultatBadge(IssueBadge.enFile, 'Hors ligne : pointage gardé sur le terminal (${p.heure}), envoyé au retour du serveur.', p);
+    _noter(p, 'Pointage ${p.sens.majuscules} mis en file (${message == null ? 'hors ligne' : 'session expirée'})', ResultatJournal.info,
+        source: SourceJournal.horsLigne);
+    return ResultatBadge(
+        IssueBadge.enFile, message ?? 'Hors ligne : pointage gardé sur le terminal (${p.heure}), envoyé à Prestige au retour du serveur.', p);
   }
 
   Future<ResultatBadge> _issue(PointageBadge p, ReponseRh r, {required String source}) async {
@@ -587,13 +623,18 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     _confirmationDemandee = false;
     notifyListeners();
     var envoyes = 0, deja = 0, refus = 0;
-    var interrompu = false;
+    var interrompu = false, session = false;
     final choix = ids?.toSet();
     try {
       for (final p in aEnvoyer) {
         if (choix != null && !choix.contains(p.id)) continue;
         try {
           final r = await s.post('/rh/pointages', p.corps);
+          if (r.status == 401) {
+            // Session expirée : arrêt, ce pointage et les suivants restent en attente (jamais marqués refusés).
+            interrompu = session = true;
+            break;
+          }
           final res = await _issue(p, r, source: SourceJournal.fileHL);
           switch (res.issue) {
             case IssueBadge.enregistre:
@@ -615,7 +656,7 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
       _envoiEnCours = false;
       notifyListeners();
     }
-    return BilanEnvoiRh(envoyes: envoyes, dejaAppliques: deja, refuses: refus, interrompu: interrompu);
+    return BilanEnvoiRh(envoyes: envoyes, dejaAppliques: deja, refuses: refus, interrompu: interrompu, sessionExpiree: session);
   }
 
   /// Purge de l'historique au-delà de la durée de conservation.

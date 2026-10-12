@@ -735,11 +735,35 @@ class _EquipePageState extends State<EquipePage> {
     ));
   }
 
+  SettingsProvider? _reglages(BuildContext context) {
+    try {
+      return Provider.of<SettingsProvider>(context);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => RubriquePage(
+  Widget build(BuildContext context) {
+    final reglages = _reglages(context);
+    return RubriquePage(
         title: Rubrique.equipe.title,
         subtitle: _verified,
         children: [
+          // Le pointage présence (Prestige) se fait par Accueil › Équipe › Pointage présence. Ce qui suit concerne le
+          // pointage LOCAL : rien n'est envoyé à Prestige ; ses données restent sur l'appareil (rapport, export).
+          const SectionLabel('Pointage local (non envoyé à Prestige)'),
+          const InfoBanner.warning(
+              'Le pointage local (empreinte / PIN) garde les pointages sur cet appareil : ils n\'apparaissent pas dans '
+              'Prestige. Pour pointer dans Prestige : Accueil › Équipe › Pointage présence.'),
+          if (reglages != null)
+            SwitchCard(
+              key: const Key('pointage_local_visible'),
+              title: 'Afficher le menu « Pointage local » à l\'accueil',
+              subtitle: 'Masqué par défaut. Les pointages déjà faits restent consultables ici (Rapport et analyse, export).',
+              value: reglages.pointageLocalVisible,
+              onChanged: (v) => reglages.setPointageLocalVisible(v),
+            ),
           LinkCard(icon: Icons.tune, title: 'Méthode de pointage', subtitle: pointageSummary(_settings), onTap: _editMethod),
           LinkCard(
             icon: Icons.people,
@@ -761,6 +785,7 @@ class _EquipePageState extends State<EquipePage> {
           ),
         ],
       );
+  }
 }
 
 // ---------------------------------------------------------------------------

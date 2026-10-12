@@ -11,6 +11,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/pointage/pointage_export.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
 import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
@@ -354,7 +355,7 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
     await _reload();
     if (!mounted) return;
     final greet = type == PointageType.arrivee ? 'Bonjour' : (type == PointageType.depart ? 'Au revoir' : '');
-    _toast('${type.label} enregistrée à ${_hm.format(record.time)}${greet.isEmpty ? '' : ' — $greet ${e.name}'}');
+    _toast('${type.label} enregistrée à ${_hm.format(record.time)}${greet.isEmpty ? '' : ' — $greet ${e.name}'}$suffixeEnregistrementLocal');
   }
 
   void _toast(String message, {bool error = false}) {
@@ -378,7 +379,7 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
     }).length;
     return PresentationScaffold(
       style: style,
-      title: 'Pointage',
+      title: titrePointageLocal,
       subtitle: widget.settings.badgeMode == BadgeMode.only ? 'Badge' : widget.capability.modeLabel,
       actions: (_) => const [],
       steps: StepsBar(active: 0, steps: const [

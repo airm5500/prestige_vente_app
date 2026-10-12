@@ -10,8 +10,9 @@ Côté application uniquement. Le serveur Prestige n'a pas été modifié.
   - **« Mon pointage »** : l'employé pointe avec son propre téléphone ;
   - **« Terminal de pointage »** : un appareil commun lit le badge, le NFC ou l'empreinte.
 
-  Le « Pointage BL » (contrôle des quantités en stock) et le menu « Pointage » local (empreinte ou PIN) gardent
-  leur libellé et leur icône.
+  Le « Pointage BL » (contrôle des quantités en stock) garde son libellé et son icône. Le menu « Pointage » local
+  (empreinte ou PIN) est devenu **« Pointage local (non envoyé à Prestige) »** et il est **masqué par défaut** :
+  voir la section « Pourquoi mon pointage n'apparaît pas dans Prestige ? ».
 - **Écran « Mon pointage »** : **deux gros boutons** remplacent l'ancien bouton unique et son lien « Pointer plutôt… ».
   Ils sont côte à côte, ou l'un sous l'autre si l'écran est trop étroit :
   - **Arrivée** (vert) envoie `ENTREE` et **Départ** (rouge doux) envoie `SORTIE` ;
@@ -70,3 +71,81 @@ Autres tests automatiques ajoutés : boutons Arrivée/Départ et sens envoyé, b
 de confirmation, position envoyée seulement si l'autorisation est déjà accordée (jamais demandée, délai de 5 s),
 saisie manuelle du code, déconnexion qui efface le jeton, absence de QR, de position et de réponse dans les
 journaux, mise en page à 360 px et sur tablette sans débordement.
+
+## Pourquoi mon pointage n'apparaît pas dans Prestige ?
+
+Retour client : « je me suis connecté en admin, j'ai créé un employé sur Prestige et je l'ai rattaché à mon compte ;
+j'ai pointé mais je ne vois pas mon pointage dans Prestige ».
+
+### Ce qui a été vérifié (serveur de test, scénario du client rejoué puis nettoyé)
+
+- Employé créé dans Prestige et rattaché au compte `admin`, puis pointage par le **terminal** (`POST v1/rh/pointages`,
+  enregistré `source = MANUEL`, motif « Badge terminal … ») et par le **téléphone** (`POST v1/mobile/pointages`,
+  `source = MOBILE`, heure du serveur) : les deux lignes sont dans `t_pointage` **et** dans
+  `GET v1/rh/presence?jour=<aujourd'hui>`, c'est-à-dire dans Prestige › RH › **Présence du jour**. Les deux voies
+  fonctionnent donc. Le test automatique « Intégration : pointages visibles dans « Présence du jour » » rejoue ce
+  scénario sur le serveur de test (il est sauté si le serveur ou la base sont injoignables) et supprime tout ensuite.
+- **Cause la plus probable : le menu « Pointage » LOCAL.** Il était rangé dans la même famille « Équipe », juste
+  avant « Pointage présence », avec l'icône d'empreinte et le simple libellé « Pointage ». Ce module (empreinte / PIN
+  sur l'appareil) enregistre les pointages **dans l'appareil uniquement** (aucun envoi, aucune synchronisation :
+  le champ « envoyé » n'est jamais rempli). Un pointage fait là n'arrive jamais dans Prestige.
+
+### Ce qui change dans l'application
+
+- **Pointage local** : libellé **« Pointage local (non envoyé à Prestige) »**, bandeau orange « Ces pointages restent
+  sur cet appareil… » avec un bouton « Ouvrir « Pointage présence » », message après pointage « … (sur cet appareil,
+  non envoyé à Prestige) ». Le menu est **masqué par défaut** ; un administrateur peut le réafficher dans
+  Paramètres › Équipe (interrupteur « Afficher le menu « Pointage local » à l'accueil »). **Aucune donnée n'est
+  supprimée** : employés et pointages locaux restent sur l'appareil, consultables dans Paramètres › Équipe ›
+  Rapport et analyse, avec un nouvel **export CSV** (copié dans le presse-papiers, colonne « Envoyé à Prestige : non »)
+  pour les ressaisir au besoin dans Prestige (RH › Présence du jour › Pointage manuel).
+
+  Choix retenu : ne pas faire envoyer ces pointages à Prestige. Ce module a ses propres employés (sans lien sûr avec
+  les employés Prestige), des types « début / fin de pause » que Prestige ne connaît pas, et le « Terminal de
+  pointage » fait déjà la même chose (empreinte, badge, NFC) en envoyant à Prestige. Un pont risquait des doublons ou
+  des pointages attribués au mauvais employé ; le renommer, le masquer et garder ses données est sans risque.
+- **Pointage présence = capture uniquement pour l'employé** : « Mon pointage » et « Terminal de pointage ».
+  « Présences du jour » et la gestion des empreintes ne sont proposées qu'au **gestionnaire** : compte `admin` de
+  l'application ou compte ayant le droit RH `P_SM_RH`. Pour les autres, ces entrées n'apparaissent plus du tout.
+- **Chaque pointage dit où il en est** :
+  - terminal : « Envoyé à Prestige ✓ » (vert), « En attente d'envoi (hors ligne) » (orange, jamais présenté comme
+    envoyé) ou « Refusé par Prestige : <message du serveur> » (rouge) ;
+  - téléphone : sous le résultat, « Envoyé à Prestige ✓ » ou « Refusé par Prestige : ce pointage n'est pas
+    enregistré ».
+- **Session Prestige expirée sur le terminal** (réponse 401 « Veuillez vous connecter », par exemple après une nuit
+  d'inactivité) : le pointage n'est plus refusé, il est **gardé en attente** et envoyé après reconnexion de
+  l'application (avec la confirmation habituelle). L'envoi de la file s'arrête au premier 401 sans rien marquer
+  « refusé ».
+- **Badge inconnu en ligne** : le terminal relit la liste des employés de Prestige (au plus une fois par 30 s) avant
+  de répondre « Badge non reconnu » : un employé créé ou un badge ajouté après l'ouverture du terminal est reconnu.
+- **Téléphone connecté avec un autre compte** : si « Mon pointage » est connecté à un autre compte que celui de
+  l'application (jeton de 12 h gardé sur le téléphone), un bandeau l'indique : les pointages iraient à cet autre
+  employé. Bouton de déconnexion en haut à droite.
+
+### Liste de contrôle pour le client
+
+1. **Quel menu a servi ?** Le pointage doit être fait dans Accueil › Équipe › **Pointage présence** (« Mon
+   pointage » ou « Terminal de pointage »). L'ancien menu « Pointage » (empreinte / PIN) n'envoie rien à Prestige ;
+   ses pointages peuvent être exportés (Paramètres › Équipe › Rapport et analyse › Exporter) et ressaisis.
+2. **Le message après le pointage** : « Envoyé à Prestige ✓ » = enregistré. « En attente d'envoi » = pas encore dans
+   Prestige : rouvrir Pointage présence en ligne et confirmer l'envoi (« Envoyer la sélection » ; « Plus tard » laisse
+   les pointages en attente). « Refusé par Prestige » = rien n'est enregistré, lire le message.
+3. **Rafraîchir l'écran de Prestige** : l'onglet RH › « Présence du jour » ne se recharge pas tout seul. Changer de
+   jour (◀ ▶) ou d'onglet puis revenir, ou recharger la page. Vérifier aussi la **date** affichée.
+4. **Fiche de l'employé dans Prestige** (RH › Employés) : statut **ACTIF**, compte utilisateur **rattaché** (le bon
+   login), **date d'entrée** vide ou antérieure à aujourd'hui (avec une date d'entrée future, l'employé n'apparaît
+   pas dans « Présence du jour » même si ses pointages sont enregistrés), date de sortie vide ou future.
+5. **Pointage par téléphone** (« Mon pointage ») : Paramètres généraux `KEY_MOBILE_ACTIF = 1` et
+   `KEY_RH_MOBILE_POINTAGE = 1` ; l'en-tête de l'écran doit afficher **le nom et le matricule** de l'employé. Sinon :
+   « rattaché à aucun employé actif » (point 4) ou « désactivé par l'officine » (paramètre à 0). Si le bandeau
+   « connecté au compte « X » » s'affiche, déconnecter le téléphone et se reconnecter avec le bon compte.
+6. **Terminal de pointage** : le compte connecté à l'application doit avoir le droit **`P_SM_RH`** (sinon l'entrée
+   est grisée avec l'explication) ; l'employé doit avoir un **badge** dans sa fiche Prestige (ou une empreinte
+   enregistrée sur le terminal) ; **l'heure du terminal** doit être juste : elle est envoyée telle quelle (un
+   terminal en avance de plus de 5 min est refusé « dans le futur », un terminal à la mauvaise date enregistre le
+   pointage un autre jour).
+7. **Version du serveur** : si l'écran dit « n'existe pas sur cette version du serveur Prestige », le serveur de
+   production n'a pas encore les routes `v1/rh` / `v1/mobile` (réponse 404) : le mettre à jour. L'application le dit
+   clairement et ne propose pas la voie concernée.
+8. **Double pointage** : moins de deux minutes après un pointage, le téléphone répond « Vous avez déjà pointé à
+   HH:mm » et le terminal « vous avez déjà pointé » : c'est normal, le premier pointage est enregistré.

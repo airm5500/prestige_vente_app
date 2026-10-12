@@ -76,6 +76,28 @@ class SettingsProvider with ChangeNotifier {
   List<String> get menuOrder => _menuOrder;
   List<String> get hiddenMenuIds => _hiddenMenuIds;
 
+  // Pointage LOCAL (menu `empreinte`, lib/pointage) : ses pointages restent sur l'appareil, rien n'est envoyé à
+  // Prestige. Menu masqué par défaut (confusion avec « Pointage présence ») ; un administrateur peut le réafficher
+  // (Paramètres › Équipe). Ses données et son rapport sont toujours conservés.
+  static const String pointageLocalVisibleKey = 'pointage_local_visible_v1';
+  static const String pointageLocalMenuId = 'empreinte';
+  bool _pointageLocalVisible = false;
+  bool get pointageLocalVisible => _pointageLocalVisible;
+
+  /// Menus à ne pas afficher : menus masqués par l'utilisateur + pointage local s'il n'est pas réactivé.
+  List<String> get menusMasques => [
+        ..._hiddenMenuIds,
+        if (!_pointageLocalVisible && !_hiddenMenuIds.contains(pointageLocalMenuId)) pointageLocalMenuId,
+      ];
+
+  Future<void> setPointageLocalVisible(bool visible) async {
+    _pointageLocalVisible = visible;
+    notifyListeners();
+    try {
+      await (await SharedPreferences.getInstance()).setBool(pointageLocalVisibleKey, visible);
+    } catch (_) {}
+  }
+
   // NOUVEAU GETTER
   String get blStockComparisonMode => _blStockComparisonMode;
 
@@ -122,6 +144,7 @@ class SettingsProvider with ChangeNotifier {
     _menuOrder = prefs.getStringList(_menuOrderKey) ?? [];
     _hiddenMenuIds = prefs.getStringList(_hiddenMenuIdsKey) ?? [];
     _hideRvProducts = prefs.getBool('hide_rv_products') ?? true;
+    _pointageLocalVisible = prefs.getBool(pointageLocalVisibleKey) ?? false;
 
     // CHARGEMENT DU NOUVEAU PARAMÈTRE
     _blStockComparisonMode = prefs.getString(_blStockComparisonModeKey) ?? 'theorique';

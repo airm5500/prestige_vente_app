@@ -35,7 +35,7 @@ final List<MenuMetadata> allMenuMetadata = [
   MenuMetadata('ordonnance', 'Vérification Ordonnance', Icons.receipt_long, Colors.teal.shade600),
   MenuMetadata('reception_bl', 'Réception BL', Icons.local_shipping, Colors.teal.shade700),
   MenuMetadata('retour_frs', 'Retour Fournisseur', Icons.assignment_return, Colors.red.shade400),
-  MenuMetadata('empreinte', 'Pointage', Icons.fingerprint, Colors.deepPurple.shade400),
+  MenuMetadata('empreinte', 'Pointage local (non envoyé à Prestige)', Icons.fingerprint, Colors.deepPurple.shade400),
 ];
 
 class MenuOrganizerScreen extends StatefulWidget {
