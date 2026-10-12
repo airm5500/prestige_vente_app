@@ -101,9 +101,10 @@ final List<AccueilMenu> accueilMenus = [
   AccueilMenu(id: 'update_emplacement', label: 'Mise à jour Emplacement', short: 'Emplacement', icon: Icons.location_on, color: Colors.brown.shade400, famille: MenuFamille.produits, screen: () => const EmplacementUpdateScreen()),
   // Équipe
   AccueilMenu(id: 'empreinte', label: 'Pointage', short: 'Pointage', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, famille: MenuFamille.equipe, screen: () => const PointageHomeScreen()),
-  // Pointage RH sur le serveur Prestige (téléphone de l'employé, terminal à badge, présences) : voies
-  // proposées selon les routes du serveur et le droit RH du compte (désactivées et expliquées sinon).
-  AccueilMenu(id: 'pointage_rh', label: 'Pointage RH (Prestige)', short: 'Pointage RH', icon: Icons.how_to_reg, color: Colors.indigo.shade500, famille: MenuFamille.equipe, screen: () => const RhPointageScreen()),
+  // Pointage présence sur le serveur Prestige (« Mon pointage » au téléphone, « Terminal de pointage » :
+  // badge, NFC, empreinte ; présences) : voies proposées selon les routes du serveur et le droit RH du compte
+  // (désactivées et expliquées sinon). Identifiant `pointage_rh` conservé (favoris, ordre, menus masqués).
+  AccueilMenu(id: 'pointage_rh', label: 'Pointage présence', short: 'Pointage présence', icon: Icons.how_to_reg, color: Colors.indigo.shade500, famille: MenuFamille.equipe, screen: () => const RhPointageScreen()),
 ];
 
 final Map<String, AccueilMenu> accueilMenuById = {for (final m in accueilMenus) m.id: m};

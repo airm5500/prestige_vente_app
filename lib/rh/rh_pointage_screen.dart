@@ -1,7 +1,7 @@
 // lib/rh/rh_pointage_screen.dart
-// Entrée « Pointage RH » (menu Équipe) : choix de la voie selon ce que le serveur et le compte permettent.
+// Entrée « Pointage présence » (menu Équipe, identifiant `pointage_rh`) : choix de la voie selon ce que le serveur et le compte permettent.
 // - « Mon pointage » (voie A, téléphone de l'employé) : API v1/mobile présente et active ;
-// - « Terminal de pointage » (voie B, badge) : droit P_SM_RH du compte connecté ;
+// - « Terminal de pointage » (voie B, badge, NFC, empreinte) : droit P_SM_RH du compte connecté ;
 // - « Présences du jour » (responsable) : droit P_SM_RH, en ligne ;
 // - « Pointages en attente » : file hors ligne du terminal (confirmation avant envoi, liste décochable).
 // Ce qui n'est pas disponible reste visible mais désactivé, avec l'explication (route absente : 404,
@@ -115,7 +115,7 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
   String get _voieBExplication => switch (_rh.acces) {
         AccesRh.autorise => _rh.accesMessage.isNotEmpty
             ? _rh.accesMessage
-            : 'Badge (lecteur clavier, caméra ou NFC) sur un appareil commun. ${_rh.employes.length} employé(s) copiés.',
+            : 'Badge (lecteur, caméra), NFC ou empreinte sur un appareil commun. ${_rh.employes.length} employé(s) copiés.',
         AccesRh.refuse => '${_rh.accesMessage} Droit « P_SM_RH » nécessaire sur le compte connecté.',
         AccesRh.absent => _rh.accesMessage,
         AccesRh.inconnu => _verifie ? (_rh.accesMessage.isEmpty ? 'Accès RH non vérifié.' : _rh.accesMessage) : 'Vérification du droit RH…',
@@ -142,7 +142,7 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
       _tuile(
         key: const Key('rh_voie_b'),
         icon: Icons.badge_outlined,
-        titre: 'Terminal de pointage (badge)',
+        titre: 'Terminal de pointage',
         detail: _voieBExplication,
         actif: voieB,
         onTap: () => _ouvrir(TerminalPointageScreen(rh: _rh, presentation: style)),
@@ -174,7 +174,7 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
     final enAttente = _rh.enAttente;
     return PresentationScaffold(
       style: style,
-      title: 'Pointage RH',
+      title: 'Pointage présence',
       subtitle: style == ListPresentation.dashboard ? 'Présence des employés (Prestige)' : null,
       actions: (col) => [
         IconButton(key: const Key('rh_verifier'), tooltip: 'Vérifier à nouveau', onPressed: _verifier, icon: Icon(Icons.refresh, color: col)),
