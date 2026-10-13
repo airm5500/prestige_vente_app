@@ -59,7 +59,10 @@ class ApiService {
   Dio get dio => _dio;
 
   // ... (Toutes les méthodes existantes restent inchangées) ...
-  Future<User?> login(String login, String password) async { try { final response = await _dio.post( '/user/auth', data: {'login': login, 'password': password}); if (response.statusCode == 200 && response.data['success'] == true) { return User.fromJson(response.data); } return null; } on DioException catch (e) { print("Error logging in: $e"); return null; } }
+  /// Connexion. Le serveur renouvelle l'identifiant de session (JSESSIONID) à chaque connexion : on repart d'un
+  /// pot à cookies vide pour que seul le cookie de la RÉPONSE de connexion soit envoyé ensuite (un ancien cookie,
+  /// par ex. reçu à la lecture de la licence, provoquerait des 401 sur toutes les routes de données).
+  Future<User?> login(String login, String password) async { try { await DioClient.cookieJar.deleteAll(); final response = await _dio.post( '/user/auth', data: {'login': login, 'password': password}); if (response.statusCode == 200 && response.data['success'] == true) { return User.fromJson(response.data); } return null; } on DioException catch (e) { print("Error logging in: $e"); return null; } }
   Future<void> logout() async { try { await _dio.post('/user/logout'); } catch (e) { print("Error logging out: $e"); } }
   Future<Officine?> fetchOfficineInfo() async { try { final response = await _dio.get('/officine'); if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) { return Officine.fromJson(response.data[0]); } return null; } catch (e) { print("Error fetching officine info: $e"); return null; } }
   Future<List<ProductSearchResult>> searchProducts(String query) async { try { final response = await _dio.get( '/vente/search', queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 30}, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List) .map((item) => ProductSearchResult.fromJson(item)) .toList(); } return []; } catch (e) { print("Error searching products: $e"); return []; } }
