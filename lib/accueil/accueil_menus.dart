@@ -27,6 +27,10 @@ import 'package:prestige_vente_app/screens/ajustement/ajustement_screen.dart';
 import 'package:prestige_vente_app/screens/prescription/prescription_check_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/pointage_home_screen.dart';
 import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
+import 'package:prestige_vente_app/droits/droits_modules.dart';
+import 'package:prestige_vente_app/fiche_client/ordonnances_clients_screen.dart';
+import 'package:prestige_vente_app/posos/posos_screen.dart';
+import 'package:prestige_vente_app/reserve/reserve_screen.dart';
 
 /// Familles de l'accueil, dans l'ordre d'affichage.
 /// La Caisse est rangée dans « Ventes » (retour client) : les familles ne sont pas enregistrées
@@ -59,6 +63,10 @@ class AccueilMenu {
   final bool protege;
   final Widget Function() screen;
 
+  /// Droit d'accès (menu absent de l'accueil, de la recherche et de l'organisation s'il renvoie faux).
+  /// Null : menu ouvert à tous (comme à l'origine).
+  final bool Function()? autorise;
+
   const AccueilMenu({
     required this.id,
     required this.label,
@@ -68,10 +76,14 @@ class AccueilMenu {
     required this.famille,
     required this.screen,
     this.protege = false,
+    this.autorise,
   });
+
+  /// Le menu est accessible au compte connecté.
+  bool get visible => autorise?.call() ?? true;
 }
 
-/// Les 23 menus, dans l'ordre par défaut (par famille).
+/// Les 23 menus d'origine + Analyse posologie, Ordonnances des clients et Réserve, dans l'ordre par défaut (par famille).
 final List<AccueilMenu> accueilMenus = [
   // Ventes
   AccueilMenu(id: 'prevente', label: 'Pre/Vente', short: 'Pré-vente', icon: Icons.point_of_sale, color: Colors.blue.shade700, famille: MenuFamille.ventes, screen: () => VentesVersion.preVente()),
@@ -81,6 +93,10 @@ final List<AccueilMenu> accueilMenus = [
   AccueilMenu(id: 'proforma', label: 'Proforma / Devis', short: 'Proforma', icon: Icons.description, color: Colors.purple.shade600, famille: MenuFamille.ventes, screen: () => const ProformaListScreen()),
   AccueilMenu(id: 'ordonnance', label: 'Vérification Ordonnance', short: 'Ordonnance', icon: Icons.receipt_long, color: Colors.teal.shade600, famille: MenuFamille.ventes, screen: () => const PrescriptionCheckScreen()),
   // Caisse (famille Ventes)
+  // Analyse posologie (Posos via Prestige) : interactions, contre-indications, posologies d'une liste de produits.
+  AccueilMenu(id: 'posos', label: 'Analyse posologie', short: 'Posologie', icon: Icons.health_and_safety_outlined, color: Colors.pink.shade600, famille: MenuFamille.ventes, screen: () => const PososScreen()),
+  // Ordonnances des clients (onglet « Fiche client ») : visible avec le droit Prestige P_ORDONNANCE_CLIENT.
+  AccueilMenu(id: 'ordonnances_clients', label: 'Ordonnances des clients', short: 'Fiche client', icon: Icons.assignment_ind, color: Colors.teal.shade800, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.ordonnancesConsulter, screen: () => const OrdonnancesClientsScreen()),
   AccueilMenu(id: 'caisse', label: 'Gestion Caisse', short: 'Caisse', icon: Icons.calculate, color: Colors.lime.shade700, famille: MenuFamille.ventes, screen: () => const CaisseScreen()),
   // Réception & fournisseurs
   AccueilMenu(id: 'reception_bl', label: 'Réception BL', short: 'Réception BL', icon: Icons.local_shipping, color: Colors.teal.shade700, famille: MenuFamille.reception, screen: () => const ReceptionHomeScreen()),
@@ -92,6 +108,8 @@ final List<AccueilMenu> accueilMenus = [
   AccueilMenu(id: 'stock', label: 'État de Stock', short: 'État stock', icon: Icons.inventory, color: Colors.blueGrey.shade600, famille: MenuFamille.stock, screen: () => const StockReportScreen()),
   AccueilMenu(id: 'ajustement', label: 'Ajustement Stock', short: 'Ajustement', icon: Icons.inventory_2, color: Colors.orange.shade700, famille: MenuFamille.stock, protege: true, screen: () => const AjustementScreen()),
   AccueilMenu(id: 'perimes', label: 'Gestion Périmés', short: 'Périmés', icon: Icons.dangerous, color: Colors.deepOrange.shade600, famille: MenuFamille.stock, screen: () => const PerimeMainScreen()),
+  // Réserve : réappros rayon ↔ réserve (suggestion puis traitement). Administrateur (+ droit dédié quand le serveur l'exposera).
+  AccueilMenu(id: 'reserve', label: 'Réserve', short: 'Réserve', icon: Icons.warehouse_outlined, color: Colors.deepPurple.shade600, famille: MenuFamille.stock, autorise: () => DroitsModules.instance.reserve, screen: () => const ReserveScreen()),
   AccueilMenu(id: 'update_perim', label: 'Mise à jour Péremption', short: 'Péremption', icon: Icons.date_range, color: Colors.purple.shade700, famille: MenuFamille.stock, screen: () => const ExpirationUpdateScreen()),
   // Produits
   AccueilMenu(id: 'search', label: 'Recherche Article', short: 'Recherche', icon: Icons.search, color: Colors.orange.shade700, famille: MenuFamille.produits, screen: () => const ProductSearchScreen()),
@@ -112,15 +130,16 @@ final List<AccueilMenu> accueilMenus = [
 final Map<String, AccueilMenu> accueilMenuById = {for (final m in accueilMenus) m.id: m};
 
 /// Ordre complet des menus : d'abord l'ordre enregistré, puis les menus absents (ordre par défaut).
+/// Les menus non autorisés au compte connecté ([AccueilMenu.visible]) n'y figurent pas.
 List<AccueilMenu> orderedMenus(List<String> savedOrder) {
   final out = <AccueilMenu>[];
   final seen = <String>{};
   for (final id in savedOrder) {
     final m = accueilMenuById[id];
-    if (m != null && seen.add(id)) out.add(m);
+    if (m != null && m.visible && seen.add(id)) out.add(m);
   }
   for (final m in accueilMenus) {
-    if (seen.add(m.id)) out.add(m);
+    if (m.visible && seen.add(m.id)) out.add(m);
   }
   return out;
 }
