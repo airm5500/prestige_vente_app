@@ -28,6 +28,10 @@ import 'package:prestige_vente_app/screens/prescription/prescription_check_scree
 import 'package:prestige_vente_app/screens/pointage/pointage_home_screen.dart';
 import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
 import 'package:prestige_vente_app/borne/borne_reglages_page.dart';
+import 'package:prestige_vente_app/droits/droits_modules.dart';
+import 'package:prestige_vente_app/fiche_client/ordonnances_clients_screen.dart';
+import 'package:prestige_vente_app/posos/posos_screen.dart';
+import 'package:prestige_vente_app/reserve/reserve_screen.dart';
 
 /// Familles de l'accueil, dans l'ordre d'affichage.
 /// La Caisse est rangée dans « Ventes » (retour client) : les familles ne sont pas enregistrées
@@ -60,6 +64,10 @@ class AccueilMenu {
   final bool protege;
   final Widget Function() screen;
 
+  /// Droit d'accès (menu absent de l'accueil, de la recherche et de l'organisation s'il renvoie faux).
+  /// Null : menu ouvert à tous (comme à l'origine).
+  final bool Function()? autorise;
+
   const AccueilMenu({
     required this.id,
     required this.label,
@@ -69,7 +77,11 @@ class AccueilMenu {
     required this.famille,
     required this.screen,
     this.protege = false,
+    this.autorise,
   });
+
+  /// Le menu est accessible au compte connecté.
+  bool get visible => autorise?.call() ?? true;
 }
 
 /// Les 23 menus, dans l'ordre par défaut (par famille).
@@ -132,17 +144,30 @@ Map<MenuFamille, List<AccueilMenu>> avecMenusAdmin(Map<MenuFamille, List<Accueil
   if (!admin) return familles;
   return {for (final e in familles.entries) e.key: e.key == MenuFamille.ventes ? [...e.value, menuBorneAdmin] : e.value};
 }
+/// Menus soumis à un droit, ajoutés après les 23 menus d'origine (catalogue d'origine inchangé). Ils ne figurent
+/// que si le compte connecté y a droit ([AccueilMenu.visible]) ; ils ne sont ni organisables ni proposés en favoris.
+final List<AccueilMenu> menusSousDroits = [
+  // Analyse posologie (Posos via Prestige) : interactions, contre-indications, posologies. Compte connecté.
+  AccueilMenu(id: 'posos', label: 'Analyse posologie', short: 'Posologie', icon: Icons.health_and_safety_outlined, color: Colors.pink.shade600, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.connu, screen: () => const PososScreen()),
+  // Ordonnances des clients (onglet « Fiche client ») : droit Prestige P_ORDONNANCE_CLIENT.
+  AccueilMenu(id: 'ordonnances_clients', label: 'Ordonnances des clients', short: 'Fiche client', icon: Icons.assignment_ind, color: Colors.teal.shade800, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.ordonnancesConsulter, screen: () => const OrdonnancesClientsScreen()),
+  // Réserve : réappros rayon ↔ réserve (suggestion puis traitement). Administrateur (+ droit dédié quand le serveur l'exposera).
+  AccueilMenu(id: 'reserve', label: 'Réserve', short: 'Réserve', icon: Icons.warehouse_outlined, color: Colors.deepPurple.shade600, famille: MenuFamille.stock, autorise: () => DroitsModules.instance.reserve, screen: () => const ReserveScreen()),
+];
+
+final Map<String, AccueilMenu> _tousMenusById = {for (final m in [...accueilMenus, ...menusSousDroits]) m.id: m};
 
 /// Ordre complet des menus : d'abord l'ordre enregistré, puis les menus absents (ordre par défaut).
+/// Les menus non autorisés au compte connecté ([AccueilMenu.visible]) n'y figurent pas.
 List<AccueilMenu> orderedMenus(List<String> savedOrder) {
   final out = <AccueilMenu>[];
   final seen = <String>{};
   for (final id in savedOrder) {
-    final m = accueilMenuById[id];
-    if (m != null && seen.add(id)) out.add(m);
+    final m = _tousMenusById[id];
+    if (m != null && m.visible && seen.add(id)) out.add(m);
   }
-  for (final m in accueilMenus) {
-    if (seen.add(m.id)) out.add(m);
+  for (final m in [...accueilMenus, ...menusSousDroits]) {
+    if (m.visible && seen.add(m.id)) out.add(m);
   }
   return out;
 }
@@ -152,6 +177,9 @@ Map<MenuFamille, List<AccueilMenu>> menusByFamille(List<String> savedOrder, Iter
   final h = hidden.toSet();
   final map = {for (final f in MenuFamille.values) f: <AccueilMenu>[]};
   for (final m in orderedMenus(savedOrder)) {
+    // Organisation de l'accueil ([withHidden]) : les menus soumis à un droit n'y sont pas proposés (ni ordre, ni
+    // masquage, ni favoris) ; ils s'affichent à la fin de leur famille quand le compte y a droit.
+    if (withHidden && menusSousDroits.contains(m)) continue;
     if (withHidden || !h.contains(m.id)) map[m.famille]!.add(m);
   }
   return map;

@@ -20,6 +20,8 @@ import 'package:prestige_vente_app/accueil/organiser_accueil_screen.dart';
 import 'package:prestige_vente_app/accueil/point_serveur.dart';
 import 'package:prestige_vente_app/accueil/recherche_globale_screen.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/droits/droits_modules.dart';
+import 'package:prestige_vente_app/serveur/client_contexte.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart' as srv;
 import 'package:prestige_vente_app/horsligne/ventes_hors_ligne_screen.dart';
@@ -137,6 +139,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     });
     _ventesHL.addListener(_onVentesHL);
     _monitor.addListener(_onMonitor);
+    DroitsModules.instance.addListener(_onDroits);
     _etatMonitor = _monitor.etat;
     HardwareKeyboard.instance.addHandler(_onTouche);
   }
@@ -209,6 +212,18 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     _notif.value++;
   }
 
+  /// Droits des menus Réserve / Ordonnances des clients lus : menus affichés ou masqués.
+  void _onDroits() {
+    if (mounted) setState(() {});
+  }
+
+  /// Relit les droits des menus réservés (pas en test : [AccueilScreen.serverCheck] fourni).
+  void _actualiserDroits() {
+    if (widget.serverCheck != null) return;
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    unawaited(DroitsModules.instance.actualiser(clientPrestige(context), utilisateur: auth.user?.userId ?? '', adminLocal: auth.isAdmin));
+  }
+
   /// Change à chaque mise à jour des notifications (liste de la cloche ouverte).
   final _notif = ValueNotifier<int>(0);
 
@@ -217,6 +232,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     HardwareKeyboard.instance.removeHandler(_onTouche);
     _ventesHL.removeListener(_onVentesHL);
     _monitor.removeListener(_onMonitor);
+    DroitsModules.instance.removeListener(_onDroits);
     _notif.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _licenceWatchdogTimer?.cancel();
@@ -313,6 +329,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
   Future<void> _actualiser() async {
     if (_rafraichissement) return;
     _rafraichissement = true;
+    _actualiserDroits();
     _dernierRetour = DateTime.now();
     setState(() {
       _chargement = true;
