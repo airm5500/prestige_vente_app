@@ -1,5 +1,9 @@
 // Serveur HTTP local pour tester les clients JSON (Réserve, Analyse posologie, Fiche client) sans Prestige.
 // Données entièrement fictives : aucune donnée réelle de patient ou de pharmacie.
+//
+// Base du faux serveur Prestige unifié (test/outils/faux_serveur_prestige.dart), qui ajoute les sessions
+// (JSESSIONID), les routes Prestige par défaut, la coupure et un transport en mémoire pour les tests de widgets.
+// L'interface d'origine (routes, recues, base, demarrer, arreter, recuesSur, avecVraiHttp) est inchangée.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -14,42 +18,71 @@ class RequeteRecue {
   RequeteRecue(this.methode, this.chemin, this.query, this.corps, this.cookie);
 
   Map<String, dynamic> get json => corps.isEmpty ? <String, dynamic>{} : Map<String, dynamic>.from(jsonDecode(corps) as Map);
+
+  /// Identifiant de session (cookie JSESSIONID) envoyé, ou null.
+  String? get jsessionid => RegExp(r'JSESSIONID=([^;\s]+)').firstMatch(cookie)?.group(1);
+
+  @override
+  String toString() => '$methode $chemin';
 }
 
-/// Réponse programmée : statut, corps (objet JSON, ou texte brut si String), délai avant réponse.
+/// Réponse programmée : statut, corps (objet JSON, ou texte brut si String), délai avant réponse,
+/// en-têtes supplémentaires (ex. set-cookie).
 class ReponseLocale {
   final int statut;
   final Object? corps;
   final Duration delai;
-  const ReponseLocale(this.corps, {this.statut = 200, this.delai = Duration.zero});
+  final Map<String, String> entetes;
+  const ReponseLocale(this.corps, {this.statut = 200, this.delai = Duration.zero, this.entetes = const {}});
 }
 
 class ServeurJsonLocal {
-  late HttpServer _s;
+  HttpServer? _s;
+  int _port = 0;
   final List<RequeteRecue> recues = [];
 
   /// Réponse par « MÉTHODE suffixe-de-chemin » (ex. 'PUT /ouvrir'). La première clé dont le suffixe correspond gagne.
   final Map<String, FutureOr<ReponseLocale> Function(RequeteRecue r)> routes = {};
 
-  String get base => 'http://127.0.0.1:${_s.port}/prestige/api/v1';
+  /// Hôte utilisé par [base] (127.0.0.1 en mode réseau local).
+  String get hote => '127.0.0.1:$_port';
+
+  String get base => 'http://$hote/prestige/api/v1';
+
+  /// Réponse quand aucune route ne correspond.
+  ReponseLocale get reponseInconnue => const ReponseLocale({'success': false, 'message': 'route inconnue'}, statut: 404);
+
+  /// Route programmée correspondant à la requête, ou null.
+  FutureOr<ReponseLocale> Function(RequeteRecue r)? routePour(RequeteRecue r) {
+    for (final e in routes.entries) {
+      final sp = e.key.indexOf(' ');
+      if (r.methode == e.key.substring(0, sp) && r.chemin.endsWith(e.key.substring(sp + 1))) return e.value;
+    }
+    return null;
+  }
+
+  /// Traitement d'une requête (redéfini par le faux serveur Prestige) : la requête est déjà notée dans [recues].
+  Future<ReponseLocale> repondre(RequeteRecue r) async {
+    final route = routePour(r);
+    return route == null ? reponseInconnue : await route(r);
+  }
+
+  /// Le serveur écoute-t-il ? (false avant [demarrer] ou pendant une coupure réseau).
+  bool get ecoute => _s != null;
 
   Future<void> demarrer() async {
-    _s = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    _s.listen((req) async {
+    final s = await HttpServer.bind(InternetAddress.loopbackIPv4, _port);
+    _s = s;
+    _port = s.port;
+    s.listen((req) async {
       final corps = await utf8.decoder.bind(req).join();
       final r = RequeteRecue(req.method, req.uri.path, req.uri.queryParameters, corps, req.headers.value('cookie') ?? '');
       recues.add(r);
-      ReponseLocale rep = const ReponseLocale({'success': false, 'message': 'route inconnue'}, statut: 404);
-      for (final e in routes.entries) {
-        final sp = e.key.indexOf(' ');
-        if (req.method == e.key.substring(0, sp) && req.uri.path.endsWith(e.key.substring(sp + 1))) {
-          rep = await e.value(r);
-          break;
-        }
-      }
+      final rep = await repondre(r);
       if (rep.delai > Duration.zero) await Future<void>.delayed(rep.delai);
       try {
         req.response.statusCode = rep.statut;
+        rep.entetes.forEach((k, v) => req.response.headers.add(k, v));
         if (rep.corps is String) {
           req.response.headers.contentType = ContentType.text;
           req.response.write(rep.corps);
@@ -64,7 +97,12 @@ class ServeurJsonLocal {
     });
   }
 
-  Future<void> arreter() => _s.close(force: true);
+  /// Arrêt du serveur (le port est gardé : [demarrer] le rouvre au même endroit).
+  Future<void> arreter() async {
+    final s = _s;
+    _s = null;
+    await s?.close(force: true);
+  }
 
   List<RequeteRecue> recuesSur(String suffixe) => [for (final r in recues) if (r.chemin.endsWith(suffixe)) r];
 }
