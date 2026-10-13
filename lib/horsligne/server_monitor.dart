@@ -70,6 +70,12 @@ class ServerMonitor extends ChangeNotifier with WidgetsBindingObserver {
     _planifier();
   }
 
+  /// Ping fourni APRÈS le démarrage (l'appli démarre la surveillance avant de la relier au serveur) :
+  /// la cadence de 30 s démarre alors (ANO-01 : sinon aucun ping avant le premier échec d'une opération).
+  void pingBranche() {
+    if (_started && _timer == null) _planifier();
+  }
+
   void stop() {
     if (!_started) return;
     _started = false;

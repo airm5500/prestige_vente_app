@@ -154,6 +154,7 @@ class HorsLigne {
     JournalTerminal.instance.horsLigne = () => HorsLigne.instance.offline;
     _bindSupport(dio);
     monitor.ping ??= _ping;
+    monitor.pingBranche();
     sync.fetch ??= _fetch;
     // H5 : mise à jour différentielle du catalogue si le serveur l'annonce (GET /app-vente/capacites, repli /mobile/).
     sync.capacites ??= _capacites;
