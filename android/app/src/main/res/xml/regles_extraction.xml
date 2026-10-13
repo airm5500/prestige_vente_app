@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Sauvegarde cloud et transfert d'appareil (Android 12+) : stockage sécurisé exclu (mot de passe mémorisé, jeton du téléphone,
-     modèles d'empreinte du pointage RH, gardés uniquement sur ce terminal). -->
+     modèles d'empreinte du pointage RH, gardés uniquement sur ce terminal) ; photos de contrôle du pointage par badge exclues. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="file" path="photos_pointage/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="file" path="photos_pointage/" />
     </device-transfer>
 </data-extraction-rules>

@@ -26,6 +26,8 @@ import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
+import 'package:prestige_vente_app/rh/photo_controle.dart';
+import 'package:prestige_vente_app/rh/photo_controle_screen.dart';
 import 'package:prestige_vente_app/screens/auth/qr_code_preview_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/employees_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
@@ -669,7 +671,10 @@ String pointageSummary(PointageSettings s) => switch (s.badgeMode) {
 
 class EquipePage extends StatefulWidget {
   final PointageRepository repository;
-  const EquipePage({super.key, required this.repository});
+
+  /// Photo de contrôle (tests) ; par défaut le service de l'application.
+  final PhotoControle? photo;
+  const EquipePage({super.key, required this.repository, this.photo});
 
   @override
   State<EquipePage> createState() => _EquipePageState();
@@ -678,6 +683,9 @@ class EquipePage extends StatefulWidget {
 class _EquipePageState extends State<EquipePage> {
   PointageSettings _settings = const PointageSettings();
   DeviceCapability? _capability;
+  ReglagesPointageTerminal _terminal = const ReglagesPointageTerminal();
+
+  late final PhotoControle _photo = widget.photo ?? PhotoControle.instance ?? PhotoControle();
 
   @override
   void initState() {
@@ -685,6 +693,20 @@ class _EquipePageState extends State<EquipePage> {
     widget.repository.loadSettings().then((s) {
       if (mounted) setState(() => _settings = s);
     }).catchError((_) {});
+    _photo.reglages().then((r) {
+      if (mounted) setState(() => _terminal = r);
+    }).catchError((_) {});
+    _photo.registre.charger().catchError((_) {});
+  }
+
+  /// Réglages du terminal (photo de contrôle, simple bouton, conservation) : appliqués tout de suite.
+  Future<void> _majTerminal(ReglagesPointageTerminal r) async {
+    setState(() => _terminal = r);
+    try {
+      await r.enregistrer();
+    } catch (_) {}
+    // Durée raccourcie : les photos trop anciennes sont effacées aussitôt.
+    await _photo.registre.purger();
   }
 
   /// Même dialogue que l'accueil du pointage (le code administrateur est déjà vérifié).
@@ -782,6 +804,65 @@ class _EquipePageState extends State<EquipePage> {
             title: 'Diagnostic du lecteur',
             subtitle: 'Vérifier le lecteur de cet appareil',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FingerprintDiagnosticScreen())),
+          ),
+          // Anti-fraude (pointage pour un collègue) : Pointage présence ET pointage local de CE terminal.
+          const SectionLabel('Pointage sur ce terminal (contrôle)'),
+          SwitchCard(
+            key: const Key('rh_reglage_photo'),
+            title: 'Photo de contrôle au pointage badge',
+            subtitle: 'Après la lecture du badge (scanner, caméra, NFC), la caméra avant photographie l\'employé (aperçu et '
+                'compte à rebours). Sans caméra, le pointage se fait quand même, marqué « sans photo ». L\'empreinte ne change pas.',
+            value: _terminal.photoBadge,
+            onChanged: (v) => _majTerminal(_terminal.copie(photoBadge: v)),
+          ),
+          SwitchCard(
+            key: const Key('rh_reglage_simple_bouton'),
+            title: 'Autoriser le pointage par simple bouton sur ce terminal',
+            subtitle: '« Mon pointage » (boutons Arrivée / Départ) et, dans le pointage local, le choix du nom sans PIN ni '
+                'empreinte. À désactiver sur un terminal partagé : seuls le badge (avec photo) et l\'empreinte restent possibles.',
+            value: _terminal.simpleBouton,
+            onChanged: (v) => _majTerminal(_terminal.copie(simpleBouton: v)),
+          ),
+          SettingCard(
+            child: Row(children: [
+              const Expanded(
+                child: SettingText('Conservation des photos',
+                    subtitle: 'Sur ce terminal uniquement ; effacées automatiquement ensuite.'),
+              ),
+              const SizedBox(width: 8),
+              DropdownButton<int>(
+                key: const Key('rh_reglage_retention'),
+                value: ReglagesPointageTerminal.retentionsProposees.contains(_terminal.retentionJours) ? _terminal.retentionJours : null,
+                hint: Text('${_terminal.retentionJours} jours'),
+                items: [
+                  for (final j in ReglagesPointageTerminal.retentionsProposees) DropdownMenuItem(value: j, child: Text('$j jours')),
+                ],
+                onChanged: (j) => j == null ? null : _majTerminal(_terminal.copie(retentionJours: j)),
+              ),
+            ]),
+          ),
+          ListenableBuilder(
+            listenable: _photo.registre,
+            builder: (context, _) {
+              final n = _photo.registre.anomaliesNonTraitees;
+              return LinkCard(
+                key: const Key('rh_reglage_photos'),
+                icon: Icons.photo_camera_front,
+                title: 'Photos de contrôle',
+                subtitle: n > 0
+                    ? '$n pointage(s) par badge sans photo à vérifier'
+                    : '${_photo.registre.photos.length} pointage(s) par badge gardé(s) sur ce terminal',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => PhotosPointageScreen(registre: _photo.registre, retentionJours: _terminal.retentionJours))),
+              );
+            },
+          ),
+          LinkCard(
+            key: const Key('rh_reglage_camera'),
+            icon: Icons.no_photography_outlined,
+            title: 'Autoriser et tester la caméra avant',
+            subtitle: 'Explication puis demande d\'autorisation Android (une seule fois)',
+            onTap: () => expliquerEtAutoriserCamera(context, _photo),
           ),
         ],
       );

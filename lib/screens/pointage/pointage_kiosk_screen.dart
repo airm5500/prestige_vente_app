@@ -5,6 +5,10 @@
 // - sans lecteur : l'employé choisit son nom puis saisit son code PIN.
 // Option badge (réglage administrateur) : l'employé scanne son badge (scanner Sunmi ou caméra),
 // seul ou en complément de l'empreinte / du PIN, avec si besoin le code PIN après le badge.
+// Photo de contrôle (réglage administrateur du terminal, activée par défaut) : après la lecture du badge, la caméra
+// frontale prend une photo (aperçu ~2 s), gardée sur l'appareil et liée au pointage ; sans caméra, le pointage se
+// fait quand même, marqué « sans photo (motif) ». Pointage par simple choix du nom (sans PIN ni empreinte) :
+// désactivable sur un terminal partagé (« Autoriser le pointage par simple bouton sur ce terminal »).
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -15,6 +19,8 @@ import 'package:prestige_vente_app/pointage/pointage_export.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
 import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
+import 'package:prestige_vente_app/rh/photo_controle.dart';
+import 'package:prestige_vente_app/rh/photo_controle_screen.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/services/nfc_service.dart';
@@ -68,6 +74,12 @@ class PointageKioskScreen extends StatefulWidget {
   /// Présentation (A, B, C) ; celle de l'appareil si non précisée.
   final ListPresentation? presentation;
 
+  /// Photo de contrôle au pointage par badge ; par défaut le service de l'application (aucun s'il n'est pas branché).
+  final PhotoControle? photo;
+
+  /// Réglages administrateur du terminal (photo, simple bouton) ; par défaut ceux de l'appareil.
+  final Future<ReglagesPointageTerminal> Function()? reglagesTerminal;
+
   const PointageKioskScreen({
     super.key,
     required this.repository,
@@ -78,6 +90,8 @@ class PointageKioskScreen extends StatefulWidget {
     this.badgeCamera,
     this.nfc = const DeviceNfcReader(),
     this.presentation,
+    this.photo,
+    this.reglagesTerminal,
   });
 
   @override
@@ -108,6 +122,18 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
   bool _badgeFlow = false;
 
   PointageVerifier get _verifier => widget.verifier ?? PointageVerifier.device;
+
+  PhotoControle? get _photo => widget.photo ?? PhotoControle.instance;
+  ReglagesPointageTerminal _reglagesT = const ReglagesPointageTerminal();
+  bool get _photoActive => _photo != null && _reglagesT.photoBadge;
+
+  Future<void> _chargerReglagesTerminal() async {
+    try {
+      final r = await (widget.reglagesTerminal ?? _photo?.reglages ?? ReglagesPointageTerminal.charger)();
+      if (mounted) setState(() => _reglagesT = r);
+      if (r.photoBadge) await _photo?.registre.charger();
+    } catch (_) {}
+  }
   DateTime _now() => (widget.clock ?? DateTime.now)();
   static final _hm = DateFormat('HH:mm');
 
@@ -116,6 +142,7 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
     super.initState();
     loadPresentation();
     _reload();
+    _chargerReglagesTerminal();
     if (widget.settings.badgeEnabled) {
       WidgetsBinding.instance.addObserver(this);
       _initNfc();
@@ -212,6 +239,11 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
         if (!await _askPin(e)) return;
         method = PointageMethod.pin;
       } else {
+        if (!_reglagesT.simpleBouton) {
+          _toast('Pointage par simple choix du nom désactivé sur ce terminal : utilisez votre badge, votre empreinte ou un code PIN.',
+              error: true);
+          return;
+        }
         method = PointageMethod.manual;
       }
       if (mounted) setState(() => _busy = false);
@@ -259,6 +291,13 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
         return;
       }
       final e = matches.first;
+      // Photo de contrôle (caméra frontale), avant le PIN et le choix du pointage.
+      ResultatPhoto? photo;
+      final service = _photo;
+      if (_photoActive && service != null) {
+        photo = await PhotoControleScreen.ouvrir(context, service, e.name);
+        if (!mounted) return;
+      }
       var method = PointageMethod.badge;
       if (widget.settings.pinAfterBadge) {
         if (!e.hasPin) {
@@ -268,7 +307,7 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
         if (!await _askPin(e)) return;
         method = PointageMethod.badgePin;
       }
-      if (mounted) await _chooseAction(e, method);
+      if (mounted) await _chooseAction(e, method, photo: photo);
     } finally {
       _badgeFlow = false;
       _refocusBadge();
@@ -306,7 +345,7 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
   // ---------------------------------------------------------------------------
   // Choix du pointage et enregistrement
   // ---------------------------------------------------------------------------
-  Future<void> _chooseAction(Employee e, PointageMethod method) async {
+  Future<void> _chooseAction(Employee e, PointageMethod method, {ResultatPhoto? photo}) async {
     final now = _now();
     final mine = _todayOf(e);
     final allowed = PointageLogic.allowedNext(mine);
@@ -352,10 +391,26 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
       device: widget.capability.device,
     );
     await widget.repository.addRecord(record);
+    final service = _photo;
+    if (photo != null && service != null) {
+      try {
+        await service.registre.ajouter(
+          id: record.id,
+          source: 'local',
+          employeId: e.id,
+          employeNom: e.name,
+          lu: record.time,
+          sens: type.label,
+          moyen: method.label,
+          resultat: photo,
+        );
+      } catch (_) {}
+    }
     await _reload();
     if (!mounted) return;
     final greet = type == PointageType.arrivee ? 'Bonjour' : (type == PointageType.depart ? 'Au revoir' : '');
-    _toast('${type.label} enregistrée à ${_hm.format(record.time)}${greet.isEmpty ? '' : ' — $greet ${e.name}'}$suffixeEnregistrementLocal');
+    final sansPhoto = photo is PhotoAbsente ? ' — ${libelleSansPhoto(photo.motif)}, signalé à l\'administrateur' : '';
+    _toast('${type.label} enregistrée à ${_hm.format(record.time)}${greet.isEmpty ? '' : ' — $greet ${e.name}'}$suffixeEnregistrementLocal$sansPhoto');
   }
 
   void _toast(String message, {bool error = false}) {
@@ -489,10 +544,18 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
       onSubmitted: _onBadge,
     );
     final nfcLine = _nfcLine();
+    const photoLine = Padding(
+      padding: EdgeInsets.only(top: 8),
+      child: Row(key: Key('pointage_photo_info'), mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(Icons.photo_camera_front, size: 18, color: Pal.navy),
+        SizedBox(width: 6),
+        Flexible(child: Text(textePhotoControleEmploye, style: TextStyle(fontSize: 12.5, color: Pal.muted))),
+      ]),
+    );
     if (compact) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [field, if (nfcLine != null) nfcLine]),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [field, if (nfcLine != null) nfcLine, if (_photoActive) photoLine]),
       );
     }
     return Center(
@@ -508,6 +571,7 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
             const SizedBox(height: 24),
             field,
             if (nfcLine != null) nfcLine,
+            if (_photoActive) photoLine,
             if (_lastMessage != null) ...[
               const SizedBox(height: 16),
               Text(_lastMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted)),
