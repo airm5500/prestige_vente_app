@@ -139,11 +139,11 @@ void prechargerFiche(ApiService api, ProductSearchResult p, {FicheInfoCache? cac
 }
 
 /// Message affiché pour une vraie erreur (cause précise, jamais « fiche introuvable »).
-String messageErreurFiche(Object e) {
-  if (e is ApiLoadException) return e.message;
-  if (e is DioException) return ApiService.analyseErreurMessage(e);
-  return 'Analyse indisponible : $e';
-}
+String messageErreurFiche(Object e) => ApiService.messageErreurInfo(e);
+
+/// Attente maximale de l'analyse dans la fiche, quoi qu'il arrive (au-delà : erreur + Réessayer,
+/// jamais de squelette sans fin). Remplaçable dans les tests.
+Duration Function() delaiMaxFiche = () => ApiService.delaiInfo + const Duration(seconds: 5);
 
 class FicheProduitScreen extends StatefulWidget {
   final ProductSearchResult produit;
@@ -274,7 +274,12 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
     ArticleAnalysis? article;
     String? erreur;
     try {
-      article = await _cache.charger(cle, chargeur);
+      final delai = delaiMaxFiche();
+      article = await _cache.charger(cle, chargeur).timeout(delai, onTimeout: () {
+        // Requête abandonnée (si plus personne ne l'attend) : la fiche affiche la cause et Réessayer.
+        _lacher();
+        throw ApiLoadException('Délai dépassé : pas de réponse du serveur en ${delai.inSeconds} s (GET /info). Réessayez.');
+      });
     } catch (e) {
       erreur = messageErreurFiche(e);
     }
@@ -396,7 +401,8 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
         if (carte) const SizedBox(height: 12) else const Divider(height: 24, color: Pal.line),
         enCarte(_ventes()),
       ],
-      // B2 : « Photo du produit » (réglage administrateur désactivé par défaut, droit du serveur).
+      // B2 : « Ajouter une photo » visible directement pour l'administrateur ; « Photo du produit » pour les
+      // autres comptes derrière le réglage (désactivé par défaut) et le droit du serveur.
       Padding(
           padding: const EdgeInsets.only(top: 12),
           child: Align(alignment: Alignment.centerLeft, child: PhotoProduitBouton(familleId: _p.lgFAMILLEID))),

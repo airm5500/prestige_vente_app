@@ -39,9 +39,9 @@ class ProductInfo {
   factory ProductInfo.fromJson(Map<String, dynamic> json) {
     // Helper pour parser les nombres (int ou double)
     double toDouble(dynamic val) {
-      if (val is int) return val.toDouble();
-      if (val is String) return double.tryParse(val) ?? 0.0;
-      return val ?? 0.0;
+      if (val is num) return val.toDouble();
+      if (val is String) return double.tryParse(val.trim().replaceAll(',', '.')) ?? 0.0;
+      return 0.0;
     }
 
     return ProductInfo(
@@ -53,7 +53,7 @@ class ProductInfo {
       prixAchat: toDouble(json['prixAchat']),
       prixVente: toDouble(json['prixVente']),
       produitId: json['produitId']?.toString() ?? '',
-      stock: json['stock'] ?? 0,
+      stock: entierTolerant(json['stock']) ?? 0,
       // Lecture tolérante : absent, null, nombre, texte numérique, décimal.
       stockReserve: entierTolerant(json['stockReserve']),
       seuilReserve: entierTolerant(json['seuilReserve']),

@@ -279,33 +279,27 @@ class _ParametresScreenState extends State<ParametresScreen> {
     if (rubriqueMatchesText('centre de support signaler un probleme anomalie erreur bug envoi automatique', query)) rows.add(_supportRow());
     final list = _list(rows, connected, showLogout, query);
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: Pal.navy,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Réglages', style: TextStyle(fontWeight: FontWeight.bold, color: Pal.navy, fontSize: 20)),
-          Text(
-            connected
-                ? [
-                    '${user!.firstName} ${user.lastName}'.trim(),
-                    if (auth.officine?.nomComplet.isNotEmpty ?? false) auth.officine!.nomComplet,
-                  ].where((e) => e.isNotEmpty).join(' · ')
-                : 'Non connecté',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12.5, color: Pal.muted),
+    final sousTitre = connected
+        ? [
+            '${user!.firstName} ${user.lastName}'.trim(),
+            if (auth.officine?.nomComplet.isNotEmpty ?? false) auth.officine!.nomComplet,
+          ].where((e) => e.isNotEmpty).join(' · ')
+        : 'Non connecté';
+    // Charte bleu nuit / ambre (en-tête comme les autres écrans du nouvel accueil, au lieu de l'en-tête blanc).
+    return Theme(
+      data: themeCharte(Theme.of(context)),
+      child: Scaffold(
+        backgroundColor: Pal.page,
+        body: Column(children: [
+          NavyHeader(key: const Key('reglages_entete'), title: 'Réglages', subtitle: sousTitre, rounded: false),
+          // Tablette : liste centrée (portrait) ; rubriques à gauche et contenu à droite (paysage).
+          Expanded(
+            child: split
+                ? ListDetail(list: list, detail: KeyedSubtree(key: const ValueKey('reglages-detail'), child: _detail()))
+                : ContentWidth(child: list),
           ),
         ]),
-        bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Pal.line)),
       ),
-      // Tablette : liste centrée (portrait) ; rubriques à gauche et contenu à droite (paysage).
-      body: split
-          ? ListDetail(list: list, detail: KeyedSubtree(key: const ValueKey('reglages-detail'), child: _detail()))
-          : ContentWidth(child: list),
     );
   }
 

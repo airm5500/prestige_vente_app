@@ -22,6 +22,10 @@ class ImagesConfig {
   /// Bouton « Photo du produit » dans la fiche produit (réglage administrateur, désactivé par défaut).
   final bool photoTerminal;
 
+  /// Bouton « Ajouter une photo » visible directement pour le compte ADMINISTRATEUR dans la fiche produit
+  /// (activé par défaut ; l'administrateur peut le masquer : Réglages › Images des produits).
+  final bool photoAdmin;
+
   static const int cacheMoDefaut = 500;
   static const int cacheMoMin = 50;
   static const int cacheMoMax = 4000;
@@ -32,18 +36,21 @@ class ImagesConfig {
     this.cacheMo = cacheMoDefaut,
     this.prechargement = false,
     this.photoTerminal = false,
+    this.photoAdmin = true,
   });
 
-  ImagesConfig copyWith({bool? actif, bool? vignettesVentes, int? cacheMo, bool? prechargement, bool? photoTerminal}) => ImagesConfig(
+  ImagesConfig copyWith({bool? actif, bool? vignettesVentes, int? cacheMo, bool? prechargement, bool? photoTerminal, bool? photoAdmin}) =>
+      ImagesConfig(
         actif: actif ?? this.actif,
         vignettesVentes: vignettesVentes ?? this.vignettesVentes,
         cacheMo: (cacheMo ?? this.cacheMo).clamp(cacheMoMin, cacheMoMax),
         prechargement: prechargement ?? this.prechargement,
         photoTerminal: photoTerminal ?? this.photoTerminal,
+        photoAdmin: photoAdmin ?? this.photoAdmin,
       );
 
   Map<String, dynamic> toJson() =>
-      {'actif': actif, 'vignettesVentes': vignettesVentes, 'cacheMo': cacheMo, 'prechargement': prechargement, 'photoTerminal': photoTerminal};
+      {'actif': actif, 'vignettesVentes': vignettesVentes, 'cacheMo': cacheMo, 'prechargement': prechargement, 'photoTerminal': photoTerminal, 'photoAdmin': photoAdmin};
 
   static ImagesConfig fromJson(Map<String, dynamic> j) => ImagesConfig(
         actif: j['actif'] != false,
@@ -51,6 +58,8 @@ class ImagesConfig {
         cacheMo: ((j['cacheMo'] as num?)?.toInt() ?? cacheMoDefaut).clamp(cacheMoMin, cacheMoMax),
         prechargement: j['prechargement'] == true,
         photoTerminal: j['photoTerminal'] == true,
+        // Absent (réglages enregistrés avant cette version) : activé.
+        photoAdmin: j['photoAdmin'] != false,
       );
 }
 

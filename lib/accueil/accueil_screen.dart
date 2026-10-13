@@ -406,6 +406,77 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     _rechercher(visibles, code: code);
   }
 
+  // ---------------------------------------------------------------------------
+  // Favoris : appui long sur un menu → Ajouter aux favoris / Retirer des favoris (4 au plus)
+  // ---------------------------------------------------------------------------
+  void _info(String texte) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(texte)));
+  }
+
+  /// Ajoute ou retire [m] des favoris (clé accueil_favoris_v1) ; limite [AccueilFavoris.max] expliquée.
+  Future<void> _basculerFavori(AccueilMenu m) async {
+    final f = List.of(_favoris);
+    final String texte;
+    if (f.remove(m.id)) {
+      texte = '« ${m.short} » retiré des favoris.';
+    } else if (f.length >= AccueilFavoris.max) {
+      _info('${AccueilFavoris.max} favoris au maximum : retirez d\'abord un favori (appui long dessus) pour ajouter « ${m.short} ».');
+      return;
+    } else {
+      f.add(m.id);
+      texte = '« ${m.short} » ajouté aux favoris.';
+    }
+    setState(() => _favoris = f);
+    await AccueilFavoris.save(f);
+    if (mounted) _info(texte);
+  }
+
+  /// Appui long sur une tuile / une ligne de menu : favoris (et organisation de l'accueil).
+  Future<void> _appuiLong(AccueilMenu m) async {
+    if (!accueilMenuById.containsKey(m.id)) return; // menu réservé (borne) : pas de favori
+    HapticFeedback.selectionClick();
+    final favori = _favoris.contains(m.id);
+    final plein = !favori && _favoris.length >= AccueilFavoris.max;
+    final choix = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+            child: Row(children: [
+              Icon(m.icon, color: m.color),
+              const SizedBox(width: 10),
+              Expanded(child: Text(m.label, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Pal.navy))),
+            ]),
+          ),
+          ListTile(
+            key: const Key('favori_basculer'),
+            minTileHeight: 56,
+            leading: Icon(favori ? Icons.star : Icons.star_border, color: Pal.amber),
+            title: Text(favori ? 'Retirer des favoris' : 'Ajouter aux favoris'),
+            subtitle: Text(plein
+                ? 'Déjà ${AccueilFavoris.max} favoris (maximum) : retirez-en un d\'abord'
+                : 'Favoris : ${_favoris.length}/${AccueilFavoris.max}'),
+            onTap: () => Navigator.of(ctx).pop('favori'),
+          ),
+          ListTile(
+            minTileHeight: 56,
+            leading: const Icon(Icons.dashboard_customize, color: Pal.navy),
+            title: const Text('Organiser l\'accueil…'),
+            subtitle: const Text('Ordre, favoris, menus masqués (code administrateur)'),
+            onTap: () => Navigator.of(ctx).pop('organiser'),
+          ),
+        ]),
+      ),
+    );
+    if (!mounted) return;
+    if (choix == 'favori') await _basculerFavori(m);
+    if (choix == 'organiser') await _organiser();
+  }
+
   Future<void> _organiser() async {
     await _push(OrganiserAccueilScreen(askPin: widget.askPin));
   }
@@ -540,7 +611,8 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     final settings = Provider.of<SettingsProvider>(context);
     final visibles = _visibles(settings);
     final idsVisibles = visibles.map((m) => m.id).toSet();
-    final familles = menusByFamille(settings.menuOrder, settings.menusMasques);
+    // « Borne / vente discrète » ajoutée au groupe Ventes pour l'administrateur.
+    final familles = avecMenusAdmin(menusByFamille(settings.menuOrder, settings.menusMasques), admin: _estAdmin);
     final taches = _taches(context, idsVisibles);
     final nb = _nombreTaches(taches);
 
@@ -560,14 +632,17 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _tab != 0) setState(() => _tab = 0);
       },
-      child: Scaffold(
+      // Charte bleu nuit / ambre : barre du bas, menus ⋮, dialogues (au lieu du lavande Material par défaut).
+      child: Theme(
+        data: themeCharte(Theme.of(context)),
+        child: Scaffold(
         resizeToAvoidBottomInset: false,
         backgroundColor: style == ListPresentation.compact && _tab == 0 ? Colors.white : Pal.page,
         body: corps,
         bottomNavigationBar: NavigationBar(
+          key: const Key('accueil_barre_bas'),
           height: 64,
           selectedIndex: _tab == 0 ? 0 : 2,
-          indicatorColor: const Color(0xFFDCE6F2),
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           onDestinationSelected: (i) {
             switch (i) {
@@ -595,6 +670,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
             const NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Réglages'),
           ],
         ),
+      ),
       ),
     );
   }
@@ -949,6 +1025,13 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
               children: [for (final m in favoris) _tuileFavori(m)],
             ),
           ),
+        ] else if (visibles.isNotEmpty) ...[
+          _titreSection('Favoris'),
+          Padding(
+            padding: side,
+            child: const Text('Aucun favori : appui long sur un menu ci-dessous › « Ajouter aux favoris » (4 au plus).',
+                key: Key('favoris_aide'), style: TextStyle(color: Pal.muted, fontSize: 13)),
+          ),
         ],
         for (final f in MenuFamille.values)
           if (familles[f]!.isNotEmpty) ...[
@@ -980,8 +1063,10 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
+        key: ValueKey('favori_${m.id}'),
         borderRadius: BorderRadius.circular(16),
         onTap: () => _ouvrir(m),
+        onLongPress: () => _appuiLong(m),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10),
           child: Row(children: [
@@ -1011,8 +1096,10 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
+          key: ValueKey('tuile_${m.id}'),
           borderRadius: BorderRadius.circular(14),
           onTap: () => _ouvrir(m),
+          onLongPress: () => _appuiLong(m),
           child: Stack(children: [
             Positioned.fill(
               child: Padding(
@@ -1083,6 +1170,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
                     nombre: _pastilles[m.id],
                     protege: m.protege,
                     onTap: () => _ouvrir(m),
+                    onLongPress: () => _appuiLong(m),
                   ),
               ],
             const SizedBox(height: 24),
@@ -1101,9 +1189,11 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     bool protege = false,
     bool erreur = false,
     required VoidCallback? onTap,
+    VoidCallback? onLongPress,
   }) =>
       InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Container(
           constraints: const BoxConstraints(minHeight: 56),
           padding: EdgeInsets.symmetric(horizontal: 16 + _inset, vertical: 8),
@@ -1217,6 +1307,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
                       nombre: _pastilles[m.id],
                       protege: m.protege,
                       onTap: () => _ouvrir(m),
+                      onLongPress: () => _appuiLong(m),
                     ),
                 ]),
               ),

@@ -27,6 +27,7 @@ import 'package:prestige_vente_app/screens/ajustement/ajustement_screen.dart';
 import 'package:prestige_vente_app/screens/prescription/prescription_check_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/pointage_home_screen.dart';
 import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
+import 'package:prestige_vente_app/borne/borne_reglages_page.dart';
 
 /// Familles de l'accueil, dans l'ordre d'affichage.
 /// La Caisse est rangée dans « Ventes » (retour client) : les familles ne sont pas enregistrées
@@ -110,6 +111,27 @@ final List<AccueilMenu> accueilMenus = [
 ];
 
 final Map<String, AccueilMenu> accueilMenuById = {for (final m in accueilMenus) m.id: m};
+
+/// « Borne / vente discrète » (B1/B2) : entrée du groupe Ventes réservée au compte administrateur, qui ouvre
+/// la configuration de la borne (Réglages › Borne libre-service : activation sur CET appareil, désactivée par
+/// défaut — rien n'est activé automatiquement). Protégée par le code administrateur, comme la rubrique des
+/// réglages. Hors de [accueilMenus] : pas d'ordre, de masquage ni de favori (menus d'origine inchangés).
+final AccueilMenu menuBorneAdmin = AccueilMenu(
+  id: 'borne_admin',
+  label: 'Borne / vente discrète',
+  short: 'Borne',
+  icon: Icons.storefront,
+  color: Colors.indigo.shade700,
+  famille: MenuFamille.ventes,
+  protege: true,
+  screen: () => const BornePage(),
+);
+
+/// Familles affichées : [menuBorneAdmin] ajouté en fin du groupe Ventes pour l'administrateur.
+Map<MenuFamille, List<AccueilMenu>> avecMenusAdmin(Map<MenuFamille, List<AccueilMenu>> familles, {required bool admin}) {
+  if (!admin) return familles;
+  return {for (final e in familles.entries) e.key: e.key == MenuFamille.ventes ? [...e.value, menuBorneAdmin] : e.value};
+}
 
 /// Ordre complet des menus : d'abord l'ordre enregistré, puis les menus absents (ordre par défaut).
 List<AccueilMenu> orderedMenus(List<String> savedOrder) {

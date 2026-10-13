@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/accueil/accueil_menus.dart';
 import 'package:prestige_vente_app/accueil/fiche_produit_screen.dart';
 import 'package:prestige_vente_app/images/produit_image_widget.dart';
+import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
@@ -111,7 +112,7 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
     final q = SearchQuery.clean(_controller.text);
     setState(() => _menus = chercherMenus(q, widget.menus));
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), _lancer);
+    _debounce = Timer(const Duration(milliseconds: 350), _lancer); // anti-rebond (la recherche précédente est annulée)
   }
 
   Future<void> _lancer() async {
@@ -350,9 +351,12 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
         onTap: () => _ouvrirProduit(p),
         child: SoftCard(
           child: Row(children: [
-            // B2 : image du produit si le serveur en a une (rien sinon : affichage inchangé).
+            // B2 : image du produit si elle est déjà dans le cache de l'appareil (rien sinon : affichage inchangé).
+            // Pas de requête d'image par résultat pendant la frappe (lenteur de la recherche, retour vidéo) :
+            // seulement si « Vignettes dans les listes » est activé (Réglages › Images des produits).
             ProduitImage(
               familleId: p.lgFAMILLEID,
+              charger: ImagesReglages.courant.value.vignettesVentes,
               taille: 48,
               rayon: BorderRadius.circular(10),
               placeholder: const SizedBox.shrink(),

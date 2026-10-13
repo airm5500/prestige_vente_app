@@ -1,5 +1,7 @@
 // lib/api/api_service.dart
 // 10/11/2025 09:00 (Ajout updateClientAssurance)
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -80,14 +82,13 @@ class ApiService {
   Future<List<ProductDetails>> searchProductFiche(String query) async { try { final response = await _dio.get( '/produit-search/fiche', queryParameters: { 'search_value': query, 'page': 1, 'start': 0, 'limit': 20 }, ); if (response.statusCode == 200 && response.data['results'] is List) { return (response.data['results'] as List).map((item) => ProductDetails.fromJson(item)).toList(); } return []; } catch (e) { print("Error in searchProductFiche: $e"); return []; } }
   Future<List<ProductOrderHistory>> getProductOrderHistory(String productId, String dtStart, String dtEnd) async { try { final response = await _dio.get( '/commande/produit/commande/$productId', queryParameters: { 'dtStart': dtStart, 'dtEnd': dtEnd, 'page': 1, 'start': 0, 'limit': 9999 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((item) => ProductOrderHistory.fromJson(item)).toList(); } return []; } catch (e) { print("Error fetching order history: $e"); return []; } }
   Future<bool> updateExpirationDate(String productId, String newDate) async { print('Mise à jour de la date de péremption pour $productId à $newDate'); await Future.delayed(const Duration(seconds: 1)); return true; }
-  Future<ProductInfo?> getProductInfo(String codeCip) async { try { final response = await _dio.get( '/info', queryParameters: {'search': codeCip}); if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) { return ProductInfo.fromJson(response.data[0]); } return null; } catch (e) { print("Error fetching product info: $e"); return null; } }
+  Future<ProductInfo?> getProductInfo(String codeCip) async { try { final response = await _dio.get( '/info', queryParameters: {'search': codeCip}); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(lignes.first); } return null; } catch (e) { print("Error fetching product info: $e"); return null; } }
   /// Même requête que [getProductInfo], annulable (fiche produit quittée avant la réponse).
   Future<ProductInfo?> getProductInfoAnnulable(String codeCip, CancelToken cancelToken) async {
     try {
       final response = await _dio.get('/info', queryParameters: {'search': codeCip}, cancelToken: cancelToken);
-      if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) {
-        return ProductInfo.fromJson(response.data[0]);
-      }
+      final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null;
+      if (lignes != null && lignes.isNotEmpty) return ProductInfo.fromJson(lignes.first);
       return null;
     } catch (_) {
       return null;
@@ -127,8 +128,8 @@ class ApiService {
   Future<List<Rayon>> getRayons() async { try { final response = await _dio.get( '/common/rayons', queryParameters: { 'query': '', 'page': 1, 'start': 0, 'limit': 9999 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((r) => Rayon.fromJson(r)).toList(); } return []; } catch (e) { print("Error fetching rayons: $e"); return []; } }
   Future<bool> updateLiteInfo(Map<String, dynamic> data) async { try { final response = await _dio.post( '/fichearticle/produit/update-lite-info', data: data, ); if (response.statusCode == 202) { return true; } if (response.statusCode == 200 && response.data['success'] == true) { return true; } return false; } on DioException catch (e) { if (e.response?.statusCode == 202) return true; print("Error in updateLiteInfo: $e"); return false; } catch (e) { print("Error in updateLiteInfo: $e"); return false; } }
   Future<List<PaymentMethodQr>> getPaymentMethodsWithQr() async { try { final response = await _dio.get( '/modereglement/all', queryParameters: { 'page': 1, 'start': 0, 'limit': 20 }, ); if (response.statusCode == 200 && response.data['data'] is List) { final List data = response.data['data']; final List<PaymentMethodQr> methods = []; for (var item in data) { if (item is Map<String, dynamic>) { methods.add(PaymentMethodQr.fromJson(item)); } } return methods; } return []; } catch (e) { print("Error fetching payment methods with QR: $e"); return []; } }
-  Future<ProductInfo?> getProductInfoForStats(String codeCip) async { try { final response = await _dio.get('/info', queryParameters: { 'search': codeCip }); if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) { return ProductInfo.fromJson(response.data[0]); } return null; } catch (e) { print("Error fetching product info for stats: $e"); return null; } }
-  Future<List<ProductInfo>> searchProductInfoForSearch(String query) async { try { final response = await _dio.get( '/info', queryParameters: { 'search': query }, ); if (response.statusCode == 200 && response.data is List) { return (response.data as List) .map((item) => ProductInfo.fromJson(item)) .toList(); } return []; } catch (e) { print("Error in searchProductInfoForSearch: $e"); return []; } }
+  Future<ProductInfo?> getProductInfoForStats(String codeCip) async { try { final response = await _dio.get('/info', queryParameters: { 'search': codeCip }); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(lignes.first); } return null; } catch (e) { print("Error fetching product info for stats: $e"); return null; } }
+  Future<List<ProductInfo>> searchProductInfoForSearch(String query) async { try { final response = await _dio.get( '/info', queryParameters: { 'search': query }, ); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null) { return lignes.map(ProductInfo.fromJson).toList(); } return []; } catch (e) { print("Error in searchProductInfoForSearch: $e"); return []; } }
   Future<ProductDetails?> getProductDetailsForSearch(String codeCip) async { try { final response = await _dio.get( '/produit-search/fiche', queryParameters: { 'search_value': codeCip, 'page': 1, 'start': 0, 'limit': 1 }, ); if (response.statusCode == 200 && response.data['results'] is List) { final results = response.data['results'] as List; if (results.isNotEmpty) { return ProductDetails.fromJson(results.first); } } return null; } catch (e) { print("Error in getProductDetailsForSearch: $e"); return null; } }
 
   // --- État de Stock : un échec de chargement lève [ApiLoadException] (≠ liste vide) ---
@@ -310,6 +311,8 @@ class ApiService {
     try {
       response = await request();
     } on DioException catch (e) {
+      // Requête remplacée par une plus récente (recherche à chaque frappe) : l'appelant l'ignore.
+      if (e.type == DioExceptionType.cancel) rethrow;
       throw ApiLoadException(_networkMessage(e, what));
     } catch (e) {
       throw ApiLoadException('Impossible de charger les $what : $e');
@@ -362,7 +365,8 @@ class ApiService {
   Future<ProductPage> searchProductsPageOrFail(String query, int start, int limit) async {
     final (items, body) = await _loadListWithBody(
       'produits',
-      () => _dio.get('/vente/search', queryParameters: {'query': query, 'page': start ~/ limit + 1, 'start': start, 'limit': limit}),
+      () => _dio.get('/vente/search',
+          queryParameters: {'query': query, 'page': start ~/ limit + 1, 'start': start, 'limit': limit}, cancelToken: jetonDeLaZone()),
       ProductSearchResult.fromJson,
     );
     final total = int.tryParse('${body['total'] ?? ''}');
@@ -916,23 +920,84 @@ class ApiService {
   // Dans lib/api/api_service.dart
 
   // Analyse Article
-  Future<List<ArticleAnalysis>> fetchArticleAnalysis(String query) async {
-    try {
-      return await fetchArticleAnalysisOrFail(query);
-    } catch (e) {
-      print("Erreur fetchArticleAnalysis: $e");
-      return [];
+  /// Lignes de GET /info (menu Analyse article). Un échec lève [ApiLoadException] avec sa cause précise
+  /// (l'ancienne version renvoyait une liste vide : l'écran n'affichait alors RIEN, sans erreur).
+  /// Requête annulable par le jeton de la zone ([avecJeton]) : la recherche d'une frappe plus récente
+  /// remplace celle-ci.
+  Future<List<ArticleAnalysis>> fetchArticleAnalysis(String query) => fetchArticleAnalysisOrFail(query, cancelToken: jetonDeLaZone());
+
+  /// Délai maximal d'une lecture de GET /info, quoi qu'il arrive (au-delà : erreur affichée, jamais un
+  /// squelette ou une roue sans fin). Remplaçable dans les tests.
+  static Duration delaiInfo = const Duration(seconds: 30);
+
+  /// Clé de zone du jeton d'annulation des recherches (voir [avecJeton]).
+  static const Symbol cleJeton = #prestigeJetonAnnulation;
+
+  /// Exécute [f] avec [jeton] : les requêtes de recherche lancées dedans ([searchProductsPageOrFail],
+  /// [fetchArticleAnalysis]) sont abandonnées quand le jeton est annulé (frappe suivante).
+  static Future<T> avecJeton<T>(CancelToken jeton, Future<T> Function() f) => runZoned(f, zoneValues: {cleJeton: jeton});
+
+  /// Jeton d'annulation posé par [avecJeton] (null : requête non annulable).
+  static CancelToken? jetonDeLaZone() {
+    final j = Zone.current[cleJeton];
+    return j is CancelToken ? j : null;
+  }
+
+  /// Lignes de GET /info quelle que soit la forme de la réponse : liste directe (forme actuelle du serveur),
+  /// objet paginé `{data: […]}` (ou `results`, `items`, `rows`, `content`), texte JSON non décodé.
+  /// Les éléments qui ne sont pas des objets sont ignorés. null : réponse illisible (texte, HTML, objet sans liste).
+  static List<Map<String, dynamic>>? lignesInfo(dynamic data) {
+    var d = data;
+    if (d == null) return const [];
+    if (d is String) {
+      final t = d.trim();
+      if (t.isEmpty) return const [];
+      try {
+        d = jsonDecode(t);
+      } catch (_) {
+        return null;
+      }
     }
+    if (d is Map) {
+      final liste = d['data'] ?? d['results'] ?? d['items'] ?? d['rows'] ?? d['content'];
+      if (liste == null) {
+        // {total: 0} / {success: true, data: null} : aucune ligne.
+        final total = d['total'];
+        if ((total is num && total == 0) || (d.containsKey('data') && d['success'] != false)) return const [];
+        return null;
+      }
+      d = liste;
+    }
+    if (d is! List) return null;
+    return [for (final e in d) if (e is Map) Map<String, dynamic>.from(e)];
+  }
+
+  /// Corps d'une réponse qui ressemble au message / à la page de connexion du serveur
+  /// (« Veuillez vous connecter », page HTML de connexion) : session expirée.
+  static bool ressembleSessionExpiree(dynamic data) {
+    if (data is! String) return false;
+    final t = data.toLowerCase();
+    return t.contains('vous connecter') || (t.contains('<html') && (t.contains('login') || t.contains('connexion')));
   }
 
   /// Même requête et même lecture que [fetchArticleAnalysis] (GET /info?search=…, menu Analyse article),
-  /// mais un échec lève [ApiLoadException] avec sa cause précise (code HTTP, délai, réseau) au lieu
-  /// d'une liste vide ; une requête annulée ([cancelToken]) relance l'exception Dio d'annulation.
+  /// mais un échec lève [ApiLoadException] avec sa cause précise (code HTTP, délai, réseau, session expirée,
+  /// réponse illisible) au lieu d'une liste vide ; une requête annulée ([cancelToken]) relance l'exception Dio
+  /// d'annulation. Lecture tolérante : liste directe ou objet `{data: […]}` ([lignesInfo]).
+  /// Délai maximal [delaiInfo] : jamais d'attente sans fin.
   Future<List<ArticleAnalysis>> fetchArticleAnalysisOrFail(String query, {CancelToken? cancelToken}) async {
     final Response<dynamic> response;
+    final jeton = cancelToken ?? CancelToken();
+    final delai = delaiInfo;
     try {
-      // URL: /info?search=... ; l'API renvoie directement une liste [...]
-      response = await _dio.get('/info', queryParameters: {'search': query}, cancelToken: cancelToken);
+      // Corps lu en TEXTE puis décodé ici ([lignesInfo]) : un corps qui n'est pas du JSON (« Veuillez vous
+      // connecter » d'un 401, page HTML) donne un message précis au lieu d'une erreur de décodage Dio.
+      response = await _dio
+          .get('/info', queryParameters: {'search': query}, cancelToken: jeton, options: Options(responseType: ResponseType.plain))
+          .timeout(delai, onTimeout: () {
+        jeton.cancel('Délai dépassé (GET /info)');
+        throw ApiLoadException('Délai dépassé : pas de réponse du serveur en ${delai.inSeconds} s (GET /info). Réessayez.');
+      });
     } on DioException catch (e) {
       if (e.type == DioExceptionType.cancel) rethrow;
       throw ApiLoadException(analyseErreurMessage(e));
@@ -940,16 +1005,26 @@ class ApiService {
     final code = response.statusCode ?? 0;
     if (code != 200) throw ApiLoadException('Le serveur a répondu HTTP $code (GET /info).');
     final data = response.data;
-    if (data == null) return [];
-    if (data is! List) throw ApiLoadException('Réponse inattendue du serveur (GET /info, HTTP $code) : session expirée ? Reconnectez-vous.');
+    final lignes = lignesInfo(data);
+    if (lignes == null) {
+      if (ressembleSessionExpiree(data)) throw ApiLoadException('Session expirée — reconnectez-vous (GET /info, HTTP $code).');
+      throw ApiLoadException('Réponse illisible du serveur (GET /info, HTTP $code) : ni liste de produits ni objet {data: […]}.');
+    }
     try {
-      return [for (final e in data) ArticleAnalysis.fromJson(Map<String, dynamic>.from(e as Map))];
+      return [for (final e in lignes) ArticleAnalysis.fromJson(e)];
     } catch (e) {
       throw ApiLoadException('Données illisibles (GET /info) : $e');
     }
   }
 
   /// Message précis d'un échec de GET /info : délai (avec sa durée), code HTTP, réseau.
+  static String messageErreurInfo(Object e) {
+    if (e is ApiLoadException) return e.message;
+    if (e is DioException) return analyseErreurMessage(e);
+    if (e is TimeoutException) return 'Délai dépassé : pas de réponse du serveur (GET /info). Réessayez.';
+    return 'Analyse indisponible : $e';
+  }
+
   static String analyseErreurMessage(DioException e) {
     String secondes(Duration? d) => d == null ? '' : ' en ${d.inSeconds} s';
     switch (e.type) {
@@ -960,12 +1035,20 @@ class ApiService {
         return 'Délai dépassé : pas de réponse du serveur${secondes(e.requestOptions.receiveTimeout)} (GET /info).';
       case DioExceptionType.badResponse:
         final code = e.response?.statusCode ?? 0;
-        if (code == 401 || code == 403) return 'Session expirée ou accès refusé (HTTP $code, GET /info). Reconnectez-vous.';
+        if (code == 401 || (code == 403 && ressembleSessionExpiree(e.response?.data))) {
+          return 'Session expirée — reconnectez-vous (HTTP $code, GET /info).';
+        }
+        if (code == 403) return 'Accès refusé (HTTP 403, GET /info).';
         return 'Le serveur a répondu HTTP $code (GET /info).';
       case DioExceptionType.connectionError:
         return 'Serveur injoignable (GET /info). Vérifiez le Wi-Fi ou les données mobiles.';
       default:
         if (e.error is SocketException) return 'Serveur injoignable (GET /info). Vérifiez le Wi-Fi ou les données mobiles.';
+        if (e.error is FormatException) {
+          final code = e.response?.statusCode;
+          if (code == 401 || ressembleSessionExpiree(e.response?.data)) return 'Session expirée — reconnectez-vous (GET /info).';
+          return 'Réponse illisible du serveur (GET /info${code == null ? '' : ', HTTP $code'}).';
+        }
         return 'Échec de GET /info : ${e.message ?? e.type.name}.';
     }
   }

@@ -157,7 +157,7 @@ class _OrganiserAccueilScreenState extends State<OrganiserAccueilScreen> {
     return Scaffold(
       backgroundColor: Pal.page,
       body: Column(children: [
-        const NavyHeader(title: 'Organiser l\'accueil', subtitle: 'Glisser pour ordonner · ★ favori · œil : masquer'),
+        const NavyHeader(title: 'Organiser l\'accueil', subtitle: 'Glisser pour ordonner · ★ favori (4 max) · œil : masquer'),
         Expanded(
           child: ContentWidth(
             child: !_authorized || !_favorisCharges
@@ -167,7 +167,7 @@ class _OrganiserAccueilScreenState extends State<OrganiserAccueilScreen> {
                     if (_favoris.isEmpty)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Text('Aucun favori : touchez l\'étoile d\'un menu.', style: TextStyle(color: Pal.muted)),
+                        child: Text('Aucun favori : touchez l\'étoile d\'un menu (ou appui long sur un menu de l\'accueil).', style: TextStyle(color: Pal.muted)),
                       )
                     else
                       _liste(

@@ -45,13 +45,24 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
     super.dispose();
   }
 
+  /// Anti-rebond des frappes : la recherche part [rebond] après la dernière frappe ; chaque recherche
+  /// annule la précédente (une seule requête GET /info en vol, ArticleAnalysisProvider).
+  static const rebond = Duration(milliseconds: 350);
+
   void _onSearchChanged(String query) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      final q = query.trim();
-      if (q.length >= 2) {
-        Provider.of<ArticleAnalysisProvider>(context, listen: false).searchArticles(q);
-      }
+    final q = query.trim();
+    final provider = Provider.of<ArticleAnalysisProvider>(context, listen: false);
+    if (q.length < 2) {
+      // Moins de 2 caractères : rien n'est envoyé, la recherche en cours est abandonnée.
+      if (provider.query.isNotEmpty || provider.isLoading) provider.clear();
+      return;
+    }
+    _debounce = Timer(rebond, () {
+      if (!mounted) return;
+      // Même texte déjà affiché (ex. espace ajouté puis retiré) : pas de nouvelle requête.
+      if (q == provider.query && provider.error == null && !provider.isLoading) return;
+      provider.searchArticles(q);
     });
   }
 
@@ -66,6 +77,7 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
   // Affichage : A · Tableau de bord, B · Liste groupée, C · Parcours guidé
   // ---------------------------------------------------------------------------
   void _clear() {
+    _debounce?.cancel();
     _searchCtrl.clear();
     Provider.of<ArticleAnalysisProvider>(context, listen: false).clear();
   }
@@ -98,10 +110,50 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
         ),
       );
 
-  /// Résultats (même source de données pour les trois présentations).
+  /// Message centré (aucun résultat, erreur) avec action facultative.
+  Widget _message(Key key, IconData icon, Color color, String texte, {String? detail, VoidCallback? action}) => Center(
+        key: key,
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 52, color: color),
+            const SizedBox(height: 10),
+            Text(texte, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink, fontSize: 15)),
+            if (detail != null) ...[
+              const SizedBox(height: 6),
+              Text(detail, textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted, fontSize: 13)),
+            ],
+            if (action != null) ...[
+              const SizedBox(height: 14),
+              ElevatedButton.icon(style: navyButton, onPressed: action, icon: const Icon(Icons.refresh), label: const Text('Réessayer')),
+            ],
+          ]),
+        ),
+      );
+
+  /// Résultats (même source de données pour les trois présentations) : jamais « rien » — chargement,
+  /// résultats, aucun produit, ou erreur précise avec Réessayer.
   Widget _results(Widget Function(List<ArticleAnalysis> items) builder) => Consumer<ArticleAnalysisProvider>(
         builder: (context, provider, child) {
-          if (provider.isLoading) return const Center(child: CircularProgressIndicator());
+          if (provider.isLoading) {
+            return Center(
+              key: const ValueKey('analyse-chargement'),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 12),
+                Text('Recherche de « ${provider.query} »…', style: const TextStyle(color: Pal.muted)),
+              ]),
+            );
+          }
+          if (provider.error != null) {
+            return _message(const ValueKey('analyse-erreur'), Icons.cloud_off, const Color(0xFFB45309), 'Analyse non chargée',
+                detail: provider.error, action: provider.reessayer);
+          }
+          if (provider.aucunResultat) {
+            return _message(const ValueKey('analyse-aucun'), Icons.search_off, Pal.muted,
+                'Aucun produit dont le nom ou le CIP commence par « ${provider.query} »',
+                detail: 'Vérifiez l\'orthographe ou saisissez le début du nom.');
+          }
           if (provider.results.isEmpty) return _emptyState();
           return builder(provider.results);
         },

@@ -123,6 +123,14 @@ class _ImagesPageState extends State<ImagesPage> {
           value: c.photoTerminal,
           onChanged: (v) => _set(c.copyWith(photoTerminal: v)),
         ),
+        SwitchListTile(
+          key: const ValueKey('images-photo-admin'),
+          title: const Text('« Ajouter une photo » pour l\'administrateur'),
+          subtitle: const Text('Bouton visible directement dans la fiche produit du compte administrateur '
+              '(prise de vue, recadrage, compression, envoi au serveur). Activé par défaut.'),
+          value: c.photoAdmin,
+          onChanged: (v) => _set(c.copyWith(photoAdmin: v)),
+        ),
       ]),
     );
     return RubriquePage(title: 'Images des produits', subtitle: imagesSummary(c), children: [card]);

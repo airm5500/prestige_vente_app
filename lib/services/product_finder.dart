@@ -7,6 +7,7 @@
 // - un TEXTE donne une liste par pages : « 50 sur 120 », la suite se charge à la demande ;
 // - une panne (réseau, session, serveur) n'est jamais annoncée comme « produit introuvable » ;
 // - le texte suit le réglage « Commence par » / « Contient » (lib/services/search_mode.dart), jamais un code.
+import 'package:dio/dio.dart' show CancelToken, DioException, DioExceptionType;
 import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
@@ -17,9 +18,14 @@ import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
 /// Recherche par pages sur l'[ApiService], au format attendu par [ProductLookup] / [ProductPager].
 /// Hors ligne : copie locale du catalogue (lib/horsligne/) ; en ligne : inchangé.
-ProductPageSearch apiPageSearch(ApiService api) => offlineAware((query, start, limit) async {
+/// [jeton] : requêtes abandonnées quand il est annulé (recherche remplacée par la frappe suivante).
+ProductPageSearch apiPageSearch(ApiService api, {CancelToken? jeton}) => offlineAware((query, start, limit) async {
       try {
-        return VenteOk(await api.searchProductsPageOrFail(query, start, limit));
+        Future<ProductPage> f() => api.searchProductsPageOrFail(query, start, limit);
+        return VenteOk(await (jeton == null ? f() : ApiService.avecJeton(jeton, f)));
+      } on DioException catch (e) {
+        if (e.type == DioExceptionType.cancel) return const VenteFailed('Recherche remplacée');
+        return VenteFailed('Recherche impossible : ${e.message ?? e.type.name}');
       } on ApiLoadException catch (e) {
         return VenteFailed(e.message);
       } catch (e) {
@@ -46,6 +52,27 @@ class PagedProductSearch {
   ProductPager? _pager;
   List<ProductSearchResult> _items = const [];
   int _seq = 0;
+
+  /// Requête de la recherche en cours : annulée par la recherche suivante (une seule en vol).
+  CancelToken? _jeton;
+
+  /// Diagnostic (tests) : recherches abandonnées car remplacées.
+  int annulees = 0;
+
+  /// Annule la recherche en vol et renvoie le jeton de la nouvelle.
+  CancelToken _nouveauJeton() {
+    _annuler();
+    return _jeton = CancelToken();
+  }
+
+  void _annuler() {
+    final j = _jeton;
+    _jeton = null;
+    if (j != null && !j.isCancelled) {
+      annulees++;
+      j.cancel('Recherche remplacée');
+    }
+  }
 
   /// Dernière saisie recherchée.
   String query = '';
@@ -87,12 +114,16 @@ class PagedProductSearch {
     final q = raw.trim();
     _reset();
     query = q;
-    if (q.isEmpty) return true;
-    final search = apiPageSearch(_api());
+    if (q.isEmpty) {
+      _annuler();
+      return true;
+    }
+    final search = apiPageSearch(_api(), jeton: _nouveauJeton());
     if (asCode ?? ProductLookup.looksLikeCode(q)) {
       byCode = true;
       final r = await ProductLookup.byCode(q, search);
       if (seq != _seq) return false;
+      _jeton = null; // terminée : plus rien à annuler
       if (r is! VenteOk<CodeLookup>) {
         error = r.message;
         return true;
@@ -105,6 +136,7 @@ class PagedProductSearch {
     final pager = ProductPager(search, q, mode: modeFor(q));
     final ok = await pager.loadMore();
     if (seq != _seq) return false;
+    _jeton = null; // terminée : plus rien à annuler
     if (!ok) {
       error = pager.error;
       return true;
@@ -122,7 +154,7 @@ class PagedProductSearch {
     byCode = true;
     query = codes.isEmpty ? '' : codes.first;
     if (codes.isEmpty) return true;
-    final search = apiPageSearch(_api());
+    final search = apiPageSearch(_api(), jeton: _nouveauJeton());
     final candidates = <String, ProductSearchResult>{};
     String? failure;
     for (final code in codes) {
@@ -183,6 +215,7 @@ class PagedProductSearch {
   /// Efface les résultats (et ignore une recherche encore en cours).
   void clear() {
     _seq++;
+    _annuler();
     _reset();
   }
 }

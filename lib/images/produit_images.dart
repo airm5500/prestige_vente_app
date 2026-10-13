@@ -506,12 +506,19 @@ class ProduitImages extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   /// Envoie la photo (image principale) ; refusée sans le droit « modifiable ».
-  Future<VenteResult<String>> ajouterPhoto(String familleId, Uint8List jpeg) async {
-    if (!ImagesReglages.courant.value.photoTerminal) return const VenteRefused('Ajout de photo désactivé (Réglages).');
+  /// [admin] : compte administrateur (bouton « Ajouter une photo » visible directement, réglage photoAdmin).
+  Future<VenteResult<String>> ajouterPhoto(String familleId, Uint8List jpeg, {bool admin = false}) async {
+    final c = ImagesReglages.courant.value;
+    if (!c.photoTerminal && !(admin && c.photoAdmin)) return const VenteRefused('Ajout de photo désactivé (Réglages).');
     if (api == null || horsLigne()) return const VenteFailed('Serveur injoignable : photo non envoyée.');
     if (_modifiable[familleId] != true) {
       final l = await api!.lister(familleId);
       if (l case VenteOk(value: final v?)) _modifiable[familleId] = v.modifiable;
+      if (l case VenteOk(value: null)) {
+        _capacite = CapaciteImages.non;
+        _capaciteAt = clock();
+        return const VenteRefused('Ce serveur ne gère pas les images des produits.');
+      }
     }
     if (_modifiable[familleId] != true) return const VenteRefused('Vous n\'avez pas le droit de modifier les images des produits.');
     final r = await api!.ajouter(familleId, jpeg);

@@ -66,7 +66,7 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> with Presenta
     if (_searchController.text == _lastText) return;
     _lastText = _searchController.text;
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), _runSearch);
+    _debounce = Timer(const Duration(milliseconds: 350), _runSearch); // anti-rebond (la recherche précédente est annulée)
   }
 
   void _submitSearch() {

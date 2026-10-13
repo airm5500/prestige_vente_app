@@ -1,17 +1,23 @@
 // lib/images/photo_produit.dart
-// B2 — « Photo du produit » depuis la fiche produit (CACHÉ derrière un réglage administrateur, désactivé
-// par défaut, en attendant les précisions du client) : capture guidée existante, recadrage carré centré,
+// B2 — Photo d'un produit depuis la fiche produit : capture guidée existante, recadrage carré centré,
 // réduction à 1024 px, compression JPEG, puis envoi (POST /produit-images/{f}, image principale).
-// Visible seulement si l'utilisateur a le droit (champ « modifiable » de la liste du serveur) et en ligne.
+// - Compte ADMINISTRATEUR (AuthProvider.isAdmin) : bouton « Ajouter une photo » visible directement (retour
+//   client : la fonction était introuvable), sauf si le serveur ne gère pas les images, hors ligne, ou si
+//   l'administrateur l'a masqué (Réglages › Images des produits, activé par défaut).
+// - Autres comptes : inchangé — « Photo du produit » derrière le réglage photoTerminal (désactivé par défaut)
+//   et le droit du serveur (champ « modifiable » de la liste des images).
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import 'package:prestige_vente_app/providers/auth_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:prestige_vente_app/images/produit_images.dart';
 import 'package:prestige_vente_app/screens/common/guided_capture_screen.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 /// Recadrage carré centré, côté ≤ [cote] px, JPEG qualité [qualite] (null : image illisible).
 Uint8List? preparerPhoto(Uint8List octets, {int cote = 1024, int qualite = 85}) {
@@ -41,7 +47,10 @@ class PhotoProduitBouton extends StatefulWidget {
 
   /// Capture (tests) ; sinon capture guidée.
   final Future<Uint8List?> Function(BuildContext)? capturer;
-  const PhotoProduitBouton({super.key, required this.familleId, this.images, this.capturer});
+
+  /// Compte administrateur (tests) ; sinon AuthProvider.isAdmin (faux sans AuthProvider).
+  final bool? admin;
+  const PhotoProduitBouton({super.key, required this.familleId, this.images, this.capturer, this.admin});
 
   @override
   State<PhotoProduitBouton> createState() => _PhotoProduitBoutonState();
@@ -87,7 +96,7 @@ class _PhotoProduitBoutonState extends State<PhotoProduitBouton> {
         } catch (_) {}
       }
       if (jpeg == null || !mounted) return;
-      final r = await _s.ajouterPhoto(widget.familleId, jpeg);
+      final r = await _s.ajouterPhoto(widget.familleId, jpeg, admin: _estAdmin(listen: false));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         backgroundColor: r.isOk ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
@@ -98,14 +107,35 @@ class _PhotoProduitBoutonState extends State<PhotoProduitBouton> {
     }
   }
 
+  bool _estAdmin({bool listen = true}) {
+    if (widget.admin != null) return widget.admin!;
+    try {
+      return Provider.of<AuthProvider>(context, listen: listen).isAdmin;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = ImagesReglages.courant.value;
-    if (!c.actif || !c.photoTerminal || _s.modifiable(widget.familleId) != true || _s.horsLigne()) return const SizedBox.shrink();
+    if (!c.actif || _s.horsLigne()) return const SizedBox.shrink();
+    final enCours = _envoi ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : null;
+    // Administrateur : visible directement (sauf serveur sans images, droit refusé par le serveur, ou masqué).
+    if (_estAdmin() && c.photoAdmin && _s.capacite != CapaciteImages.non && _s.modifiable(widget.familleId) != false) {
+      return ElevatedButton.icon(
+        key: const ValueKey('photo-produit-admin'),
+        style: navyButton,
+        onPressed: _envoi ? null : _photo,
+        icon: enCours ?? const Icon(Icons.add_a_photo),
+        label: const Text('Ajouter une photo'),
+      );
+    }
+    if (!c.photoTerminal || _s.modifiable(widget.familleId) != true) return const SizedBox.shrink();
     return OutlinedButton.icon(
       key: const ValueKey('photo-produit'),
       onPressed: _envoi ? null : _photo,
-      icon: _envoi ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.photo_camera),
+      icon: enCours ?? const Icon(Icons.photo_camera),
       label: const Text('Photo du produit'),
     );
   }

@@ -76,6 +76,41 @@ final ButtonStyle outlineButton = OutlinedButton.styleFrom(
   textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
 );
 
+/// Thème de la charte (bleu nuit / ambre) pour les écrans du nouvel accueil et des réglages : barre de
+/// navigation du bas, menus ⋮, fenêtres de dialogue, feuilles du bas et boutons — au lieu des teintes
+/// lavande de Material 3 par défaut. Tailles et polices inchangées (mise en page identique) : seules
+/// les couleurs changent. S'applique au sous-arbre (et aux dialogues / menus ouverts depuis lui).
+ThemeData themeCharte(ThemeData base) {
+  bool sel(Set<WidgetState> s) => s.contains(WidgetState.selected);
+  return base.copyWith(
+    colorScheme: base.colorScheme.copyWith(primary: Pal.navy, secondary: Pal.amber, surfaceTint: Colors.transparent),
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: Pal.navy,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      indicatorColor: Pal.amber,
+      iconTheme: WidgetStateProperty.resolveWith((s) => IconThemeData(color: sel(s) ? Pal.onAmber : Colors.white, size: 24)),
+      labelTextStyle: WidgetStateProperty.resolveWith(
+          (s) => TextStyle(fontSize: 12, height: 16 / 12, fontWeight: FontWeight.w500, letterSpacing: 0.5, color: sel(s) ? Colors.white : Pal.headerMuted)),
+    ),
+    popupMenuTheme: const PopupMenuThemeData(color: Colors.white, surfaceTintColor: Colors.transparent, iconColor: Pal.navy),
+    dialogTheme: base.dialogTheme.copyWith(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      titleTextStyle: const TextStyle(color: Pal.navy, fontSize: 20, fontWeight: FontWeight.bold),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: Colors.white, modalBackgroundColor: Colors.white, surfaceTintColor: Colors.transparent, dragHandleColor: Color(0xFFC5D0DE)),
+    textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: Pal.navy)),
+    elevatedButtonTheme: ElevatedButtonThemeData(style: ElevatedButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white)),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((s) => sel(s) ? Colors.white : null),
+      trackColor: WidgetStateProperty.resolveWith((s) => sel(s) ? Pal.navy : null),
+    ),
+    progressIndicatorTheme: const ProgressIndicatorThemeData(color: Pal.navy),
+  );
+}
+
 /// Bouton « Présentation » de la barre du haut.
 /// Réservé au compte administrateur (point unique pour tous les écrans) : masqué pour les autres comptes,
 /// qui gardent la présentation choisie par l'administrateur (PresentationPrefs). Sans compte connu
