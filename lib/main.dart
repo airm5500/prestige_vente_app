@@ -36,6 +36,7 @@ import 'package:prestige_vente_app/providers/ajustement_provider.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/connexion/connexion_reglages.dart';
+import 'package:prestige_vente_app/connexion/session_expiree_app.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:prestige_vente_app/images/produit_images.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
@@ -99,7 +100,12 @@ class MyApp extends StatelessWidget {
         ),
 
         ChangeNotifierProxyProvider<ApiService, AuthProvider>(
-          create: (context) => AuthProvider(Provider.of<ApiService>(context, listen: false)),
+          // Session expirée sur le serveur : reconnexion silencieuse ou retour à la connexion (intercepteur Dio global).
+          create: (context) {
+            final auth = AuthProvider(Provider.of<ApiService>(context, listen: false));
+            brancherSessionExpiree(auth);
+            return auth;
+          },
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),
         ),
 

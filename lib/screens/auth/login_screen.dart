@@ -17,15 +17,20 @@ import 'package:prestige_vente_app/utils/constants.dart';
 /// écran d'origine ([AncienLoginScreen], inchangé) quand l'interrupteur InterfaceVersion est désactivé.
 /// Point d'entrée unique : déconnexion (accueils, réglages), licence enregistrée, lancement d'origine.
 class LoginScreen extends StatelessWidget {
-  const LoginScreen({super.key});
+  /// Information affichée sur l'écran de connexion (ex. « Votre session a expiré, reconnectez-vous »).
+  final String? message;
+  const LoginScreen({super.key, this.message});
 
   @override
-  Widget build(BuildContext context) => InterfaceVersion.useNew.value ? const ConnexionEntree() : const AncienLoginScreen();
+  Widget build(BuildContext context) =>
+      InterfaceVersion.useNew.value ? ConnexionEntree(message: message) : AncienLoginScreen(message: message);
 }
 
 /// Écran de connexion d'origine (logique et présentation inchangées).
 class AncienLoginScreen extends StatefulWidget {
-  const AncienLoginScreen({super.key});
+  /// Information affichée à l'ouverture (bandeau du bas), ex. session expirée.
+  final String? message;
+  const AncienLoginScreen({super.key, this.message});
 
   @override
   State<AncienLoginScreen> createState() => _AncienLoginScreenState();
@@ -45,6 +50,12 @@ class _AncienLoginScreenState extends State<AncienLoginScreen> {
   void initState() {
     super.initState();
     _loadPreferences();
+    final m = widget.message;
+    if (m != null && m.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m), duration: const Duration(seconds: 6)));
+      });
+    }
   }
 
   Future<void> _loadPreferences() async {

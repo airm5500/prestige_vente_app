@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
+import 'package:prestige_vente_app/api/session_expiree.dart';
 import 'package:prestige_vente_app/services/identifiants_securises.dart';
 
 enum AuthStatus { Uninitialized, Authenticated, Unauthenticated, Loading }
@@ -49,6 +50,8 @@ class AuthProvider with ChangeNotifier {
         // AJOUT : On stocke le login qui a réussi
         _userLogin = login;
         _status = AuthStatus.Authenticated;
+        // Nouvelle session : les requêtes parties avant sont rejouées, l'expiration est de nouveau surveillée.
+        SessionExpiree.instance.connexionReussie();
         notifyListeners();
         return true;
       } else {
@@ -95,6 +98,7 @@ class AuthProvider with ChangeNotifier {
         // AJOUT : On restaure aussi le login
         _userLogin = savedLogin;
         _status = AuthStatus.Authenticated;
+        SessionExpiree.instance.connexionReussie();
         notifyListeners();
         return true;
       } else {
@@ -108,6 +112,40 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  /// Reconnexion SILENCIEUSE après expiration de la session sur le serveur (lib/api/session_expiree.dart) :
+  /// seulement si « Rester connecté » est actif, que le mot de passe est dans le stockage sûr et qu'il s'agit
+  /// du même compte. Jamais d'exception ; false si impossible ou refusée.
+  Future<bool> reconnexionSilencieuse() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('stay_connected') != true) return false;
+      final savedLogin = prefs.getString('saved_login');
+      if (savedLogin == null || savedLogin.isEmpty) return false;
+      if (_userLogin != null && _userLogin!.toLowerCase() != savedLogin.toLowerCase()) return false;
+      final motDePasse = await IdentifiantsSecurises.instance.lire();
+      if (motDePasse == null || motDePasse.isEmpty) return false;
+      final user = await _apiService.login(savedLogin, motDePasse);
+      if (user == null) return false;
+      _user = user;
+      _userLogin = savedLogin;
+      _status = AuthStatus.Authenticated;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Session expirée sans reconnexion possible : déconnexion LOCALE (pas d'appel au serveur, « Rester
+  /// connecté » et files hors ligne conservés) avant le retour à l'écran de connexion.
+  void sessionExpiree() {
+    _user = null;
+    _officine = null;
+    _userLogin = null;
+    _status = AuthStatus.Unauthenticated;
+    notifyListeners();
   }
 
   Future<void> loadOfficineInfo() async {

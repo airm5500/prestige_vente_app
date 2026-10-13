@@ -3,6 +3,7 @@
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
+import 'package:prestige_vente_app/api/session_expiree.dart';
 
 class DioClient {
   // On crée une seule instance de CookieJar
@@ -23,6 +24,9 @@ class DioClient {
 
     // On attache le CookieJar unique
     dio.interceptors.add(CookieManager(_cookieJar));
+    // Session expirée (401 « Veuillez vous connecter ») : reconnexion silencieuse et requête rejouée, sinon
+    // retour à l'écran de connexion (lib/api/session_expiree.dart).
+    dio.interceptors.add(IntercepteurSession(dio));
     dio.interceptors.add(LogInterceptor(responseBody: true, requestBody: true));
 
     return dio;
