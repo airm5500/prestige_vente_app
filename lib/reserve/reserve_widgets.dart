@@ -149,7 +149,8 @@ class BandeauSens extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: Text('${sens.fleche} : ${sens.action.toLowerCase()}. Les boîtes sortent du stock ${sens.source}.',
-              style: TextStyle(color: c, fontWeight: FontWeight.w600, fontSize: 13)),
+              // Texte un peu plus foncé que l'icône : contraste ≥ 4,5:1 sur le fond teinté (ANO-05 : 4,47 auparavant).
+              style: TextStyle(color: Color.lerp(c, Colors.black, 0.2), fontWeight: FontWeight.w600, fontSize: 13)),
         ),
       ]),
     );

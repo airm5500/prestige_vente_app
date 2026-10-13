@@ -95,7 +95,8 @@ class _ReserveScreenState extends State<ReserveScreen> {
           const SizedBox(height: 2),
           Text(detail, style: const TextStyle(fontSize: 13, color: Pal.muted)),
           const SizedBox(height: 12),
-          SizedBox(height: 44, child: ElevatedButton(style: navyButton, onPressed: onTap, child: Text(bouton))),
+          // Cible tactile ≥ 48 dp (ANO-04 : 44 dp auparavant).
+          SizedBox(height: 48, child: ElevatedButton(style: navyButton, onPressed: onTap, child: Text(bouton))),
         ]),
       );
 
