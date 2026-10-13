@@ -204,7 +204,7 @@ class CameraFrontalePlateforme implements CameraControle {
     final id = await _cam.createCameraWithSettings(d, const MediaSettings(resolutionPreset: ResolutionPreset.medium, enableAudio: false));
     try {
       final init = _cam.onCameraInitialized(id).first;
-      await _cam.initializeCamera(id, imageFormatGroup: ImageFormatGroup.jpeg);
+      await _cam.initializeCamera(id);
       final e = await init;
       try {
         await _cam.setFlashMode(id, FlashMode.off);
