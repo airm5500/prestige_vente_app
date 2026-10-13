@@ -3,4 +3,6 @@
      d'empreinte du pointage RH) n'est JAMAIS sauvegardé ni restauré sur un autre appareil. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <!-- Photos de contrôle du pointage par badge : gardées sur ce terminal uniquement, jamais sauvegardées. -->
+    <exclude domain="file" path="photos_pointage/" />
 </full-backup-content>

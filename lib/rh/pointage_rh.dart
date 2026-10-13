@@ -11,6 +11,8 @@
 // commun ([AnomalieSourceListe]) ; chaque étape notée dans le journal du terminal.
 // Session Prestige expirée (401) : le pointage n'est JAMAIS perdu — gardé en file, envoyé après reconnexion.
 // Badge inconnu en ligne : la copie des employés est relue (employé créé depuis l'ouverture du terminal).
+// Photo de contrôle (badge, jamais l'empreinte) : prise par la caméra frontale avant l'enregistrement, gardée sur le
+// terminal et liée au pointage par son identifiant (le serveur n'accepte pas de photo) — voir photo_controle.dart.
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -23,6 +25,7 @@ import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
 import 'package:prestige_vente_app/rh/mobile_api.dart';
+import 'package:prestige_vente_app/rh/photo_controle.dart';
 import 'package:prestige_vente_app/rh/rh_api.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/rh/rh_store.dart';
@@ -124,6 +127,9 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
 
   /// Identification sur le terminal (empreinte Sunmi, NFC, coffre des empreintes).
   IdentificationEmploye? identification;
+
+  /// Photo de contrôle au pointage par badge (caméra frontale, registre du terminal) ; null : pas de photo.
+  PhotoControle? photos;
   final DateTime Function() _clock;
 
   /// Le serveur est-il considéré hors ligne ? (surveillance du serveur de l'appli par défaut).
@@ -141,6 +147,7 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     this.serveur,
     this.mobile,
     this.identification,
+    this.photos,
     DateTime Function()? clock,
     bool Function()? horsLigne,
     String Function()? nomTerminal,
@@ -207,6 +214,12 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     _baseUrl = api.dio.options.baseUrl;
     serveur ??= DioRhServeur(() => _baseUrl);
     identification ??= IdentificationEmploye();
+    photos ??= PhotoControle.instance ??= PhotoControle();
+    // Pointages par badge sans photo : signalés dans le rapport d'anomalies commun.
+    final reg = photos!.registre;
+    if (!sourcesAnomaliesCommunes.contains(reg)) sourcesAnomaliesCommunes.add(reg);
+    // Purge automatique des photos au-delà de la durée de conservation (au démarrage, puis à chaque ouverture).
+    unawaited(reg.charger().catchError((_) {}));
     mobile ??= MobileApi(
       transport: DioTransportMobile(() => _baseUrl),
       appareil: appareilMobile,
@@ -559,6 +572,42 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     }
   }
 
+  /// Comme [enregistrer], après la photo de contrôle [photo] (attendue, bornée) ; la photo — ou le marquage
+  /// « sans photo (motif) » — est rangée dans le registre du terminal, liée au pointage. Jamais bloquant.
+  Future<ResultatBadge> enregistrerAvecPhoto(BadgeAConfirmer l, SensPointage sens, {Future<ResultatPhoto>? photo}) async {
+    ResultatPhoto? ph;
+    if (photo != null) {
+      try {
+        ph = await photo.timeout(const Duration(seconds: 20));
+      } catch (_) {
+        ph = const PhotoAbsente(MotifSansPhoto.delaiDepasse);
+      }
+    }
+    final r = await enregistrer(l, sens);
+    final reg = photos?.registre;
+    if (ph != null && reg != null) {
+      try {
+        await reg.ajouter(
+          id: r.pointage.id,
+          employeId: l.employe.id,
+          employeNom: l.employe.nomComplet,
+          lu: r.pointage.lu,
+          sens: sens.label,
+          moyen: l.moyen.label,
+          resultat: ph,
+          envoi: r.pointage.statut.name,
+        );
+      } catch (_) {}
+    }
+    return r;
+  }
+
+  void _majEnvoiPhoto(PointageBadge p) {
+    try {
+      photos?.registre.majEnvoi(p.id, p.statut.name);
+    } catch (_) {}
+  }
+
   Future<ResultatBadge> _mettreEnFile(PointageBadge p0, {String? message}) async {
     final p = PointageBadge.fromJson({...p0.toJson(), 'horsLigne': true});
     await _sauver(p);
@@ -574,17 +623,20 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     if (r.status == 200 && b?['success'] == true) {
       final ok = p.copie(statut: StatutPointageBadge.envoye, message: m);
       if (p.horsLigne) await _sauver(ok);
+      _majEnvoiPhoto(ok);
       _noter(ok, 'Pointage ${p.sens.majuscules} enregistré', ResultatJournal.ok, source: source);
       return ResultatBadge(IssueBadge.enregistre, '${p.sens.label} enregistrée à ${p.heure}.', ok);
     }
     if (estDoublonServeur(m)) {
       final ok = p.copie(statut: StatutPointageBadge.dejaApplique, message: m);
       if (p.horsLigne) await _sauver(ok);
+      _majEnvoiPhoto(ok);
       _noter(ok, 'Pointage ${p.sens.majuscules} déjà enregistré sur le serveur', ResultatJournal.dejaApplique, motif: m, source: source);
       return ResultatBadge(IssueBadge.dejaEnregistre, messageDejaPointe(_prenom(p), p.sens, p.heure), ok);
     }
     final ko = p.copie(statut: StatutPointageBadge.refuse, message: m);
     if (p.horsLigne) await _sauver(ko);
+    _majEnvoiPhoto(ko);
     _noter(ko, 'Pointage ${p.sens.majuscules} refusé', ResultatJournal.refus, motif: m, source: source);
     return ResultatBadge(IssueBadge.refuse, m, ko);
   }
@@ -609,6 +661,7 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
       if (s.contains(p.id) && p.statut == StatutPointageBadge.enAttente) {
         final x = p.copie(statut: StatutPointageBadge.exclu, message: 'Décoché à la confirmation d\'envoi.');
         await _sauver(x);
+        _majEnvoiPhoto(x);
         _noter(x, 'Pointage ${p.sens.majuscules} non envoyé (décoché)', ResultatJournal.info, source: SourceJournal.fileHL);
       }
     }

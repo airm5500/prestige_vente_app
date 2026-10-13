@@ -7,16 +7,22 @@
 //   ayant le droit RH P_SM_RH) ; pour un employé, l'écran ne sert qu'à POINTER (capture), sans analyse.
 // Ce qui n'est pas disponible reste visible mais désactivé, avec l'explication (route absente : 404,
 // module désactivé, droit manquant, hors ligne). Présentations A / B / C et tablette comme les autres écrans.
+// Réglages administrateur du terminal : « Mon pointage » (pointage par simple bouton) peut être désactivé sur un
+// terminal partagé ; « Photos de contrôle » (pointages par badge, sans photo signalés) réservé au gestionnaire,
+// après le code administrateur.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/rh/mobile_api.dart';
 import 'package:prestige_vente_app/rh/mobile_pointage_screen.dart';
+import 'package:prestige_vente_app/rh/photo_controle.dart';
+import 'package:prestige_vente_app/rh/photo_controle_screen.dart';
 import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/rh/presences_screen.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/rh/terminal_pointage_screen.dart';
+import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
@@ -28,7 +34,10 @@ class RhPointageScreen extends StatefulWidget {
 
   /// Gestionnaire (suivi, présences) : par défaut administrateur de l'application ou droit RH (P_SM_RH).
   final bool? gestion;
-  const RhPointageScreen({super.key, this.rh, this.presentation, this.gestion});
+
+  /// Code administrateur (photos de contrôle) ; par défaut PinCodeDialog.show.
+  final Future<bool> Function(BuildContext context)? codeAdmin;
+  const RhPointageScreen({super.key, this.rh, this.presentation, this.gestion, this.codeAdmin});
 
   @override
   State<RhPointageScreen> createState() => _RhPointageScreenState();
@@ -44,19 +53,38 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
   PointageRh get _rh => widget.rh ?? PointageRh.instance;
   EtatVoieA _voieA = EtatVoieA.verification;
   bool _verifie = false;
+  ReglagesPointageTerminal _reglages = const ReglagesPointageTerminal();
+  RegistrePhotosPointage? _registre;
 
   @override
   void initState() {
     super.initState();
     loadPresentation();
     _rh.addListener(_onRh);
+    _registre = _rh.photos?.registre;
+    _registre?.addListener(_onRh);
+    _chargerReglages();
     _verifier();
+  }
+
+  Future<void> _chargerReglages() async {
+    final r = await (_rh.photos?.reglages ?? ReglagesPointageTerminal.charger)();
+    if (mounted) setState(() => _reglages = r);
+    await _registre?.charger();
   }
 
   @override
   void dispose() {
     _rh.removeListener(_onRh);
+    _registre?.removeListener(_onRh);
     super.dispose();
+  }
+
+  Future<void> _ouvrirPhotos() async {
+    final reg = _registre;
+    if (reg == null) return;
+    if (!await (widget.codeAdmin ?? PinCodeDialog.show)(context) || !mounted) return;
+    await _ouvrir(PhotosPointageScreen(registre: reg, retentionJours: _reglages.retentionJours));
   }
 
   void _onRh() {
@@ -151,8 +179,8 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
         key: const Key('rh_voie_a'),
         icon: Icons.phone_android,
         titre: 'Mon pointage',
-        detail: _voieAExplication,
-        actif: _voieA == EtatVoieA.disponible,
+        detail: _reglages.simpleBouton ? _voieAExplication : messageSimpleBoutonDesactive,
+        actif: _voieA == EtatVoieA.disponible && _reglages.simpleBouton,
         onTap: () => _ouvrir(MobilePointageScreen(rh: _rh, login: _loginConnecte, presentation: style)),
       ),
       _tuile(
@@ -176,6 +204,20 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
                   : 'Réservé aux comptes ayant le droit RH (P_SM_RH).',
           actif: presences,
           onTap: () => _ouvrir(PresencesScreen(rh: _rh, presentation: style)),
+        ),
+      // Photos de contrôle des pointages par badge : gestionnaire uniquement, après le code administrateur.
+      if (gestion && _registre != null)
+        _tuile(
+          key: const Key('rh_photos'),
+          icon: Icons.photo_camera_front,
+          titre: 'Photos de contrôle (badge)',
+          detail: !_reglages.photoBadge
+              ? 'Photo de contrôle désactivée sur ce terminal (Paramètres › Équipe & pointage).'
+              : _registre!.anomaliesNonTraitees > 0
+                  ? '${_registre!.anomaliesNonTraitees} pointage(s) sans photo à vérifier · code administrateur.'
+                  : 'Photo prise à chaque pointage par badge, gardée ${_reglages.retentionJours} jours sur ce terminal · code administrateur.',
+          actif: true,
+          onTap: _ouvrirPhotos,
         ),
       if (_rh.file.isNotEmpty)
         _tuile(

@@ -13,6 +13,10 @@
 // CAPTURE UNIQUEMENT : chaque résultat dit où en est l'envoi (« Envoyé à Prestige ✓ », « En attente d'envoi
 // (hors ligne) », « Refusé par Prestige : … »). La gestion des empreintes n'est proposée qu'au gestionnaire
 // (administrateur ou droit RH P_SM_RH), jamais en mode borne.
+// PHOTO DE CONTRÔLE (réglage administrateur, activée par défaut) : après la lecture d'un badge, la caméra frontale
+// s'ouvre sur l'écran de confirmation (aperçu + compte à rebours ~2 s) puis prend la photo sans autre geste ;
+// caméra absente / refusée / en erreur → pointage enregistré quand même, marqué « sans photo (motif) ».
+// Rien de changé pour l'empreinte ni pour « vous avez déjà pointé ».
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -21,6 +25,8 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/rh/empreintes_screen.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
+import 'package:prestige_vente_app/rh/photo_controle.dart';
+import 'package:prestige_vente_app/rh/photo_controle_screen.dart';
 import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
@@ -79,7 +85,10 @@ class _Affiche {
 
   /// Pointage gardé en attente d'envoi (orange) : titre en grand, explication lisible.
   final bool attente;
-  const _Affiche(this.titre, this.detail, this.ok, this.at, {this.info = false, this.attente = false});
+
+  /// « Pointage sans photo (motif) » : affiché sous le résultat (le pointage est enregistré quand même).
+  final String? sansPhoto;
+  const _Affiche(this.titre, this.detail, this.ok, this.at, {this.info = false, this.attente = false, this.sansPhoto});
 }
 
 const _orangeFond = Color(0xFFFFF1D6);
@@ -118,6 +127,14 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   int _enroles = 0;
   bool _empreinteEnCours = false;
 
+  // Photo de contrôle (badge).
+  PhotoControle? get _photo => _rh.photos;
+  ReglagesPointageTerminal _reglages = const ReglagesPointageTerminal();
+  CapturePhotoControle? _capture;
+  bool _permissionAExpliquer = false;
+  bool get _photoActive => _photo != null && _reglages.photoBadge;
+  bool get _gestion => widget.gestion ?? _rh.acces == AccesRh.autorise;
+
   @override
   void initState() {
     super.initState();
@@ -126,6 +143,31 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     _rh.addListener(_onRh);
     _demarrer();
     _initCapacites();
+    _chargerReglages();
+  }
+
+  /// Réglages de la photo de contrôle ; purge des photos trop anciennes ; autorisation de la caméra à expliquer.
+  Future<void> _chargerReglages() async {
+    final p = _photo;
+    if (p == null) return;
+    try {
+      final r = await p.reglages();
+      final expliquee = r.photoBadge ? await PhotoControle.permissionExpliquee() : true;
+      if (!mounted) return;
+      setState(() {
+        _reglages = r;
+        _permissionAExpliquer = !expliquee;
+      });
+      if (r.photoBadge) unawaited(p.registre.charger());
+    } catch (_) {}
+  }
+
+  Future<void> _autoriserCamera() async {
+    final p = _photo;
+    if (p == null) return;
+    await expliquerEtAutoriserCamera(context, p);
+    if (mounted) setState(() => _permissionAExpliquer = false);
+    _refocus();
   }
 
   /// Capacités du terminal : empreinte (service Sunmi), NFC ; le scan et le clavier sont toujours possibles.
@@ -181,6 +223,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     _signalTimer?.cancel();
     _nfcSub?.cancel();
     _nfc.stop();
+    _capture?.dispose();
     if (_borne) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _champ.dispose();
     _focus.dispose();
@@ -281,6 +324,9 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         _signalInfo();
       case BadgeAConfirmer():
         _resultatTimer?.cancel();
+        // Photo de contrôle : badge uniquement (l'empreinte identifie déjà la personne).
+        _capture?.dispose();
+        _capture = _photoActive && l.moyen != MoyenIdentification.empreinte ? _photo!.demarrer() : null;
         setState(() {
           _resultat = null;
           _attente = l;
@@ -309,16 +355,29 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     if (a == null || _enregistrement) return;
     _compteRebours?.cancel();
     _rh.annuler(a);
+    // Lecture annulée : caméra fermée, aucune photo gardée.
+    _capture?.dispose();
+    _capture = null;
     setState(() => _attente = null);
     _refocus();
   }
 
-  Future<void> _valider() async {
+  /// [manuel] : appui sur « Valider » — la photo est prise tout de suite si l'aperçu est affiché.
+  Future<void> _valider({bool manuel = false}) async {
     final a = _attente;
     if (a == null || _enregistrement) return;
     _compteRebours?.cancel();
     setState(() => _enregistrement = true);
-    final r = await _rh.enregistrer(a, _sens);
+    final cap = _capture;
+    if (cap != null && manuel) unawaited(cap.capturerMaintenant());
+    final r = await _rh.enregistrerAvecPhoto(a, _sens, photo: cap?.resultat);
+    String? sansPhoto;
+    if (cap != null && cap.terminee) {
+      final ph = await cap.resultat;
+      if (ph is PhotoAbsente) sansPhoto = 'Pointage ${libelleSansPhoto(ph.motif)} : signalé à l\'administrateur.';
+    }
+    if (identical(_capture, cap)) _capture = null;
+    cap?.dispose();
     if (!mounted) return;
     setState(() {
       _attente = null;
@@ -327,7 +386,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     final hm = r.pointage.heure;
     switch (r.issue) {
       case IssueBadge.enregistre:
-        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', etatEnvoyePrestige, true, _rh.now));
+        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', etatEnvoyePrestige, true, _rh.now, sansPhoto: sansPhoto));
       case IssueBadge.dejaEnregistre:
         // Doublon du serveur (« Un pointage existe déjà à cette heure ») : même message que la relecture.
         _afficher(_Affiche('Déjà pointé', r.message, true, _rh.now, info: true));
@@ -337,7 +396,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       case IssueBadge.enFile:
         // Gardé sur le terminal : information (orange), jamais présenté comme envoyé.
         _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm', '$etatEnAttenteEnvoi\n${r.message}', true, _rh.now,
-            info: true, attente: true));
+            info: true, attente: true, sansPhoto: sansPhoto));
       case IssueBadge.refuse:
         _afficher(_Affiche('${a.employe.prenomAffiche} : pointage refusé', '$etatRefusPrestige : ${r.message}', false, _rh.now));
     }
@@ -430,6 +489,10 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         key: const Key('rh_terminal'),
         padding: const EdgeInsets.all(16),
         children: [
+          if (_photoActive && _permissionAExpliquer && !_borne && _gestion) ...[
+            _bandeauAutorisation(),
+            const SizedBox(height: 12),
+          ],
           if (_empreintePossible) ...[
             SizedBox(
               height: 84,
@@ -571,6 +634,15 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
             textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Pal.muted)),
         const SizedBox(height: 12),
         champ,
+        if (_photoActive)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Row(key: Key('rh_photo_info'), children: [
+              Icon(Icons.photo_camera_front, size: 18, color: Pal.navy),
+              SizedBox(width: 6),
+              Expanded(child: Text(textePhotoControleEmploye, style: TextStyle(fontSize: 12.5, color: Pal.muted))),
+            ]),
+          ),
         if (_nfcEtat == NfcAvailability.ready || _nfcEtat == NfcAvailability.disabled)
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -588,6 +660,35 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     );
   }
 
+  /// Côté de l'aperçu : assez grand pour se reconnaître, sans pousser les boutons hors de l'écran.
+  double _taillePhoto(BuildContext context) => (MediaQuery.sizeOf(context).height * 0.24).clamp(120.0, 220.0);
+
+  Widget _bandeauAutorisation() => SoftCard(
+        key: const Key('rh_photo_bandeau'),
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Row(children: [
+            Icon(Icons.photo_camera_front, color: Pal.navy),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text('Photo de contrôle activée : autorisez la caméra avant de ce terminal.',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Pal.ink)),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton.icon(
+              key: const Key('rh_photo_autoriser'),
+              style: navyButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(160, 48))),
+              onPressed: _autoriserCamera,
+              icon: const Icon(Icons.photo_camera_front),
+              label: const Text('Autoriser la caméra'),
+            ),
+          ),
+        ]),
+      );
+
   Widget _ligneEtat(String etat, bool horsLigne) => Row(children: [
         Icon(horsLigne ? Icons.cloud_off : Icons.cloud_done_outlined, size: 18, color: horsLigne ? const Color(0xFF8A5300) : Pal.green),
         const SizedBox(width: 6),
@@ -599,22 +700,44 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     final entree = _sens == SensPointage.entree;
     final couleur = entree ? Pal.green : const Color(0xFFDC5A5A);
     final grand = !Responsive.isCompact(context);
+    // Téléphone avec photo : plus serré, pour garder Corriger / Annuler / Valider à l'écran.
+    final serre = _capture != null && !grand;
     return Container(
       key: const Key('rh_confirmation'),
       color: Colors.white,
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(serre ? 14 : 20),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text('Bonjour ${a.employe.prenomAffiche}',
-                  textAlign: TextAlign.center, style: TextStyle(fontSize: grand ? 40 : 30, fontWeight: FontWeight.bold, color: Pal.ink)),
-              const SizedBox(height: 6),
-              Text(a.employe.nomComplet, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: Pal.muted)),
-              const SizedBox(height: 16),
+              if (_capture != null && !grand)
+                // Téléphone : aperçu à gauche, salutation et légende à droite (les boutons restent à l'écran).
+                Row(children: [
+                  ApercuPhotoControle(capture: _capture!, taille: 120, legende: false),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Bonjour ${a.employe.prenomAffiche}', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Pal.ink)),
+                      Text(a.employe.nomComplet, style: const TextStyle(fontSize: 14, color: Pal.muted)),
+                      const SizedBox(height: 6),
+                      LegendePhotoControle(capture: _capture!, align: TextAlign.start),
+                    ]),
+                  ),
+                ])
+              else ...[
+                if (_capture != null) ...[
+                  Center(child: ApercuPhotoControle(capture: _capture!, taille: _taillePhoto(context))),
+                  const SizedBox(height: 12),
+                ],
+                Text('Bonjour ${a.employe.prenomAffiche}',
+                    textAlign: TextAlign.center, style: TextStyle(fontSize: grand ? 40 : 30, fontWeight: FontWeight.bold, color: Pal.ink)),
+                const SizedBox(height: 6),
+                Text(a.employe.nomComplet, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: Pal.muted)),
+              ],
+              SizedBox(height: serre ? 10 : 16),
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 18),
+                padding: EdgeInsets.symmetric(vertical: serre ? 12 : 18),
                 decoration: BoxDecoration(color: couleur, borderRadius: BorderRadius.circular(20)),
                 child: Text('${_sens.majuscules} ${DateFormat('HH:mm').format(a.lu)}',
                     key: const Key('rh_confirmation_sens'),
@@ -626,7 +749,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
                 const LinearProgressIndicator()
               else
                 _Decompte(fin: _finConfirmation, duree: widget.delaiConfirmation),
-              const SizedBox(height: 16),
+              SizedBox(height: serre ? 10 : 16),
               Wrap(alignment: WrapAlignment.center, spacing: 10, runSpacing: 10, children: [
                 OutlinedButton.icon(
                   key: const Key('rh_corriger'),
@@ -644,7 +767,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
                 ElevatedButton.icon(
                   key: const Key('rh_valider'),
                   style: navyButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(160, 52))),
-                  onPressed: _enregistrement ? null : _valider,
+                  onPressed: _enregistrement ? null : () => _valider(manuel: true),
                   icon: const Icon(Icons.check),
                   label: const Text('Valider'),
                 ),
@@ -675,6 +798,13 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
                         fontWeight: FontWeight.bold,
                         color: r.info ? _orangeTexte : (r.ok ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C)))),
                 const SizedBox(height: 8),
+                if (r.sansPhoto != null) ...[
+                  Text(r.sansPhoto!,
+                      key: const Key('rh_resultat_sans_photo'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _orangeTexte)),
+                  const SizedBox(height: 8),
+                ],
                 Text(r.detail,
                     textAlign: TextAlign.center,
                     style: r.attente
