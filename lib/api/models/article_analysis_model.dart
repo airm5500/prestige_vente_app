@@ -1,4 +1,5 @@
 // lib/api/models/article_analysis_model.dart
+import 'package:prestige_vente_app/api/models/stock_reserve.dart';
 
 class ArticleAnalysis {
   final String produitId;
@@ -13,6 +14,11 @@ class ArticleAnalysis {
   final int stock; // Ajouté pour correspondre à la maquette (valeur par défaut 0 si absent du JSON)
   final String quantiteMoisBrut; // La chaine "1:2,1:6..."
 
+  // Stock réserve (null : produit non géré en réserve, ou serveur ancien sans ces champs)
+  final int? stockReserve;
+  final int? seuilReserve;
+  final int? seuilMiniRayon;
+
   ArticleAnalysis({
     required this.produitId,
     required this.codeCip,
@@ -25,7 +31,13 @@ class ArticleAnalysis {
     required this.quantiteVendue,
     required this.stock,
     required this.quantiteMoisBrut,
+    this.stockReserve,
+    this.seuilReserve,
+    this.seuilMiniRayon,
   });
+
+  /// Stock réserve et seuils (affichage, alerte de réapprovisionnement).
+  StockReserve get reserve => StockReserve(stockReserve: stockReserve, seuilReserve: seuilReserve, seuilMiniRayon: seuilMiniRayon);
 
   factory ArticleAnalysis.fromJson(Map<String, dynamic> json) {
     // Valeurs lues sans échec : texte (ou nombre rendu en texte), nombre (ou texte numérique).
@@ -44,6 +56,10 @@ class ArticleAnalysis {
       // Si l'API renvoie "stock" ou "intNUMBERAVAILABLE"
       stock: n(json['stock'] ?? json['intNUMBERAVAILABLE'])?.toInt() ?? 0,
       quantiteMoisBrut: str(json['quantiteMois']),
+      // Lecture tolérante : absent, null, nombre, texte numérique, décimal.
+      stockReserve: entierTolerant(json['stockReserve']),
+      seuilReserve: entierTolerant(json['seuilReserve']),
+      seuilMiniRayon: entierTolerant(json['seuilMiniRayon']),
     );
   }
 

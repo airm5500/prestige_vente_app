@@ -7,6 +7,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/product_info.dart';
 import 'package:prestige_vente_app/providers/product_search_provider.dart';
+import 'package:prestige_vente_app/screens/analysis/article_analysis_widgets.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
@@ -242,6 +243,14 @@ class _ProductSearchScreenState extends State<ProductSearchScreen> with Presenta
       DetailLine('Stock Actuel', info.stock.toString(), compact: compact),
       DetailLine('Emplacement', orDash(info.emplacement), compact: compact),
       DetailLine('Grossiste', orDash(info.grossiste), compact: compact),
+      // Après les lignes existantes (rien ne bouge) : réserve (« — » si non géré en réserve), seuils, total rayon + réserve (GET /info).
+      for (final (label, value) in stockReserveInfos(info.stock, info.reserve, avecRayon: false))
+        DetailLine(label, value, compact: compact, key: ValueKey('recherche-reserve-$label')),
+      if (info.reserve.aReapprovisionner(info.stock))
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: 6, horizontal: compact ? 16 : 0),
+          child: Align(alignment: Alignment.centerRight, child: PastilleReappro(reserve: info.reserve, rayon: info.stock)),
+        ),
     ];
     final title = Text(orDash(info.libelle), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Pal.ink));
 

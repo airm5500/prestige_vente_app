@@ -443,6 +443,13 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
       ] else if (a != null) ...[
         for (final (label, value) in articleInfos(a))
           if (label != 'Prix de vente') DetailLine(label, value, key: ValueKey('fiche-info-$label')),
+        // Stock rayon / réserve (« — » si non géré en réserve), seuils, total, alerte (GET /info).
+        for (final (label, value) in stockReserveInfos(a.stock, a.reserve)) DetailLine(label, value, key: ValueKey('fiche-reserve-$label')),
+        if (a.reserve.aReapprovisionner(a.stock))
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Align(alignment: Alignment.centerRight, child: PastilleReappro(reserve: a.reserve, rayon: a.stock)),
+          ),
       ] else if (_erreur == null)
         // Le serveur a répondu sans ligne d'analyse pour ce produit : ce n'est pas une panne.
         const Padding(

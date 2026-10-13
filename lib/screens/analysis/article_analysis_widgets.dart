@@ -5,6 +5,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
+import 'package:prestige_vente_app/api/models/stock_reserve.dart';
 
 /// Informations de l'analyse article, dans l'ordre de la fenêtre « Détails de l'Article ».
 List<(String, String)> articleInfos(ArticleAnalysis a) => [
@@ -15,6 +16,72 @@ List<(String, String)> articleInfos(ArticleAnalysis a) => [
       ("Emplacement", a.emplacement.isEmpty ? "N/A" : a.emplacement),
       ("Qté totale vendue 6 derniers mois", "${a.quantiteVendue}"),
     ];
+
+/// Stock rayon / réserve (GET /info, GET /checkproduit) : « Stock rayon », « Stock réserve » (« — » si le produit
+/// n'est pas géré en réserve), seuils s'ils sont renseignés (> 0), « Total rayon + réserve » (produit géré en
+/// réserve). [avecRayon] faux : la ligne « Stock rayon » est omise (l'écran affiche déjà le stock).
+List<(String, String)> stockReserveInfos(int rayon, StockReserve r, {bool avecRayon = true}) => [
+      if (avecRayon) ('Stock rayon', '$rayon'),
+      ('Stock réserve', r.geree ? '${r.stockReserve}' : '—'),
+      if (r.seuilReserveRenseigne != null) ('Seuil réserve', '${r.seuilReserveRenseigne}'),
+      if (r.seuilMiniRayonRenseigne != null) ('Seuil mini rayon', '${r.seuilMiniRayonRenseigne}'),
+      if (r.geree) ('Total rayon + réserve', '${r.total(rayon)}'),
+    ];
+
+/// Pastille orange douce « À réapprovisionner » : rayon ≤ seuil mini rayon ou réserve ≤ seuil réserve
+/// (rien sinon). Couleurs fixes (fond clair, texte foncé) : lisible en thème clair comme sombre.
+class PastilleReappro extends StatelessWidget {
+  final StockReserve reserve;
+  final int rayon;
+  const PastilleReappro({super.key, required this.reserve, required this.rayon});
+
+  String get raison => [
+        if (reserve.rayonBas(rayon)) 'rayon au seuil mini ou en dessous',
+        if (reserve.reserveBasse) 'réserve au seuil ou en dessous',
+      ].join(' ; ');
+
+  @override
+  Widget build(BuildContext context) {
+    if (!reserve.aReapprovisionner(rayon)) return const SizedBox.shrink();
+    return Tooltip(
+      message: 'À réapprovisionner : $raison',
+      child: Container(
+        key: const ValueKey('pastille-reappro'),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFEDD5),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFF59E0B)),
+        ),
+        child: const Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.inventory_2_outlined, size: 13, color: Color(0xFF9A3412)),
+          SizedBox(width: 4),
+          Flexible(
+            child: Text('À réapprovisionner',
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF9A3412))),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Ligne courte des listes : « Réserve : Y · Total : X+Y » + pastille ; rien si le produit n'est pas géré en réserve.
+class StockReserveResume extends StatelessWidget {
+  final StockReserve reserve;
+  final int rayon;
+  final Color couleur;
+  const StockReserveResume({super.key, required this.reserve, required this.rayon, this.couleur = const Color(0xFF5B6B82)});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!reserve.geree) return const SizedBox.shrink();
+    return Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      Text('Réserve : ${reserve.stockReserve} · Total : ${reserve.total(rayon)}', style: TextStyle(fontSize: 13, color: couleur)),
+      PastilleReappro(reserve: reserve, rayon: rayon),
+    ]);
+  }
+}
 
 /// Ventes mensuelles triées chronologiquement (mois > mois courant = année précédente) et
 /// index du premier mois de l'année en cours (-1 : tout est de l'année précédente).

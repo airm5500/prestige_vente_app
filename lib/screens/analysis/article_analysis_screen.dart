@@ -172,6 +172,11 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
               const SizedBox(width: 8),
               _metric(item.moyenne.toStringAsFixed(2), 'Moy. 3 mois'),
             ]),
+            // Réserve + total rayon + réserve (rien si le produit n'est pas géré en réserve).
+            if (item.reserve.geree) ...[
+              const SizedBox(height: 8),
+              StockReserveResume(reserve: item.reserve, rayon: item.stock),
+            ],
           ]),
         ),
       );
@@ -218,6 +223,11 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
                                     Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
                                     Text("CIP: ${item.codeCip} · ${item.prixVente} F${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
                                         maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                                    if (item.reserve.geree)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: StockReserveResume(reserve: item.reserve, rayon: item.stock),
+                                      ),
                                   ]),
                                 ),
                                 SizedBox(
@@ -288,6 +298,10 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
                                   const SizedBox(width: 8),
                                   _metric(item.moyenne.toStringAsFixed(2), 'Moy. 3 mois'),
                                 ]),
+                                if (item.reserve.geree) ...[
+                                  const SizedBox(height: 8),
+                                  StockReserveResume(reserve: item.reserve, rayon: item.stock),
+                                ],
                                 const SizedBox(height: 12),
                                 SizedBox(
                                   height: 48,
@@ -309,6 +323,11 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
                                   Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Pal.ink)),
                                   Text("Stock ${item.stock} · ${item.prixVente} F · Moy. ${item.moyenne.toStringAsFixed(2)}",
                                       style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                                  if (item.reserve.geree)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: StockReserveResume(reserve: item.reserve, rayon: item.stock),
+                                    ),
                                 ]),
                               ),
                               IconButton.filled(
@@ -395,6 +414,17 @@ class _ArticleDetailDialog extends StatelessWidget {
                       ),
                     ),
                   )
+                ],
+              ),
+
+              // Stock rayon / réserve (« — » si non géré en réserve), seuils, total, alerte.
+              const Divider(),
+              Column(
+                key: const ValueKey('analyse-stock-reserve'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final (label, value) in stockReserveInfos(article.stock, article.reserve)) _infoRow(label, value),
+                  PastilleReappro(reserve: article.reserve, rayon: article.stock),
                 ],
               ),
 

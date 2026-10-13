@@ -1,5 +1,7 @@
 // lib/api/models/product_info.dart
 // 20/10/2025 10:00
+import 'package:prestige_vente_app/api/models/stock_reserve.dart';
+
 class ProductInfo {
   final String codeCip;
   final String emplacement;
@@ -11,6 +13,11 @@ class ProductInfo {
   final String produitId;
   final int stock;
 
+  // Stock réserve (null : produit non géré en réserve, ou serveur ancien sans ces champs)
+  final int? stockReserve;
+  final int? seuilReserve;
+  final int? seuilMiniRayon;
+
   ProductInfo({
     required this.codeCip,
     required this.emplacement,
@@ -21,7 +28,13 @@ class ProductInfo {
     required this.prixVente,
     required this.produitId,
     required this.stock,
+    this.stockReserve,
+    this.seuilReserve,
+    this.seuilMiniRayon,
   });
+
+  /// Stock réserve et seuils (affichage, alerte de réapprovisionnement).
+  StockReserve get reserve => StockReserve(stockReserve: stockReserve, seuilReserve: seuilReserve, seuilMiniRayon: seuilMiniRayon);
 
   factory ProductInfo.fromJson(Map<String, dynamic> json) {
     // Helper pour parser les nombres (int ou double)
@@ -41,6 +54,10 @@ class ProductInfo {
       prixVente: toDouble(json['prixVente']),
       produitId: json['produitId']?.toString() ?? '',
       stock: json['stock'] ?? 0,
+      // Lecture tolérante : absent, null, nombre, texte numérique, décimal.
+      stockReserve: entierTolerant(json['stockReserve']),
+      seuilReserve: entierTolerant(json['seuilReserve']),
+      seuilMiniRayon: entierTolerant(json['seuilMiniRayon']),
     );
   }
 }
