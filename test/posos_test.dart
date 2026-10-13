@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/posos/posos_api.dart';
 import 'package:prestige_vente_app/posos/posos_models.dart';
 import 'package:prestige_vente_app/posos/posos_screen.dart';
@@ -171,9 +172,13 @@ void main() {
       expect(find.textContaining('ne remplacent ni l\'avis du pharmacien'), findsOneWidget);
       final analyser = t.widget<ElevatedButton>(find.byKey(const ValueKey('posos-analyser')));
       expect(analyser.onPressed, isNull, reason: 'aucun produit : analyse impossible');
+      await t.ensureVisible(find.byKey(const ValueKey('posos-rechercher')));
+      await t.pumpAndSettle();
       await t.tap(find.byKey(const ValueKey('posos-rechercher')));
       await t.pumpAndSettle();
       expect(find.text('PRODUIT A'), findsOneWidget);
+      await t.ensureVisible(find.byKey(const ValueKey('posos-analyser')));
+      await t.pumpAndSettle();
       await t.tap(find.byKey(const ValueKey('posos-analyser')));
       await t.pumpAndSettle();
       expect(api.analyses, 1);
@@ -199,17 +204,46 @@ void main() {
       await t.tap(find.text('Contexte du patient (facultatif)'));
       await t.pumpAndSettle();
       await t.enterText(find.byKey(const ValueKey('posos-age')), '150');
+      await t.ensureVisible(find.byKey(const ValueKey('posos-analyser')));
+      await t.pumpAndSettle();
       await t.tap(find.byKey(const ValueKey('posos-analyser')));
       await t.pumpAndSettle();
       expect(find.text('Âge : 120 ans au plus.'), findsOneWidget);
       expect(api.analyses, 0);
       await t.enterText(find.byKey(const ValueKey('posos-age')), '67');
+      await t.ensureVisible(find.byKey(const ValueKey('posos-analyser')));
+      await t.pumpAndSettle();
       await t.tap(find.byKey(const ValueKey('posos-analyser')));
       await t.pumpAndSettle();
       expect(api.venteAnalysee, 'V42');
       expect(find.text('Produits analysés'), findsOneWidget);
       expect(t.takeException(), isNull);
     });
+    testWidgets('vente ou ordonnance : choix d\'une prévente en cours puis analyse par sa référence (Sunmi 720×1440)', (t) async {
+      await _taille(t, const Size(720, 1440));
+      final api = _FakePosos();
+      Future<List<PreventeListItem>> preventes() async => [
+            PreventeListItem(lgPREENREGISTREMENTID: 'ID9', heure: '10:15', dtUPDATED: '', intPRICE: 1500, strREF: 'REF-9', userFullName: 'Vendeur Test', lgTYPEVENTEID: '1'),
+          ];
+      await t.pumpWidget(MaterialApp(home: PososScreen(api: api, preventes: preventes)));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('posos-mode-vente')));
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.byKey(const ValueKey('posos-analyser')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('posos-analyser')));
+      await t.pumpAndSettle();
+      expect(find.text('Saisissez la référence de la vente ou le N° d\'ordonnance.'), findsOneWidget);
+      expect(api.analyses, 0);
+      await t.tap(find.text('REF-9'));
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.byKey(const ValueKey('posos-analyser')));
+      await t.ensureVisible(find.byKey(const ValueKey('posos-analyser')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('posos-analyser')));
+      await t.pumpAndSettle();
+      expect(api.venteAnalysee, 'REF-9');
+      expect(t.takeException(), isNull);
+    });
   });
 }
-

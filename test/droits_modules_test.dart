@@ -54,6 +54,25 @@ void main() {
       expect(chercherMenus('reserve', orderedMenus(const [])).map((m) => m.id), contains('reserve'));
     });
 
+    test('aucun utilisateur identifié : aucun des nouveaux menus ; catalogue d\'origine inchangé (23)', () {
+      DroitsModules.instance.oublier();
+      final ids = _ids();
+      expect(ids, hasLength(23));
+      expect(ids, isNot(contains('posos')));
+      expect(accueilMenus, hasLength(23));
+      expect(accueilMenuById.containsKey('reserve'), isFalse, reason: 'jamais en favori : pas de recherche par identifiant');
+    });
+
+    test('organisation de l\'accueil : les menus soumis à un droit n\'y sont pas proposés', () {
+      DroitsModules.instance.fixer(adminLocal: true, ordonnances: const DroitsOrdonnances(consulter: true, modifier: true));
+      final orga = menusByFamille(const [], const [], withHidden: true).values.expand((l) => l).map((m) => m.id);
+      expect(orga, isNot(contains('reserve')));
+      expect(orga, isNot(contains('posos')));
+      expect(orga, hasLength(23));
+      final accueil = menusByFamille(const [], const []).values.expand((l) => l).map((m) => m.id);
+      expect(accueil, containsAll(['reserve', 'posos', 'ordonnances_clients']));
+    });
+
     test('ordre enregistré contenant un menu non autorisé : ignoré', () {
       DroitsModules.instance.fixer();
       expect(orderedMenus(const ['reserve', 'stock']).first.id, 'stock');

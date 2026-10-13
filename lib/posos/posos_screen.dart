@@ -1,13 +1,16 @@
 // lib/posos/posos_screen.dart
-// Analyse posologie (Posos via Prestige) : depuis la vente en cours (le serveur relit les produits de la vente)
-// ou depuis un choix de produits (menu « Analyse posologie »).
+// Analyse posologie (Posos via Prestige) : depuis une vente (référence de la vente en cours, prévente à encaisser
+// ou N° d'ordonnance client : le serveur relit les produits enregistrés) ou depuis un choix de produits.
 // - Alertes classées par gravité, couleurs distinctes, conduite à tenir et équivalents en rayon.
 // - Mode démonstration (Posos non configuré) : bandeau permanent « Mode démonstration — résultats non réels ».
 // - Jamais présenté comme un avis médical définitif (avertissement sous chaque résultat).
 // - Aucune donnée du patient n'est conservée : tout reste en mémoire le temps de l'écran.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/posos/posos_api.dart';
 import 'package:prestige_vente_app/posos/posos_models.dart';
 import 'package:prestige_vente_app/serveur/choix_produit.dart';
@@ -28,6 +31,9 @@ class PososScreen extends StatefulWidget {
   final ChoixProduit? choixProduit;
   final ScanCode? scanner;
 
+  /// Préventes en cours (choix rapide d'une vente) ; par défaut celles de l'ApiService de l'application.
+  final Future<List<PreventeListItem>> Function()? preventes;
+
   const PososScreen({
     super.key,
     this.venteId,
@@ -36,6 +42,7 @@ class PososScreen extends StatefulWidget {
     this.api,
     this.choixProduit,
     this.scanner,
+    this.preventes,
   });
 
   @override
@@ -57,7 +64,17 @@ class _PososScreenState extends State<PososScreen> {
   bool _grossesse = false, _allaitement = false, _ir = false, _ih = false;
   String? _erreurAge, _erreurPoids;
 
-  bool get _depuisVente => (widget.venteId ?? '').trim().isNotEmpty;
+  /// Vente imposée par l'appelant (écran Vente).
+  bool get _venteImposee => (widget.venteId ?? '').trim().isNotEmpty;
+
+  /// Mode « Vente ou ordonnance » choisi dans l'écran.
+  bool _modeVente = false;
+  final _refVente = TextEditingController();
+  List<PreventeListItem>? _preventes;
+  bool _chargePreventes = false;
+
+  bool get _depuisVente => _venteImposee || _modeVente;
+  String get _venteCible => _venteImposee ? widget.venteId!.trim() : _refVente.text.trim();
 
   @override
   void initState() {
@@ -69,6 +86,7 @@ class _PososScreenState extends State<PososScreen> {
   void dispose() {
     _age.dispose();
     _poids.dispose();
+    _refVente.dispose();
     super.dispose();
   }
 
@@ -103,18 +121,36 @@ class _PososScreenState extends State<PososScreen> {
       afficherErreur(context, const RefusMetier('Ajoutez au moins un produit à analyser.'));
       return;
     }
+    if (_depuisVente && _venteCible.isEmpty) {
+      afficherErreur(context, const RefusMetier('Saisissez la référence de la vente ou le N° d\'ordonnance.'));
+      return;
+    }
     FocusScope.of(context).unfocus();
     setState(() {
       _analyse = true;
       _erreur = null;
     });
     try {
-      final r = _depuisVente ? await _api.analyserVente(widget.venteId!, _contexte()) : await _api.analyserProduits(_produits, _contexte());
+      final r = _depuisVente ? await _api.analyserVente(_venteCible, _contexte()) : await _api.analyserProduits(_produits, _contexte());
       if (mounted) setState(() => _resultat = r);
     } catch (e) {
       if (mounted) setState(() => _erreur = e);
     } finally {
       if (mounted) setState(() => _analyse = false);
+    }
+  }
+
+  Future<void> _chargerPreventes() async {
+    if (_chargePreventes) return;
+    setState(() => _chargePreventes = true);
+    try {
+      final f = widget.preventes ?? Provider.of<ApiService>(context, listen: false).getPreventes;
+      final l = await f();
+      if (mounted) setState(() => _preventes = l);
+    } catch (e) {
+      if (mounted) afficherErreur(context, e);
+    } finally {
+      if (mounted) setState(() => _chargePreventes = false);
     }
   }
 
@@ -175,20 +211,21 @@ class _PososScreenState extends State<PososScreen> {
       body: Column(children: [
         NavyHeader(
           title: 'Analyse posologie',
-          subtitle: _depuisVente ? 'Vente ${widget.referenceVente.isEmpty ? 'en cours' : widget.referenceVente}' : 'Interactions, contre-indications, posologies',
+          subtitle: _venteImposee ? 'Vente ${widget.referenceVente.isEmpty ? 'en cours' : widget.referenceVente}' : 'Interactions, contre-indications, posologies',
         ),
         if (_demonstration) const BandeauDemonstration(key: ValueKey('posos-demonstration')),
         if (_analyse) const LinearProgressIndicator(minHeight: 2),
         Expanded(
-          child: ListView(
+          child: SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(16 + inset, 12, 16 + inset, 24),
-            children: [
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               if (_erreurStatut != null && _statut == null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text('État de Posos non vérifié : ${messageErreur(_erreurStatut!)}', style: const TextStyle(fontSize: 12, color: Pal.muted)),
                 ),
-              _carteProduits(),
+              if (!_venteImposee) ...[_choixMode(), const SizedBox(height: 10)],
+              if (_modeVente && !_venteImposee) _carteVente() else _carteProduits(),
               const SizedBox(height: 12),
               _carteContexte(),
               const SizedBox(height: 12),
@@ -214,9 +251,71 @@ class _PososScreenState extends State<PososScreen> {
               ],
               const SizedBox(height: 16),
               const Text(avertissementAnalyse, style: TextStyle(fontSize: 12, color: Pal.muted, fontStyle: FontStyle.italic)),
-            ],
+            ]),
           ),
         ),
+      ]),
+    );
+  }
+
+  Widget _choixMode() => Wrap(spacing: 8, runSpacing: 6, children: [
+        ChoiceChip(
+          key: const ValueKey('posos-mode-produits'),
+          label: const Text('Choisir des produits'),
+          selected: !_modeVente,
+          onSelected: _analyse ? null : (_) => setState(() => _modeVente = false),
+        ),
+        ChoiceChip(
+          key: const ValueKey('posos-mode-vente'),
+          label: const Text('Vente ou ordonnance'),
+          selected: _modeVente,
+          onSelected: _analyse
+              ? null
+              : (_) {
+                  setState(() => _modeVente = true);
+                  if (_preventes == null) _chargerPreventes();
+                },
+        ),
+      ]);
+
+  Widget _carteVente() {
+    final l = _preventes;
+    return SoftCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Text('Vente ou ordonnance', style: TextStyle(fontWeight: FontWeight.w700, color: Pal.ink)),
+        const Text('Référence affichée sur l\'écran Vente, ou N° d\'ordonnance client (ORD-…). Prestige relit les produits enregistrés.',
+            style: TextStyle(fontSize: 12, color: Pal.muted)),
+        const SizedBox(height: 8),
+        TextField(
+          key: const ValueKey('posos-ref-vente'),
+          controller: _refVente,
+          enabled: !_analyse,
+          textInputAction: TextInputAction.done,
+          onChanged: (_) => setState(() => _resultat = null),
+          decoration: const InputDecoration(labelText: 'Référence de la vente ou N° d\'ordonnance', prefixIcon: Icon(Icons.receipt_long)),
+        ),
+        const SizedBox(height: 8),
+        Row(children: [
+          const Expanded(child: Text('Préventes en cours', style: TextStyle(fontWeight: FontWeight.w600))),
+          IconButton(tooltip: 'Actualiser', onPressed: _chargePreventes ? null : _chargerPreventes, icon: const Icon(Icons.refresh)),
+        ]),
+        if (_chargePreventes) const LinearProgressIndicator(minHeight: 2),
+        if (l != null && l.isEmpty) const Text('Aucune prévente en cours.', style: TextStyle(color: Pal.muted)),
+        if (l != null)
+          for (final p in l.take(20))
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              selected: _refVente.text.trim() == p.strREF && p.strREF.isNotEmpty,
+              title: Text(p.strREF.isEmpty ? p.lgPREENREGISTREMENTID : p.strREF),
+              subtitle: Text([p.heure, p.userFullName.trim()].where((x) => x.isNotEmpty).join(' · ')),
+              onTap: _analyse
+                  ? null
+                  : () => setState(() {
+                        _refVente.text = p.strREF.isEmpty ? p.lgPREENREGISTREMENTID : p.strREF;
+                        _resultat = null;
+                      }),
+            ),
       ]),
     );
   }

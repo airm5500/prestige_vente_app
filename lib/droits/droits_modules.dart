@@ -60,6 +60,9 @@ class DroitsModules extends ChangeNotifier {
   bool get ordonnancesModifier => saisieFicheClientAutorisee(_ordonnances);
   bool? get adminServeur => _adminServeur;
 
+  /// Un utilisateur connecté est identifié (droits lus ou en cours de lecture).
+  bool get connu => (_utilisateur ?? '').isNotEmpty;
+
   /// Relit les droits de [utilisateur] (au plus toutes les 5 minutes, sauf [forcer]).
   /// Changement d'utilisateur : les droits du précédent sont oubliés AVANT la lecture.
   Future<void> actualiser(ClientPrestige client,

@@ -35,8 +35,6 @@ import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
-import 'package:prestige_vente_app/posos/posos_models.dart';
-import 'package:prestige_vente_app/posos/posos_screen.dart';
 
 class VenteScreen extends StatelessWidget {
   /// Onglet d'origine : 0 PREVENTE, 1 VENTE (→ panier), 2 LISTE (→ préventes à encaisser).
@@ -562,18 +560,6 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
             tooltip: 'Nouvelle vente',
             onPressed: _paying ? null : _newSale,
           ),
-          // Analyse posologie de la vente en cours (Prestige relit les produits de la vente).
-          if (c.venteId != null && c.items.isNotEmpty)
-            IconButton(
-              icon: Icon(Icons.health_and_safety_outlined, color: col),
-              tooltip: 'Analyse posologie',
-              onPressed: _paying
-                  ? null
-                  : () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => PososScreen(venteId: c.venteId, referenceVente: c.summary.reference, produitsInitiaux: [
-                            for (final i in c.items) ProduitAnalyse(nom: i.strNAME, cip: i.intCIP, quantite: i.intQUANTITY),
-                          ]))),
-            ),
           PresentationMenuButton(value: style, onChanged: _setStyle, color: col),
         ],
         steps: StepsBar(active: c.hasCart ? 1 : 0, steps: [

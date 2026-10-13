@@ -50,7 +50,7 @@ Le privilège du sous-menu `reservemanager` ne figure dans aucune migration lisi
 |---|---|---|
 | **Réserve** | Administrateur **ou** droit dédié (décision du pharmacien) | Voir ci-dessous |
 | **Ordonnances des clients** (Fiche client) | Visible avec `consulter` (`P_ORDONNANCE_CLIENT`). Saisie (allergies, terrains, mesures) seulement avec `modifier` (`P_ORDONNANCE_CLIENT_MAJ`) | `GET v1/ordonnance-client/droits` → `{success, consulter, modifier}`. Le serveur revérifie chaque route |
-| **Analyse posologie** | Visible pour tous les comptes connectés | Le serveur ne vérifie pas `P_SM_POSOS`, et aucune route ne l'expose |
+| **Analyse posologie** | Visible dès qu'un utilisateur est identifié (tous les comptes connectés) | Le serveur ne vérifie pas `P_SM_POSOS`, et aucune route ne l'expose |
 
 **Détail de la règle Réserve**
 
@@ -66,7 +66,9 @@ Le privilège du sous-menu `reservemanager` ne figure dans aucune migration lisi
   - à l'ouverture et à l'actualisation de l'accueil, au plus toutes les 5 minutes ;
   - ils sont oubliés à chaque changement d'utilisateur ;
   - si le serveur est injoignable, l'application garde les droits déjà connus du même utilisateur.
-- Un menu non autorisé est retiré du catalogue (`AccueilMenu.autorise`) : il disparaît de l'accueil, de la recherche de menus, de l'organisation et des favoris.
+- Les trois nouveaux menus sont dans une liste séparée (`menusSousDroits`), ajoutée après les 23 menus d'origine. Le catalogue d'origine (`accueilMenus`, `accueilMenuById`) est inchangé.
+- Un menu non autorisé (`AccueilMenu.autorise`) n'apparaît ni dans l'accueil ni dans la recherche de menus.
+- Les menus soumis à un droit ne sont pas proposés dans « Organiser l'accueil » (ni ordre, ni masquage, ni favoris). Quand le compte y a droit, ils s'affichent à la fin de leur famille.
 
 ## 3. Routes utilisées
 
@@ -97,7 +99,7 @@ Routes **non utilisées**, par choix :
 |---|---|
 | `GET v1/posos/status` | Détecte le mode démonstration (`mode` = `demonstration`, ou `configuree:false`) |
 | `POST v1/posos/analyse` forme A `{produits:[{nom, cip, quantite, posologie}], contexte?}` | Écran autonome (menu « Analyse posologie ») : produits choisis par la recherche ou le scan de l'appli |
-| `POST v1/posos/analyse` forme B `{venteId, contexte?}` | Depuis la vente en cours (bouton « Analyse posologie » de l'écran Vente, visible quand la vente a un identifiant et au moins un article). Le serveur relit les produits de la vente |
+| `POST v1/posos/analyse` forme B `{venteId, contexte?}` | Mode « Vente ou ordonnance » de l'écran, comme le web : la référence de la vente en cours (affichée sur l'écran Vente), une prévente en cours choisie dans la liste (`GET ventestats/preventes`, déjà utilisé par l'appli) ou un N° d'ordonnance client. Le serveur relit les produits enregistrés. L'écran accepte aussi `PososScreen(venteId: …)` pour un futur bouton dans l'écran Vente |
 
 ### 3.3 Fiche client (`lib/fiche_client/`)
 
@@ -223,23 +225,24 @@ Routes **non utilisées**, par choix :
 **Fichiers existants modifiés**, au strict minimum :
 
 - `lib/accueil/accueil_menus.dart` :
-  - 3 menus : `posos` et `ordonnances_clients` dans la famille Ventes, `reserve` dans la famille Stock ;
+  - une liste séparée `menusSousDroits` de 3 menus : `posos` et `ordonnances_clients` dans la famille Ventes, `reserve` dans la famille Stock ;
   - un champ facultatif `autorise` ;
-  - le filtre de `orderedMenus`.
+  - le filtre de `orderedMenus` et de `menusByFamille`. Les 23 menus d'origine ne changent pas.
 - `lib/accueil/accueil_screen.dart` : l'écoute de `DroitsModules` et la relecture des droits dans `_actualiser`. Pas en test : `serverCheck` est fourni.
-- `lib/ventes/prevente/vente_screen.dart` : le bouton « Analyse posologie » de la barre, visible seulement si la vente a un identifiant et au moins un article.
 - `.github/workflows/build-apk.yml` : les 5 nouveaux fichiers de test.
 
 **Lors de la fusion**
 
 - Brancher `ClientPrestige.surSessionExpiree` sur l'intercepteur 401 global de l'application.
 - L'**accueil d'origine** (`lib/screens/home/home_screen.dart`, interface « ancienne ») n'a pas reçu ces menus. Ils ne sont accessibles que depuis le nouvel accueil.
-- L'écran « Pré-vente » d'origine (`lib/screens/pre_vente/…`) n'a pas reçu le bouton « Analyse posologie ».
+- **Écran Vente** : aucun bouton n'y a été ajouté. Un bouton dans la barre décale le rendu de référence à 360 px (`test/responsive_test.dart`). L'analyse d'une vente passe par le mode « Vente ou ordonnance » de l'écran Analyse posologie. Pour ajouter un accès direct depuis la vente, il faudra mettre à jour le rendu de référence, par exemple dans le cadre de la refonte, puis appeler `PososScreen(venteId: c.venteId, referenceVente: c.summary.reference, produitsInitiaux: …)`.
+- Les nouveaux menus ne peuvent pas être mis en favori : `AccueilFavoris.nettoyer` et l'organisation utilisent `accueilMenuById`, limité aux 23 menus d'origine. Ce point est à revoir avec la session qui gère les favoris.
 - **Remarque hors périmètre** : le client Dio global (`lib/api/dio_client.dart`) a un `LogInterceptor(responseBody: true)` qui journalise **tous** les corps de réponse des autres routes, y compris celles qui contiennent des noms de clients. Les nouveaux modules ne l'utilisent pas.
 
 ## 7. Questions ouvertes pour le pharmacien
 
 1. **Menu Réserve** : faut-il, en attendant un privilège dédié côté serveur, l'ouvrir aussi aux comptes qui ont `P_ANNULER_MOUVEMENT_RESERVE` (lisible par `GET v1/reserve/peut-annuler`) ? Aujourd'hui, le menu est réservé aux administrateurs.
-2. **Analyse posologie** : le menu doit-il être réservé, par exemple aux administrateurs et pharmaciens, en attendant le contrôle `P_SM_POSOS` ? Aujourd'hui, il est ouvert à tous les comptes.
-3. **Ordonnances des clients** : seul l'onglet « Fiche client » existe dans l'application. Faut-il ajouter les autres onglets du web (Historique, Analyse des ordonnances) ?
-4. **Bornes plausibles** des mesures (section 4.3) : sont-elles à valider ou à ajuster, par exemple le poids des nourrissons ou la température ?
+2. **Accès à l'analyse depuis l'écran Vente** : faut-il un bouton direct dans la barre de la vente ? Il modifie le rendu validé à 360 px. Aujourd'hui, on saisit ou on choisit la référence dans l'écran Analyse posologie.
+3. **Analyse posologie** : le menu doit-il être réservé, par exemple aux administrateurs et pharmaciens, en attendant le contrôle `P_SM_POSOS` ? Aujourd'hui, il est ouvert à tous les comptes.
+4. **Ordonnances des clients** : seul l'onglet « Fiche client » existe dans l'application. Faut-il ajouter les autres onglets du web (Historique, Analyse des ordonnances) ?
+5. **Bornes plausibles** des mesures (section 4.3) : sont-elles à valider ou à ajuster, par exemple le poids des nourrissons ou la température ?
