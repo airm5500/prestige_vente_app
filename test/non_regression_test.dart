@@ -22,7 +22,14 @@ import 'package:prestige_vente_app/serveur/client_prestige.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'outils/faux_serveur_prestige.dart';
+import 'package:prestige_vente_app/connexion/connexion_screen.dart';
+import 'package:prestige_vente_app/connexion/lancement_screen.dart';
+import 'package:prestige_vente_app/screens/auth/login_screen.dart';
+import 'package:prestige_vente_app/screens/auth/settings_screen.dart';
+import 'package:prestige_vente_app/screens/splash_screen.dart';
+import 'package:prestige_vente_app/services/search_mode.dart';
+
+import 'outils/app_e2e.dart';
 
 /// Fichiers de test volontairement hors de la CI (outil manuel), avec la raison.
 const _horsCI = {
@@ -135,6 +142,102 @@ void main() {
       }
       final source = File('lib/reserve/reserve_widgets.dart').readAsStringSync();
       expect(source, contains('Color.lerp(c, Colors.black, 0.2)'), reason: 'texte du bandeau du sens assombri');
+    });
+
+    testWidgets('ANO-02 : puce « Début / Contient » : zone tactile ≥ 48 × 48 dp, aspect inchangé (32 dp), bascule', (t) async {
+      SearchModePrefs.mode.value = SearchMode.commencePar;
+      addTearDown(() => SearchModePrefs.mode.value = SearchMode.commencePar);
+      var bascules = 0;
+      await t.pumpWidget(MaterialApp(
+          // Comme dans la vente et la recherche : suffixe d'un champ placé dans une colonne.
+          home: Scaffold(
+              body: Column(children: [
+            SizedBox(
+                width: 320,
+                child: TextField(
+                    decoration: InputDecoration(
+                        suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [SearchModeChip(onToggle: () => bascules++)])))),
+          ]))));
+      final zone = t.getSize(find.byKey(const ValueKey('recherche-mode')));
+      expect(zone.height, greaterThanOrEqualTo(48));
+      expect(zone.width, greaterThanOrEqualTo(48));
+      // Aspect : la puce décorée (fond, bordure) garde sa hauteur de 32 dp, centrée dans la zone tactile.
+      final puce = find.descendant(of: find.byKey(const ValueKey('recherche-mode')), matching: find.byType(DecoratedBox));
+      expect(puce, findsOneWidget);
+      expect(t.getSize(puce).height, 32);
+      expect(t.getCenter(puce), t.getCenter(find.byKey(const ValueKey('recherche-mode'))));
+      // Toucher le bord de la zone (hors de la puce visible) bascule aussi.
+      final r = t.getRect(find.byKey(const ValueKey('recherche-mode')));
+      await t.tapAt(Offset(r.center.dx, r.top + 3));
+      expect(bascules, 1);
+      await expectLater(t, meetsGuideline(androidTapTargetGuideline));
+    });
+
+    // ANO-08 : au tout premier appel (vérification de la licence), l'adresse est celle des réglages dans les deux
+    // interfaces ; sans configuration, le comportement d'origine est conservé.
+    const licenceConfiguree = 'http://${FauxServeurPrestige.hoteMemoire}:${FauxServeurPrestige.portMemoire}/prestige/api/v1/licence/find';
+    for (final nouvelle in [false, true]) {
+      final nom = nouvelle ? 'nouvelle interface' : 'interface d\'origine';
+      testWidgets('ANO-08 ($nom) : la 1re requête du démarrage part vers le serveur configuré (jamais localhost)', (t) async {
+        TailleEcran.telephone.appliquer(t);
+        final app = AppE2E();
+        await app.preparer(interfaceNouvelle: nouvelle);
+        await app.lancer(t);
+        expect(find.byType(nouvelle ? LancementScreen : AncienSplashScreen), findsOneWidget);
+        expect(await app.attendreQue(t, find.byType(nouvelle ? ConnexionScreen : AncienLoginScreen)), isTrue);
+        expect(app.serveur.tentatives, isNotEmpty);
+        expect(app.serveur.tentatives.first.toString(), licenceConfiguree, reason: '1re requête = licence sur le serveur configuré');
+        expect(app.serveur.tentatives.where((u) => u.host != FauxServeurPrestige.hoteMemoire), isEmpty, reason: 'aucune requête vers localhost');
+        expect(app.serveur.recuesSur('/licence/find'), hasLength(1), reason: 'licence vérifiée une fois, sans « Réessayer »');
+        expect(find.text('Serveur injoignable'), findsNothing);
+        expect(t.takeException(), isNull);
+        await app.fermer(t);
+      });
+
+      testWidgets('ANO-08 ($nom) : sans configuration (aucune adresse), Configuration sans aucune requête', (t) async {
+        // Tablette : la Configuration d'origine (écran figé) déborde sur 360×640 dp, hors du sujet de ce test.
+        TailleEcran.tablette.appliquer(t);
+        final app = AppE2E();
+        await app.preparer(interfaceNouvelle: nouvelle, prefs: const {'local_ip': '', 'remote_ip': ''});
+        await app.lancer(t);
+        if (nouvelle) {
+          expect(await app.attendreQue(t, find.byKey(const Key('lancement_premiere'))), isTrue, reason: '« Première utilisation »');
+        } else {
+          expect(await app.attendreQue(t, find.byType(SettingsScreen)), isTrue, reason: 'Configuration d\'origine');
+        }
+        expect(app.serveur.tentatives, isEmpty, reason: 'appareil non configuré : aucune requête');
+        // Configuration d'origine (écran figé, hors ANO-08, inchangé) : la ligne « Type de code ticket » déborde déjà.
+        final e = t.takeException();
+        expect(e == null || (!nouvelle && '$e'.contains('RenderFlex overflowed')), isTrue, reason: '$e');
+        await app.fermer(t);
+      });
+    }
+
+    testWidgets('ANO-08 : 1re installation (réglages absents), même adresse par défaut dans les deux interfaces que « Réessayer »', (t) async {
+      final premieres = <bool, Uri>{};
+      for (final nouvelle in [false, true]) {
+        TailleEcran.telephone.appliquer(t);
+        final app = AppE2E();
+        await app.preparer(interfaceNouvelle: nouvelle);
+        // Aucune adresse enregistrée (seul l'interrupteur d'interface est présent).
+        SharedPreferences.setMockInitialValues({'interface_nouvelle_version_v1': nouvelle});
+        await app.lancer(t);
+        await app.attendreQue(t, nouvelle ? find.byKey(const Key('lancement_injoignable')) : find.text('Serveur injoignable'));
+        premieres[nouvelle] = app.serveur.tentatives.first; // 1re requête de l'application
+        if (!nouvelle) {
+          // « Réessayer » de l'écran d'origine : même adresse qu'au premier appel.
+          await t.tap(find.text('Réessayer'));
+          await app.attendre(t, const Duration(seconds: 3));
+          await app.attendreQue(t, find.text('Serveur injoignable'));
+          final licences = app.serveur.tentatives.where((u) => u.path.endsWith('/licence/find')).toList();
+          expect(licences, hasLength(2));
+          expect(licences.last, premieres[false]);
+        }
+        await app.fermer(t);
+      }
+      expect(premieres[false]!.host, isNot('localhost'));
+      expect(premieres[false], premieres[true], reason: 'même adresse par défaut (réglages) dans les deux interfaces');
+      expect(premieres[false]!.path, endsWith('/licence/find'));
     });
   });
 }
