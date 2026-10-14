@@ -49,10 +49,7 @@ enum Controle {
 /// configuration touchée (test séparé marqué « sauté » avec l'identifiant), les autres contrôles restent actifs.
 /// Clé : 'écran|contrôle|taille|échelle' ; '*' pour toutes les tailles ou toutes les échelles.
 const Map<String, String> anomaliesErgonomie = {
-  // ANO-02 : puce « Début / Contient » (lib/services/search_mode.dart) haute de 32 dp. Widget partagé présent sur l'écran
-  // de vente dont le rendu à 360 px est figé par test/responsive_reference_360.json : correction à arbitrer.
-  'recherche_globale|cibles|*|*': 'ANO-02 puce « Début / Contient » 32 dp',
-  'vente|cibles|*|*': 'ANO-02 puce « Début / Contient » 32 dp',
+  // ANO-02 (puce « Début / Contient » 32 dp) : corrigée en 4.0.2 (zone tactile 48 dp), contrôle « cibles » réactivé.
   // ANO-03 : onglet unique « Fiche client » (SegmentedPills, widget partagé des présentations) haut de 40 dp.
   'ordonnances_clients|cibles|*|*': 'ANO-03 onglet « Fiche client » 40 dp',
   'fiche_client|cibles|*|*': 'ANO-03 onglet « Fiche client » 40 dp',

@@ -100,21 +100,29 @@ class SearchModeChip extends StatelessWidget {
           final on = mode == SearchMode.contient;
           return Tooltip(
             message: 'Recherche : ${mode.verbe} le texte tapé. Toucher pour « ${mode.other.label} ».',
+            // ANO-02 : zone tactile d'au moins 48 × 48 dp (comme MaterialTapTargetSize.padded) autour de la puce,
+            // dont l'aspect (fond, bordure, 32 dp de haut) est inchangé et centré dans cette zone.
             child: InkWell(
               key: const ValueKey('recherche-mode'),
               borderRadius: BorderRadius.circular(8),
               onTap: onToggle ?? SearchModePrefs.toggle,
-              child: Container(
-                constraints: const BoxConstraints(minHeight: 32),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: on ? const Color(0xFFFFF3D6) : const Color(0xFFE9EEF5),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: on ? const Color(0xFFF59E0B) : const Color(0xFFC5D0DE)),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+                child: Center(
+                  widthFactor: 1,
+                  heightFactor: 1,
+                  child: Container(
+                    constraints: const BoxConstraints(minHeight: 32),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: on ? const Color(0xFFFFF3D6) : const Color(0xFFE9EEF5),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: on ? const Color(0xFFF59E0B) : const Color(0xFFC5D0DE)),
+                    ),
+                    child: Text(mode.short, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: on ? const Color(0xFF92400E) : const Color(0xFF334155))),
+                  ),
                 ),
-                child: Text(mode.short,
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: on ? const Color(0xFF92400E) : const Color(0xFF334155))),
               ),
             ),
           );
