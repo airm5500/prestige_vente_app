@@ -30,10 +30,10 @@ android {
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
 
-        // MODIFICATION : Ces lignes DOIVENT être décommentées.
-        //versionCode = flutter.versionCode
-        versionCode = 8
-        versionName = "3.4.1"
+        // Version unique : celle de pubspec.yaml (« version: 4.0.0+8 » → versionName 4.0.0, versionCode 8).
+        // Aucun numéro en dur ici (vérifié par test/version_sunmi_test.dart, voir docs/VERSIONS_SUNMI.md).
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
     }
 
     buildTypes {

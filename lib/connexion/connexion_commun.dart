@@ -18,7 +18,7 @@ import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
-import 'package:prestige_vente_app/support/support_centre.dart';
+import 'package:prestige_vente_app/version_app.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
@@ -659,7 +659,7 @@ class EncadreServeurInjoignable extends StatelessWidget {
   }
 }
 
-/// « Version 1.2.0 · Assistance : 07 08 08 00 68 ».
+/// « Version 4.0.0+8 · Assistance : 07 08 08 00 68 » (version lue à l'exécution, voir [VersionApp]).
 class PiedConnexion extends StatelessWidget {
   final Color couleur;
   final bool assistance;
@@ -669,15 +669,17 @@ class PiedConnexion extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<ConnexionConfig>(
         valueListenable: ConnexionReglages.courant,
-        builder: (context, c, _) => Text(
-          [
-            'Version ${SupportCentre.version}',
-            if (extra != null) extra!,
-            if (assistance) 'Assistance : ${Assistance.formater(c.assistance)}',
-          ].join(' · '),
+        builder: (context, c, _) => KeyedSubtree(
           key: const Key('pied_connexion'),
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12.5, color: couleur),
+          child: VersionAffichee(
+            couleur: couleur,
+            taille: 12.5,
+            format: (version) => [
+              version,
+              if (extra != null) extra!,
+              if (assistance) 'Assistance : ${Assistance.formater(c.assistance)}',
+            ].join(' · '),
+          ),
         ),
       );
 }

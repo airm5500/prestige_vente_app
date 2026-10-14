@@ -12,7 +12,10 @@ import 'package:prestige_vente_app/ordonnances/banc_essai/pipeline_ordonnance.da
 import 'package:prestige_vente_app/ordonnances/banc_essai/score_banc.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/version_app.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'outils/version_installee.dart';
 
 bool _ok(String attendu, String propose) => NormalisationProduit.correspondTexte(attendu, propose);
 
@@ -193,8 +196,10 @@ void main() {
       expect(g.correctes, '15/15');
     });
 
-    test('versionAppli = version de pubspec.yaml', () {
-      final v = RegExp(r'^version:\s*([0-9.]+)', multiLine: true).firstMatch(File('pubspec.yaml').readAsStringSync())!.group(1);
+    test('versionAppli = version du paquet installé (pubspec.yaml)', () async {
+      // Plus de constante recopiée : la version est lue à l'exécution (package_info_plus).
+      final v = simulerVersionInstallee().split('+').first;
+      await VersionApp.charger();
       expect(versionAppli, v);
     });
   });

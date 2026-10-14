@@ -4,10 +4,11 @@
 import 'dart:convert';
 
 import 'package:prestige_vente_app/ordonnances/banc_essai/score_banc.dart';
+import 'package:prestige_vente_app/version_app.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Version de l'application (identique à `version:` de pubspec.yaml, vérifié par les tests).
-const String versionAppli = '1.2.0';
+/// Version de l'application (X.Y.Z), lue à l'exécution dans le paquet installé (source unique : pubspec.yaml).
+String get versionAppli => VersionApp.version;
 
 /// Une ligne de l'historique : un passage d'un pipeline sur un lot d'images.
 class EntreeHistorique {
@@ -33,10 +34,10 @@ class EntreeHistorique {
     required this.fauxPositifs,
   });
 
-  factory EntreeHistorique.depuis(ScoreGlobal s, {required String pipeline, DateTime? date, String version = versionAppli}) =>
+  factory EntreeHistorique.depuis(ScoreGlobal s, {required String pipeline, DateTime? date, String? version}) =>
       EntreeHistorique(
         date: date ?? DateTime.now(),
-        version: version,
+        version: version ?? versionAppli,
         pipeline: pipeline,
         images: s.ordonnances.length,
         comptees: s.nbComptees,
@@ -117,9 +118,9 @@ class RapportBanc {
       '${s.correctes} ordonnances entièrement correctes · rappel ${_pct(s.rappel)} · précision ${_pct(s.precision)} '
       '(${s.nbTrouves}/${s.nbAttendus} produits trouvés, ${s.nbFauxPositifs} faux positifs)';
 
-  static String texte(Map<String, ScoreGlobal> parPipeline, {DateTime? date, String version = versionAppli}) {
+  static String texte(Map<String, ScoreGlobal> parPipeline, {DateTime? date, String? version}) {
     final b = StringBuffer()
-      ..writeln('Banc d\'essai ordonnances — Prestige Mobile $version — ${_d(date ?? DateTime.now())}')
+      ..writeln('Banc d\'essai ordonnances — Prestige Mobile ${version ?? versionAppli} — ${_d(date ?? DateTime.now())}')
       ..writeln('(Rapport sans texte reconnu : seulement les produits attendus et proposés.)');
     for (final e in parPipeline.entries) {
       b

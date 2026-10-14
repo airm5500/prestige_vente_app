@@ -13,6 +13,7 @@ import 'package:prestige_vente_app/screens/home/menu_organizer_screen.dart';
 import 'package:prestige_vente_app/screens/splash_screen.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart'; // Pour la sécurité
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
+import 'package:prestige_vente_app/version_app.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -283,6 +284,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       settings.isLoading
                           ? const Center(child: CircularProgressIndicator())
                           : ElevatedButton(onPressed: _onSave, child: const Text('Enregistrer')),
+                      // Version installée (pubspec.yaml → Gradle), lue à l'exécution.
+                      const Padding(
+                        padding: EdgeInsets.only(top: 16, bottom: 8),
+                        child: VersionAffichee(key: Key('reglages_version')),
+                      ),
                     ],
                   ),
                 );

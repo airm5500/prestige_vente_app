@@ -51,10 +51,13 @@ import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/support/support_capture.dart';
 import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/support/support_file.dart';
+import 'package:prestige_vente_app/version_app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('fr_FR', null);
+  // Version du paquet installé (pubspec.yaml → Gradle), lue une fois : support, journal, affichage.
+  await VersionApp.charger();
   await VentesVersion.load();
   await InterfaceVersion.load();
   await SearchModePrefs.load();

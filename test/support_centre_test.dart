@@ -20,7 +20,10 @@ import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/support/support_event.dart';
 import 'package:prestige_vente_app/support/support_file.dart';
 import 'package:prestige_vente_app/support/support_page.dart';
+import 'package:prestige_vente_app/version_app.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'outils/version_installee.dart';
 
 // -----------------------------------------------------------------------------
 // Outils
@@ -145,10 +148,12 @@ void main() {
       expect(srv.corps.last['urlOuEcran'], 'SYNCHRO stock hors ligne');
     });
 
-    test('la version annoncée est celle de pubspec.yaml', () {
-      final pubspec = File('pubspec.yaml').readAsStringSync();
-      final v = RegExp(r'^version:\s*([0-9.]+)', multiLine: true).firstMatch(pubspec)!.group(1);
+    test('la version annoncée est celle du paquet installé (pubspec.yaml), au format X.Y.Z comme avant', () async {
+      // Plus de constante recopiée : la version est lue à l'exécution (package_info_plus).
+      final v = simulerVersionInstallee().split('+').first;
+      await VersionApp.charger();
       expect(SupportCentre.version, v);
+      expect(SupportCentre.version, matches(RegExp(r'^\d+\.\d+\.\d+$')));
     });
 
     test('réponses du serveur : succès, session, refus, 404, 5xx, HTML ; contact text/html avec JSON', () {

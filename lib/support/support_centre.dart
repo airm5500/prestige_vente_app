@@ -22,6 +22,7 @@ import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/support/support_event.dart';
 import 'package:prestige_vente_app/support/support_file.dart';
+import 'package:prestige_vente_app/version_app.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Réponse du serveur à un envoi.
@@ -105,8 +106,9 @@ class SupportCentre extends ChangeNotifier {
 
   static const application = 'Prestige Mobile';
 
-  /// Version de l'app (identique à pubspec.yaml, vérifiée par les tests).
-  static const version = '1.2.0';
+  /// Version de l'app (X.Y.Z, même format qu'avant pour le serveur), lue à l'exécution dans le paquet installé
+  /// (source unique : pubspec.yaml, voir docs/VERSIONS_SUNMI.md).
+  static String get version => VersionApp.version;
 
   static const maxAutoSession = 20;
   static const maxParHeure = 30;

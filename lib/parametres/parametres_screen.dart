@@ -29,6 +29,7 @@ import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/support/support_page.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
+import 'package:prestige_vente_app/version_app.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
@@ -402,6 +403,11 @@ class _ParametresScreenState extends State<ParametresScreen> {
                   TextButton(onPressed: _search.clear, child: const Text('Effacer la recherche')),
                 ]),
               ),
+            // Version installée (pubspec.yaml → Gradle), lue à l'exécution.
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 18, 16, 16),
+              child: VersionAffichee(key: Key('reglages_version'), couleur: Pal.muted),
+            ),
           ],
         ),
       );

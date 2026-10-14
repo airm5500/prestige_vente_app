@@ -34,6 +34,8 @@ import 'package:prestige_vente_app/services/pin_securise.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'outils/version_installee.dart';
+
 const _mdp = 'Secret!42';
 
 class _Api extends ApiService {
@@ -112,8 +114,12 @@ class _Env {
 void main() {
   final appels = <Uri>[];
   var composeurDisponible = true;
+  // Version affichée en pied d'écran : lue à l'exécution (paquet installé simulé depuis pubspec.yaml),
+  // au lieu de l'ancien « 1.2.0 » recopié dans le code.
+  final version = versionPubspec();
 
   setUp(() {
+    simulerVersionInstallee();
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
     ConnexionReglages.courant.value = const ConnexionConfig();
@@ -161,7 +167,7 @@ void main() {
       expect(find.text('Vérification de la licence…'), findsOneWidget);
       expect(find.bySemanticsLabel('Chargement des réglages, terminé'), findsOneWidget);
       expect(find.bySemanticsLabel('Connexion au serveur…, en cours'), findsOneWidget);
-      expect(find.textContaining('Version 1.2.0'), findsOneWidget);
+      expect(find.textContaining('Version $version'), findsOneWidget);
       expect(env.api.licences, 1);
 
       env.api.bloquerLicence!.complete();
@@ -328,7 +334,7 @@ void main() {
       expect(find.text('Serveur local connecté'), findsOneWidget);
       expect(find.text('192.168.1.50:8080 · prestige'), findsOneWidget);
       expect(find.byType(LogoOfficine), findsOneWidget);
-      expect(find.text('Version 1.2.0 · Assistance : 07 08 08 00 68'), findsOneWidget);
+      expect(find.text('Version $version · Assistance : 07 08 08 00 68'), findsOneWidget);
 
       // Contrôles de saisie.
       await t.tap(find.byKey(const Key('se_connecter')));
@@ -690,7 +696,7 @@ void main() {
 
       await t.pumpWidget(env.app(ConnexionScreen(services: env.services)));
       await laisser(t);
-      expect(find.text('Version 1.2.0 · Assistance : 07 01 02 03 04'), findsOneWidget);
+      expect(find.text('Version $version · Assistance : 07 01 02 03 04'), findsOneWidget);
       await t.ensureVisible(find.byKey(const Key('appeler_assistance')));
       await t.tap(find.byKey(const Key('appeler_assistance')));
       await laisser(t);

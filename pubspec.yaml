@@ -2,7 +2,7 @@ name: prestige_vente_app
 description: "Application de point de vente Prestige Vente"
 publish_to: 'none'
 
-version: 1.2.0
+version: 4.0.0+8
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -60,6 +60,9 @@ dependencies:
   geolocator: 13.0.4
   # Bouton « Appeler l'assistance » (écran de connexion) : composeur téléphonique.
   url_launcher: ^6.3.1
+  # Version installée (versionName+versionCode) lue à l'exécution : écran de connexion, Réglages, support.
+  # Version figée (minSdk 19, compileSdk Flutter) : compatible Android 11 / Sunmi.
+  package_info_plus: 9.0.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

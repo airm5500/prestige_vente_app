@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/version_app.dart';
 
 /// Écran de connexion : nouvel écran (proposition A, option « Qui êtes-vous ? ») dans la nouvelle interface ;
 /// écran d'origine ([AncienLoginScreen], inchangé) quand l'interrupteur InterfaceVersion est désactivé.
@@ -174,6 +175,10 @@ class _AncienLoginScreenState extends State<AncienLoginScreen> {
             ],
           ),
           body: child,
+          // Version installée (pubspec.yaml → Gradle), lue à l'exécution, discrète en bas.
+          bottomNavigationBar: const SafeArea(
+            child: Padding(padding: EdgeInsets.only(bottom: 8, top: 4), child: VersionAffichee()),
+          ),
         );
       },
       child: Center(
