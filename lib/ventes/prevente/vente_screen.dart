@@ -193,7 +193,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
     if (_paying || !mounted) return;
     final c = _ctrl;
     final item = await Navigator.of(context).push<PreventeListItem>(MaterialPageRoute(
-      builder: (_) => PreventeListScreen(load: c.preventes, onSelect: _confirmSwitch, presentation: style),
+      builder: (_) => PreventeListScreen(load: c.preventes, onSelect: _confirmSwitch, presentation: style, details: c.gateway.saleDetails),
     ));
     if (item == null || !mounted) {
       _focusSearch();
@@ -447,6 +447,8 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
           paperWidth: settings.paperWidth,
           ticketCodeType: settings.ticketCodeType,
           provisoire: provisoire,
+          items: _ctrl.items,
+          afficherProduits: settings.afficherProduitsPrevente,
         );
       }
     }

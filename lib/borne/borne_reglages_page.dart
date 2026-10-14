@@ -216,7 +216,9 @@ class _BornePageState extends State<BornePage> {
       SwitchListTile(
         key: const ValueKey('borne-discret'),
         title: const Text('Ticket discret'),
-        subtitle: const Text('Sans le nom des produits (désactivé : les produits sont imprimés sur le ticket).'),
+        subtitle: const Text('Sans le nom des produits (désactivé : les produits sont imprimés sur le ticket). '
+            'Propre à la borne : le réglage Impression « Afficher les produits sur le ticket de prévente » ne concerne '
+            'que le comptoir.'),
         value: _c.ticketDiscret,
         onChanged: (v) => setState(() => _c = _c.copyWith(ticketDiscret: v)),
       ),

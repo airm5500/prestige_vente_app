@@ -341,6 +341,9 @@ void main() {
     expect(env.settings.numberOfTickets, 3);
 
     await tester.scrollUntilVisible(find.text('Rétablir les valeurs par défaut'), 200);
+    // 4.1.1 : page plus longue (réglage des produits sur la prévente) : bouton entièrement visible avant l'appui.
+    await tester.ensureVisible(find.text('Rétablir les valeurs par défaut'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Rétablir les valeurs par défaut'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Rétablir'));

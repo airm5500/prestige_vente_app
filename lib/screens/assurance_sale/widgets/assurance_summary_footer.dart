@@ -77,6 +77,7 @@ class _AssuranceSummaryFooterState extends State<AssuranceSummaryFooter> {
           paperWidth: settings.paperWidth,
           ticketCodeType: settings.ticketCodeType,
           numberOfCopies: settings.numberOfTicketsAssurance,
+          afficherProduits: settings.afficherProduitsPrevente,
         );
       } else {
         // CORRECTION ICI : On passe les paramètres du SettingsProvider

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/borne/borne_service.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
 class BorneTicket {
@@ -38,20 +39,16 @@ class BorneTicket {
   String get date => DateFormat('dd/MM/yyyy HH:mm').format(prevente.at);
 
   /// Lignes de texte (après le numéro et avant le code) : produits ou mention discrète, puis total.
+  /// 4.1.1 : un nom plus long que la ligne passe sur deux lignes (coupure à un espace) au lieu d'être tronqué
+  /// sans signe (« …CPR EFFV » perdait « B/20 ») ; les noms qui tiennent sont imprimés comme avant.
+  /// Le « ticket discret » est propre à la borne (indépendant du réglage Impression du comptoir).
   List<String> get lignes {
-    final cols = largeur == 58 ? 32 : 48;
-    String fit(String s, int n) => s.length <= n ? s.padRight(n) : s.substring(0, n);
+    final cols = TicketPrevente.colonnes(largeur);
     final out = <String>[];
     if (discret) {
-      final n = prevente.lignes.fold<int>(0, (s, l) => s + l.intQUANTITY);
-      out.add('$n article${n > 1 ? 's' : ''}');
+      out.add(TicketPrevente.articles(TicketPrevente.nombreArticles(prevente.lignes)));
     } else {
-      for (final l in prevente.lignes) {
-        out.add(fit(l.strNAME.replaceAll('\n', ' '), cols));
-        final px = '${l.intQUANTITY} x ${Constants.formatNumber(l.intPRICEUNITAIR)}';
-        final tot = Constants.formatNumber(l.intPRICE == 0 ? l.intQUANTITY * l.intPRICEUNITAIR : l.intPRICE);
-        out.add('  $px${tot.padLeft(cols - 2 - px.length)}');
-      }
+      out.addAll(TicketPrevente.produits(prevente.lignes, cols));
     }
     out.add(List.filled(cols, '-').join());
     out.add(paye ? 'TOTAL: ${Constants.formatNumber(prevente.total)} F' : 'TOTAL A PAYER: ${Constants.formatNumber(prevente.total)} F');

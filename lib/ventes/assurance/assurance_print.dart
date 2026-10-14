@@ -188,6 +188,7 @@ Future<void> printAssuranceTicket(
       isTestMode: settings.isTestPrintMode,
       paperWidth: settings.paperWidth,
       ticketCodeType: settings.ticketCodeType,
+      afficherProduits: settings.afficherProduitsPrevente,
       numberOfCopies: 1, // prévente : un seul ticket
       reference: reference,
       carnet: false,

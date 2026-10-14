@@ -168,6 +168,7 @@ class SettingsProvider with ChangeNotifier {
     _hiddenMenuIds = prefs.getStringList(_hiddenMenuIdsKey) ?? [];
     _hideRvProducts = prefs.getBool('hide_rv_products') ?? true;
     _pointageLocalVisible = prefs.getBool(pointageLocalVisibleKey) ?? false;
+    _afficherProduitsPrevente = prefs.getBool(afficherProduitsPreventeKey) ?? false;
 
     // CHARGEMENT DU NOUVEAU PARAMÈTRE
     _blStockComparisonMode = prefs.getString(_blStockComparisonModeKey) ?? 'theorique';
@@ -414,6 +415,21 @@ class SettingsProvider with ChangeNotifier {
 
   bool _hideRvProducts = true;
   bool get hideRvProducts => _hideRvProducts;
+
+  // 4.1.1 — Ticket de PRÉVENTE du comptoir (comptant, assurance, carnet) : lignes produits imprimées ou non.
+  // Désactivé par défaut : ticket de prévente d'origine (sans produits). Ne concerne ni les tickets de vente
+  // encaissée ni la borne (réglage « Ticket discret » propre à la borne).
+  static const String afficherProduitsPreventeKey = 'afficher_produits_ticket_prevente_v1';
+  bool _afficherProduitsPrevente = false;
+  bool get afficherProduitsPrevente => _afficherProduitsPrevente;
+
+  Future<void> setAfficherProduitsPrevente(bool value) async {
+    _afficherProduitsPrevente = value;
+    notifyListeners();
+    try {
+      await (await SharedPreferences.getInstance()).setBool(afficherProduitsPreventeKey, value);
+    } catch (_) {}
+  }
 
   Future<void> setHideRvProducts(bool value) async {
     _hideRvProducts = value;

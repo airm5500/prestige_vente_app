@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_controller.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
@@ -111,11 +112,18 @@ class _CarnetHistoryDialogState extends State<_CarnetHistoryDialog> {
         showVenteSnack(context, 'Référence de la vente introuvable : ticket non imprimé.', error: true);
         return;
       }
+      // Produits (réglage Impression, 4.1.1) : lignes relues seulement si le réglage est activé.
+      final produits = await TicketPrevente.chargerProduits(settings.afficherProduitsPrevente, () async {
+        final d = await widget.controller.gateway.saleDetails(t.summary.venteId);
+        return d is VenteOk<List<SaleItemDetail>> ? d.value : const <SaleItemDetail>[];
+      });
+      if (!mounted) return;
       await ReceiptService().printAssurancePreventeTicket(
         context: context,
         officine: officine,
         saleSummary: t.summary,
-        items: t.items,
+        items: [...t.items, ...produits],
+        afficherProduits: settings.afficherProduitsPrevente,
         client: t.client,
         ayantDroit: t.ayantDroit,
         currentUser: user,

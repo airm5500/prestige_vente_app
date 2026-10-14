@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 
@@ -56,6 +57,10 @@ class _PreventeListTabState extends State<PreventeListTab> {
       venteId: sale.lgPREENREGISTREMENTID,
     );
 
+    // Produits (réglage Impression, 4.1.1) : lignes relues seulement si le réglage est activé.
+    final produits = await TicketPrevente.chargerProduits(settings.afficherProduitsPrevente,
+        () => Provider.of<SaleProvider>(context, listen: false).detailsVente(sale.lgPREENREGISTREMENTID));
+    if (!mounted) return;
     await _receiptService.printPreventeTicket(
       context: context,
       officine: authProvider.officine!,
@@ -64,6 +69,8 @@ class _PreventeListTabState extends State<PreventeListTab> {
       isTestMode: settings.isTestPrintMode,
       paperWidth: settings.paperWidth,
       ticketCodeType: settings.ticketCodeType,
+      items: produits,
+      afficherProduits: settings.afficherProduitsPrevente,
     );
   }
 

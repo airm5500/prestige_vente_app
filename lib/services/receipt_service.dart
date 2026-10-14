@@ -1,10 +1,13 @@
 // lib/services/receipt_service.dart
 // CORRECTION : SÉPARATION NETTE ENTRE VENTE (DÉTAILLÉE) ET PRÉVENTE (MINIMALISTE)
+// 4.1.1 : produits sur le ticket de prévente selon le réglage « Afficher les produits sur le ticket de prévente »
+// (Réglages › Impression ; désactivé par défaut = ticket minimaliste d'origine). Tickets de vente inchangés.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
+import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:sunmi_printer_plus/enums.dart';
 import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
@@ -61,12 +64,17 @@ class ReceiptService {
     required BuildContext context, required Officine officine, required SaleSummary saleSummary, required User currentUser, required bool isTestMode, required int paperWidth, required String ticketCodeType,
     // Optionnel (hors ligne) : numéro provisoire « HL-0007 » ; null = comportement d'origine.
     String? provisoire,
+    // 4.1.1 : réglage « Afficher les produits sur le ticket de prévente » (désactivé : ticket d'origine, sans
+    // produits) et lignes du panier ; sans lignes, le ticket reste celui d'origine.
+    List<SaleItemDetail> items = const [],
+    bool afficherProduits = false,
   }) async {
+    final produits = afficherProduits ? TicketPrevente.imprimables(items) : const <SaleItemDetail>[];
     if (isTestMode) {
-      final ticketWidget = _buildPreventeTicketWidget(context, officine, saleSummary, currentUser, paperWidth, ticketCodeType, provisoire: provisoire);
+      final ticketWidget = _buildPreventeTicketWidget(context, officine, saleSummary, currentUser, paperWidth, ticketCodeType, provisoire: provisoire, produits: produits);
       await _showTestTicketDialog(context, ticketWidget, paperWidth);
     } else {
-      await _printPreventeTicketSunmi(context, officine, saleSummary, currentUser, paperWidth, ticketCodeType, provisoire: provisoire);
+      await _printPreventeTicketSunmi(context, officine, saleSummary, currentUser, paperWidth, ticketCodeType, provisoire: provisoire, produits: produits);
     }
   }
 
@@ -113,9 +121,12 @@ class ReceiptService {
     String? reference, bool? carnet, bool confirmEachCopy = true,
     // Optionnel (hors ligne) : numéro provisoire « HL-0007 » ; null = comportement d'origine.
     String? provisoire,
+    // 4.1.1 : réglage « Afficher les produits sur le ticket de prévente » (désactivé : ticket d'origine, sans produits).
+    bool afficherProduits = false,
   }) async {
     final ref = reference ?? (items.isNotEmpty ? items.first.strREF : '');
     final title = _assuranceTitle(saleSummary, carnet, prevente: true);
+    final produits = afficherProduits ? TicketPrevente.imprimables(items) : const <SaleItemDetail>[];
     for (int i = 0; i < numberOfCopies; i++) {
       if (i > 0 && confirmEachCopy) {
         final bool? rePrint = await showDialog<bool>(
@@ -129,11 +140,11 @@ class ReceiptService {
       }
       if (isTestMode) {
         // APPEL DU WIDGET MINIMALISTE
-        final ticketWidget = _buildAssurancePreventeTicketWidget(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title, provisoire: provisoire);
+        final ticketWidget = _buildAssurancePreventeTicketWidget(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title, provisoire: provisoire, produits: produits);
         await _showTestTicketDialog(context, ticketWidget, paperWidth);
       } else {
         // APPEL DE L'IMPRESSION MINIMALISTE
-        await _printAssurancePreventeTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title, provisoire: provisoire);
+        await _printAssurancePreventeTicketSunmi(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title, provisoire: provisoire, produits: produits);
       }
     }
   }
@@ -226,6 +237,16 @@ class ReceiptService {
     } catch (e) { Constants.showSnackBar(context, 'Erreur imprimante Sunmi: $e', isError: true); return false; }
   }
 
+  /// Lignes produits d'une prévente (4.1.1) : noms sur deux lignes si besoin, quantité × prix et total de la
+  /// ligne, séparateur, nombre d'articles. Imprimées alignées à gauche ; [recentrer] : centrage rétabli après.
+  Future<void> _printProduitsPreventeSunmi(List<SaleItemDetail> produits, int cols, String separateur, {bool recentrer = false}) async {
+    await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
+    for (final l in TicketPrevente.produits(produits, cols)) { await SunmiPrinter.printText(l); }
+    await SunmiPrinter.printText(separateur);
+    await SunmiPrinter.printText(TicketPrevente.articles(TicketPrevente.nombreArticles(produits)));
+    if (recentrer) await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
+  }
+
   // --- SUNMI VENTE COMPTANT ---
   Future<void> _printSaleTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, List<SaleItemDetail> items, PaymentMethod paymentMethod, User currentUser, int paperWidth, bool showQrCode, String ticketCodeType, {int? montantVerse, int? monnaie, List<TicketReglement>? reglements, String? provisoire}) async {
     if (!await _initializePrinter(context)) return;
@@ -286,7 +307,7 @@ class ReceiptService {
   }
 
   // --- SUNMI PRÉVENTE COMPTANT ---
-  Future<void> _printPreventeTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, User currentUser, int paperWidth, String ticketCodeType, {String? provisoire}) async {
+  Future<void> _printPreventeTicketSunmi(BuildContext context, Officine officine, SaleSummary saleSummary, User currentUser, int paperWidth, String ticketCodeType, {String? provisoire, List<SaleItemDetail> produits = const []}) async {
     if (!await _initializePrinter(context)) return;
     try {
       await SunmiPrinter.startTransactionPrint(true);
@@ -304,6 +325,7 @@ class ReceiptService {
         await SunmiPrinter.printText(provisoireNote);
       }
       await SunmiPrinter.printText(line());
+      if (produits.isNotEmpty) await _printProduitsPreventeSunmi(produits, cols, line(), recentrer: true);
       await SunmiPrinter.lineWrap(1);
       await SunmiPrinter.printText('NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.MD));
       await SunmiPrinter.lineWrap(1);
@@ -403,7 +425,7 @@ class ReceiptService {
   }
 
   // --- SUNMI PRÉVENTE ASSURANCE (RESTE MINIMALISTE) ---
-  Future<void> _printAssurancePreventeTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title, String? provisoire}) async {
+  Future<void> _printAssurancePreventeTicketSunmi(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title, String? provisoire, List<SaleItemDetail> produits = const []}) async {
     if (!await _initializePrinter(context)) return;
     try {
       await SunmiPrinter.startTransactionPrint(true);
@@ -429,7 +451,11 @@ class ReceiptService {
       await SunmiPrinter.printText('Patient: ${ayantDroit.fullName}');
       await SunmiPrinter.printText('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}');
 
-      // ICI : PAS D'ARTICLES POUR LA PRÉVENTE (Correct)
+      // Articles seulement si le réglage « Afficher les produits sur le ticket de prévente » est activé (4.1.1).
+      if (produits.isNotEmpty) {
+        await SunmiPrinter.printText(line());
+        await _printProduitsPreventeSunmi(produits, cols, line());
+      }
 
       await SunmiPrinter.printText(line());
       await SunmiPrinter.setAlignment(SunmiPrintAlign.RIGHT);
@@ -539,7 +565,7 @@ class ReceiptService {
     );
   }
 
-  Widget _buildPreventeTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, User currentUser, int paperWidth, String ticketCodeType, {String? provisoire}) {
+  Widget _buildPreventeTicketWidget(BuildContext context, Officine officine, SaleSummary saleSummary, User currentUser, int paperWidth, String ticketCodeType, {String? provisoire, List<SaleItemDetail> produits = const []}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -565,6 +591,7 @@ class ReceiptService {
           const Text(provisoireNote, style: textStyle),
         ],
         Text(line(), style: textStyle),
+        if (produits.isNotEmpty) _produitsPreventeApercu(produits, cols, line(), textStyle),
         const SizedBox(height: 16),
         Text(
             'NET A PAYER: ${Constants.formatNumber(saleSummary.montantNet)}',
@@ -594,8 +621,19 @@ class ReceiptService {
     );
   }
 
+  /// Aperçu des lignes produits d'une prévente : mêmes lignes que l'impression Sunmi (4.1.1).
+  Widget _produitsPreventeApercu(List<SaleItemDetail> produits, int cols, String separateur, TextStyle style) => Align(
+        key: const ValueKey('ticket-prevente-produits'),
+        alignment: Alignment.centerLeft,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          for (final l in TicketPrevente.produits(produits, cols)) Text(l, style: style),
+          Text(separateur, style: style),
+          Text(TicketPrevente.articles(TicketPrevente.nombreArticles(produits)), style: style),
+        ]),
+      );
+
   // --- WIDGET PRÉVENTE ASSURANCE (MINIMALISTE) ---
-  Widget _buildAssurancePreventeTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title, String? provisoire}) {
+  Widget _buildAssurancePreventeTicketWidget(BuildContext context, Officine officine, AssuranceSaleSummary saleSummary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit, User currentUser, int paperWidth, String ticketCodeType, {required String reference, required String title, String? provisoire, List<SaleItemDetail> produits = const []}) {
     const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
     const boldStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black);
     final int cols = paperWidth == 58 ? 32 : 48;
@@ -628,7 +666,11 @@ class ReceiptService {
         Text('Patient: ${ayantDroit.fullName}', style: textStyle),
         Text('Matricule: ${ayantDroit.strNUMEROSECURITESOCIAL}', style: textStyle),
 
-        // PAS D'ARTICLES
+        // Articles seulement si le réglage « Afficher les produits sur le ticket de prévente » est activé (4.1.1).
+        if (produits.isNotEmpty) ...[
+          Text(line(), style: textStyle),
+          _produitsPreventeApercu(produits, cols, line(), textStyle),
+        ],
 
         Text(line(), style: textStyle),
         Align(alignment: Alignment.centerRight, child: Text('Total Brut: ${Constants.formatNumber(saleSummary.montant)}', style: textStyle)),

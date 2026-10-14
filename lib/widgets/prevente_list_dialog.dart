@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
 class PreventeListDialog extends StatefulWidget {
@@ -141,11 +142,16 @@ class _PreventeListDialogState extends State<PreventeListDialog> {
         tierspayants: usedTps,
       );
 
+      // Produits (réglage Impression, 4.1.1) : lignes relues seulement si le réglage est activé.
+      final produits = await TicketPrevente.chargerProduits(
+          settings.afficherProduitsPrevente, () => saleProvider.detailsVente(summary.venteId));
+      if (!mounted) return;
       await _receiptService.printAssurancePreventeTicket(
         context: context,
         officine: authProvider.officine!,
         saleSummary: summary,
-        items: [],
+        items: produits,
+        afficherProduits: settings.afficherProduitsPrevente,
         client: client,
         ayantDroit: ayantDroit,
         currentUser: authProvider.user!,

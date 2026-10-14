@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
@@ -27,7 +28,10 @@ class PreventeListScreen extends StatefulWidget {
   /// Présentation (celle de l'appareil si non précisée).
   final ListPresentation? presentation;
 
-  const PreventeListScreen({super.key, required this.load, required this.onSelect, this.presentation});
+  /// Lignes d'une prévente (réimpression avec les produits si le réglage Impression l'active, 4.1.1).
+  final Future<VenteResult<List<SaleItemDetail>>> Function(String venteId)? details;
+
+  const PreventeListScreen({super.key, required this.load, required this.onSelect, this.presentation, this.details});
 
   @override
   State<PreventeListScreen> createState() => _PreventeListScreenState();
@@ -92,6 +96,13 @@ class _PreventeListScreenState extends State<PreventeListScreen> with Presentati
       Constants.showSnackBar(context, 'Données officine/utilisateur manquantes', isError: true);
       return;
     }
+    // Produits (réglage Impression, 4.1.1) : lignes relues seulement si le réglage est activé.
+    final details = widget.details;
+    final produits = await TicketPrevente.chargerProduits(settings.afficherProduitsPrevente && details != null, () async {
+      final d = await details!(sale.lgPREENREGISTREMENTID);
+      return d is VenteOk<List<SaleItemDetail>> ? d.value : const <SaleItemDetail>[];
+    });
+    if (!mounted) return;
     await ReceiptService().printPreventeTicket(
       context: context,
       officine: officine,
@@ -100,6 +111,8 @@ class _PreventeListScreenState extends State<PreventeListScreen> with Presentati
       isTestMode: settings.isTestPrintMode,
       paperWidth: settings.paperWidth,
       ticketCodeType: settings.ticketCodeType,
+      items: produits,
+      afficherProduits: settings.afficherProduitsPrevente,
     );
   }
 

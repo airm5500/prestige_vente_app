@@ -10,6 +10,9 @@ import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 
 class SaleProvider with ChangeNotifier {
   ApiService _apiService;
+
+  /// Lignes d'une vente (réimpression d'un ticket de prévente avec ses produits, 4.1.1).
+  Future<List<SaleItemDetail>> detailsVente(String venteId) => _apiService.getSaleDetails(venteId);
   ApiService get apiService => _apiService;
 
   SaleProvider(this._apiService) {

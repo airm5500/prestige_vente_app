@@ -318,6 +318,7 @@ class _VenteTabState extends State<VenteTab> {
           context: context, officine: authProvider.officine!,
           saleSummary: saleProvider.saleSummary, currentUser: currentUser,
           isTestMode: settingsProvider.isTestPrintMode, paperWidth: settingsProvider.paperWidth, ticketCodeType: settingsProvider.ticketCodeType,
+          items: saleProvider.cartItems, afficherProduits: settingsProvider.afficherProduitsPrevente,
         );
       } else {
         await receiptService.printSaleTicket(

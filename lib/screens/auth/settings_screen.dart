@@ -1,6 +1,7 @@
 // lib/screens/auth/settings_screen.dart
 // 13/11/2025 10:00 (Complet : Assurance + Menu Organizer + Sécurité PIN + Stock BL Mode)
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/interface_version.dart';
 import 'package:provider/provider.dart';
@@ -249,6 +250,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _LigneReglage( libelle: "Mode test d'impression", choix: Switch( value: settings.isTestPrintMode, onChanged: (value) { settings.setTestPrintMode(value); } ), ),
                       const SizedBox(height: 10),
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Afficher QR/Code-barres (Vente)", style: TextStyle(fontSize: 16))), Switch( value: settings.showQrCodeOnSaleTicket, onChanged: (value) { settings.setShowQrCodeOnSaleTicket(value); } ), ], ),
+                      // 4.1.1 : produits sur le ticket de prévente du comptoir (désactivé par défaut : ticket d'origine).
+                      const SizedBox(height: 10),
+                      Row( key: const Key('origine_afficher_produits_prevente'), mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text(TicketPrevente.libelleReglage, style: TextStyle(fontSize: 16))), Switch( value: settings.afficherProduitsPrevente, onChanged: (value) { settings.setAfficherProduitsPrevente(value); } ), ], ),
+                      Text(TicketPrevente.aideReglage, style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
                       const SizedBox(height: 10),
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Nombre de tickets (Vente)", style: TextStyle(fontSize: 16))), SizedBox( width: 80, child: DropdownButtonFormField<int>( value: settings.numberOfTickets, items: [1, 2, 3].map((int value) => DropdownMenuItem<int>(value: value, child: Text(value.toString()))).toList(), onChanged: (value) { if(value != null) settings.setNumberOfTickets(value); }, decoration: const InputDecoration(isDense: true), ), ) ], ),
                       const SizedBox(height: 10),

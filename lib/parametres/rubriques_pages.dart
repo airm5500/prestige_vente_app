@@ -34,6 +34,7 @@ import 'package:prestige_vente_app/screens/pointage/employees_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/pointage_report_screen.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
@@ -168,6 +169,14 @@ class _ImpressionPageState extends State<ImpressionPage> {
           max: 3,
           onChanged: s.setNumberOfTicketsAssurance,
         ),
+        // 4.1.1 : produits sur le ticket de prévente du comptoir (désactivé par défaut : ticket d'origine).
+        SwitchCard(
+          key: const Key('afficher_produits_prevente'),
+          title: TicketPrevente.libelleReglage,
+          subtitle: TicketPrevente.aideReglage,
+          value: s.afficherProduitsPrevente,
+          onChanged: s.setAfficherProduitsPrevente,
+        ),
         SwitchCard(
           title: 'Mode test d\'impression',
           subtitle: 'Aperçu à l\'écran au lieu d\'imprimer',
@@ -176,11 +185,13 @@ class _ImpressionPageState extends State<ImpressionPage> {
         ),
         ResetDefaultsButton(
           rubrique: 'Impression',
-          detail: '58 mm, QR code, code non affiché sur la vente, 1 ticket (2 en assurance), mode test désactivé.',
+          detail: '58 mm, QR code, code non affiché sur la vente, produits non affichés sur la prévente, 1 ticket (2 en assurance), '
+              'mode test désactivé.',
           onReset: () async {
             await s.setPaperWidth(58);
             await s.setTicketCodeType('QR_CODE');
             await s.setShowQrCodeOnSaleTicket(false);
+            await s.setAfficherProduitsPrevente(false);
             await s.setNumberOfTickets(1);
             await s.setNumberOfTicketsAssurance(2);
             await s.setTestPrintMode(false);

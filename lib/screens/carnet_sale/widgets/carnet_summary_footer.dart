@@ -70,6 +70,7 @@ class CarnetSummaryFooter extends StatelessWidget {
           paperWidth: settings.paperWidth,
           ticketCodeType: settings.ticketCodeType,
           numberOfCopies: copies,
+          afficherProduits: settings.afficherProduitsPrevente,
         );
       } else {
         await receiptService.printAssuranceSaleTicket(
