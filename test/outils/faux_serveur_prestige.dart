@@ -398,6 +398,10 @@ class FauxServeurPrestige extends ServeurJsonLocal {
 
   bool _enMemoire = false;
 
+  /// Client en mémoire : TOUTES les adresses demandées par l'application, dans l'ordre, y compris celles refusées
+  /// (autre hôte que [hoteMemoire], par ex. http://localhost:8080, ou serveur coupé). Voir ANO-08.
+  final List<Uri> tentatives = [];
+
   @override
   String get hote => _enMemoire ? '$hoteMemoire:$portMemoire' : super.hote;
 
@@ -452,6 +456,7 @@ class _FauxHttpClient implements HttpClient {
   @override
   Future<HttpClientRequest> openUrl(String method, Uri url) async {
     final s = FauxServeurPrestige._actif;
+    s?.tentatives.add(url);
     if (s == null || s.coupe || url.host != FauxServeurPrestige.hoteMemoire) {
       throw SocketException('Connection refused', osError: const OSError('Connection refused', 111), address: InternetAddress.loopbackIPv4, port: url.port);
     }

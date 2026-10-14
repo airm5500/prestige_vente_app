@@ -54,6 +54,14 @@ class _AncienSplashScreenState extends State<AncienSplashScreen> {
     // 3. Vérification si configuré
     if (settingsProvider.isConfigured) {
 
+      // ANO-08 : l'ApiService fourni a été créé à la 1re image (réglages pas encore lus → http://localhost:8080) et
+      // n'est recréé par le ProxyProvider qu'à l'image suivante ; « Future.delayed(Duration.zero) » n'en laisse
+      // passer aucune. Si l'adresse n'est pas celle des réglages, on attend la fin de l'image suivante (ApiService recréé).
+      if (mounted && Provider.of<ApiService>(context, listen: false).dio.options.baseUrl != settingsProvider.baseUrl) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+      }
+
       // ON FORCE LA MISE A JOUR DU PROVIDER LICENCE AVEC LE BON API SERVICE
       // C'est ici que se jouait le bug : on s'assure qu'il utilise la bonne IP
       final apiService = Provider.of<ApiService>(context, listen: false);

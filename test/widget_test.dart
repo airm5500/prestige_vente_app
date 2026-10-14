@@ -26,11 +26,10 @@ void main() {
     await app.fermer(t);
   });
 
-  // ANO-08 (signalée, non corrigée : écran d'origine figé) : avec l'interface d'origine, la 1re vérification de la
-  // licence part vers l'adresse par défaut (http://localhost:8080) au lieu du serveur configuré — l'ApiService n'est
-  // pas encore recréé après la lecture des réglages (« Future.delayed(Duration.zero) » ne laisse pas passer d'image) —
-  // d'où « Serveur injoignable » au démarrage, « Réessayer » fonctionne ensuite. Sauté sur cette configuration.
-  testWidgets('démarrage avec l\'interface d\'origine : écran d\'origine puis connexion d\'origine — sauté : ANO-08', skip: true, (t) async {
+  // ANO-08 (corrigée en 4.0.2) : avec l'interface d'origine, la 1re vérification de la licence partait vers
+  // http://localhost:8080 (ApiService créé avant la lecture des réglages, recréé seulement à l'image suivante).
+  // Contrôle de l'adresse du tout premier appel : non_regression_test (« ANO-08 »).
+  testWidgets('démarrage avec l\'interface d\'origine : écran d\'origine puis connexion d\'origine (ANO-08 corrigée)', (t) async {
     TailleEcran.telephone.appliquer(t);
     final app = AppE2E();
     await app.preparer(interfaceNouvelle: false);
@@ -38,6 +37,8 @@ void main() {
     expect(find.byType(AncienSplashScreen), findsOneWidget);
     expect(find.text('Démarrage...'), findsOneWidget);
     expect(await app.attendreQue(t, find.byType(AncienLoginScreen)), isTrue);
+    expect(app.serveur.recuesSur('/licence/find'), hasLength(1), reason: 'licence vérifiée une fois, sur le serveur configuré');
+    expect(find.text('Serveur injoignable'), findsNothing);
     expect(t.takeException(), isNull);
     await app.fermer(t);
   });
