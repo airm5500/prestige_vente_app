@@ -16,8 +16,9 @@ flutter test test/ergonomie_test.dart --plain-name "Sunmi V2s 720×1440, texte �
 ```
 
 La CI liste **explicitement** chaque fichier (ligne 32). `test/non_regression_test.dart` échoue si un fichier
-`test/**/*_test.dart` n'y figure pas (seule exception déclarée : `test/outils/apercus_connexion_test.dart`, outil
-manuel qui génère des aperçus PNG avec `APERCUS=1`).
+`test/**/*_test.dart` n'y figure pas (exceptions déclarées : `test/outils/apercus_connexion_test.dart` et
+`test/outils/captures_borne_test.dart`, outils manuels qui génèrent des aperçus PNG avec `APERCUS=1` — captures de la
+borne dans `docs/maquettes/captures_borne/`).
 
 ## Catégories
 

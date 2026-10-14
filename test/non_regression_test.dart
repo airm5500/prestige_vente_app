@@ -34,6 +34,7 @@ import 'outils/app_e2e.dart';
 /// Fichiers de test volontairement hors de la CI (outil manuel), avec la raison.
 const _horsCI = {
   'test/outils/apercus_connexion_test.dart': 'génère des aperçus PNG (APERCUS=1), jamais en CI',
+  'test/outils/captures_borne_test.dart': 'génère les captures PNG de la borne (APERCUS=1), jamais en CI',
 };
 
 /// Fichiers listés par l'étape de tests de la CI.

@@ -416,6 +416,9 @@ Réponses du client appliquées (§7) : matériel tablette Sunmi / borne avec ti
 - **Responsive** : 1 colonne (terminal), 2–3 colonnes (tablette portrait), 4 colonnes + panier latéral (≥ 900 px) ; boutons ≥ 56 px.
 - **Tests** : `test/borne_test.dart` (CI) + intégration réelle (prévente créée puis supprimée, retrouvée par sa référence).
   Aperçus : `docs/maquettes/apercus/borne_*.png` (`BORNE_APERCUS=1 flutter test test/borne_test.dart`).
+  Captures pour le pharmacien (tablette 1920×1200 paysage / portrait, Sunmi V2s 720×1440, 3 présentations, recherche, fiche,
+  panier, écart de prix, ticket écran / imprimé, réglages) : `docs/maquettes/captures_borne/*.png`
+  (`APERCUS=1 flutter test test/outils/captures_borne_test.dart --update-goldens`, hors CI).
 
 ### 3.8 B2 — Images des produits : réalisé (aucun code serveur)
 Décision du client : « les images viendront du serveur » ; l'ajout depuis le terminal sera précisé plus tard.
