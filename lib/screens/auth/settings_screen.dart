@@ -211,9 +211,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                       Text('Impression', style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 10),
-                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Text("Largeur du ticket", style: TextStyle(fontSize: 16)), ToggleButtons( isSelected: [ settings.paperWidth == 58, settings.paperWidth == 80 ], onPressed: (index) { settings.setPaperWidth(index == 0 ? 58 : 80); }, borderRadius: BorderRadius.circular(8), children: const [ Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('58mm')), Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('80mm')) ], ), ], ),
+                      _LigneReglage( libelle: "Largeur du ticket", choix: ToggleButtons( isSelected: [ settings.paperWidth == 58, settings.paperWidth == 80 ], onPressed: (index) { settings.setPaperWidth(index == 0 ? 58 : 80); }, borderRadius: BorderRadius.circular(8), children: const [ Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('58mm')), Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('80mm')) ], ), ),
                       const SizedBox(height: 10),
-                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Text("Mode test d'impression", style: TextStyle(fontSize: 16)), Switch( value: settings.isTestPrintMode, onChanged: (value) { settings.setTestPrintMode(value); } ), ], ),
+                      _LigneReglage( libelle: "Mode test d'impression", choix: Switch( value: settings.isTestPrintMode, onChanged: (value) { settings.setTestPrintMode(value); } ), ),
                       const SizedBox(height: 10),
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Afficher QR/Code-barres (Vente)", style: TextStyle(fontSize: 16))), Switch( value: settings.showQrCodeOnSaleTicket, onChanged: (value) { settings.setShowQrCodeOnSaleTicket(value); } ), ], ),
                       const SizedBox(height: 10),
@@ -223,7 +223,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Flexible(child: Text("Nombre de tickets (Assurance)", style: TextStyle(fontSize: 16))), SizedBox( width: 80, child: DropdownButtonFormField<int>( value: settings.numberOfTicketsAssurance, items: [1, 2, 3].map((int value) => DropdownMenuItem<int>(value: value, child: Text(value.toString()))).toList(), onChanged: (value) { if(value != null) settings.setNumberOfTicketsAssurance(value); }, decoration: const InputDecoration(isDense: true), ), ) ], ),
                       const SizedBox(height: 10),
 
-                      Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Text("Type de code ticket", style: TextStyle(fontSize: 16)), ToggleButtons( isSelected: [ settings.ticketCodeType == 'QR_CODE', settings.ticketCodeType == 'BARCODE' ], onPressed: (index) { settings.setTicketCodeType(index == 0 ? 'QR_CODE' : 'BARCODE'); }, borderRadius: BorderRadius.circular(8), children: const [ Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('QR Code')), Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Code-barres')) ], ), ], ),
+                      // F1 (4.0.3) : libellé et choix côte à côte s'ils tiennent, sinon le choix passe sous le libellé (débordait de
+                      // ~132 px, même sur tablette : largeur bornée à 500 dp). Mêmes choix, mêmes valeurs.
+                      _LigneReglage( libelle: "Type de code ticket", choix: ToggleButtons( isSelected: [ settings.ticketCodeType == 'QR_CODE', settings.ticketCodeType == 'BARCODE' ], onPressed: (index) { settings.setTicketCodeType(index == 0 ? 'QR_CODE' : 'BARCODE'); }, borderRadius: BorderRadius.circular(8), children: const [ Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('QR Code')), Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Code-barres')) ], ), ),
 
                       const Divider(height: 30),
 
@@ -235,25 +237,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                       // NOUVEAU PARAMÈTRE : COMPARAISON STOCK
                       const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Flexible(child: Text("Comparaison Stock BL", style: TextStyle(fontSize: 16))),
-                          ToggleButtons(
-                            isSelected: [
-                              settings.blStockComparisonMode == 'theorique',
-                              settings.blStockComparisonMode == 'machine'
-                            ],
-                            onPressed: (index) {
-                              settings.setBlStockComparisonMode(index == 0 ? 'theorique' : 'machine');
-                            },
-                            borderRadius: BorderRadius.circular(8),
-                            children: const [
-                              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Théorique')),
-                              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Machine'))
-                            ],
-                          ),
-                        ],
+                      _LigneReglage(
+                        libelle: "Comparaison Stock BL",
+                        choix: ToggleButtons(
+                          isSelected: [
+                            settings.blStockComparisonMode == 'theorique',
+                            settings.blStockComparisonMode == 'machine'
+                          ],
+                          onPressed: (index) {
+                            settings.setBlStockComparisonMode(index == 0 ? 'theorique' : 'machine');
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          children: const [
+                            Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Théorique')),
+                            Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Machine'))
+                          ],
+                        ),
                       ),
 
                       const SizedBox(height: 10),
@@ -336,4 +335,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ],
     );
   }
+}
+
+/// Ligne « libellé + choix » de la Configuration (4.0.3, F1) : libellé à gauche et choix à droite quand les deux
+/// tiennent sur la largeur (aspect d'origine), sinon le choix passe sous le libellé (retour à la ligne) au lieu de
+/// déborder ; un choix plus large que l'écran entier (texte très agrandi) se réduit au lieu d'être coupé.
+/// Le choix lui-même (boutons, valeurs, enregistrement) est inchangé.
+class _LigneReglage extends StatelessWidget {
+  final String libelle;
+  final Widget choix;
+  const _LigneReglage({required this.libelle, required this.choix});
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 12,
+        runSpacing: 6,
+        children: [
+          Text(libelle, style: const TextStyle(fontSize: 16)),
+          FittedBox(fit: BoxFit.scaleDown, child: choix),
+        ],
+      );
 }

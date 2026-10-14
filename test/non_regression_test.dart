@@ -195,7 +195,6 @@ void main() {
       });
 
       testWidgets('ANO-08 ($nom) : sans configuration (aucune adresse), Configuration sans aucune requête', (t) async {
-        // Tablette : la Configuration d'origine (écran figé) déborde sur 360×640 dp, hors du sujet de ce test.
         TailleEcran.tablette.appliquer(t);
         final app = AppE2E();
         await app.preparer(interfaceNouvelle: nouvelle, prefs: const {'local_ip': '', 'remote_ip': ''});
@@ -206,9 +205,9 @@ void main() {
           expect(await app.attendreQue(t, find.byType(SettingsScreen)), isTrue, reason: 'Configuration d\'origine');
         }
         expect(app.serveur.tentatives, isEmpty, reason: 'appareil non configuré : aucune requête');
-        // Configuration d'origine (écran figé, hors ANO-08, inchangé) : la ligne « Type de code ticket » déborde déjà.
-        final e = t.takeException();
-        expect(e == null || (!nouvelle && '$e'.contains('RenderFlex overflowed')), isTrue, reason: '$e');
+        // F1 (4.0.3) : la ligne « Type de code ticket » de la Configuration d'origine ne déborde plus (elle débordait
+        // de ~132 px sur tablette) : plus aucune exception tolérée (test/configuration_origine_test.dart).
+        expect(t.takeException(), isNull);
         await app.fermer(t);
       });
     }

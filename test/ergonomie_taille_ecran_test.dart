@@ -297,13 +297,7 @@ void main() {
     });
 
     testWidgets('Configuration d\'origine : même réglage, protégé par le code administrateur', (t) async {
-      // La Configuration d'origine (inchangée) déborde déjà sous la police de test (voir version_affichee_test) :
-      // seuls ces débordements sont ignorés ici.
-      final avant = FlutterError.onError;
-      FlutterError.onError = (d) {
-        if (!d.exceptionAsString().contains('overflowed')) avant?.call(d);
-      };
-      addTearDown(() => FlutterError.onError = avant);
+      // F1 (4.0.3) : la Configuration d'origine ne déborde plus (test/configuration_origine_test.dart).
       final code = _installerCode();
       final app = await _lancer(t, _v2s, ecran.TailleEcran.automatique);
       // Configuration d'origine (InterfaceVersion.settings() quand « Nouvel accueil et nouveaux réglages » est désactivé).
@@ -320,7 +314,7 @@ void main() {
       await t.tap(find.text('Plus tard'));
       await app.attendre(t, const Duration(seconds: 1));
       expect(ecran.TailleEcranReglage.enregistree, ecran.TailleEcran.compact);
-      FlutterError.onError = avant;
+      expect(t.takeException(), isNull);
       await app.fermer(t);
     });
   });

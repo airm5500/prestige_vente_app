@@ -129,20 +129,15 @@ void main() {
   });
 
   testWidgets('Configuration (ancienne interface) : version en bas', (t) async {
-    // La Configuration d'origine (inchangée, largeur max. 500) déborde déjà sous la police de test :
-    // débordements ignorés ici, hors sujet (seule la version est vérifiée).
+    // F1 (4.0.3) : la Configuration d'origine ne déborde plus (test/configuration_origine_test.dart).
     telephone(t);
-    final avant = FlutterError.onError;
-    FlutterError.onError = (d) {
-      if (!d.exceptionAsString().contains('overflowed')) avant?.call(d);
-    };
     final env = _Env();
     await env.settings.loadSettings();
     await t.pumpWidget(env.app(const SettingsScreen()));
     await t.pumpAndSettle();
     final v = find.byKey(const Key('reglages_version'));
     await t.scrollUntilVisible(v, 300, scrollable: find.byType(Scrollable).first);
-    FlutterError.onError = avant;
     expect(find.descendant(of: v, matching: find.text('Version $version')), findsOneWidget);
+    expect(t.takeException(), isNull);
   });
 }
