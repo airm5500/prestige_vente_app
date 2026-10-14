@@ -63,7 +63,7 @@ class _VersionAfficheeState extends State<VersionAffichee> {
             widget.format?.call(v) ?? v,
             key: const Key('version_app'),
             textAlign: widget.textAlign,
-            style: TextStyle(fontSize: widget.taille, color: widget.couleur ?? Theme.of(context).hintColor),
+            style: TextStyle(fontSize: widget.taille, fontWeight: FontWeight.w600, color: widget.couleur ?? Theme.of(context).colorScheme.onSurface),
           );
         },
       );
