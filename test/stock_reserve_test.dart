@@ -150,6 +150,30 @@ void main() {
       expect(const StockReserve(stockReserve: 0, seuilReserve: 0, seuilMiniRayon: 0).aReapprovisionner(0), isFalse);
     });
 
+    // F2 (4.0.3, confirmé par le pharmacien) : un seuil de réserve à 0 veut dire « non défini » : pas de ligne
+    // « Seuil réserve », pas d'alerte même avec une réserve vide (0 ≤ 0 n'est pas un réapprovisionnement).
+    test('F2 : seuil réserve à 0 = non défini (Analyse article : GET /info), rien à changer', () {
+      final a = ArticleAnalysis.fromJson({..._lignesInfo.first, 'stock': 10, 'stockReserve': 0, 'seuilReserve': 0, 'seuilMiniRayon': 0});
+      expect(a.reserve.geree, isTrue);
+      expect(a.reserve.seuilReserveRenseigne, isNull);
+      expect(a.reserve.reserveBasse, isFalse);
+      expect(a.reserve.aReapprovisionner(10), isFalse);
+      expect(stockReserveInfos(10, a.reserve), [('Stock rayon', '10'), ('Stock réserve', '0'), ('Total rayon + réserve', '10')]);
+      // Texte « 0 » du serveur : même lecture.
+      expect(ArticleAnalysis.fromJson({..._lignesInfo.first, 'stockReserve': '0', 'seuilReserve': '0'}).reserve.seuilReserveRenseigne, isNull);
+      // Seuil défini (1) : la même réserve vide déclenche l'alerte.
+      expect(const StockReserve(stockReserve: 0, seuilReserve: 1).aReapprovisionner(10), isTrue);
+    });
+
+    testWidgets('F2 : résumé d\'une réserve vide au seuil 0 — pas de « À réapprovisionner »', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: StockReserveResume(reserve: StockReserve(stockReserve: 0, seuilReserve: 0, seuilMiniRayon: 0), rayon: 10)),
+      ));
+      expect(find.text('Réserve : 0 · Total : 10'), findsOneWidget);
+      expect(find.text('À réapprovisionner'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('pastille et résumé lisibles en thème sombre', (tester) async {
       await tester.pumpWidget(MaterialApp(
         theme: ThemeData(brightness: Brightness.dark),
