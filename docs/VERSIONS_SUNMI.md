@@ -11,8 +11,8 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.0.0+8** (`pubspec.yaml`), la refonte compte comme une nouvelle
-grande version (voir `docs/NOTE_VERSION_4.0.0.md`).
+Version en préparation (pas encore publiée) : **4.0.1+9** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+`docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (voir `docs/NOTE_VERSION_4.0.1.md`).
 
 ## Les 3 règles (permanentes)
 
