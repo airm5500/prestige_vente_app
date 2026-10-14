@@ -6,6 +6,7 @@ import 'package:prestige_vente_app/api/models/product_info.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 // MODIFICATION : Import du modèle de recherche standard
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/services/classement_code.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
 
 class ProductStatsProvider with ChangeNotifier, PagedProductSearchHost {
@@ -17,7 +18,7 @@ class ProductStatsProvider with ChangeNotifier, PagedProductSearchHost {
   // MODIFICATION : Le résultat de recherche utilise le modèle standard
   /// Code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
   @override
-  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService, classerCodes: true);
   ProductAnnualSale? _selectedProductSales;
   ProductInfo? _selectedProductInfo;
   List<ProductAnnualSale> _comparisonData = [];
@@ -76,7 +77,8 @@ class ProductStatsProvider with ChangeNotifier, PagedProductSearchHost {
     ]);
 
     final salesData = results[0] as List<ProductAnnualSale>;
-    _selectedProductSales = salesData.isNotEmpty ? salesData.first : null;
+    // Ventes de CE produit (recherche « commence par » du serveur : jamais la 1re ligne d'un autre, 4.0.3 F3).
+    _selectedProductSales = ligneDuCode(salesData, product.intCIP, (s) => s.codeCip);
     _selectedProductInfo = results[1] as ProductInfo?;
 
     _setLoading(false);
@@ -92,8 +94,9 @@ class ProductStatsProvider with ChangeNotifier, PagedProductSearchHost {
     final List<ProductAnnualSale> historicData = [];
     for (int year in yearsToFetch) {
       final result = await _apiService.getAnnualSales(_selectedProductSales!.codeCip, year);
-      if (result.isNotEmpty) {
-        historicData.add(result.first);
+      final ligne = ligneDuCode(result, _selectedProductSales!.codeCip, (s) => s.codeCip);
+      if (ligne != null) {
+        historicData.add(ligne);
       }
     }
     _comparisonData = [_selectedProductSales!, ...historicData];

@@ -70,7 +70,7 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
   final _focus = FocusNode();
   Timer? _debounce;
   late final PagedProductSearch _search =
-      PagedProductSearch(widget.api ?? () => Provider.of<ApiService>(context, listen: false));
+      PagedProductSearch(widget.api ?? () => Provider.of<ApiService>(context, listen: false), classerCodes: true);
   bool _loading = false;
   String _lastSent = '';
   List<AccueilMenu> _menus = const [];

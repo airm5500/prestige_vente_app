@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/services/classement_code.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -47,7 +48,12 @@ class PagedProductSearch {
   /// Produits à montrer (ex. masquer les « RV ») ; les autres restent comptés dans le total.
   final bool Function(ProductSearchResult)? visible;
 
-  PagedProductSearch(this._api, {this.visible});
+  /// Saisie en chiffres : produits dont un code (CIP, CIP13 / CIP7, EAN) commence par la saisie en tête, la
+  /// correspondance exacte d'abord, le reste dans l'ordre du serveur ([classerParCode], 4.0.3 F3). Activé pour
+  /// Recherche Article, Évaluation Vente et la recherche de l'accueil ; les autres menus gardent l'ordre du serveur.
+  final bool classerCodes;
+
+  PagedProductSearch(this._api, {this.visible, this.classerCodes = false});
 
   ProductPager? _pager;
   List<ProductSearchResult> _items = const [];
@@ -106,6 +112,12 @@ class PagedProductSearch {
 
   bool _visible(ProductSearchResult p) => visible?.call(p) ?? true;
 
+  /// Produits visibles, classés par début de code si [classerCodes] (saisie numérique seulement).
+  List<ProductSearchResult> _montrer(Iterable<ProductSearchResult> l) {
+    final v = l.where(_visible).toList();
+    return classerCodes ? classerParCode(v, query, (p) => p.intCIP, autres: (p) => [p.codeEanFabriquant]) : v;
+  }
+
   /// Recherche [raw] : code → produit exact (variantes) ; texte → 1ʳᵉ page.
   /// [asCode] force le mode (sinon : [ProductLookup.looksLikeCode]).
   /// Renvoie false si une recherche plus récente (ou [clear]) l'a remplacée.
@@ -129,7 +141,7 @@ class PagedProductSearch {
         return true;
       }
       final found = r.value;
-      _items = (found.exact != null ? [found.exact!] : found.candidates).where(_visible).toList();
+      _items = _montrer(found.exact != null ? [found.exact!] : found.candidates);
       if (_items.isEmpty) notFound = codeIntrouvableMessage(q, found.tried);
       return true;
     }
@@ -142,7 +154,7 @@ class PagedProductSearch {
       return true;
     }
     _pager = pager;
-    _items = pager.items.where(_visible).toList();
+    _items = _montrer(pager.items);
     return true;
   }
 
@@ -197,7 +209,7 @@ class PagedProductSearch {
     if (seq != _seq) return false;
     loadingMore = false;
     if (!ok) loadMoreError = pager.error ?? 'Chargement de la suite impossible';
-    _items = pager.items.where(_visible).toList();
+    _items = _montrer(pager.items);
     return ok;
   }
 

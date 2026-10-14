@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/product_info.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/api/models/product_search_result.dart';
+import 'package:prestige_vente_app/services/classement_code.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
 
 class MonthlyComparisonData {
@@ -25,7 +26,7 @@ class ProductSearchProvider with ChangeNotifier, PagedProductSearchHost {
 
   /// Code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
   @override
-  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService, classerCodes: true);
   ProductInfo? _selectedProductInfo;
   ProductDetails? _selectedProductDetails;
   List<MonthlyComparisonData> _comparisonData = [];
@@ -105,7 +106,8 @@ class ProductSearchProvider with ChangeNotifier, PagedProductSearchHost {
 
     final orders = results[0] as List<ProductOrderHistory>;
     final salesData = results[1] as List<ProductAnnualSale>;
-    final sales = salesData.isNotEmpty ? salesData.first.monthlySales : <String, int>{};
+    // Ventes de CE produit (recherche « commence par » du serveur : jamais la 1re ligne d'un autre, 4.0.3 F3).
+    final sales = ligneDuCode(salesData, cip, (s) => s.codeCip)?.monthlySales ?? <String, int>{};
 
     List<MonthlyComparisonData> monthlyData = List.generate(12, (_) => MonthlyComparisonData());
 

@@ -13,6 +13,9 @@ class ProductSearchResult {
   final bool boolDECONDITIONNE;
   final String lgFAMILLEPARENTID;
 
+  /// EAN fabricant renvoyé par /vente/search ('' s'il manque) : classement par début de code (4.0.3, F3).
+  final String codeEanFabriquant;
+
   ProductSearchResult({
     required this.lgFAMILLEID,
     required this.strNAME,
@@ -25,6 +28,7 @@ class ProductSearchResult {
     this.strDESCRIPTION = '',
     this.boolDECONDITIONNE = false,
     this.lgFAMILLEPARENTID = '',
+    this.codeEanFabriquant = '',
   });
 
   factory ProductSearchResult.fromJson(Map<String, dynamic> json) {
@@ -41,6 +45,7 @@ class ProductSearchResult {
       strDESCRIPTION: json['strDESCRIPTION'] ?? '',
       boolDECONDITIONNE: json['boolDECONDITIONNE'] == true || json['boolDECONDITIONNE'] == 1 || json['boolDECONDITIONNE'] == "1",
       lgFAMILLEPARENTID: json['lgFAMILLEPARENTID'] ?? '',
+      codeEanFabriquant: '${json['codeEanFabriquant'] ?? ''}'.trim(),
     );
   }
 }

@@ -22,6 +22,7 @@ import 'package:prestige_vente_app/api/models/bon_livraison_item.dart';
 import 'package:prestige_vente_app/api/models/rayon.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product_info.dart';
+import 'package:prestige_vente_app/services/classement_code.dart';
 
 import 'package:prestige_vente_app/api/models/nature_vente.dart';
 import 'package:prestige_vente_app/api/models/type_vente.dart';
@@ -82,13 +83,13 @@ class ApiService {
   Future<List<ProductDetails>> searchProductFiche(String query) async { try { final response = await _dio.get( '/produit-search/fiche', queryParameters: { 'search_value': query, 'page': 1, 'start': 0, 'limit': 20 }, ); if (response.statusCode == 200 && response.data['results'] is List) { return (response.data['results'] as List).map((item) => ProductDetails.fromJson(item)).toList(); } return []; } catch (e) { print("Error in searchProductFiche: $e"); return []; } }
   Future<List<ProductOrderHistory>> getProductOrderHistory(String productId, String dtStart, String dtEnd) async { try { final response = await _dio.get( '/commande/produit/commande/$productId', queryParameters: { 'dtStart': dtStart, 'dtEnd': dtEnd, 'page': 1, 'start': 0, 'limit': 9999 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((item) => ProductOrderHistory.fromJson(item)).toList(); } return []; } catch (e) { print("Error fetching order history: $e"); return []; } }
   Future<bool> updateExpirationDate(String productId, String newDate) async { print('Mise à jour de la date de péremption pour $productId à $newDate'); await Future.delayed(const Duration(seconds: 1)); return true; }
-  Future<ProductInfo?> getProductInfo(String codeCip) async { try { final response = await _dio.get( '/info', queryParameters: {'search': codeCip}); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(lignes.first); } return null; } catch (e) { print("Error fetching product info: $e"); return null; } }
+  Future<ProductInfo?> getProductInfo(String codeCip) async { try { final response = await _dio.get( '/info', queryParameters: {'search': codeCip}); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(ligneInfoDuCip(lignes, codeCip)!); } return null; } catch (e) { print("Error fetching product info: $e"); return null; } }
   /// Même requête que [getProductInfo], annulable (fiche produit quittée avant la réponse).
   Future<ProductInfo?> getProductInfoAnnulable(String codeCip, CancelToken cancelToken) async {
     try {
       final response = await _dio.get('/info', queryParameters: {'search': codeCip}, cancelToken: cancelToken);
       final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null;
-      if (lignes != null && lignes.isNotEmpty) return ProductInfo.fromJson(lignes.first);
+      if (lignes != null && lignes.isNotEmpty) return ProductInfo.fromJson(ligneInfoDuCip(lignes, codeCip)!);
       return null;
     } catch (_) {
       return null;
@@ -128,7 +129,7 @@ class ApiService {
   Future<List<Rayon>> getRayons() async { try { final response = await _dio.get( '/common/rayons', queryParameters: { 'query': '', 'page': 1, 'start': 0, 'limit': 9999 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((r) => Rayon.fromJson(r)).toList(); } return []; } catch (e) { print("Error fetching rayons: $e"); return []; } }
   Future<bool> updateLiteInfo(Map<String, dynamic> data) async { try { final response = await _dio.post( '/fichearticle/produit/update-lite-info', data: data, ); if (response.statusCode == 202) { return true; } if (response.statusCode == 200 && response.data['success'] == true) { return true; } return false; } on DioException catch (e) { if (e.response?.statusCode == 202) return true; print("Error in updateLiteInfo: $e"); return false; } catch (e) { print("Error in updateLiteInfo: $e"); return false; } }
   Future<List<PaymentMethodQr>> getPaymentMethodsWithQr() async { try { final response = await _dio.get( '/modereglement/all', queryParameters: { 'page': 1, 'start': 0, 'limit': 20 }, ); if (response.statusCode == 200 && response.data['data'] is List) { final List data = response.data['data']; final List<PaymentMethodQr> methods = []; for (var item in data) { if (item is Map<String, dynamic>) { methods.add(PaymentMethodQr.fromJson(item)); } } return methods; } return []; } catch (e) { print("Error fetching payment methods with QR: $e"); return []; } }
-  Future<ProductInfo?> getProductInfoForStats(String codeCip) async { try { final response = await _dio.get('/info', queryParameters: { 'search': codeCip }); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(lignes.first); } return null; } catch (e) { print("Error fetching product info for stats: $e"); return null; } }
+  Future<ProductInfo?> getProductInfoForStats(String codeCip) async { try { final response = await _dio.get('/info', queryParameters: { 'search': codeCip }); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(ligneInfoDuCip(lignes, codeCip)!); } return null; } catch (e) { print("Error fetching product info for stats: $e"); return null; } }
   Future<List<ProductInfo>> searchProductInfoForSearch(String query) async { try { final response = await _dio.get( '/info', queryParameters: { 'search': query }, ); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null) { return lignes.map(ProductInfo.fromJson).toList(); } return []; } catch (e) { print("Error in searchProductInfoForSearch: $e"); return []; } }
   Future<ProductDetails?> getProductDetailsForSearch(String codeCip) async { try { final response = await _dio.get( '/produit-search/fiche', queryParameters: { 'search_value': codeCip, 'page': 1, 'start': 0, 'limit': 1 }, ); if (response.statusCode == 200 && response.data['results'] is List) { final results = response.data['results'] as List; if (results.isNotEmpty) { return ProductDetails.fromJson(results.first); } } return null; } catch (e) { print("Error in getProductDetailsForSearch: $e"); return null; } }
 
@@ -942,6 +943,12 @@ class ApiService {
     final j = Zone.current[cleJeton];
     return j is CancelToken ? j : null;
   }
+
+  /// Ligne de GET /info?search=<CIP> du produit de ce CIP (4.0.3, F3) : le serveur cherche « commence par » et
+  /// trie par nom, la 1re ligne peut être celle d'un autre produit (« 8423349D » pour « 8423349 », CIP13 qui
+  /// commence par ces chiffres…) → même `codeCip`, sinon la ligne la mieux classée ([ligneDuCode]).
+  static Map<String, dynamic>? ligneInfoDuCip(List<Map<String, dynamic>> lignes, String codeCip) =>
+      ligneDuCode(lignes, codeCip, (l) => '${l['codeCip'] ?? ''}');
 
   /// Lignes de GET /info quelle que soit la forme de la réponse : liste directe (forme actuelle du serveur),
   /// objet paginé `{data: […]}` (ou `results`, `items`, `rows`, `content`), texte JSON non décodé.

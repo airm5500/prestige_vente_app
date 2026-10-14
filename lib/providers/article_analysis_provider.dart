@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
+import 'package:prestige_vente_app/services/classement_code.dart';
 
 class ArticleAnalysisProvider with ChangeNotifier {
   final ApiService _apiService;
@@ -96,7 +97,9 @@ class ArticleAnalysisProvider with ChangeNotifier {
     }
     if (seq != _seq) return; // une recherche plus récente a pris la main
     if (identical(_jeton, jeton)) _jeton = null;
-    _results = erreur == null ? lignes : [];
+    // Saisie en chiffres : CIP commençant par la saisie en tête (exact d'abord), reste dans l'ordre du serveur
+    // (4.0.3, F3 ; un nom n'est jamais réordonné).
+    _results = erreur == null ? classerParCode(lignes, q, (a) => a.codeCip) : [];
     _error = erreur;
     _isLoading = false;
     notifyListeners();
