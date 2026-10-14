@@ -86,7 +86,8 @@ extension RubriqueInfo on Rubrique {
         Rubrique.horsLigne => 'hors ligne coupure panne serveur injoignable réseau copie locale catalogue synchro '
             'mise à jour produits clients vider',
         Rubrique.apparence => 'présentation tableau de bord compact guidé a b c accueil organiser menu interface '
-            'nouvel accueil version recherche commence par contient début milieu nom',
+            'nouvel accueil version recherche commence par contient début milieu nom '
+            'taille écran affichage très compact petit écran sunmi v2s',
         Rubrique.equipe => 'pointage employés badge nfc empreinte pin rapport diagnostic lecteur',
         Rubrique.securite => 'code pin administrateur admin mot de passe sécurité connexion rapide qui etes vous terminal partage '
             'rester connecte pin personnel assistance numero telephone appeler',

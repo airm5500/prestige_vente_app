@@ -32,6 +32,7 @@ import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/services/identifiants_securises.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
+import 'package:prestige_vente_app/ui/taille_ecran.dart' as ecran;
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -53,7 +54,12 @@ class TailleEcran {
   static const telephone = TailleEcran('Téléphone 360×640 dp', Size(720, 1280), 2.0);
   static const tablette = TailleEcran('Tablette 1920×1200', Size(1920, 1200), 1.5);
 
-  static const toutes = [sunmiV2s, sunmiV3, telephone, tablette];
+  /// Téléphone courant 1080×2400, densité 3 (Samsung) : 360 × 800 dp, taille NORMALE en Automatique (4.0.1).
+  /// Depuis le Compact automatique des petits écrans (V2s, V3, 360×640 dp : 400 dp de large vus par
+  /// l'interface), c'est la configuration de la matrice qui garde 360 dp de large à la taille normale.
+  static const telephone360x800 = TailleEcran('Téléphone 1080×2400 (360×800 dp)', Size(1080, 2400), 3.0);
+
+  static const toutes = [sunmiV2s, sunmiV3, telephone, telephone360x800, tablette];
 
   void appliquer(WidgetTester t) {
     t.view.physicalSize = pixels;
@@ -94,6 +100,8 @@ class AppE2E {
     await initializeDateFormatting('fr_FR', null);
     await VentesVersion.load();
     await InterfaceVersion.load();
+    // Taille de l'écran (4.0.1) : réglage lu comme main() ; Automatique → Compact sur un petit écran.
+    await ecran.TailleEcranReglage.charger();
     await SearchModePrefs.load();
     await BorneReglages.charger();
     await ConnexionReglages.charger();
@@ -113,6 +121,7 @@ class AppE2E {
     await DioClient.cookieJar.deleteAll();
     serveur.installerEnMemoire();
     addTearDown(() async {
+      ecran.TailleEcranReglage.reinitialiser();
       serveur.desinstaller();
       HorsLigne.instance = hlAvant;
       StockHorsLigne.instance = null;

@@ -1,6 +1,7 @@
 // Contrôles d'ergonomie et de cohérence d'affichage réutilisables (voir test/ergonomie_test.dart et test/README.md).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prestige_vente_app/ui/taille_ecran.dart' as ecran;
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 import 'app_e2e.dart';
@@ -57,12 +58,12 @@ const Map<String, String> anomaliesErgonomie = {
   'fiche_client|cibles|*|*': 'ANO-03 onglet « Fiche client » 40 dp',
   // ANO-06 : pied de la vente au-dessus du clavier (lib/ventes/prevente/vente_screen.dart, « vente-pied-clavier »)
   // déborde de 27 px à droite sur 360 dp de large quand le texte est agrandi à 130 %.
-  'vente|clavier|Sunmi V2s 720×1440|1.3': 'ANO-06 pied de vente déborde (360 dp, texte ×1,3)',
-  'vente|clavier|Téléphone 360×640 dp|1.3': 'ANO-06 pied de vente déborde (360 dp, texte ×1,3)',
+  // 4.0.1 : sur Sunmi V2s / V3 et 360×640 dp, Automatique applique Compact (400 dp de large vus par l'interface) :
+  // l'anomalie n'y apparaît plus. Elle reste sur les téléphones de 360 dp de large à la taille normale.
+  'vente|clavier|Téléphone 1080×2400 (360×800 dp)|1.3': 'ANO-06 pied de vente déborde (360 dp, texte ×1,3)',
   // ANO-07 : pastille du sens (SensBadge, lib/reserve/reserve_widgets.dart) déborde de 35 px dans la fenêtre de
   // saisie de quantité sur 360 dp de large, texte agrandi à 130 %.
-  'reserve_quantites|clavier|Sunmi V2s 720×1440|1.3': 'ANO-07 pastille du sens déborde (360 dp, texte ×1,3)',
-  'reserve_quantites|clavier|Téléphone 360×640 dp|1.3': 'ANO-07 pastille du sens déborde (360 dp, texte ×1,3)',
+  'reserve_quantites|clavier|Téléphone 1080×2400 (360×800 dp)|1.3': 'ANO-07 pastille du sens déborde (360 dp, texte ×1,3)',
 };
 
 /// Identifiant de l'anomalie connue pour ce contrôle et cette configuration, ou null.
@@ -137,10 +138,23 @@ Future<void> verifierClavier(WidgetTester t, AppE2E app, Finder champ, {required
   await app.attendre(t, const Duration(milliseconds: 500));
 }
 
+/// Facteur de réduction appliqué par l'application (MyApp → RacineTailleEcran) sur l'écran simulé : réglage
+/// lu au lancement, Automatique → Compact (0,9) sur un petit écran (côté long < 740 dp ou court < 340 dp).
+double facteurEcran(WidgetTester t) =>
+    ecran.TailleEcranReglage.effective(ecran.TailleEcranReglage.active.value, t.view.physicalSize / t.view.devicePixelRatio).facteur;
+
+/// Cibles tactiles : 48 dp DE L'INTERFACE. Interface réduite (Compact / Très compact, Compact automatique des
+/// petits écrans) : 48 × facteur dp réels (43,2 / 38,4 dp), réduction voulue (docs/TAILLE_ECRAN.md) ; règle
+/// Android inchangée à la taille normale. La règle de Flutter mesure en dp réels, d'où l'ajustement.
+AccessibilityGuideline ciblesTactiles(double facteur) => facteur == 1.0
+    ? androidTapTargetGuideline
+    : MinimumTapTargetGuideline(size: Size.square(48 * facteur), link: 'https://support.google.com/accessibility/android/answer/7101858');
+
 /// Tous les contrôles d'un écran, sauf ceux de [sautes] (anomalies connues) ; tous les échecs sont rapportés ensemble.
 Future<void> verifierEcran(WidgetTester t, AppE2E app, EcranControle e, {Set<Controle> sautes = const {}}) async {
+  final facteur = facteurEcran(t);
   final contexte = '${e.nom} ${t.view.physicalSize.width.toInt()}×${t.view.physicalSize.height.toInt()} '
-      'texte ×${t.platformDispatcher.textScaleFactor}';
+      'texte ×${t.platformDispatcher.textScaleFactor}${facteur == 1.0 ? '' : ', interface ×$facteur'}';
   final echecs = <String>[];
   Future<void> controle(Controle c, Future<void> Function() f) async {
     if (sautes.contains(c)) return;
@@ -153,7 +167,7 @@ Future<void> verifierEcran(WidgetTester t, AppE2E app, EcranControle e, {Set<Con
 
   await controle(Controle.rendu, () async => expect(t.takeException(), isNull, reason: '$contexte : erreur de rendu (débordement, exception)'));
   final handle = t.ensureSemantics();
-  await controle(Controle.cibles, () => expectLater(t, meetsGuideline(androidTapTargetGuideline), reason: '$contexte : cibles tactiles < 48 dp'));
+  await controle(Controle.cibles, () => expectLater(t, meetsGuideline(ciblesTactiles(facteur)), reason: '$contexte : cibles tactiles < 48 dp (de l\'interface)'));
   await controle(Controle.contraste, () => expectLater(t, meetsGuideline(textContrastGuideline), reason: '$contexte : contraste insuffisant'));
   handle.dispose();
   await controle(Controle.charte, () async => verifierCharte(t, charte: e.charte, contexte: contexte));

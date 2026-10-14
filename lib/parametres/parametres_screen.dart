@@ -174,6 +174,8 @@ class _ParametresScreenState extends State<ParametresScreen> {
           openOrganiser: _openOrganiser,
           // Choix de la présentation réservé au compte administrateur (comme la rubrique Sécurité).
           choixPresentation: Provider.of<AuthProvider>(context, listen: false).isAdmin,
+          // Taille de l'écran : même code administrateur que les rubriques à cadenas (gardé une fois saisi).
+          adminCheck: (_) => _adminOk(),
         ),
       Rubrique.equipe => EquipePage(repository: _pointageRepo),
       Rubrique.securite => const SecuritePage(),

@@ -11,6 +11,7 @@ import 'package:prestige_vente_app/screens/auth/qr_code_preview_screen.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/screens/home/menu_organizer_screen.dart';
 import 'package:prestige_vente_app/screens/splash_screen.dart';
+import 'package:prestige_vente_app/parametres/taille_ecran_reglage.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart'; // Pour la sécurité
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/version_app.dart';
@@ -186,6 +187,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           }
                         },
                       ),
+
+                      // Taille de l'écran (4.0.1) : code administrateur, appliquée au prochain lancement.
+                      const TailleEcranSetting(),
 
                       // SECTION SÉCURITÉ ADMIN (Visible uniquement si Admin)
                       if (isAdmin) ...[

@@ -23,11 +23,11 @@ manuel qui génère des aperçus PNG avec `APERCUS=1`).
 
 | Catégorie | Ce qui est vérifié | Fichiers |
 |---|---|---|
-| **Unitaires** | règles et modèles sans écran : lecture DataMatrix / étiquettes / OCR, ordonnances (O1–O5), paiements, codes et identifiants sécurisés, droits, réserve, posologie, fiche client, journal, licence… | `datamatrix_parser`, `label_text_parser`, `ocr_rows`, `camera_scan_value`, `fingerprint_diagnostic`, `licence_lookup`, `pointage_analytics`, `ordonnances_*`, `paiement_multiple`, `modes_paiement_logo`, `securite_*`, `routes_app_vente`, `product_lookup`, parties « modèles / règles » de `reserve`, `posos`, `fiche_client`, `droits_modules`, `stock_reserve` |
+| **Unitaires** | règles et modèles sans écran : lecture DataMatrix / étiquettes / OCR, ordonnances (O1–O5), paiements, codes et identifiants sécurisés, droits, réserve, posologie, fiche client, journal, licence… | `datamatrix_parser`, `label_text_parser`, `ocr_rows`, `camera_scan_value`, `fingerprint_diagnostic`, `licence_lookup`, `pointage_analytics`, `ordonnances_*`, `paiement_multiple`, `modes_paiement_logo`, `securite_*`, `routes_app_vente`, `product_lookup`, parties « modèles / règles » de `reserve`, `posos`, `fiche_client`, `droits_modules`, `stock_reserve`, `taille_ecran` (taille de l'écran : seuil petit écran, choix manuel prioritaire, persistance, impression et caméra non affectées) |
 | **Écrans (widgets)** | chaque écran isolé avec un faux service : présentations A / B / C, 360 px, tablette, messages d'erreur, anti double appui | `presentation_*`, `ventes_*`, `accueil_*`, `parametres`, `recherche_*`, `reception_bl`, `retour_frs`, `borne`, `connexion_lancement`, `scan_fiche_analyse`, `vente_clavier`, `retours_*`, `pointage_*`, `rh_pointage`, `horsligne_*`, `journal_terminal`, `support_centre`, `images_produits`, `paiements_mobile`, `version_affichee` (version X.Y.Z+N lue à l'exécution : connexion, Réglages), parties « écran » de `reserve`, `posos`, `fiche_client` |
 | **Intégration** | vrais clients HTTP de l'application contre un serveur simulé (vrai HTTP local ou en mémoire) | `integration_services` (ApiService, licence, connexion, préventes, BL, analyse article, AuthProvider, passerelle de vente), `client_prestige`, `client_prestige_session`, `reserve`, `posos`, `fiche_client`, `droits_modules` (parties « serveur local »), `session_expiree`, `session_renouvelee`, `pointage_photo_integration`, `faux_serveur_prestige` (auto-contrôle du simulateur) |
 | **E2E** | application ENTIÈRE (`MyApp`, vrais providers, vrai Dio, intercepteur de session, surveillance du serveur) reliée au faux serveur Prestige en mémoire | `e2e_parcours`, `widget_test` (démarrage) |
-| **Ergonomie / cohérence d'affichage** | 18 écrans × 4 tailles × 2 échelles de texte : débordements, cibles ≥ 48 dp, contraste, charte, clavier | `ergonomie` (+ `responsive` : rendu à 360 px figé par `responsive_reference_360.json`) |
+| **Ergonomie / cohérence d'affichage** | 18 écrans × 5 tailles × 2 échelles de texte : débordements, cibles ≥ 48 dp, contraste, charte, clavier (petits écrans en Compact automatique, 4.0.1) ; Sunmi V2s aux 3 tailles d'écran (Automatique / Compact / Très compact), vente clavier ouvert, douchette, autres appareils en Automatique, réglage dans les deux interfaces | `ergonomie`, `ergonomie_taille_ecran` (+ `responsive` : rendu à 360 px figé par `responsive_reference_360.json`) |
 | **Non-régression** | garde-fou de la liste CI ; anomalies corrigées (ANO-01, 04, 05) ; versions alignées sur le magasin Sunmi (`docs/VERSIONS_SUNMI.md` : pubspec.yaml ≥ version publiée, +N > versionCode publié, aucun numéro en dur dans Gradle) ; ensemble de la suite verte | `non_regression`, `version_sunmi` + toute la liste CI |
 
 ## Parcours clés et couverture
@@ -84,11 +84,17 @@ s.activerModules();                        // Réserve, Posos, Fiche client avec
 SQLite), relie le faux serveur en mémoire et monte `MyApp`. Gestes : `lancer`, `seConnecter`, `ouvrirMenu(style, id)`,
 `menuPresent`, `defilerJusqua`, `retour` (touche retour Android), `attendre`, `attendreQue`, `fermer`.
 Tailles : `TailleEcran.sunmiV2s` (720×1440, densité 2), `.sunmiV3` (1080×1920, 2,625), `.telephone` (360×640 dp),
-`.tablette` (1920×1200, 1,5).
+`.telephone360x800` (1080×2400, densité 3 : 360×800 dp, ajouté en 4.0.1), `.tablette` (1920×1200, 1,5).
+`preparer` lit aussi le réglage « Taille de l'écran » (`TailleEcranReglage.charger()`, clé `taille_ecran_v1`) comme
+`main()` : **sur les petits écrans (V2s, V3, 360×640 dp), Automatique applique Compact** — l'interface voit 400 dp de
+large (voir `docs/TAILLE_ECRAN.md`). Le `TailleEcran` des tests (appareil simulé) n'est pas l'énumération
+`TailleEcran` de `lib/ui/taille_ecran.dart` : importer celle-ci avec un préfixe (`as ecran`).
 
 ### Contrôles d'ergonomie — `ergonomie.dart`
 
-`verifierEcran` : rendu sans exception, `androidTapTargetGuideline`, `textContrastGuideline`, charte (en-têtes et
+`verifierEcran` : rendu sans exception, cibles tactiles (`androidTapTargetGuideline` à la taille normale ; interface
+réduite — Compact automatique des petits écrans, Compact, Très compact — : 48 dp **de l'interface**, soit 48 × facteur
+dp réels, `ciblesTactiles(facteurEcran(t))`), `textContrastGuideline` (aussi contrôlé à 0,9 et 0,8), charte (en-têtes et
 barres jamais en lavande Material par défaut ; bleu nuit `Pal.navy` pour les écrans de la nouvelle interface),
 champ de saisie visible au-dessus du clavier (`viewInsets` à 40 % de la hauteur). Aucune capture de référence
 (golden) : seulement des règles mesurables.
@@ -101,7 +107,8 @@ champ de saisie visible au-dessus du clavier (`viewInsets` à 40 % de la hauteur
    ouvert depuis l'accueil.
 3. **E2E** : si l'écran est un menu, l'ajouter à `principaux` dans `e2e_parcours_test.dart` (ouverture puis retour
    dans les trois présentations) ; droits éventuels dans le groupe « droits ».
-4. **Ergonomie** : ajouter un `EcranControle` à la liste `_ecrans` de `ergonomie_test.dart` (`ouvrir`, `champ` et
+4. **Ergonomie** : ajouter un `EcranControle` à la liste `ecransErgonomie` de `test/outils/ecrans_ergonomie.dart`
+   (contrôlée par `ergonomie_test.dart` et, aux trois tailles d'écran sur V2s, par `ergonomie_taille_ecran_test.dart`) (`ouvrir`, `champ` et
    `avantSaisie` pour un écran de saisie, `charte: true` pour un écran de la nouvelle interface).
 5. **CI** : ajouter le fichier à la ligne 32 de `.github/workflows/build-apk.yml` (le garde-fou le rappelle).
 6. Données **fictives** seulement ; pas de golden ; vérifier `flutter analyze lib test`.
@@ -115,8 +122,8 @@ champ de saisie visible au-dessus du clavier (`viewInsets` à 40 % de la hauteur
 | ANO-03 | Onglet unique « Fiche client » (`SegmentedPills`, widget partagé des présentations) haut de 40 dp (< 48). | Signalée — contrôle « cibles » sauté pour `ordonnances_clients` et `fiche_client` |
 | ANO-04 | Réserve : boutons « Préparer » / « Voir les suggestions » hauts de 44 dp. | **Corrigée** (48 dp) — `non_regression_test`, `ergonomie_test` |
 | ANO-05 | Réserve : texte du bandeau du sens (« Réserve → Rayon : … ») au contraste 4,47:1 (< 4,5). | **Corrigée** (texte assombri de 20 %) — `non_regression_test`, `ergonomie_test` |
-| ANO-06 | Vente : pied affiché au-dessus du clavier (`vente-pied-clavier`) déborde de 27 px à droite sur 360 dp de large avec un texte agrandi à 130 %. | Signalée — contrôle « clavier » sauté (Sunmi V2s et téléphone, texte ×1,3) |
-| ANO-07 | Réserve : pastille du sens (`SensBadge`) déborde de 35 px dans la saisie de quantité sur 360 dp de large avec un texte à 130 %. Widget aussi utilisé dans des lignes sans largeur bornée : correction à faire avec prudence. | Signalée — contrôle « clavier » sauté (Sunmi V2s et téléphone, texte ×1,3) |
+| ANO-06 | Vente : pied affiché au-dessus du clavier (`vente-pied-clavier`) déborde de 27 px à droite sur 360 dp de large avec un texte agrandi à 130 %. | Signalée — **4.0.1 : n'apparaît plus sur Sunmi V2s / V3 ni 360×640 dp** (Compact automatique : 400 dp) ; reste sur les téléphones de 360 dp à la taille normale : contrôle « clavier » sauté sur Téléphone 1080×2400 (360×800 dp), texte ×1,3 |
+| ANO-07 | Réserve : pastille du sens (`SensBadge`) déborde de 35 px dans la saisie de quantité sur 360 dp de large avec un texte à 130 %. Widget aussi utilisé dans des lignes sans largeur bornée : correction à faire avec prudence. | Signalée — **4.0.1 : n'apparaît plus sur Sunmi V2s / V3 ni 360×640 dp** (Compact automatique) ; contrôle « clavier » sauté sur Téléphone 1080×2400 (360×800 dp), texte ×1,3 |
 | ANO-08 | Interface d'origine (`AncienSplashScreen`, figé) : la 1re vérification de licence part vers `http://localhost:8080` (ApiService pas encore recréé après la lecture des réglages, `Future.delayed(Duration.zero)` ne laisse pas passer d'image) → « Serveur injoignable » au démarrage ; « Réessayer » fonctionne. La nouvelle interface n'est pas touchée. | Signalée — démarrage « interface d'origine » sauté dans `widget_test` |
 
 Les écrans touchés restent contrôlés pour tous les autres critères et toutes les autres configurations : seul le

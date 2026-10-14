@@ -51,6 +51,7 @@ import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/support/support_capture.dart';
 import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/support/support_file.dart';
+import 'package:prestige_vente_app/ui/taille_ecran.dart';
 import 'package:prestige_vente_app/version_app.dart';
 
 Future<void> main() async {
@@ -60,6 +61,8 @@ Future<void> main() async {
   await VersionApp.charger();
   await VentesVersion.load();
   await InterfaceVersion.load();
+  // Taille de l'écran (Automatique / Compact / Très compact ; Compact d'office sur un petit écran).
+  await TailleEcranReglage.charger();
   await SearchModePrefs.load();
   // Borne libre-service (désactivée par défaut) : réglages de cet appareil.
   await BorneReglages.charger();
@@ -203,20 +206,25 @@ class MyApp extends StatelessWidget {
         // dans main.dart, liste des providers :
         ChangeNotifierProvider(create: (ctx) => ArticleAnalysisProvider(ctx.read<ApiService>())),
       ],
-      child: MaterialApp(
-        title: 'Prestige Vente',
-        // Navigateur global : le bandeau hors ligne ouvre « Ventes hors ligne ».
-        navigatorKey: HorsLigne.navigatorKey,
-        // Centre de support : écran courant et fil d'Ariane des écrans.
-        navigatorObservers: [SupportNavigatorObserver()],
-        theme: AppTheme.lightTheme,
-        // Tablette : fenêtres de dialogue à largeur raisonnable (téléphone inchangé).
-        debugShowCheckedModeBanner: false,
-        // Thème des dialogues adapté aux tablettes + bandeau hors ligne (rien tant que le serveur répond)
-        // + messages « Connexion au serveur perdue » / « De nouveau en ligne » (le retour n'est pas répété dans le bandeau).
-        builder: (context, child) => HorsLigneScope(
-            bandeauRetour: false, child: ConnexionToasts(child: ResponsiveTheme(child: child ?? const SizedBox.shrink()))),
-        home: const SplashScreen(),
+      // Taille de l'écran (réglage) : toute l'interface, fenêtres et calques compris, deux interfaces.
+      // Au-dessus de MaterialApp seulement : les providers (session, ventes, file d'envoi) sont gardés
+      // lors de « Relancer maintenant ».
+      child: RacineTailleEcran(
+        child: MaterialApp(
+          title: 'Prestige Vente',
+          // Navigateur global : le bandeau hors ligne ouvre « Ventes hors ligne ».
+          navigatorKey: HorsLigne.navigatorKey,
+          // Centre de support : écran courant et fil d'Ariane des écrans.
+          navigatorObservers: [SupportNavigatorObserver()],
+          theme: AppTheme.lightTheme,
+          // Tablette : fenêtres de dialogue à largeur raisonnable (téléphone inchangé).
+          debugShowCheckedModeBanner: false,
+          // Thème des dialogues adapté aux tablettes + bandeau hors ligne (rien tant que le serveur répond)
+          // + messages « Connexion au serveur perdue » / « De nouveau en ligne » (le retour n'est pas répété dans le bandeau).
+          builder: (context, child) => HorsLigneScope(
+              bandeauRetour: false, child: ConnexionToasts(child: ResponsiveTheme(child: child ?? const SizedBox.shrink()))),
+          home: const SplashScreen(),
+        ),
       ),
     );
   }

@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
 import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee_screen.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
+import 'package:prestige_vente_app/parametres/taille_ecran_reglage.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
 import 'package:prestige_vente_app/pointage/pointage_models.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
@@ -561,7 +562,11 @@ class ApparencePage extends StatefulWidget {
   /// Choix de la présentation (thème) : compte administrateur seulement ; sinon la présentation
   /// en place est seulement indiquée.
   final bool choixPresentation;
-  const ApparencePage({super.key, required this.initial, required this.openOrganiser, this.choixPresentation = true});
+
+  /// Code administrateur de la taille de l'écran (Réglages : code déjà vérifié gardé ; défaut :
+  /// PinCodeDialog.show).
+  final Future<bool> Function(BuildContext)? adminCheck;
+  const ApparencePage({super.key, required this.initial, required this.openOrganiser, this.choixPresentation = true, this.adminCheck});
 
   @override
   State<ApparencePage> createState() => _ApparencePageState();
@@ -624,6 +629,12 @@ class _ApparencePageState extends State<ApparencePage> {
           const SettingCard(padding: EdgeInsets.symmetric(vertical: 4), child: InterfaceVersionTile()),
           const SectionLabel('Recherche'),
           const SearchModeSetting(),
+          // Taille de l'écran (4.0.1) : code administrateur, appliquée au prochain lancement.
+          const SectionLabel('Affichage'),
+          SettingCard(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: TailleEcranSetting(verifierPin: widget.adminCheck, couleurAide: Pal.muted),
+          ),
         ],
       );
 }
