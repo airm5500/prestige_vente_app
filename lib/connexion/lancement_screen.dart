@@ -19,6 +19,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/api/models/licence_lookup.dart';
 import 'package:prestige_vente_app/borne/borne_launcher.dart';
 import 'package:prestige_vente_app/connexion/assistance.dart';
 import 'package:prestige_vente_app/connexion/connexion_commun.dart';
@@ -28,6 +29,7 @@ import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart';
+import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 
@@ -126,7 +128,7 @@ class _LancementScreenState extends State<LancementScreen> {
     // 3. Licence (premier contact avec le serveur).
     serveur
       ..etat = EtatEtape.enCours
-      ..detail = 'Serveur ${settings.isRemote ? 'distant' : 'local'} · ${ConnexionServices.ipCourante(settings)}:${settings.port}';
+      ..detail = 'Serveur ${settings.isRemote ? 'distant' : 'local'} · ${settings.adresseAffichee(settings.isRemote)}';
     licenceEtape.etat = EtatEtape.enCours;
     _maj();
     final apiService = Provider.of<ApiService>(context, listen: false);
@@ -336,13 +338,21 @@ class _LancementScreenState extends State<LancementScreen> {
         ];
       case _Panneau.injoignable:
         final type = s.isRemote ? 'Serveur distant' : 'Serveur local';
+        // HTTPS (4.1.0) : certificat refusé / port non HTTPS ≠ serveur injoignable ≠ licence.
+        final tls = switch (context.read<LicenceProvider>().issue) {
+          LicenceIssue.certificate => ErreurTls.certificat,
+          LicenceIssue.notHttps => ErreurTls.protocole,
+          _ => null,
+        };
         return [
           _encadre(
-            key: const Key('lancement_injoignable'),
-            icone: Icons.wifi_off,
-            titre: 'Le serveur ne répond pas',
-            texte: '$type · ${ConnexionServices.ipCourante(s)}:${s.port}\n'
-                'Vérifiez le Wifi et que le serveur de l\'officine est allumé. La licence n\'est pas en cause.',
+            key: Key(tls == null ? 'lancement_injoignable' : 'lancement_certificat'),
+            icone: tls == null ? Icons.wifi_off : Icons.gpp_bad_outlined,
+            titre: tls == null ? 'Le serveur ne répond pas' : tls.titre,
+            texte: tls == null
+                ? '$type · ${s.adresseAffichee(s.isRemote)}\n'
+                    'Vérifiez le Wifi et que le serveur de l\'officine est allumé. La licence n\'est pas en cause.'
+                : '$type · ${s.adresseAffichee(s.isRemote)}\n${tls.explication} La licence n\'est pas en cause.',
           ),
           const SizedBox(height: 12),
           _boutonPlein('Réessayer', Icons.refresh, _enCours ? null : _demarrer, key: const Key('lancement_reessayer')),
@@ -460,7 +470,7 @@ class _LancementScreenState extends State<LancementScreen> {
                           assistance: false,
                           extra: borne
                               ? 'Mode borne actif sur cet appareil'
-                              : (_panneau == _Panneau.licence ? 'Serveur : ${ConnexionServices.ipCourante(s)}:${s.port}' : 'Prestige'),
+                              : (_panneau == _Panneau.licence ? 'Serveur : ${s.adresseAffichee(s.isRemote)}' : 'Prestige'),
                         ),
                       ]),
                     ),

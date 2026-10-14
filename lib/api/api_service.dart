@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/proforma_models.dart';
@@ -335,6 +336,8 @@ class ApiService {
   }
 
   static String _networkMessage(DioException e, String what) {
+    final tls = ErreurTls.de(e);
+    if (tls != null) return '${tls.message} ($what non chargés)';
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
@@ -427,6 +430,11 @@ class ApiService {
       }
       return LicenceLookup.found(LicenceModel.fromJson(Map<String, dynamic>.from(data)));
     } on DioException catch (e) {
+      // HTTPS : certificat refusé (jamais contourné) ≠ serveur injoignable ≠ licence.
+      final tls = ErreurTls.de(e);
+      if (tls != null) {
+        return LicenceLookup.failure(tls == ErreurTls.certificat ? LicenceIssue.certificate : LicenceIssue.notHttps, e.error?.toString() ?? e.message);
+      }
       switch (e.type) {
         case DioExceptionType.connectionTimeout:
         case DioExceptionType.sendTimeout:
@@ -451,6 +459,8 @@ class ApiService {
       }
     } on SocketException catch (e) {
       return LicenceLookup.failure(LicenceIssue.unreachable, e.message);
+    } on TlsException catch (e) {
+      return LicenceLookup.failure(ErreurTls.de(e) == ErreurTls.certificat ? LicenceIssue.certificate : LicenceIssue.notHttps, e.toString());
     } catch (e) {
       return LicenceLookup.failure(LicenceIssue.unexpectedResponse, e.toString());
     }
@@ -1049,8 +1059,12 @@ class ApiService {
         return 'Le serveur a répondu HTTP $code (GET /info).';
       case DioExceptionType.connectionError:
         return 'Serveur injoignable (GET /info). Vérifiez le Wi-Fi ou les données mobiles.';
+      case DioExceptionType.badCertificate:
+        return '${ErreurTls.messageCertificat} (GET /info)';
       default:
         if (e.error is SocketException) return 'Serveur injoignable (GET /info). Vérifiez le Wi-Fi ou les données mobiles.';
+        final tls = ErreurTls.de(e);
+        if (tls != null) return '${tls.message} (GET /info)';
         if (e.error is FormatException) {
           final code = e.response?.statusCode;
           if (code == 401 || ressembleSessionExpiree(e.response?.data)) return 'Session expirée — reconnectez-vous (GET /info).';

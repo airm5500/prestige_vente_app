@@ -16,6 +16,13 @@ enum LicenceIssue {
 
   /// Réponse illisible (ce n'est probablement pas un serveur Prestige).
   unexpectedResponse,
+
+  /// HTTPS : certificat du serveur refusé par l'appareil (auto-signé, expiré, date de l'appareil fausse).
+  /// Ni « serveur injoignable », ni un problème de licence (4.1.0).
+  certificate,
+
+  /// HTTPS choisi, mais le serveur ne répond pas en HTTPS sur ce port (4.1.0).
+  notHttps,
 }
 
 class LicenceLookup {

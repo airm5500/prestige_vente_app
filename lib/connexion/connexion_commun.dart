@@ -62,7 +62,8 @@ class ConnexionServices {
 
   Future<bool> sonder(SettingsProvider s, String ip) async {
     try {
-      return await (sonde ?? (s, ip) => s.ping(ip, s.port, s.appName))(s, ip);
+      // Adresse avec « https:// » éventuel ; port effectif de cette adresse (4.1.0).
+      return await (sonde ?? (s, ip) => s.ping(ip, s.portPour(ip), s.appName))(s, ip);
     } catch (_) {
       return false;
     }
@@ -308,13 +309,14 @@ class IndicateurServeur extends StatelessWidget {
       listenable: controle,
       builder: (context, _) {
         final type = s.isRemote ? 'distant' : 'local';
-        final adresse = '${ConnexionServices.ipCourante(s)}:${s.port} · ${s.appName}';
+        final adresse = '${s.adresseAffichee(s.isRemote)} · ${s.appName}';
         final (couleur, titre, detail) = switch (controle.etat) {
           EtatServeur.test => (Pal.amber, 'Test du serveur $type…', adresse),
           EtatServeur.connecte => (const Color(0xFF22C55E), 'Serveur $type connecté', adresse),
           EtatServeur.injoignable => (
               const Color(0xFFEF4444),
-              'Serveur injoignable',
+              // HTTPS (4.1.0) : certificat refusé ≠ serveur injoignable.
+              s.pingTls?.titre ?? 'Serveur injoignable',
               controle.rebours.reste > 0 ? 'Nouvel essai dans ${controle.rebours.reste} s' : adresse
             ),
         };
@@ -457,7 +459,7 @@ class _ChoixServeurState extends State<_ChoixServeur> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text('Serveur ${distant ? 'distant' : 'local'}${utilise ? ' · utilisé' : ''}',
                         style: TextStyle(fontWeight: FontWeight.w700, color: utilise ? Pal.ink : t.texte)),
-                    Text('$ip:${s.port} · ${s.appName}', style: TextStyle(fontSize: 12.5, color: utilise ? Pal.muted : t.attenue)),
+                    Text('${s.adresseAffichee(distant)} · ${s.appName}', style: TextStyle(fontSize: 12.5, color: utilise ? Pal.muted : t.attenue)),
                   ]),
                 ),
                 Icon(r == null ? Icons.hourglass_empty : (r ? Icons.check_circle : Icons.cancel),
@@ -623,7 +625,10 @@ class EncadreServeurInjoignable extends StatelessWidget {
     final t = Teintes.of(context);
     return ListenableBuilder(
       listenable: controle,
-      builder: (context, _) => Container(
+      builder: (context, _) {
+        // HTTPS (4.1.0) : échec TLS du dernier test du serveur (certificat refusé, port non HTTPS).
+        final tls = context.read<SettingsProvider?>()?.pingTls;
+        return Container(
         key: const Key('encadre_injoignable'),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(color: t.erreurFond, borderRadius: BorderRadius.circular(14), border: Border.all(color: t.erreur.withValues(alpha: 0.35))),
@@ -633,10 +638,10 @@ class EncadreServeurInjoignable extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Le serveur ne répond pas', style: TextStyle(color: t.erreur, fontWeight: FontWeight.w800, fontSize: 15)),
+                Text(tls?.titre ?? 'Le serveur ne répond pas', style: TextStyle(color: t.erreur, fontWeight: FontWeight.w800, fontSize: 15)),
                 const SizedBox(height: 2),
                 Text(
-                    'Wifi coupé, adresse erronée ou serveur éteint. Vos identifiants ne sont pas en cause.'
+                    '${tls != null ? tls.explication : 'Wifi coupé, adresse erronée ou serveur éteint.'} Vos identifiants ne sont pas en cause.'
                     '${controle.rebours.reste > 0 ? '\nNouvel essai automatique dans ${controle.rebours.reste} s.' : ''}',
                     style: TextStyle(color: t.texte, fontSize: 13.5)),
               ]),
@@ -654,7 +659,8 @@ class EncadreServeurInjoignable extends StatelessWidget {
             ),
           ),
         ]),
-      ),
+      );
+      },
     );
   }
 }

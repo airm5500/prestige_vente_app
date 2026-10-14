@@ -2,35 +2,18 @@
 // Réglages : contrôles de saisie (serveur), résumés des rubriques et recherche.
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 class ParametresChecks {
   ParametresChecks._();
 
-  static final _ipLike = RegExp(r'^[0-9.]+$');
-  static final _hostName =
-      RegExp(r'^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$');
+  static bool isIpv4(String v) => AdresseServeur.estIpv4(v);
 
-  static bool isIpv4(String v) {
-    final parts = v.split('.');
-    if (parts.length != 4) return false;
-    for (final p in parts) {
-      if (p.isEmpty || p.length > 3 || !RegExp(r'^\d+$').hasMatch(p)) return false;
-      final n = int.tryParse(p);
-      if (n == null || n > 255) return false;
-    }
-    return true;
-  }
-
-  /// Adresse IP v4 (ex. 192.168.1.20). Un nom de serveur (ex. pharmacie.ddns.net) reste accepté
-  /// pour ne pas bloquer une configuration existante ; une suite de chiffres doit être une IP valide.
-  static String? host(String? value, {required bool required}) {
-    final v = (value ?? '').trim();
-    if (v.isEmpty) return required ? 'Ce champ est requis' : null;
-    if (_ipLike.hasMatch(v)) return isIpv4(v) ? null : 'Format invalide (ex. 192.168.1.20)';
-    return _hostName.hasMatch(v) ? null : 'Format invalide (ex. 192.168.1.20)';
-  }
+  /// Adresse IP v4 (ex. 192.168.1.20) ou nom de serveur (ex. pharmacie.ddns.net), avec « https:// » et un port
+  /// (« :8443 ») facultatifs (4.1.0) ; une suite de chiffres doit être une IP valide.
+  static String? host(String? value, {required bool required}) => AdresseServeur.erreur(value, requis: required);
 
   static String? port(String? value) {
     final v = (value ?? '').trim();
@@ -137,7 +120,7 @@ class ParametresSummary {
   ParametresSummary._();
 
   static String connexion(SettingsProvider s) {
-    final ip = s.localIp.isEmpty ? 'IP non renseignée' : '${s.localIp}:${s.port}';
+    final ip = s.localIp.isEmpty ? 'IP non renseignée' : s.adresseAffichee(false);
     return '$ip · ${s.appName}${s.remoteIp.isEmpty ? '' : ' · IP distante'}';
   }
 

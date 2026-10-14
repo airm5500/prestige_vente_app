@@ -47,7 +47,10 @@ class ServeurJsonLocal {
   /// Hôte utilisé par [base] (127.0.0.1 en mode réseau local).
   String get hote => '127.0.0.1:$_port';
 
-  String get base => 'http://$hote/prestige/api/v1';
+  /// HTTPS (4.1.0) : contexte TLS du serveur (certificat de test, voir test/outils/certificat_tls.dart). Null : HTTP.
+  SecurityContext? contexteTls;
+
+  String get base => '${contexteTls == null ? 'http' : 'https'}://$hote/prestige/api/v1';
 
   /// Réponse quand aucune route ne correspond.
   ReponseLocale get reponseInconnue => const ReponseLocale({'success': false, 'message': 'route inconnue'}, statut: 404);
@@ -71,7 +74,10 @@ class ServeurJsonLocal {
   bool get ecoute => _s != null;
 
   Future<void> demarrer() async {
-    final s = await HttpServer.bind(InternetAddress.loopbackIPv4, _port);
+    final tls = contexteTls;
+    final s = tls == null
+        ? await HttpServer.bind(InternetAddress.loopbackIPv4, _port)
+        : await HttpServer.bindSecure(InternetAddress.loopbackIPv4, _port, tls);
     _s = s;
     _port = s.port;
     s.listen((req) async {
@@ -94,6 +100,8 @@ class ServeurJsonLocal {
       } catch (_) {
         // client parti (délai dépassé)
       }
+    }, onError: (Object _) {
+      // HTTPS : poignée de main refusée par le client (certificat non approuvé) : rien à répondre.
     });
   }
 

@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Autorise le HTTP cleartext partout (utile pour IP locales) -->
-    <base-config cleartextTrafficPermitted="true" />
+    <!-- HTTP en clair autorisé partout : indispensable au réseau local (chaque officine joint son serveur à une
+         adresse IP qui lui est propre ; Android ne sait pas limiter le clair à des plages d'adresses IP).
+         HTTPS (4.1.0, accès par Internet) : seuls les certificats reconnus par le système sont acceptés
+         (autorités du système, comportement par défaut), jamais de contournement dans l'application.
+         Voir docs/serveur/HTTPS_SERVEUR_WINDOWS.md. -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/licence_model.dart';
 import 'package:prestige_vente_app/api/models/licence_lookup.dart';
+import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 
 enum LicenceStatus {
   loading,
@@ -35,6 +36,8 @@ class LicenceProvider with ChangeNotifier {
         LicenceIssue.appNotFound => 'Application Prestige introuvable',
         LicenceIssue.serverError => 'Erreur du serveur Prestige',
         LicenceIssue.unexpectedResponse => 'Réponse inattendue du serveur',
+        LicenceIssue.certificate => ErreurTls.certificat.titre,
+        LicenceIssue.notHttps => ErreurTls.protocole.titre,
         null => 'Erreur de connexion',
       };
 
@@ -47,6 +50,9 @@ class LicenceProvider with ChangeNotifier {
           '3. Que l\'application est démarrée sur le serveur (console Payara).',
       LicenceIssue.serverError => 'Le serveur Prestige répond avec une erreur.\n\nRedémarrez l\'application sur le serveur ou contactez le support.',
       LicenceIssue.unexpectedResponse => 'Le serveur répond, mais ce n\'est pas une réponse Prestige.\n\nVérifiez l\'adresse IP, le port et le nom de l\'application.',
+      // HTTPS (4.1.0) : la licence n'est pas en cause.
+      LicenceIssue.certificate => '${ErreurTls.messageCertificat}\n\n${ErreurTls.conseilCertificat}\nLa licence n\'est pas en cause.',
+      LicenceIssue.notHttps => '${ErreurTls.messageProtocole}\n\nLa licence n\'est pas en cause.',
     };
     // Le détail technique (exception réseau) reste dans les logs, pas à l'écran.
     if (detail != null && detail.isNotEmpty) print('Licence - détail : $detail');

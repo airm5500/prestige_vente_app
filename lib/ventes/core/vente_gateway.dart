@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
 import 'package:prestige_vente_app/horsligne/client_ref.dart';
 import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
+import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
@@ -226,7 +227,10 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
     }
   }
 
-  static bool _mayHaveReached(DioException e) => switch (e.type) {
+  // Échec TLS (certificat refusé, port non HTTPS) : la requête n'est jamais partie.
+  static bool _mayHaveReached(DioException e) => ErreurTls.de(e) != null
+      ? false
+      : switch (e.type) {
         DioExceptionType.connectionTimeout => false,
         DioExceptionType.sendTimeout => false,
         DioExceptionType.cancel => false,
@@ -237,6 +241,8 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
       };
 
   static String _networkMessage(DioException e, String what) {
+    final tls = ErreurTls.de(e);
+    if (tls != null) return '${tls.message} ($what)';
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:

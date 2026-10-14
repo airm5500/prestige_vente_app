@@ -29,7 +29,7 @@ Réseau local ── http://192.168.x.x:8080 ───────────�
 |---|---|---|---|
 | **Prestige Pharmacien** | `http` sur l'adresse IP locale, inchangé | **accepté** : saisir `https://<nom>` dans l'adresse distante (`prestige_app/docs/HTTPS_ET_TRAFIC_EN_CLAIR.md`) | **un seul champ « Port du Serveur » pour les deux modes** : il doit rester `8080` pour le local. D'où la règle « port externe 8080 → 443 » de l'étape 3 |
 | **Prestige Inventaire** | inchangé | **accepté** : `https://<nom>` dans l'adresse distante, avec son **propre port distant** (`443`) | aucun |
-| **Prestige Mobile** (comptoir) | inchangé | **pas encore** : la version actuelle construit toujours l'adresse en `http://` (`lib/providers/settings_provider.dart`) | en distant, elle ne pourra pas passer par HTTPS tant que l'application n'est pas adaptée (demande à faire à sa session). Voir l'étape 8 |
+| **Prestige Mobile** (comptoir) | `http` sur l'adresse IP locale, inchangé | **accepté depuis la 4.1.0** : choisir **https** sous l'adresse distante (ou saisir `https://<nom>`), port **443** par défaut (`docs/NOTE_VERSION_4.1.0.md`) | aucun : le champ « Port » reste `8080` pour le local, le distant en https prend 443 tout seul |
 
 Autres règles des applications :
 
@@ -142,7 +142,7 @@ serveur (ex. `192.168.1.100`) :
 | Port externe (Internet) | Port interne (serveur) | Rôle |
 |---|---|---|
 | 80 | 80 | obtention et renouvellement du certificat, redirection vers HTTPS |
-| 443 | 443 | HTTPS (Inventaire, navigateurs, notifications de paiement) |
+| 443 | 443 | HTTPS (Inventaire, Prestige Mobile, navigateurs, notifications de paiement) |
 | 8080 | **443** | HTTPS pour **Prestige Pharmacien** (son champ « Port » reste 8080 pour le local) |
 
 - **Supprimez l'ancienne redirection 8080 → 8080** si elle existe : c'est elle qui exposait Payara en clair. Faites-le
@@ -276,7 +276,7 @@ Sur chaque appareil, dans la Configuration (protégée par le code administrateu
 |---|---|---|---|
 | **Prestige Pharmacien** | inchangée (ex. `192.168.1.100`) | `https://prestige.ma-pharmacie.ci` | **8080** (champ unique, inchangé) |
 | **Prestige Inventaire** | inchangée, port local `8080` | `https://prestige.ma-pharmacie.ci` | port distant **443** |
-| **Prestige Mobile** | inchangée | pas de HTTPS dans la version actuelle | voir ci-dessous |
+| **Prestige Mobile** (4.1.0 et suivantes) | inchangée, **http** | `prestige.ma-pharmacie.ci` avec **https** (ou `https://prestige.ma-pharmacie.ci`) | **8080** (champ « Port », pour le local) ; le distant en https utilise **443** |
 
 1. Utilisez « Tester la connexion », passez en mode **Distant**, connectez-vous **en 4G** et faites une lecture
    simple (accueil, recherche d'un produit).
@@ -287,12 +287,25 @@ Sur chaque appareil, dans la Configuration (protégée par le code administrateu
    n'a pas déjà été remplacée par 8080 → 443). Vérifiez depuis l'extérieur que `http://<IP publique>:8080` **ne
    répond plus** en clair.
 
-**Prestige Mobile** : tant que l'application ne gère pas `https://`, son mode distant passait par l'accès en clair.
-Deux possibilités :
+**Prestige Mobile** (version **4.1.0** ou suivante ; une version antérieure ne connaît que le HTTP) :
 
-- l'utiliser **en local uniquement** (cas habituel du comptoir), et fermer l'accès en clair ;
-- ou, si un usage distant est indispensable, garder provisoirement l'ancien accès en clair **pour elle seule**, en
-  connaissant le risque, et demander à sa session l'acceptation de `https://` (comme les deux autres applications).
+1. Configuration du serveur, protégée par le code administrateur :
+   - nouvelle interface : **Réglages › Connexion au serveur** ;
+   - interface d'origine : écran **Configuration**, rubrique « Serveur ».
+2. **Adresse IP locale** : inchangée, protocole **http**, **Port** `8080`.
+3. **Adresse IP distante** : `prestige.ma-pharmacie.ci`, puis **https** (nouvelle interface : appuyer sur le bouton
+   `http://` au début du champ, il devient `https://` ; interface d'origine : choix « Protocole du serveur distant »)
+   — ou saisir directement `https://prestige.ma-pharmacie.ci` : le choix passe tout seul sur https). Le port **443** est
+   pris par défaut ; pour un autre port HTTPS, l'écrire dans l'adresse (`prestige.ma-pharmacie.ci:8443`).
+4. **Tester la connexion** : « IP distante joignable (https://prestige.ma-pharmacie.ci) ». Un certificat non
+   reconnu donne « Connexion sécurisée (HTTPS) impossible : certificat du serveur refusé » ; https vers le port
+   8080 de Payara donne « le serveur ne répond pas en HTTPS sur ce port ».
+5. Enregistrer, puis passer en **serveur distant** (« Changer de serveur » sur l'écran de connexion) pour l'essai
+   en 4G.
+
+Les réglages déjà en place restent en http, à l'identique : rien à refaire sur les appareils qui n'utilisent que
+le réseau local. Une fois tous les appareils en 4.1.0 et réglés en https, l'ancien accès en clair (8080 → 8080) peut
+être fermé comme pour les deux autres applications.
 
 Rappel : **dans la pharmacie, utilisez le mode Local**. Certaines box ne savent pas renvoyer vers le serveur une
 connexion faite depuis le réseau local vers l'adresse publique (« hairpin NAT ») : le mode Distant en Wi-Fi local
@@ -369,7 +382,8 @@ compris le local) et sans les avantages de Caddy (renouvellement automatique, re
   reconnu exigé, clair conservé pour le local).
 - `prestinv/docs/NOTE_VERSION_FIABILITE.md` : « Adresse https:// acceptée (si le serveur la propose) ; http:// reste
   le défaut ».
-- `prestige_vente_app/lib/providers/settings_provider.dart` : adresse construite en `http://` (pas de HTTPS dans
-  Prestige Mobile à ce jour).
+- `prestige_vente_app/docs/NOTE_VERSION_4.1.0.md` : Prestige Mobile accepte `https://` depuis la 4.1.0 (choix
+  http / https par adresse, 443 par défaut en https, certificat reconnu exigé, clair conservé pour le local) ;
+  `prestige_vente_app/lib/serveur/adresse_serveur.dart` : construction de l'adresse.
 - `prestige_vente_app/docs/serveur/B3_PAIEMENTS.md` : adresse publique HTTPS requise pour les notifications de
   paiement ; `prestige_vente_app/docs/serveur/DEMANDE_PHOTO_POINTAGE.md` § 3.5 : « HTTPS en production ».

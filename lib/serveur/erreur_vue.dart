@@ -14,6 +14,7 @@ String messageErreur(Object e) => e is ErreurPrestige ? e.message : 'Erreur inat
 
 /// Titre court selon la cause.
 String titreErreur(Object e) => switch (e) {
+      ConnexionSecuriseeRefusee(:final nature) => nature.titre,
       ServeurInjoignable() => 'Serveur injoignable',
       SessionExpiree() => 'Session expirée',
       RefusMetier() => 'Refusé par Prestige',
@@ -22,6 +23,7 @@ String titreErreur(Object e) => switch (e) {
     };
 
 IconData iconeErreur(Object e) => switch (e) {
+      ConnexionSecuriseeRefusee() => Icons.gpp_bad_outlined,
       ServeurInjoignable() => Icons.cloud_off,
       SessionExpiree() => Icons.lock_clock,
       RefusMetier() => Icons.block,

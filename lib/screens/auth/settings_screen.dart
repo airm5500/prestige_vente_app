@@ -12,6 +12,8 @@ import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/screens/home/menu_organizer_screen.dart';
 import 'package:prestige_vente_app/screens/splash_screen.dart';
 import 'package:prestige_vente_app/parametres/taille_ecran_reglage.dart';
+import 'package:prestige_vente_app/parametres/protocole_choix.dart';
+import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart'; // Pour la sécurité
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/version_app.dart';
@@ -23,8 +25,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late TextEditingController _localIpController;
-  late TextEditingController _remoteIpController;
+  // Adresse sans protocole + choix http / https (4.1.0 ; « https://… » saisi dans le champ règle le choix).
+  late AdresseAvecProtocole _localA;
+  late AdresseAvecProtocole _remoteA;
   late TextEditingController _appNameController;
   late TextEditingController _portController;
   final _formKey = GlobalKey<FormState>();
@@ -36,8 +39,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     final settings = Provider.of<SettingsProvider>(context, listen: false);
-    _localIpController = TextEditingController(text: settings.localIp);
-    _remoteIpController = TextEditingController(text: settings.remoteIp);
+    _localA = AdresseAvecProtocole(settings.localIp, surChangement: _majProtocole);
+    _remoteA = AdresseAvecProtocole(settings.remoteIp, surChangement: _majProtocole);
     _appNameController = TextEditingController(text: settings.appName);
     _portController = TextEditingController(text: settings.port);
 
@@ -57,14 +60,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _localIpController.dispose();
-    _remoteIpController.dispose();
+    _localA.dispose();
+    _remoteA.dispose();
     _appNameController.dispose();
     _portController.dispose();
     super.dispose();
   }
 
-  Future<void> _onPing(String ip, String port, String appName) async {
+  void _majProtocole() {
+    if (mounted) setState(() {});
+  }
+
+  /// Protocole du serveur local changé : le port par défaut suit (8080 ↔ 443) ; un autre port est gardé.
+  void _protocoleLocal(String p) {
+    final ancien = _localA.protocole;
+    if (p == ancien) return;
+    setState(() {
+      _localA.protocole = p;
+      final port = _portController.text.trim();
+      if (port.isEmpty || port == AdresseServeur.portParDefaut(ancien)) _portController.text = AdresseServeur.portParDefaut(p);
+    });
+  }
+
+  Future<void> _onPing(AdresseAvecProtocole a, String port, String appName) async {
+    final ip = a.adresse;
+    // Port effectif : écrit dans l'adresse, sinon champ « Port » (protocole du serveur local), sinon 443 / 8080.
+    port = AdresseServeur.portEffectif(ip, portChamp: port.trim(), protocolePrincipal: _localA.protocole);
     setState(() => _pingResult = 'Test en cours...');
     final success = await Provider.of<SettingsProvider>(context, listen: false).ping(ip, port, appName);
     if (!mounted) return;
@@ -76,7 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (_formKey.currentState!.validate()) {
       final provider = Provider.of<SettingsProvider>(context, listen: false);
       final success = await provider.saveSettings(
-        localIp: _localIpController.text, remoteIp: _remoteIpController.text,
+        localIp: _localA.adresse, remoteIp: _remoteA.adresse,
         appName: _appNameController.text, port: _portController.text,
       );
       if (mounted) {
@@ -159,9 +180,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Text('Serveur', style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 10),
-                      _buildIpField(controller: _localIpController, label: 'Adresse IP Locale', isRequired: true),
+                      _buildIpField(adresse: _localA, label: 'Adresse IP Locale', isRequired: true),
+                      ProtocoleChoix(
+                        key: const Key('protocole_local'),
+                        libelle: 'Protocole du serveur local',
+                        valeur: _localA.protocole,
+                        onChanged: _protocoleLocal,
+                      ),
                       const SizedBox(height: 20),
-                      _buildIpField(controller: _remoteIpController, label: 'Adresse IP Distante (Optionnel)', isRequired: false),
+                      _buildIpField(adresse: _remoteA, label: 'Adresse IP Distante (Optionnel)', isRequired: false),
+                      ProtocoleChoix(
+                        key: const Key('protocole_distant'),
+                        libelle: 'Protocole du serveur distant',
+                        valeur: _remoteA.protocole,
+                        onChanged: (p) => setState(() => _remoteA.protocole = p),
+                      ),
                       const SizedBox(height: 20),
                       TextFormField(controller: _appNameController, decoration: const InputDecoration(labelText: 'Nom Application Serveur'), validator: (value) => value!.isEmpty ? 'Ce champ est requis' : null),
                       const SizedBox(height: 20),
@@ -303,7 +336,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildIpField({ required TextEditingController controller, required String label, required bool isRequired}) { return Row( children: [ Expanded( child: TextFormField( controller: controller, decoration: InputDecoration(labelText: label), keyboardType: TextInputType.phone, validator: (value) { if (isRequired && value!.isEmpty) { return 'Ce champ est requis'; } return null; }, ), ), const SizedBox(width: 10), IconButton( icon: const Icon(Icons.network_ping, color: AppColors.secondary), onPressed: () => _onPing( controller.text, _portController.text, _appNameController.text), tooltip: 'Tester la connexion', ), ], ); }
+  // 4.1.0 : nom de serveur et « https:// » acceptés (clavier adapté en https) ; port explicite « nom:8443 » accepté.
+  Widget _buildIpField({ required AdresseAvecProtocole adresse, required String label, required bool isRequired}) { final controller = adresse.champ; return Row( children: [ Expanded( child: TextFormField( controller: controller, decoration: InputDecoration(labelText: label, errorMaxLines: 2), keyboardType: adresse.protocole == AdresseServeur.https ? TextInputType.url : TextInputType.phone, validator: (value) { if (isRequired && value!.isEmpty) { return 'Ce champ est requis'; } if ((value ?? '').trim().isEmpty) return null; return AdresseServeur.erreur(value, requis: isRequired); }, ), ), const SizedBox(width: 10), IconButton( icon: const Icon(Icons.network_ping, color: AppColors.secondary), onPressed: () => _onPing( adresse, _portController.text, _appNameController.text), tooltip: 'Tester la connexion', ), ], ); }
 
   Widget _buildPaymentSettingsButtons(SettingsProvider settings) {
     if (_isLoadingPaymentMethods) {

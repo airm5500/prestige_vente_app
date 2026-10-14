@@ -17,6 +17,7 @@ import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart' as session_globale;
+import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 
 /// Erreur d'un appel au serveur Prestige (message prêt à afficher, en français).
 sealed class ErreurPrestige implements Exception {
@@ -36,6 +37,16 @@ class ServeurInjoignable extends ErreurPrestige {
   String get message => delai
       ? 'Le serveur met trop de temps à répondre. Vérifiez le réseau puis réessayez.'
       : 'Serveur injoignable. Vérifiez le Wi-Fi ou les données mobiles puis réessayez.';
+}
+
+/// HTTPS (4.1.0) : connexion sécurisée refusée (certificat non reconnu, ou port qui ne parle pas HTTPS). La
+/// requête n'est jamais partie. Sous-classe de [ServeurInjoignable] (même conduite : rien n'a été fait, réessayer
+/// plus tard / hors ligne) mais message et titre distincts.
+class ConnexionSecuriseeRefusee extends ServeurInjoignable {
+  final ErreurTls nature;
+  const ConnexionSecuriseeRefusee(this.nature);
+  @override
+  String get message => nature.explication;
 }
 
 /// HTTP 401 : la session Prestige a expiré (ou un autre appareil s'est connecté avec ce compte).
@@ -166,9 +177,13 @@ class ClientPrestige {
       final apresEnvoi = e.type == DioExceptionType.receiveTimeout || (e.type == DioExceptionType.sendTimeout);
       final delai = e.type == DioExceptionType.connectionTimeout || apresEnvoi;
       if (e.type == DioExceptionType.cancel) rethrow;
+      final tls = ErreurTls.de(e);
+      if (tls != null) throw ConnexionSecuriseeRefusee(tls);
       throw ServeurInjoignable(delai: delai, resultatIncertain: apresEnvoi && !idempotent);
     } on SocketException {
       throw const ServeurInjoignable();
+    } on TlsException catch (e) {
+      throw ConnexionSecuriseeRefusee(ErreurTls.de(e) ?? ErreurTls.certificat);
     } on TimeoutException {
       throw ServeurInjoignable(delai: true, resultatIncertain: !idempotent);
     }

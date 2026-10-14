@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/services/identifiants_securises.dart';
 import 'package:prestige_vente_app/services/pin_securise.dart';
+import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 
 class SettingsProvider with ChangeNotifier {
   static const String _localIpKey = 'local_ip';
@@ -103,12 +104,32 @@ class SettingsProvider with ChangeNotifier {
 
   bool get isConfigured => _localIp.isNotEmpty || _remoteIp.isNotEmpty;
 
-  String get baseUrl {
-    String ip = _isRemote ? _remoteIp : _localIp;
-    if (ip.isEmpty) {
-      ip = "localhost";
-    }
-    return 'http://$ip:$_port/$_appName/api/v1';
+  /// Adresse de l'API utilisée par TOUS les clients HTTP de l'application (Dio principal, hors ligne, images, RH,
+  /// support, borne…) : « http(s)://hôte:port/application/api/v1 ». En HTTP, identique à l'adresse d'origine.
+  String get baseUrl => urlServeur(_isRemote);
+
+  /// Protocole du serveur principal (adresse locale ; distante si seule renseignée) : celui auquel s'applique le
+  /// champ « Port ».
+  String get protocolePrincipal => AdresseServeur.protocole(_localIp.isNotEmpty ? _localIp : _remoteIp);
+
+  /// Protocole (« http » / « https ») du serveur local ou distant.
+  String protocole(bool distant) => AdresseServeur.protocole(distant ? _remoteIp : _localIp);
+
+  /// Port effectif pour une adresse (port écrit dans l'adresse, sinon champ « Port » si même protocole que le
+  /// serveur principal, sinon 443 en https / 8080 en http).
+  String portPour(String adresse) =>
+      AdresseServeur.portEffectif(adresse, portChamp: _port, protocolePrincipal: protocolePrincipal);
+
+  /// Racine de l'API du serveur local ou distant.
+  String urlServeur(bool distant) {
+    final ip = distant ? _remoteIp : _localIp;
+    return AdresseServeur.racineApi(ip, portPour(ip), _appName);
+  }
+
+  /// Adresse lisible du serveur local ou distant (« 192.168.1.50:8080 », « https://pharmacie.example.com »).
+  String adresseAffichee(bool distant) {
+    final ip = distant ? _remoteIp : _localIp;
+    return AdresseServeur.affichage(ip, portPour(ip));
   }
 
   bool _isLoading = false;
@@ -116,8 +137,10 @@ class SettingsProvider with ChangeNotifier {
 
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    _localIp = prefs.getString(_localIpKey) ?? '192.168.1.50';
-    _remoteIp = prefs.getString(_remoteIpKey) ?? '';
+    // Adresses : les anciens réglages (sans protocole) restent en HTTP, à l'identique (4.1.0 : migration transparente,
+    // seule la forme est normalisée : « http:// » retiré, « https:// » conservé).
+    _localIp = AdresseServeur.normaliser(prefs.getString(_localIpKey) ?? '192.168.1.50');
+    _remoteIp = AdresseServeur.normaliser(prefs.getString(_remoteIpKey) ?? '');
     _appName = prefs.getString(_appNameKey) ?? 'prestige';
     _port = prefs.getString(_portKey) ?? '8080';
     _isRemote = prefs.getBool(_isRemoteKey) ?? false;
@@ -311,7 +334,11 @@ class SettingsProvider with ChangeNotifier {
     required String port,
   }) async {
     _setLoading(true);
-    final isPingSuccessful = await ping(localIp, port, appName);
+    localIp = AdresseServeur.normaliser(localIp);
+    remoteIp = AdresseServeur.normaliser(remoteIp);
+    // Le champ « Port » est celui du serveur principal (adresse locale) : port effectif de l'adresse locale.
+    final isPingSuccessful = await ping(
+        localIp, AdresseServeur.portEffectif(localIp, portChamp: port, protocolePrincipal: AdresseServeur.protocole(localIp)), appName);
     if (!isPingSuccessful) {
       _setLoading(false);
       return false;
@@ -336,15 +363,19 @@ class SettingsProvider with ChangeNotifier {
   String _pingError = '';
   String get pingError => _pingError;
 
-  /// Vérifie que l'application Prestige répond à l'adresse saisie (IP, port, nom d'application).
-  /// Un serveur qui répond 404 n'est pas un serveur Prestige : c'est un échec.
+  /// Vérifie que l'application Prestige répond à l'adresse saisie (IP ou nom, avec « https:// » éventuel et port
+  /// éventuel dans l'adresse ; sinon [port]), nom d'application.
+  /// Un serveur qui répond 404 n'est pas un serveur Prestige : c'est un échec. Un certificat refusé est signalé
+  /// comme tel (jamais contourné), distinct d'un serveur injoignable.
   Future<bool> ping(String ip, String port, String appName) async {
     _pingError = '';
-    if (ip.isEmpty) {
+    _pingTls = null;
+    if (ip.trim().isEmpty) {
       _pingError = 'Adresse IP vide.';
       return false;
     }
-    final url = 'http://$ip:$port/$appName/api/v1/user/auth';
+    final url = '${AdresseServeur.racineApi(ip, port, appName)}/user/auth';
+    final adresse = AdresseServeur.affichage(ip, port);
     try {
       final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 8), receiveTimeout: const Duration(seconds: 8)));
       await dio.post(url, data: {}, options: Options(receiveDataWhenStatusError: true));
@@ -352,18 +383,34 @@ class SettingsProvider with ChangeNotifier {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) {
-        _pingError = 'Un serveur répond à $ip:$port, mais l\'application "$appName" n\'y est pas '
+        _pingError = 'Un serveur répond à $adresse, mais l\'application "$appName" n\'y est pas '
             '(vérifiez le nom de l\'application et le port).';
         return false;
       }
       if (e.response != null) return true; // 400/401/500 : l'application Prestige répond
-      _pingError = 'Aucun serveur ne répond à $ip:$port (Wifi, IP, serveur éteint).';
+      final tls = ErreurTls.de(e);
+      if (tls != null) {
+        _pingTls = tls;
+        _pingError = '${tls.explication} ($adresse)';
+        return false;
+      }
+      _pingError = 'Aucun serveur ne répond à $adresse (Wifi, IP, serveur éteint).';
       return false;
     } catch (e) {
-      _pingError = 'Aucun serveur ne répond à $ip:$port.';
+      final tls = ErreurTls.de(e);
+      if (tls != null) {
+        _pingTls = tls;
+        _pingError = '${tls.explication} ($adresse)';
+        return false;
+      }
+      _pingError = 'Aucun serveur ne répond à $adresse.';
       return false;
     }
   }
+
+  /// Échec TLS du dernier [ping] (certificat refusé, port non HTTPS), ou null.
+  ErreurTls? _pingTls;
+  ErreurTls? get pingTls => _pingTls;
 
   bool _hideRvProducts = true;
   bool get hideRvProducts => _hideRvProducts;

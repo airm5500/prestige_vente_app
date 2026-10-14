@@ -1,12 +1,14 @@
 // lib/parametres/connexion_page.dart
-// Réglages · Connexion au serveur : IP locale / distante, port, nom de l'application,
+// Réglages · Connexion au serveur : IP locale / distante (http ou https, 4.1.0), port, nom de l'application,
 // test détaillé, barre Annuler / Enregistrer seulement si modifié.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
+import 'package:prestige_vente_app/parametres/protocole_choix.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
@@ -29,8 +31,11 @@ class ConnexionPage extends StatefulWidget {
 
 class _ConnexionPageState extends State<ConnexionPage> {
   late final SettingsProvider _settings = context.read<SettingsProvider>();
-  late final _local = TextEditingController(text: _settings.localIp);
-  late final _remote = TextEditingController(text: _settings.remoteIp);
+  // Champ sans protocole + choix http / https (« https://… » saisi dans le champ règle le choix).
+  late final _localA = AdresseAvecProtocole(_settings.localIp, surChangement: _changed);
+  late final _remoteA = AdresseAvecProtocole(_settings.remoteIp, surChangement: _changed);
+  TextEditingController get _local => _localA.champ;
+  TextEditingController get _remote => _remoteA.champ;
   late final _app = TextEditingController(text: _settings.appName);
   late final _port = TextEditingController(text: _settings.port);
 
@@ -52,7 +57,9 @@ class _ConnexionPageState extends State<ConnexionPage> {
 
   @override
   void dispose() {
-    for (final c in [_local, _remote, _app, _port]) {
+    _localA.dispose();
+    _remoteA.dispose();
+    for (final c in [_app, _port]) {
       c.dispose();
     }
     super.dispose();
@@ -60,12 +67,32 @@ class _ConnexionPageState extends State<ConnexionPage> {
 
   String? get _localError => ParametresChecks.host(_local.text, required: true);
   String? get _remoteError => ParametresChecks.host(_remote.text, required: false);
+
+  /// Adresses à enregistrer (protocole compris).
+  String get _localSaisie => _localA.adresse;
+  String get _remoteSaisie => _remoteA.adresse;
+
+  /// Port effectif d'une adresse saisie (port écrit dans l'adresse, sinon champ « Port » pour le protocole du
+  /// serveur local, sinon 443 / 8080).
+  String _portPour(String adresse) =>
+      AdresseServeur.portEffectif(adresse, portChamp: _port.text.trim(), protocolePrincipal: _localA.protocole);
+
+  /// Protocole du serveur local changé : le port par défaut suit (8080 ↔ 443) ; un autre port est gardé.
+  void _protocoleLocal(String p) {
+    final ancien = _localA.protocole;
+    if (p == ancien) return;
+    _localA.protocole = p;
+    if (_port.text.trim().isEmpty || _port.text.trim() == AdresseServeur.portParDefaut(ancien)) {
+      _port.text = AdresseServeur.portParDefaut(p);
+    }
+    setState(() => _result = null);
+  }
   String? get _portError => ParametresChecks.port(_port.text);
   String? get _appError => ParametresChecks.appName(_app.text);
 
   bool get _dirty =>
-      _local.text.trim() != _settings.localIp ||
-      _remote.text.trim() != _settings.remoteIp ||
+      _localSaisie != _settings.localIp ||
+      _remoteSaisie != _settings.remoteIp ||
       _app.text.trim() != _settings.appName ||
       _port.text.trim() != _settings.port;
 
@@ -79,8 +106,8 @@ class _ConnexionPageState extends State<ConnexionPage> {
   }
 
   void _cancel() {
-    _local.text = _settings.localIp;
-    _remote.text = _settings.remoteIp;
+    _localA.remettre(_settings.localIp);
+    _remoteA.remettre(_settings.remoteIp);
     _app.text = _settings.appName;
     _port.text = _settings.port;
     setState(() => _result = null);
@@ -92,7 +119,9 @@ class _ConnexionPageState extends State<ConnexionPage> {
       setState(() => _result = [const _Check(false, 'Corrigez les champs en rouge avant le test.')]);
       return;
     }
-    final ip = _local.text.trim(), port = _port.text.trim(), app = _app.text.trim(), remote = _remote.text.trim();
+    final ip = _localSaisie, app = _app.text.trim(), remote = _remoteSaisie;
+    final port = _portPour(ip);
+    final adresse = AdresseServeur.affichage(ip, port);
     setState(() {
       _testing = true;
       _result = null;
@@ -107,15 +136,16 @@ class _ConnexionPageState extends State<ConnexionPage> {
       checks.add(_Check(true, 'Serveur joignable (${watch.elapsedMilliseconds} ms)'));
       checks.add(_Check(true, 'Application Prestige trouvée ("$app")'));
     } else if (reason.startsWith('Un serveur répond')) {
-      checks.add(_Check(true, 'Serveur joignable ($ip:$port)'));
+      checks.add(_Check(true, 'Serveur joignable ($adresse)'));
       checks.add(_Check(false, reason));
     } else {
-      checks.add(_Check(false, reason.isEmpty ? 'Aucun serveur ne répond à $ip:$port.' : reason));
+      checks.add(_Check(false, reason.isEmpty ? 'Aucun serveur ne répond à $adresse.' : reason));
       checks.add(const _Check(null, 'Application Prestige : non vérifiée'));
     }
 
     // Licence : vérifiable seulement avec l'adresse enregistrée (celle qu'utilise l'application).
-    final sameAsSaved = ip == _settings.localIp && port == _settings.port && app == _settings.appName && !_settings.isRemote;
+    final sameAsSaved =
+        ip == _settings.localIp && _port.text.trim() == _settings.port && app == _settings.appName && !_settings.isRemote;
     if (!ok) {
       checks.add(const _Check(null, 'Licence : non vérifiée'));
     } else if (!sameAsSaved) {
@@ -134,9 +164,11 @@ class _ConnexionPageState extends State<ConnexionPage> {
     }
 
     if (remote.isNotEmpty && _remoteError == null) {
-      final rOk = await _settings.ping(remote, port, app);
+      final rPort = _portPour(remote);
+      final rOk = await _settings.ping(remote, rPort, app);
       if (!mounted) return;
-      checks.add(_Check(rOk, rOk ? 'IP distante joignable ($remote)' : 'IP distante : ${_settings.pingError}'));
+      final rAdresse = AdresseServeur.affichage(remote, rPort);
+      checks.add(_Check(rOk, rOk ? 'IP distante joignable ($rAdresse)' : 'IP distante : ${_settings.pingError}'));
     }
     setState(() {
       _testing = false;
@@ -149,8 +181,8 @@ class _ConnexionPageState extends State<ConnexionPage> {
     setState(() => _saving = true);
     // Même enregistrement que la Configuration d'origine : le serveur doit répondre.
     final success = await _settings.saveSettings(
-      localIp: _local.text.trim(),
-      remoteIp: _remote.text.trim(),
+      localIp: _localSaisie,
+      remoteIp: _remoteSaisie,
       appName: _app.text.trim(),
       port: _port.text.trim(),
     );
@@ -167,7 +199,7 @@ class _ConnexionPageState extends State<ConnexionPage> {
   }
 
   Widget _field(TextEditingController c, String label, String? error,
-      {required Key key, TextInputType? keyboard, List<TextInputFormatter>? formatters, String? hint}) {
+      {required Key key, TextInputType? keyboard, List<TextInputFormatter>? formatters, String? hint, String? helper, Widget? prefixe}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: TextField(
@@ -180,6 +212,9 @@ class _ConnexionPageState extends State<ConnexionPage> {
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
+          helperText: helper,
+          prefixIcon: prefixe,
+          helperMaxLines: 3,
           errorText: error,
           errorMaxLines: 2,
           filled: true,
@@ -194,7 +229,10 @@ class _ConnexionPageState extends State<ConnexionPage> {
   Widget build(BuildContext context) {
     final dirty = _dirty;
     final error = _firstError;
-    final ipFormat = [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9.\-]')), LengthLimitingTextInputFormatter(253)];
+    // « : » et « / » acceptés : port explicite (nom:8443) et « https:// » collé (4.1.0).
+    final ipFormat = [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9.\-:/]')), LengthLimitingTextInputFormatter(270)];
+    TextInputType clavier(String protocole) =>
+        protocole == AdresseServeur.https ? TextInputType.url : const TextInputType.numberWithOptions(decimal: true);
     return PopScope(
       canPop: !dirty || _saving,
       onPopInvokedWithResult: (didPop, _) async {
@@ -255,9 +293,36 @@ class _ConnexionPageState extends State<ConnexionPage> {
               ]),
         children: [
           _field(_local, 'Adresse IP locale', _localError,
-              key: const Key('ip_locale'), keyboard: const TextInputType.numberWithOptions(decimal: true), formatters: ipFormat, hint: '192.168.1.20'),
+              key: const Key('ip_locale'),
+              keyboard: clavier(_localA.protocole),
+              formatters: ipFormat,
+              hint: _localA.protocole == AdresseServeur.https ? 'pharmacie.example.com' : '192.168.1.20',
+              // Protocole au début du champ (4.1.0) : un appui bascule http ↔ https.
+              prefixe: ProtocoleBascule(
+                key: const Key('protocole_local'),
+                libelle: 'Protocole du serveur local',
+                valeur: _localA.protocole,
+                onChanged: _saving ? null : _protocoleLocal,
+              )),
           _field(_remote, 'Adresse IP distante (optionnel)', _remoteError,
-              key: const Key('ip_distante'), keyboard: const TextInputType.numberWithOptions(decimal: true), formatters: ipFormat),
+              key: const Key('ip_distante'),
+              keyboard: clavier(_remoteA.protocole),
+              formatters: ipFormat,
+              hint: _remoteA.protocole == AdresseServeur.https ? 'pharmacie.example.com' : null,
+              helper: _remoteA.protocole == AdresseServeur.https && _localA.protocole != AdresseServeur.https
+                  ? 'Port 443 par défaut en https (sinon : nom:port).'
+                  : null,
+              prefixe: ProtocoleBascule(
+                key: const Key('protocole_distant'),
+                libelle: 'Protocole du serveur distant',
+                valeur: _remoteA.protocole,
+                onChanged: _saving
+                    ? null
+                    : (p) => setState(() {
+                          _remoteA.protocole = p;
+                          _result = null;
+                        }),
+              )),
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Expanded(
               flex: 2,
@@ -305,6 +370,8 @@ class _ConnexionPageState extends State<ConnexionPage> {
             ),
           if (_settings.isRemote)
             const InfoBanner('L\'application utilise actuellement l\'IP distante.'),
+          const InfoBanner('https : serveur joint par Internet avec un certificat reconnu (port 443 par défaut). '
+              'http : réseau local de l\'officine (port 8080).'),
         ],
       ),
     );
