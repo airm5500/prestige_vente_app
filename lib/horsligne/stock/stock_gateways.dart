@@ -83,8 +83,9 @@ class OfflineReceptionGateway implements ReceptionGateway {
   }
 
   @override
-  Future<ReceptionResult> addLot({required String detailId, required int quantity, required int freeQty, required String numLot, DateTime? expiry}) async {
-    if (!_off) return online.addLot(detailId: detailId, quantity: quantity, freeQty: freeQty, numLot: numLot, expiry: expiry);
+  Future<ReceptionResult> addLot(
+      {required String detailId, required int quantity, required int freeQty, required String numLot, DateTime? expiry, String? serie, String? gtin}) async {
+    if (!_off) return online.addLot(detailId: detailId, quantity: quantity, freeQty: freeQty, numLot: numLot, expiry: expiry, serie: serie, gtin: gtin);
     try {
       final raw = await stock.store.ref(StockRef.lignesBl, detailId);
       if (raw == null) return const ReceptionResult(false, 'Hors ligne : ligne de BL absente de la copie locale.');
@@ -107,6 +108,9 @@ class OfflineReceptionGateway implements ReceptionGateway {
         ug: freeQty,
         numLot: numLot,
         expiry: expiry,
+        // D18 (4.3.1) : gardés dans la file, envoyés à la synchro (boîte déjà scannée → ligne refusée).
+        serie: serie,
+        gtin: gtin,
       );
       return const ReceptionResult(true, 'Lot enregistré hors ligne : il sera envoyé au retour du serveur.');
     } on StockHorsLigneException catch (e) {

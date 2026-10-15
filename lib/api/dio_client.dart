@@ -1,6 +1,7 @@
 // lib/api/dio_client.dart
 // Mise à jour avec Timeout de sécurité
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart';
@@ -27,7 +28,8 @@ class DioClient {
     // Session expirée (401 « Veuillez vous connecter ») : reconnexion silencieuse et requête rejouée, sinon
     // retour à l'écran de connexion (lib/api/session_expiree.dart).
     dio.interceptors.add(IntercepteurSession(dio));
-    dio.interceptors.add(LogInterceptor(responseBody: true, requestBody: true));
+    // 4.3.1 (D18) : le numéro de série d'une boîte n'apparaît jamais dans le journal de la console.
+    dio.interceptors.add(LogInterceptor(responseBody: true, requestBody: true, logPrint: (o) => debugPrint(masquerSerie('$o'))));
 
     return dio;
   }
@@ -40,4 +42,13 @@ class DioClient {
     _dio.options.baseUrl = baseUrl;
     return _dio;
   }
+}
+
+/// Masque la valeur du champ `serie` (numéro de série d'une boîte, D18) dans une ligne de journal : forme Map
+/// (`serie: X`) et forme JSON (`"serie":"X"`).
+String masquerSerie(String ligne) {
+  if (!ligne.contains('serie')) return ligne;
+  return ligne
+      .replaceAllMapped(RegExp(r'("serie"\s*:\s*")[^"]*(")'), (m) => '${m[1]}***${m[2]}')
+      .replaceAllMapped(RegExp(r'(\bserie:\s*)[^,}\s]+'), (m) => '${m[1]}***');
 }

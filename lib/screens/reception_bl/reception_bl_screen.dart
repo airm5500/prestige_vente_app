@@ -81,6 +81,11 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
   final _lotFocus = FocusNode();
   final _dateFocus = FocusNode();
   String? _source; // d'où viennent le lot et la date
+
+  /// D18 (4.3.1) : numéro de série et GTIN du dernier DataMatrix GS1 de la boîte scannée pour la ligne ouverte
+  /// (AI 21 + AI 01) ; envoyés avec le lot, oubliés après l'enregistrement ou un refus. Jamais affichés ni journalisés.
+  String? _serie;
+  String? _gtinSerie;
   List<String> _lotChoices = const [];
   List<DateTime> _dateChoices = const [];
 
@@ -250,6 +255,9 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
     }
     if (dm != null && dm.hasUsefulData) {
       _applyLotDate(dm.lotCandidates, dm.expiryCandidates, dm.lot, dm.expiry, 'DataMatrix');
+      // D18 : boîte identifiée (GTIN + numéro de série) ; sinon aucune série envoyée.
+      _serie = dm.gtin != null ? dm.serie : null;
+      _gtinSerie = _serie == null ? null : dm.gtin;
     }
   }
 
@@ -280,6 +288,8 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
       _ug.text = '0';
       _qty.text = line.remaining > 0 ? '${line.remaining}' : '';
       _source = null;
+      _serie = null;
+      _gtinSerie = null;
       _lotChoices = const [];
       _dateChoices = const [];
     });
@@ -408,12 +418,19 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
     }
 
     setState(() => _busy = true);
-    final result = await widget.gateway.addLot(detailId: line.detailId, quantity: qty, freeQty: ug, numLot: lot, expiry: expiry);
+    final result =
+        await widget.gateway.addLot(detailId: line.detailId, quantity: qty, freeQty: ug, numLot: lot, expiry: expiry, serie: _serie, gtin: _gtinSerie);
     if (!mounted) return;
     if (!result.success) {
       setState(() => _busy = false);
-      await _alert('Lot non enregistré', result.message, blocking: true);
+      final dejaScannee = '${result.data['code'] ?? ''}' == codeSerieDejaConsommee;
+      await _alert(dejaScannee ? messageBoiteDejaScannee : 'Lot non enregistré', resultatAjoutLot(result).message, blocking: true);
       await _load();
+      if (dejaScannee && mounted) {
+        // Aucune quantité ajoutée : la ligne repart à zéro, prête pour le scan de la boîte suivante.
+        final updated = _lines.where((l) => l.detailId == line.detailId).firstOrNull ?? line;
+        _openLine(updated);
+      }
       return;
     }
     HapticFeedback.lightImpact();
@@ -554,22 +571,30 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
   Widget _buildProgress(ReceptionSummary s, {required bool dark}) {
     final total = _lines.length;
     final done = s.complete.length;
-    return Row(children: [
-      Expanded(
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: total == 0 ? 0 : done / total,
-            minHeight: 8,
-            backgroundColor: dark ? Colors.white.withValues(alpha: 0.2) : const Color(0xFFE6EBF2),
-            color: dark ? Pal.amber : Pal.green,
+    // 4.3.1 (ANO-12) : texte borné à 70 % de la largeur (petit écran, texte agrandi) ; rendu inchangé quand il tient.
+    return LayoutBuilder(
+      builder: (context, c) => Row(children: [
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: total == 0 ? 0 : done / total,
+              minHeight: 8,
+              backgroundColor: dark ? Colors.white.withValues(alpha: 0.2) : const Color(0xFFE6EBF2),
+              color: dark ? Pal.amber : Pal.green,
+            ),
           ),
         ),
-      ),
-      const SizedBox(width: 10),
-      Text('$done/$total lignes · ${s.enteredBoxes}/${s.orderedBoxes} boîtes',
-          style: TextStyle(fontSize: 12, color: dark ? Colors.white : Pal.ink, fontWeight: FontWeight.w500)),
-    ]);
+        const SizedBox(width: 10),
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: c.maxWidth.isFinite ? c.maxWidth * 0.7 : double.infinity),
+          child: Text('$done/$total lignes · ${s.enteredBoxes}/${s.orderedBoxes} boîtes',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: dark ? Colors.white : Pal.ink, fontWeight: FontWeight.w500)),
+        ),
+      ]),
+    );
   }
 
   Widget _buildScanBar({required bool dark}) {

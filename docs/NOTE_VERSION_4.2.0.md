@@ -16,7 +16,7 @@
 - **Analyse article** : liste par la recherche rapide (`/vente/search`), puis détail du produit choisi par
   `/info` sur son CIP exact (plus aucun `/info` pendant la frappe). Délai réel de 30 s (le message disait 10 s).
 - **État de Stock** : la recherche précédente est annulée à chaque frappe ; délai de 30 s.
-- Demande serveur : `docs/serveur/DEMANDE_PERFORMANCE_INFO.md` (et n° 44 de `docs/serveur/DEMANDES_SERVEUR_2026-10-15.md`).
+- Demande serveur : `docs/serveur/DEMANDE_PERFORMANCE_INFO.md` (et n° 44 de `docs/serveur/TRANSMISSION_SERVEUR_2026-10-15.md`).
 
 ## Borne et terminal de pointage
 - **Sortie fiable** : cadenas visible, appui long 2 s, confirmation, code administrateur. Pour la borne :
