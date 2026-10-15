@@ -20,10 +20,10 @@ borne verticale, panier, ticket, imprimante en panne, terminal Sunmi).
 | Saveur Android | `mobile` (par défaut) | `pos` |
 | Point d'entrée | `lib/main.dart` (inchangé) | `lib/main_pos.dart` |
 | applicationId | `com.dici.prestige_vente_app` | `com.dici.prestigepos` |
-| Version | `pubspec.yaml` (4.3.0+16) | `android/app/prestigepos-version.properties` (1.1.0+2) |
+| Version | `pubspec.yaml` (4.3.1+17) | `android/app/prestigepos-version.properties` (1.1.1+3) |
 | Nom, icône, activité | `android/app/src/main` | `android/app/src/pos` (remplace nom, icône, activité) |
 | Permissions en plus | — | Bluetooth (SPP), USB (OTG), démarrage de l'appareil (1.1.0) : `src/pos/AndroidManifest.xml` |
-| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.1.0.apk`) |
+| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.1.1.apk`) |
 
 **Code partagé** : la borne (`lib/borne/`) — recherche, catégories, fiche, panier, vérification prix / stock,
 création de la prévente, ticket, kiosque (épinglage), sortie par code administrateur (`lib/widgets/sortie_kiosque.dart`),
@@ -36,8 +36,8 @@ de ticket ESC/POS (`lib/prestigepos/impression/`) et le pont Android Bluetooth /
 
 `flutter build apk --release` **sans** `--flavor` construit toujours Prestige Mobile (`pubspec.yaml` :
 `flutter › default-flavor: mobile`). La CI vérifie que l'APK de Prestige Mobile garde le même applicationId, le même
-nom, la même version et **exactement les mêmes permissions** que la version 4.3.0+16 avant sa fusion dans PrestigePOS
-(job `prestige-mobile-identique`, référence : commit `9c16968` de `pres-/tender-thompson-ang0ls`).
+nom, la même version et **exactement les mêmes permissions** que la version 4.3.1+17 avant sa fusion dans PrestigePOS
+(job `prestige-mobile-identique`, référence : commit `94cbcc9` de `pres-/tender-thompson-ang0ls`).
 
 ## Ouvrir dans Android Studio
 
@@ -68,7 +68,7 @@ flutter build apk --release --flavor pos -t lib/main_pos.dart
 ```
 
 APK produit : `build/app/outputs/flutter-apk/app-pos-release.apk` (même fichier, nommé
-`PrestigePOS-release-1.1.0.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
+`PrestigePOS-release-1.1.1.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
 **`prestigepos-apk`** à chaque envoi sur la branche `prestigepos`.
 
 Version : modifier `android/app/prestigepos-version.properties` (`nomVersion`, et `codeVersion` **toujours
