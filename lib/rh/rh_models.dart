@@ -371,6 +371,10 @@ class PointageBadge {
   /// Saisi hors ligne (mis en file) plutôt qu'enregistré tout de suite.
   final bool horsLigne;
 
+  /// 4.3.0 (demande 31) : contrôle du pointage par badge envoyé au serveur — `{photo: true}` ou
+  /// `{photo: false, motif: "PERMISSION_REFUSEE"…}` ; null : pas de photo de contrôle (empreinte, ancien pointage).
+  final Map<String, dynamic>? controle;
+
   const PointageBadge({
     required this.id,
     required this.employeId,
@@ -382,13 +386,23 @@ class PointageBadge {
     this.message = '',
     this.traitee = false,
     this.horsLigne = false,
+    this.controle,
   });
 
   String get jour => _jourFmt.format(lu);
   String get heure => _heureFmt.format(lu);
 
-  /// Corps de POST v1/rh/pointages.
-  Map<String, dynamic> get corps => {'employeId': employeId, 'jour': jour, 'heure': heure, 'sens': sens.code, 'motif': motif};
+  /// Corps de POST v1/rh/pointages. 4.3.0 (demande 31) : `id` = identifiant du terminal (le serveur à jour le garde,
+  /// le renvoie, et répond `deja:true` au même id renvoyé ; un ancien serveur l'ignore) et `controle` s'il est connu.
+  Map<String, dynamic> get corps => {
+        'id': id,
+        'employeId': employeId,
+        'jour': jour,
+        'heure': heure,
+        'sens': sens.code,
+        'motif': motif,
+        if (controle != null) 'controle': controle,
+      };
 
   PointageBadge copie({StatutPointageBadge? statut, String? message, bool? traitee, SensPointage? sens}) => PointageBadge(
         id: id,
@@ -401,6 +415,7 @@ class PointageBadge {
         message: message ?? this.message,
         traitee: traitee ?? this.traitee,
         horsLigne: horsLigne,
+        controle: controle,
       );
 
   Map<String, dynamic> toJson() => {
@@ -414,6 +429,7 @@ class PointageBadge {
         'message': message,
         'traitee': traitee,
         'horsLigne': horsLigne,
+        if (controle != null) 'controle': controle,
       };
 
   factory PointageBadge.fromJson(Map<String, dynamic> j) => PointageBadge(
@@ -427,6 +443,7 @@ class PointageBadge {
         message: _s(j['message']),
         traitee: j['traitee'] == true,
         horsLigne: j['horsLigne'] == true,
+        controle: j['controle'] is Map ? Map<String, dynamic>.from(j['controle'] as Map) : null,
       );
 }
 

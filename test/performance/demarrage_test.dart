@@ -78,9 +78,9 @@ void main() {
       await defilerJusquEnBas(t, liste, chrono, pas: 80);
       mesurer('Accueil ${style.label} — pire image en parcourant la page (2e passage)', chrono.max, seuil: Seuils.imageAccueilMs, unite: 'ms', detail: chrono.resume);
 
-      // Plafond = requêtes de la 4.2 (connexion, licence, chargements de l'accueil, copie hors ligne du catalogue
-      // et des clients) : une requête de plus est une régression. Les lectures EN DOUBLE (ANO-09) sont comptées
-      // ici et contrôlées par le test « sans lecture en double » (sauté tant qu'ANO-09 n'est pas corrigée).
+      // Plafond = requêtes voulues (connexion, licence, chargements de l'accueil, droits, copie hors ligne du
+      // catalogue et des clients) : une requête de plus est une régression. 4.3.0 : 24 = 26 de la 4.2 − 3 lectures en
+      // double supprimées (ANO-09 : officine, préventes, BL du jour) + 1 droit Posos (GET /posos/droits, demande 5).
       mesurer('Connexion + accueil ${style.label} — requêtes', rs.length, seuil: plafondConnexion, unite: 'requêtes', detail: detailRequetes(rs));
       expect(rs.where((r) => r.chemin.endsWith('/user/auth')), hasLength(1), reason: 'une seule connexion');
       expect(t.takeException(), isNull);
@@ -88,24 +88,36 @@ void main() {
     });
   }
 
-  testWidgets('connexion → accueil : aucune lecture en double (même route, mêmes paramètres) — sauté : ANO-09', (t) async {
+  testWidgets('connexion → accueil : aucune lecture en double (même route, mêmes paramètres) sauf les 2 gardées exprès (ANO-09)', (t) async {
     TailleEcran.sunmiV2s.appliquer(t);
     final app = AppE2E();
     await app.preparer(prefs: {'hiddenMenuIds': <String>[]});
     await app.lancer(t);
-    final avant = app.serveur.recues.length;
-    expect(await app.seConnecter(t), isTrue);
+    expect(await app.attendreQue(t, find.byType(ConnexionScreen)), isTrue);
+    await app.attendre(t, const Duration(seconds: 1));
+    await t.enterText(find.byKey(const Key('connexion_login')), DonneesFictives.login);
+    await t.enterText(find.byKey(const Key('connexion_mdp')), DonneesFictives.motDePasse);
+    await t.ensureVisible(find.byKey(const Key('se_connecter')));
+    final avant = app.serveur.recues.length; // à partir de l'appui sur « Se connecter »
+    await t.tap(find.byKey(const Key('se_connecter')));
+    expect(await app.attendreQue(t, find.byType(AccueilScreen)), isTrue);
     await app.attendre(t, const Duration(seconds: 5));
     final vues = <String, int>{};
     for (final r in app.serveur.recues.skip(avant)) {
-      final k = '${r.methode} ${r.chemin} ${r.query}';
+      final k = '${r.methode} ${r.chemin}${r.query.isEmpty ? '' : ' ${r.query}'}';
       vues[k] = (vues[k] ?? 0) + 1;
     }
-    final doubles = {for (final e in vues.entries) if (e.value > 1) e.key: e.value};
-    expect(doubles, isEmpty, reason: 'lectures en double à la connexion : $doubles');
+    final doubles = {for (final e in vues.entries) if (e.value > 1) e.key.split(' ').take(2).join(' '): e.value};
+    // Gardés exprès (test/README.md, ANO-09) : GET /officine = données de l'officine (connexion) + test « serveur
+    // joignable » de l'accueil (état à l'instant de l'affichage) ; GET /modereglement/all = modes avec QR pour la
+    // session + copie hors ligne du catalogue (autre usage, autre moment, autre client HTTP).
+    expect(doubles, {'GET /prestige/api/v1/officine': 2, 'GET /prestige/api/v1/modereglement/all': 2},
+        reason: 'lectures en double à la connexion : $doubles');
+    expect(t.takeException(), isNull);
     await app.fermer(t);
-  }, skip: true); // ANO-09 : officine ×3, préventes ×2, BL du jour ×2, QR des modes ×2 (voir test/README.md)
+  });
 }
 
-/// Requêtes de la connexion jusqu'à l'accueil chargé (4.2.0 : 26, dont 5 lectures en double — ANO-09).
-const plafondConnexion = 26;
+/// Requêtes de la connexion jusqu'à l'accueil chargé (4.2.0 : 26 dont 5 lectures en double ; 4.3.0 : 24 — ANO-09
+/// traitée : 3 doubles supprimés, 2 gardés exprès ; + GET /posos/droits).
+const plafondConnexion = 24;

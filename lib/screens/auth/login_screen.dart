@@ -90,13 +90,8 @@ class _AncienLoginScreenState extends State<AncienLoginScreen> {
           // pendant que l'application tournait).
           final licenceProvider = Provider.of<LicenceProvider>(context, listen: false);
           if (await licenceProvider.mustBlockAccess()) {
-            await authProvider.logout();
-            if (mounted) {
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const LicenceRegistrationScreen()),
-                (route) => false,
-              );
-            }
+            // Demande 11 (option A) : un administrateur garde sa session pour activer la licence ; sinon déconnexion.
+            if (mounted) await ouvrirActivationLicence(context);
             return;
           }
           if (!mounted) return;

@@ -67,9 +67,18 @@ class RefusMetier extends ErreurPrestige {
 /// Réponse HTTP en erreur (404 : fonction absente de ce serveur ; 5xx : erreur du serveur).
 class ErreurHttp extends ErreurPrestige {
   final int status;
-  const ErreurHttp(this.status);
+
+  /// 4.3.0 : message du serveur pour un droit manquant (HTTP 403 `{success:false, interdit:true, msg:"Droit
+  /// manquant : …"}`, réponse du serveur du 15/10/2026) ; jamais une déconnexion.
+  final String? detail;
+  const ErreurHttp(this.status, {this.detail});
+
+  /// Refus d'un droit (403 `interdit:true`) : ni session expirée, ni panne.
+  bool get droitManquant => status == 403 && (detail ?? '').isNotEmpty;
+
   @override
   String get message => switch (status) {
+        403 when droitManquant => detail!,
         403 => 'Accès refusé par le serveur (code 403).',
         404 => 'Cette fonction n\'existe pas sur ce serveur Prestige (code 404) : il doit être mis à jour.',
         _ => 'Erreur du serveur (code $status). Réessayez ; si cela persiste, prévenez l\'administrateur.',
@@ -192,6 +201,7 @@ class ClientPrestige {
       surSessionExpiree?.call();
       throw const SessionExpiree();
     }
+    if (status == 403) throw ErreurHttp(403, detail: messageDroitManquant(r.data));
     if (status < 200 || status >= 300) throw ErreurHttp(status);
     final texte = (r.data ?? '').trim();
     if (texte.isEmpty) throw const ReponseIllisible();
@@ -201,4 +211,20 @@ class ClientPrestige {
       throw const ReponseIllisible();
     }
   }
+}
+
+/// Message d'un refus de droit du serveur (HTTP 403 `{interdit:true, msg}`) ; null pour un autre 403 (filtre de
+/// connexion, page HTML…).
+String? messageDroitManquant(Object? corps) {
+  Object? j = corps;
+  if (j is String) {
+    try {
+      j = jsonDecode(j);
+    } catch (_) {
+      return null;
+    }
+  }
+  if (j is! Map || (j['interdit'] != true && j['interdit'] != 'true')) return null;
+  final m = '${j['msg'] ?? j['message'] ?? ''}'.trim();
+  return m.isEmpty ? 'Droit manquant : demandez-le à l\'administrateur de Prestige.' : m;
 }

@@ -1,12 +1,38 @@
 // lib/screens/auth/licence_registration_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/interface_version.dart';
+import 'package:prestige_vente_app/serveur/client_contexte.dart';
+import 'package:prestige_vente_app/serveur/json_tolerant.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/utils/responsive.dart';
+
+/// Licence absente ou expirée constatée à la CONNEXION (nouvelle et ancienne interface). 4.3.0, demande 11
+/// (option A du pharmacien : la licence s'active après la connexion d'un administrateur, jamais sans session) :
+/// administrateur (compte « admin » de l'application ou profil administrateur du serveur, GET v1/roles/est-admin)
+/// → sa session est gardée pour la seule activation ; autre compte → déconnexion, comme avant. Puis l'écran
+/// « Clé de licence » (pile vidée).
+Future<void> ouvrirActivationLicence(BuildContext context) async {
+  final auth = context.read<AuthProvider>();
+  final licence = context.read<LicenceProvider>();
+  var admin = auth.isAdmin;
+  if (!admin) {
+    try {
+      admin = booleen((await clientPrestige(context).get('/roles/est-admin'))['authorize']);
+    } catch (_) {
+      admin = false;
+    }
+  }
+  licence.activationParAdministrateur = admin;
+  if (!admin) await auth.logout();
+  if (context.mounted) {
+    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LicenceRegistrationScreen()), (_) => false);
+  }
+}
 
 class LicenceRegistrationScreen extends StatefulWidget {
   const LicenceRegistrationScreen({Key? key}) : super(key: key);
@@ -38,6 +64,12 @@ class _LicenceRegistrationScreenState extends State<LicenceRegistrationScreen> {
     setState(() => _isLoading = false);
 
     if (success && mounted) {
+      // Activation faite avec la session d'un administrateur : session fermée, connexion normale ensuite.
+      if (provider.activationParAdministrateur) {
+        provider.activationParAdministrateur = false;
+        await Provider.of<AuthProvider>(context, listen: false).logout();
+        if (!mounted) return;
+      }
       // Licence validée -> Direction Login
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -160,6 +192,34 @@ class _LicenceRegistrationScreenState extends State<LicenceRegistrationScreen> {
                               style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w600),
                             ),
                           ),
+                        // Demande 11 (option A) : le serveur exige une session → connexion d'un administrateur.
+                        if (context.watch<LicenceProvider>().sessionRequise && !context.watch<LicenceProvider>().activationParAdministrateur) ...[
+                          Container(
+                            key: const Key('licence_session_requise'),
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              border: Border.all(color: Colors.orange.shade300),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              LicenceProvider.messageActivationAdministrateur,
+                              style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: OutlinedButton.icon(
+                              key: const Key('licence_connexion_admin'),
+                              onPressed: () => Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen())),
+                              icon: const Icon(Icons.admin_panel_settings_outlined),
+                              label: const Text('Connexion administrateur'),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 6),
                         Text(
                           "Serveur : ${LicenceProvider.serverHost(context.watch<SettingsProvider>().baseUrl)}",

@@ -34,7 +34,8 @@ class ConnexionServices {
   /// Le serveur Prestige répond-il à [ip] (port et application des réglages) ? Défaut : SettingsProvider.ping.
   final Future<bool> Function(SettingsProvider settings, String ip)? sonde;
 
-  /// Chargements après la connexion (défaut : officine, préventes, BL du jour, modes de paiement).
+  /// Chargements après la connexion (défaut : officine, modes de paiement ; préventes et BL du jour si l'accueil
+  /// qui suit ne les lit pas lui-même — ANO-09).
   final Future<void> Function(BuildContext)? chargements;
 
   /// Écran d'accueil (défaut : InterfaceVersion.home()).
@@ -75,6 +76,11 @@ class ConnexionServices {
   Future<bool> sonderCourant(SettingsProvider s) => sonder(s, ipCourante(s));
 
   Widget ecranAccueil() => (accueil ?? InterfaceVersion.home)();
+
+  /// ANO-09 (4.3.0) : l'écran ouvert après la connexion est le nouvel accueil (AccueilScreen), qui lit lui-même
+  /// les préventes et les BL du jour dès son ouverture : la connexion ne les lit donc pas une 1re fois. Accueil
+  /// d'origine ou accueil remplacé (tests) : chargements inchangés.
+  bool get accueilLitLesTaches => accueil == null && InterfaceVersion.useNew.value;
 
   Widget ecranConfiguration() => (configuration ?? InterfaceVersion.settings)();
 }
@@ -539,10 +545,8 @@ class ConnexionFlux {
       }
       etape?.call(EtapeConnexion.identifiants);
       if (await licence.mustBlockAccess()) {
-        await auth.logout();
-        if (context.mounted) {
-          Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LicenceRegistrationScreen()), (_) => false);
-        }
+        // Demande 11 (option A) : un administrateur garde sa session pour activer la licence ; sinon déconnexion.
+        if (context.mounted) await ouvrirActivationLicence(context);
         return IssueConnexion.licence;
       }
       etape?.call(EtapeConnexion.licence);
@@ -553,7 +557,7 @@ class ConnexionFlux {
       if (sorti != null) await PinPersonnel.instance.effacer(sorti);
       if (!context.mounted) return IssueConnexion.erreur;
       etape?.call(EtapeConnexion.chargements);
-      await (sv.chargements ?? _chargements)(context);
+      await (sv.chargements ?? (c) => _chargements(c, accueilLitLesTaches: sv.accueilLitLesTaches))(context);
       await ConnexionReglages.memoriserOfficine(auth.officine?.nomComplet ?? '');
       return IssueConnexion.reussie;
     } catch (e) {
@@ -563,15 +567,18 @@ class ConnexionFlux {
     }
   }
 
-  static Future<void> _chargements(BuildContext context) async {
+  /// [accueilLitLesTaches] (ANO-09) : préventes et BL du jour lus par le nouvel accueil à son ouverture, pas ici.
+  /// L'officine est toujours lue (nom mémorisé juste après) et marquée pour l'accueil qui suit (pas de 2e lecture).
+  /// Modes de paiement avec QR : toujours lus (cache de la session, utilisé ensuite sans réseau).
+  static Future<void> _chargements(BuildContext context, {bool accueilLitLesTaches = false}) async {
     final auth = context.read<AuthProvider>();
     final sale = context.read<SaleProvider>();
     final bl = context.read<BlControlProvider>();
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     await Future.wait([
-      auth.loadOfficineInfo(),
-      sale.fetchPreventes(),
-      bl.fetchBonsLivraison(dtStart: today, dtEnd: today, query: ''),
+      auth.loadOfficineInfo().then((_) => auth.marquerOfficineDeLaConnexion()),
+      if (!accueilLitLesTaches) sale.fetchPreventes(),
+      if (!accueilLitLesTaches) bl.fetchBonsLivraison(dtStart: today, dtEnd: today, query: ''),
       sale.fetchPaymentMethodsWithQr(),
     ]);
   }

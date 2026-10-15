@@ -11,6 +11,14 @@
 //     serveur ; aujourd'hui 404 → ignoré). Le menu est donc réservé aux administrateurs tant qu'elle n'existe pas.
 //   - Ordonnances des clients : GET v1/ordonnance-client/droits → {consulter (P_ORDONNANCE_CLIENT),
 //     modifier (P_ORDONNANCE_CLIENT_MAJ)} ; le serveur revérifie chaque appel.
+//   - 4.3.0 (réponse du serveur du 15/10/2026, demandes 4 et 5) : le serveur vérifie désormais P_TRAITER_RESERVE
+//     sur la réserve et P_SM_POSOS (ou P_ORDONNANCE_CLIENT) sur Posos, et les expose :
+//       GET v1/reserve/droits → {success, traiter, annulerMouvement} : quand la route RÉPOND, elle décide seule
+//         du menu Réserve (un administrateur sans le droit verrait un menu dont chaque action serait refusée) ;
+//         le compte « admin » de l'application le garde (profil administrateur du serveur, qui a le droit).
+//       GET v1/posos/droits → {success, analyser} : menu Analyse posologie masqué si analyser = false.
+//     Serveur sans ces routes (404, 405…) : règles d'avant inchangées (Réserve : administrateurs ; Posos : tout
+//     compte connecté).
 // Tant que les droits ne sont pas connus, les menus concernés restent masqués (sauf administrateur local).
 import 'package:flutter/foundation.dart';
 import 'package:prestige_vente_app/serveur/client_prestige.dart';
@@ -27,9 +35,14 @@ class DroitsOrdonnances {
       DroitsOrdonnances(consulter: booleen(j['consulter']), modifier: booleen(j['consulter']) && booleen(j['modifier']));
 }
 
-/// Menu Réserve visible : administrateur (local ou serveur) ou droit dédié.
+/// Menu Réserve visible. Droit dédié connu (GET v1/reserve/droits a répondu) : il décide, le compte « admin » de
+/// l'application gardant le menu ; route absente (ancien serveur) : administrateur (local ou serveur).
 bool menuReserveVisible({required bool adminLocal, bool? adminServeur, bool? droitDedie}) =>
-    adminLocal || adminServeur == true || droitDedie == true;
+    droitDedie != null ? (droitDedie || adminLocal) : (adminLocal || adminServeur == true);
+
+/// Menu Analyse posologie visible : utilisateur identifié, sauf refus explicite du serveur (GET v1/posos/droits →
+/// analyser = false). Route absente : comme avant (tout compte connecté).
+bool menuPososVisible({required bool connu, bool? analyser}) => connu && analyser != false;
 
 /// Menu « Ordonnances des clients » visible : droit de consultation connu et accordé.
 bool menuOrdonnancesVisible(DroitsOrdonnances? d) => d?.consulter == true;
@@ -47,6 +60,7 @@ class DroitsModules extends ChangeNotifier {
   bool _adminLocal = false;
   bool? _adminServeur;
   bool? _reserveDedie;
+  bool? _pososAnalyser;
   DroitsOrdonnances? _ordonnances;
   DateTime? _luA;
   Future<void>? _enCours;
@@ -60,6 +74,9 @@ class DroitsModules extends ChangeNotifier {
   bool get ordonnancesModifier => saisieFicheClientAutorisee(_ordonnances);
   bool? get adminServeur => _adminServeur;
 
+  /// Menu Analyse posologie (demande 5) : voir [menuPososVisible].
+  bool get posos => menuPososVisible(connu: connu, analyser: _pososAnalyser);
+
   /// Un utilisateur connecté est identifié (droits lus ou en cours de lecture).
   bool get connu => (_utilisateur ?? '').isNotEmpty;
 
@@ -72,6 +89,7 @@ class DroitsModules extends ChangeNotifier {
       _utilisateur = utilisateur;
       _adminServeur = null;
       _reserveDedie = null;
+      _pososAnalyser = null;
       _ordonnances = null;
       _luA = null;
       _enCours = null;
@@ -97,11 +115,17 @@ class DroitsModules extends ChangeNotifier {
     final admin = essai(() async => booleen((await client.get('/roles/est-admin'))['authorize']));
     final dedie = essai(() async => booleen((await client.get('/reserve/droits'))['traiter']));
     final ordo = essai(() async => DroitsOrdonnances.fromJson(await client.get('/ordonnance-client/droits')));
-    final a = await admin, d = await dedie, o = await ordo;
+    // Demande 5 (4.3.0) : route absente sur un ancien serveur (404) → null, menu comme avant.
+    final pos = essai(() async {
+      final j = await client.get('/posos/droits');
+      return j.containsKey('analyser') ? booleen(j['analyser']) : null;
+    });
+    final a = await admin, d = await dedie, o = await ordo, p = await pos;
     if (utilisateur != _utilisateur) return; // changement d'utilisateur pendant la lecture
     // Échec de lecture (réseau) : on garde ce qui était connu pour cet utilisateur.
     _adminServeur = a ?? _adminServeur;
     _reserveDedie = d ?? _reserveDedie;
+    _pososAnalyser = p ?? _pososAnalyser;
     _ordonnances = o ?? _ordonnances;
     if (a != null || o != null) _luA = now;
     notifyListeners();
@@ -113,6 +137,7 @@ class DroitsModules extends ChangeNotifier {
     _adminLocal = false;
     _adminServeur = null;
     _reserveDedie = null;
+    _pososAnalyser = null;
     _ordonnances = null;
     _luA = null;
     _enCours = null;
@@ -121,11 +146,13 @@ class DroitsModules extends ChangeNotifier {
 
   /// Tests : fixe les droits sans serveur.
   @visibleForTesting
-  void fixer({bool adminLocal = false, bool? adminServeur, bool? reserveDedie, DroitsOrdonnances? ordonnances, String utilisateur = 'test'}) {
+  void fixer(
+      {bool adminLocal = false, bool? adminServeur, bool? reserveDedie, bool? pososAnalyser, DroitsOrdonnances? ordonnances, String utilisateur = 'test'}) {
     _utilisateur = utilisateur;
     _adminLocal = adminLocal;
     _adminServeur = adminServeur;
     _reserveDedie = reserveDedie;
+    _pososAnalyser = pososAnalyser;
     _ordonnances = ordonnances;
     _luA = DateTime.now();
     notifyListeners();

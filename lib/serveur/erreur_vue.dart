@@ -18,6 +18,7 @@ String titreErreur(Object e) => switch (e) {
       ServeurInjoignable() => 'Serveur injoignable',
       SessionExpiree() => 'Session expirée',
       RefusMetier() => 'Refusé par Prestige',
+      ErreurHttp(droitManquant: true) => 'Droit manquant',
       ErreurHttp() => 'Erreur du serveur',
       _ => 'Erreur',
     };
@@ -27,6 +28,7 @@ IconData iconeErreur(Object e) => switch (e) {
       ServeurInjoignable() => Icons.cloud_off,
       SessionExpiree() => Icons.lock_clock,
       RefusMetier() => Icons.block,
+      ErreurHttp(droitManquant: true) => Icons.block,
       _ => Icons.error_outline,
     };
 

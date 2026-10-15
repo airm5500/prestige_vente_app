@@ -444,7 +444,10 @@ void main() {
       expect(p.envoi, StatutPointageBadge.enAttente.name);
       e.horsLigne = false;
       await e.pr.envoyer();
-      expect(e.rh.posts.single.keys, unorderedEquals(['employeId', 'jour', 'heure', 'sens', 'motif']));
+      // 4.3.0 (demande 31) : + id (celui du pointage en file) et contrôle de la photo ; jamais la photo dans le corps.
+      expect(e.rh.posts.single.keys, unorderedEquals(['id', 'employeId', 'jour', 'heure', 'sens', 'motif', 'controle']));
+      expect(e.rh.posts.single['id'], r.pointage.id);
+      expect(e.rh.posts.single['controle'], {'photo': true});
       expect(e.registre.photos.single.envoi, StatutPointageBadge.envoye.name);
       c.dispose();
     });

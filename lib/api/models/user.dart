@@ -38,6 +38,13 @@ class User {
       final v = json[k];
       if (v is String && v.trim().isNotEmpty) return v.trim();
     }
+    // 4.3.0 (réponse du serveur du 15/10/2026, demande 10) : `role: {code, libelle}` dans la réponse de user/auth ;
+    // le libellé (nom du profil) est affiché tel quel (« Qui êtes-vous ? »), le code n'ouvre aucun droit.
+    final r = json['role'];
+    if (r is Map) {
+      final libelle = '${r['libelle'] ?? ''}'.trim();
+      if (libelle.isNotEmpty) return libelle;
+    }
     return '';
   }
 

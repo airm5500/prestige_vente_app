@@ -170,7 +170,7 @@ class BorneScreenState extends State<BorneScreen> {
   void dispose() {
     HorsLigneScope.masquer.value = false;
     _m.removeListener(_onMonitor);
-    for (final t in [_debounce, _ticketTimer, _inactif, _avertTimer, _reconnexion]) {
+    for (final t in [_debounce, _ticketTimer, _inactif, _avertTimer, _reconnexion, _ajouteTimer]) {
       t?.cancel();
     }
     _attente?.dispose();
@@ -424,18 +424,43 @@ class BorneScreenState extends State<BorneScreen> {
     final m = panier.ajouter(p, qte);
     setState(() => _message = m);
     if (m == null) {
-      ScaffoldMessenger.maybeOf(context)
-        ?..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-          width: MediaQuery.sizeOf(context).width >= 600 ? 420 : null,
-          backgroundColor: Pal.green,
-          content: Text('Ajouté : ${p.nom}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-        ));
+      // 4.3.0 (décision du pharmacien) : « Ajouté : NOM » EN HAUT de l'écran, même durée (2 s) ; il ne cache plus
+      // le bouton panier ni le bas de l'écran, et ne recouvre rien : le bandeau prend sa place au-dessus du
+      // contenu (pas de fenêtre posée par-dessus). Commun à Prestige Mobile et PrestigePOS.
+      _ajouteTimer?.cancel();
+      setState(() => _ajoute = p.nom);
+      _ajouteTimer = Timer(dureeMessageAjoute, () {
+        if (mounted) setState(() => _ajoute = null);
+      });
       if (vue == BorneVue.fiche) setState(() => vue = _avantFiche);
     }
   }
+
+  /// Durée du message « Ajouté : NOM » (inchangée : 2 s).
+  static const dureeMessageAjoute = Duration(seconds: 2);
+  String? _ajoute;
+  Timer? _ajouteTimer;
+
+  /// Bandeau « Ajouté : NOM » en haut de l'écran (texte sur 2 lignes au plus, lisible sur petit écran).
+  Widget _bandeauAjoute(String nom) => Semantics(
+        liveRegion: true,
+        child: Container(
+          key: const ValueKey('borne-ajoute'),
+          width: double.infinity,
+          color: Pal.green,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(children: [
+            const Icon(Icons.check_circle, color: Colors.white, size: 24),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('Ajouté : $nom',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Colors.white)),
+            ),
+          ]),
+        ),
+      );
 
   void _allerPanier() {
     activite();
@@ -651,7 +676,14 @@ class BorneScreenState extends State<BorneScreen> {
         child: Scaffold(
           backgroundColor: const Color(0xFFF7F9FC),
           body: Stack(children: [
-            Positioned.fill(child: SafeArea(child: corps)),
+            Positioned.fill(
+              child: SafeArea(
+                child: Column(children: [
+                  if (_ajoute != null) _bandeauAjoute(_ajoute!),
+                  Expanded(child: corps),
+                ]),
+              ),
+            ),
             if (avertissementVisible) Positioned.fill(child: _avertissement()),
           ]),
         ),
@@ -942,7 +974,13 @@ class BorneScreenState extends State<BorneScreen> {
 
   Widget _grille(List<BorneProduit> items, double w, {bool shrink = false, Widget? fin}) {
     final lateral = panierLateral(w);
-    final cols = colonnes(lateral ? w - 320 : w).clamp(1, lateral ? 4 : 3);
+    // 4.3.0 (ANO-11) : texte agrandi (réglage de l'appareil) → cartes plus hautes et colonnes plus larges ; à la
+    // taille normale du texte, grille inchangée.
+    final ts = MediaQuery.textScalerOf(context).scale(10) / 10;
+    final grand = ts > 1.05;
+    final colsMax = colonnes(((lateral ? w - 320 : w) / (grand ? ts : 1)).floorToDouble()).clamp(1, lateral ? 4 : 3);
+    final cols = colsMax;
+    final hauteurCarte = grand ? (236 * ts).ceilToDouble() : 236.0;
     final liste = cfg.presentation == BornePresentation.listeRapide;
     final grille = !liste && cols > 1;
     Widget carte(BorneProduit p) => BorneCarteProduit(
@@ -967,7 +1005,7 @@ class BorneScreenState extends State<BorneScreen> {
       shrinkWrap: shrink,
       physics: shrink ? const NeverScrollableScrollPhysics() : null,
       padding: shrink ? EdgeInsets.zero : const EdgeInsets.fromLTRB(12, 10, 12, 16),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisSpacing: 10, crossAxisSpacing: 10, mainAxisExtent: 236),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisSpacing: 10, crossAxisSpacing: 10, mainAxisExtent: hauteurCarte),
       itemCount: items.length + (fin == null ? 0 : 1),
       itemBuilder: (_, i) => i < items.length ? carte(items[i]) : fin!,
     );

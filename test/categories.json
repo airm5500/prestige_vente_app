@@ -112,6 +112,7 @@
     "test/retours_pharmacien_test.dart": "ecrans",
     "test/recherche_rapide_info_test.dart": "e2e",
     "test/sortie_borne_test.dart": "e2e",
+    "test/reponse_serveur_test.dart": "integration",
     "test/performance/demarrage_test.dart": "performance",
     "test/performance/listes_longues_test.dart": "performance",
     "test/performance/requetes_test.dart": "performance",

@@ -13,8 +13,15 @@
 //    H4 (serveur avec le patch docs/serveur/H4_client_ref.patch) : la création porte la clé client
 //    `X-Client-Ref` (clé de l'opération HL3-…) ; le serveur ne crée jamais deux fois et, si la réponse est
 //    perdue, le retour est relu par sa clé (GET /app-vente/client-ref/{ref}, ancien /mobile/…) : reprise sans anomalie.
+//  - 4.3.0 (réponse du serveur du 15/10/2026, demande 18 / D17) : chaque lot de réception (/commande/add-lot)
+//    et chaque produit ajouté à un retour (/retourfournisseur/add-item) porte l'en-tête `X-Client-Ref` = clé de
+//    la LIGNE ([cleEvenementLigne], stable entre deux envois) : un serveur à jour n'enregistre la ligne qu'une fois
+//    et renvoie la réponse d'origine ; un serveur plus ancien ignore l'en-tête (relecture « déjà appliqué »
+//    ci-dessus inchangée). Jamais `clientEventId` dans le corps (champ inconnu d'un ancien serveur).
 // Les refus du serveur (BL clôturé, ligne déjà pointée, produit inconnu…) donnent une ligne « rejected »
 // avec le motif ; une panne réseau ou une session expirée interrompt l'envoi ([StockStopException]).
+// 4.3.0 : un refus de DROIT (HTTP 403 `{interdit:true, msg}`) n'est pas une session expirée : la ligne est refusée
+// avec le message du serveur (rapport d'anomalies), l'envoi continue.
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/client_ref.dart';
@@ -74,6 +81,10 @@ class DioStockServer implements StockServer {
   }
 }
 
+/// Clé d'événement d'une ligne (D17) : « <clé de l'opération>-L<n° de la ligne> » (n° = rang dans l'opération,
+/// enregistrée sur le téléphone : stable entre deux envois ; 64 caractères au plus côté serveur).
+String cleEvenementLigne(StockOp op, StockOpLine l) => '${op.id}-L${op.lines.indexOf(l) + 1}';
+
 class StockSender {
   final StockServer server;
   final DateTime Function() clock;
@@ -89,6 +100,8 @@ class StockSender {
 
   Future<StockHttp> _call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers}) async {
     final r = await server.call(method, path, query: query, data: data, headers: headers);
+    // Droit manquant (403 interdit:true) : refus de l'opération, pas de déconnexion.
+    if (r.status == 403 && r.map['interdit'] == true) return r;
     if (r.status == 401 || r.status == 403) {
       throw const StockStopException('Session expirée : reconnectez-vous puis relancez l\'envoi.');
     }
@@ -186,14 +199,16 @@ class StockSender {
       }
       l.avant = entered;
       await _set(op, l, StockLineEtat.sending);
-      final r = await _call('POST', '/commande/add-lot', data: {
-        'idBonDetail': d['detailId'],
-        'qty': qty,
-        'freeQty': ug,
-        'numLot': numLot,
-        'datePeremption': '${d['expiry'] ?? ''}',
-        'directImport': false,
-      });
+      final r = await _call('POST', '/commande/add-lot',
+          data: {
+            'idBonDetail': d['detailId'],
+            'qty': qty,
+            'freeQty': ug,
+            'numLot': numLot,
+            'datePeremption': '${d['expiry'] ?? ''}',
+            'directImport': false,
+          },
+          headers: {enteteClientRef: cleEvenementLigne(op, l)});
       if (r.ok && r.map['success'] != false) {
         srv['quantiteSaisie'] = entered + qty + ug;
         srv['lots'] = [...lots.where((e) => e.isNotEmpty), numLot].join(' | ');
@@ -417,7 +432,8 @@ class StockSender {
       }
       l.avant = now;
       await _set(op, l, StockLineEtat.sending);
-      final r = await _call('POST', '/retourfournisseur/add-item', data: {'lgRETOURFRSID': retourId, ...item(l)});
+      final r = await _call('POST', '/retourfournisseur/add-item',
+          data: {'lgRETOURFRSID': retourId, ...item(l)}, headers: {enteteClientRef: cleEvenementLigne(op, l)});
       if (r.ok && r.map['success'] == true) {
         srvItems.add({'produitId': produitId, 'intNUMBERRETURN': qty});
         await _set(op, l, StockLineEtat.applied);
