@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/serveur/client_prestige.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 /// Message d'une erreur quelconque (les erreurs serveur ont déjà un texte en français).
@@ -15,7 +16,8 @@ String messageErreur(Object e) => e is ErreurPrestige ? e.message : 'Erreur inat
 /// Titre court selon la cause.
 String titreErreur(Object e) => switch (e) {
       ConnexionSecuriseeRefusee(:final nature) => nature.titre,
-      ServeurInjoignable() => 'Serveur injoignable',
+      ServeurIndisponible() => MessagesServeur.titreIndisponible,
+      ServeurInjoignable() => MessagesServeur.titreInjoignable,
       SessionExpiree() => 'Session expirée',
       RefusMetier() => 'Refusé par Prestige',
       ErreurHttp(droitManquant: true) => 'Droit manquant',
@@ -25,6 +27,7 @@ String titreErreur(Object e) => switch (e) {
 
 IconData iconeErreur(Object e) => switch (e) {
       ConnexionSecuriseeRefusee() => Icons.gpp_bad_outlined,
+      ServeurIndisponible() => Icons.hourglass_top,
       ServeurInjoignable() => Icons.cloud_off,
       SessionExpiree() => Icons.lock_clock,
       RefusMetier() => Icons.block,

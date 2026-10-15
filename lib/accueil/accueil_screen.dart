@@ -43,6 +43,7 @@ import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 enum EtatServeur { verification, connecte, horsLigne }
 
@@ -301,7 +302,8 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     } on DioException catch (e) {
       // Une réponse (même 401 / 500) prouve que l'application Prestige répond ; 404 : pas Prestige.
       final code = e.response?.statusCode;
-      return code != null && code != 404;
+      // 4.3.3 : 404 de Payara / 502 / 503 / 504 (Prestige en démarrage ou redéploiement) : pas un serveur prêt.
+      return code != null && code != 404 && !reponseIndisponible(e.response);
     } catch (_) {
       return false;
     }
@@ -751,7 +753,9 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       EtatServeur.verification => ('Vérification…', const Color(0xFF94A3B8)),
       EtatServeur.connecte => (court ? 'En ligne' : 'Serveur connecté', const Color(0xFF22C55E)),
       EtatServeur.horsLigne => _etatMonitor == srv.EtatServeur.injoignable
-          ? (court ? 'Injoignable' : 'Serveur injoignable', const Color(0xFFEF4444))
+          ? (court
+              ? (_monitor.panne == PanneServeur.indisponible ? 'Indisponible' : 'Injoignable')
+              : MessagesServeur.titre(_monitor.panne), const Color(0xFFEF4444))
           : ('Hors ligne', const Color(0xFFEF4444)),
     };
     final pill = Container(

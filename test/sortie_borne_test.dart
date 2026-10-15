@@ -410,7 +410,7 @@ void main() {
       expect(d.ok, isTrue, reason: d.etapes.join('\n'));
       await s.couper();
       d = await TesteurBorne(baseUrl: base, secrets: MemoireBorneSecrets(_mdpBorne)).tester(c);
-      expect(d.conclusion, startsWith('Serveur injoignable'));
+      expect(d.conclusion, startsWith('Serveur injoignable. Vérifiez le Wi-Fi et que le PC serveur est allumé.'));
     }));
   });
 }

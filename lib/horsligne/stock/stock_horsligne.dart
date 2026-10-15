@@ -23,6 +23,7 @@ import 'package:prestige_vente_app/horsligne/stock/stock_queue.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_refs_sync.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_sender.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_store.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 class StockHorsLigne {
   final StockStore store;
@@ -72,6 +73,7 @@ class StockHorsLigne {
     final d = _dio ??= (Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 30)))
       ..transformer = BackgroundTransformer()
       ..interceptors.add(CookieManager(DioClient.cookieJar)));
+    avecDeploiement(d);
     d.options.baseUrl = api.dio.options.baseUrl;
     queue.server ??= DioStockServer(d);
   }

@@ -13,6 +13,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 // ---------------------------------------------------------------------------
 // Stockage du jeton
@@ -90,6 +91,7 @@ class DioTransportMobile implements TransportMobile {
       validateStatus: (_) => true,
       responseType: ResponseType.plain,
     ));
+    avecDeploiement(d);
     d.options.baseUrl = '${baseUrl().replaceAll(RegExp(r'/+$'), '')}/mobile/';
     return d;
   }
@@ -105,6 +107,7 @@ class DioTransportMobile implements TransportMobile {
           if (jeton != null) 'Authorization': 'Bearer $jeton',
         }),
       );
+      if (reponseIndisponible(r)) throw const MobileHorsLigne(PanneServeur.indisponible);
       Map<String, dynamic>? body;
       try {
         final o = jsonDecode(r.data ?? '');
@@ -113,6 +116,7 @@ class DioTransportMobile implements TransportMobile {
       return (status: r.statusCode ?? 0, body: body);
     } on DioException catch (e) {
       if (e.response == null) throw const MobileHorsLigne();
+      if (reponseIndisponible(e.response)) throw const MobileHorsLigne(PanneServeur.indisponible);
       return (status: e.response?.statusCode ?? 0, body: null);
     }
   }
@@ -124,10 +128,15 @@ class DioTransportMobile implements TransportMobile {
 
 /// Serveur injoignable : la voie A n'existe qu'en ligne.
 class MobileHorsLigne implements Exception {
-  const MobileHorsLigne();
-  static const message = 'Disponible en ligne uniquement : le serveur Prestige ne répond pas.';
+  /// 4.3.3 : serveur injoignable ≠ Prestige indisponible (démarrage / redéploiement).
+  final PanneServeur panne;
+  const MobileHorsLigne([this.panne = PanneServeur.injoignable]);
+  static const message = MessagesServeur.injoignable;
+
+  /// Message de cette panne.
+  String get texte => MessagesServeur.message(panne);
   @override
-  String toString() => message;
+  String toString() => texte;
 }
 
 /// Jeton refusé ou expiré (401) : le téléphone doit se reconnecter.

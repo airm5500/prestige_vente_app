@@ -108,7 +108,10 @@ class _Serveur {
         return;
       }
       final corps = await utf8.decoder.bind(req).join();
-      if (chemin.endsWith('/rh/droits')) {
+      if (chemin.endsWith('/officine')) {
+        // Prestige déployé (4.3.3 : un 404 HTML n'est « route absente » que si /officine répond).
+        res.write(jsonEncode([{'fullName': 'PHARMACIE TEST'}]));
+      } else if (chemin.endsWith('/rh/droits')) {
         res.write(jsonEncode({'success': true}));
       } else if (chemin.endsWith('/rh/employes')) {
         res.write(jsonEncode({

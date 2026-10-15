@@ -210,7 +210,7 @@ void main() {
       await s.arreter();
       expect(await settings.ping('https://$hote', '0', 'prestige'), isFalse);
       expect(settings.pingTls, isNull);
-      expect(settings.pingError, startsWith('Aucun serveur ne répond à https://$hote'));
+      expect(settings.pingError, startsWith('Serveur injoignable. Vérifiez le Wi-Fi et que le PC serveur est allumé. (https://$hote'));
     });
   });
 

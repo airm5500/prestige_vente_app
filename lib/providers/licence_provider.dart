@@ -2,6 +2,7 @@
 // 30/12/2025 03:30 (Correction : Gestion stricte Serveur Local + Fix updateApiService)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/api/models/licence_model.dart';
 import 'package:prestige_vente_app/api/models/licence_lookup.dart';
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
@@ -44,7 +45,9 @@ class LicenceProvider with ChangeNotifier {
   /// Titre court selon la cause (connexion ou serveur), pour les boîtes de dialogue.
   String get errorTitle => switch (_issue) {
         // 4.3.2 : Prestige en cours de redéploiement (404, 502/503, connexion refusée) : jamais « erreur 404 ».
-        LicenceIssue.unreachable || LicenceIssue.appNotFound => 'Serveur indisponible, veuillez réessayer',
+        // 4.3.3 : aucune réponse ≠ Prestige en démarrage / redéploiement (jamais « erreur 404 »).
+        LicenceIssue.unreachable => MessagesServeur.titreInjoignable,
+        LicenceIssue.appNotFound => MessagesServeur.titreIndisponible,
         LicenceIssue.serverError => 'Erreur du serveur Prestige',
         LicenceIssue.unexpectedResponse => 'Réponse inattendue du serveur',
         LicenceIssue.certificate => ErreurTls.certificat.titre,
@@ -54,10 +57,9 @@ class LicenceProvider with ChangeNotifier {
 
   static String messageFor(LicenceIssue issue, String? detail) {
     final base = switch (issue) {
-      LicenceIssue.unreachable => 'Aucun serveur ne répond à l\'adresse configurée.\n\n'
-          'Vérifiez :\n1. Que le serveur (PC) est allumé.\n2. Que le Wifi est activé.\n3. Que l\'adresse IP et le port sont corrects.',
-      LicenceIssue.appNotFound => 'Le serveur répond, mais l\'application Prestige n\'y est pas disponible : elle est '
-          'peut-être en cours de redémarrage (redéploiement). Réessayez dans un instant.\n\nSi cela persiste, '
+      LicenceIssue.unreachable => '${MessagesServeur.injoignable}\n\nSi cela persiste, vérifiez l\'adresse IP et le port '
+          '(Configuration).',
+      LicenceIssue.appNotFound => '${MessagesServeur.indisponible}\n\nSi cela persiste, '
           'vérifiez dans Configuration :\n1. Le port.\n2. Le nom de l\'application (ex. "prestige").\n'
           '3. Que l\'application est démarrée sur le serveur (console Payara).',
       LicenceIssue.serverError => 'Le serveur Prestige répond avec une erreur.\n\nRedémarrez l\'application sur le serveur ou contactez le support.',

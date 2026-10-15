@@ -4,6 +4,7 @@
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 abstract class ReceptionGateway {
   Future<List<ReceptionBl>> bls({String query = ''});
@@ -69,9 +70,12 @@ class DioReceptionGateway implements ReceptionGateway {
   ReceptionResult _error(Object e) {
     if (e is DioException) {
       final r = e.response;
+      // 4.3.3 : serveur injoignable ≠ Prestige en démarrage / redéploiement.
+      final panne = panneDe(e);
+      if (panne != null) return ReceptionResult(false, MessagesServeur.message(panne));
       if (r?.data is Map && (r!.data as Map)['msg'] != null) return ReceptionResult(false, '${(r.data as Map)['msg']}');
       if (r != null) return ReceptionResult(false, 'Erreur du serveur (${r.statusCode}).');
-      return const ReceptionResult(false, 'Serveur injoignable. Vérifiez le réseau.');
+      return const ReceptionResult(false, MessagesServeur.injoignable);
     }
     return ReceptionResult(false, '$e');
   }

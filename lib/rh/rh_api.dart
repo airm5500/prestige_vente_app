@@ -16,14 +16,20 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 typedef ReponseRh = ({int status, Map<String, dynamic>? body});
 
-/// Le serveur ne répond pas (réseau) : la voie B passe en file hors ligne.
+/// Le serveur ne répond pas (réseau) ou Prestige n'est pas déployé (4.3.3 : démarrage / redéploiement) : la voie B
+/// passe en file hors ligne ; rien n'est conclu sur les routes du serveur.
 class RhHorsLigne implements Exception {
-  const RhHorsLigne();
+  final PanneServeur panne;
+  const RhHorsLigne([this.panne = PanneServeur.injoignable]);
+
+  /// « Serveur injoignable » / « Serveur indisponible ».
+  String get titre => MessagesServeur.titre(panne);
   @override
-  String toString() => 'Serveur injoignable.';
+  String toString() => MessagesServeur.message(panne);
 }
 
 abstract class RhServeur {
@@ -52,6 +58,7 @@ class DioRhServeur implements RhServeur, RhPhotos {
     ))
       ..transformer = BackgroundTransformer()
       ..interceptors.add(CookieManager(DioClient.cookieJar)));
+    avecDeploiement(d);
     d.options.baseUrl = baseUrl();
     return d;
   }
@@ -59,6 +66,7 @@ class DioRhServeur implements RhServeur, RhPhotos {
   Future<ReponseRh> _envoyer(Future<Response<String>> Function(Dio d) f) async {
     try {
       final r = await f(_client);
+      if (reponseIndisponible(r)) throw const RhHorsLigne(PanneServeur.indisponible);
       Map<String, dynamic>? body;
       try {
         final o = jsonDecode(r.data ?? '');
@@ -67,6 +75,7 @@ class DioRhServeur implements RhServeur, RhPhotos {
       return (status: r.statusCode ?? 0, body: body);
     } on DioException catch (e) {
       if (e.response == null) throw const RhHorsLigne();
+      if (reponseIndisponible(e.response)) throw const RhHorsLigne(PanneServeur.indisponible);
       return (status: e.response?.statusCode ?? 0, body: null);
     }
   }

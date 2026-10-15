@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/retour/retour_models.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 abstract class RetourGateway {
   /// BL entrés en stock entre [from] et [to] inclus (date d'entrée en stock), les plus récents d'abord.
@@ -52,9 +53,11 @@ class DioRetourGateway implements RetourGateway {
   String _message(Object e) {
     if (e is DioException) {
       final r = e.response;
+      final panne = panneDe(e);
+      if (panne != null) return MessagesServeur.message(panne);
       if (r?.data is Map && (r!.data as Map)['msg'] != null) return '${(r.data as Map)['msg']}';
       if (r != null) return 'Erreur du serveur (${r.statusCode}). Le produit appartient-il bien à ce BL ?';
-      return 'Serveur injoignable. Vérifiez le réseau.';
+      return MessagesServeur.injoignable;
     }
     return '$e';
   }

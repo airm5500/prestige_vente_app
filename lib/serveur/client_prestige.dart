@@ -7,7 +7,7 @@
 //   données de santé, elles ne doivent jamais apparaître dans les journaux.
 // - Délais d'attente bornés : jamais d'attente infinie.
 // - Les erreurs sont typées pour que l'écran les distingue :
-//     ServeurInjoignable (réseau, délai)  ≠  SessionExpiree (HTTP 401)  ≠  RefusMetier (HTTP 200 success:false)
+//     ServeurInjoignable (réseau, délai) / ServeurIndisponible (Prestige non déployé, 4.3.3)  ≠  SessionExpiree (HTTP 401)  ≠  RefusMetier (HTTP 200 success:false)
 //     ≠  ErreurHttp (404, 500…)  ≠  ReponseIllisible.
 import 'dart:async';
 import 'dart:convert';
@@ -18,6 +18,7 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart' as session_globale;
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 /// Erreur d'un appel au serveur Prestige (message prêt à afficher, en français).
 sealed class ErreurPrestige implements Exception {
@@ -33,10 +34,19 @@ class ServeurInjoignable extends ErreurPrestige {
   final bool resultatIncertain;
   final bool delai;
   const ServeurInjoignable({this.delai = false, this.resultatIncertain = false});
+  /// 4.3.3 : même message pour un délai dépassé, un réseau absent ou une connexion refusée (PC serveur éteint,
+  /// Payara arrêté) — lib/serveur/panne_serveur.dart.
   @override
-  String get message => delai
-      ? 'Le serveur met trop de temps à répondre. Vérifiez le réseau puis réessayez.'
-      : 'Serveur injoignable. Vérifiez le Wi-Fi ou les données mobiles puis réessayez.';
+  String get message => MessagesServeur.injoignable;
+}
+
+/// 4.3.3 : le serveur répond mais Prestige n'est pas déployé (404 de Payara vérifié par /officine, 502 / 503 / 504) :
+/// même conduite qu'un serveur injoignable (rien n'a été fait, réessayer plus tard), message distinct. Jamais pris
+/// pour une « route absente » d'un serveur ancien.
+class ServeurIndisponible extends ServeurInjoignable {
+  const ServeurIndisponible();
+  @override
+  String get message => MessagesServeur.indisponible;
 }
 
 /// HTTPS (4.1.0) : connexion sécurisée refusée (certificat non reconnu, ou port qui ne parle pas HTTPS). La
@@ -124,6 +134,7 @@ class ClientPrestige {
     if (!d.interceptors.any((i) => i is session_globale.IntercepteurSession)) {
       d.interceptors.add(session_globale.IntercepteurSession(d));
     }
+    avecDeploiement(d);
     d.options.baseUrl = baseUrl();
     return d;
   }
@@ -197,6 +208,7 @@ class ClientPrestige {
       throw ServeurInjoignable(delai: true, resultatIncertain: !idempotent);
     }
     final status = r.statusCode ?? 0;
+    if (reponseIndisponible(r)) throw const ServeurIndisponible();
     if (status == 401) {
       surSessionExpiree?.call();
       throw const SessionExpiree();

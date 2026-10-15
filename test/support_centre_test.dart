@@ -24,6 +24,7 @@ import 'package:prestige_vente_app/version_app.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'outils/version_installee.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 // -----------------------------------------------------------------------------
 // Outils
@@ -511,12 +512,21 @@ void main() {
     test('envoi réel par Dio : 404 de la route → routeAbsente (serveur ancien)', () async {
       final envoi = DioSupportEnvoi(() => 'http://srv/prestige/api/v1');
       String? appel;
+      var prestigeDeploye = true;
       envoi.dio.httpClientAdapter = _Adapter((o) async {
-        appel = '${o.method} ${o.uri}';
+        // 4.3.3 : /officine répond si Prestige est déployé (serveur ancien) ; sinon tout répond 404 (redéploiement).
+        if (o.uri.path.endsWith('/officine') && prestigeDeploye) return ResponseBody.fromString('[]', 200);
+        if (!o.uri.path.endsWith('/officine')) appel = '${o.method} ${o.uri}';
         return ResponseBody.fromString('<html>404</html>', 404);
       });
+      SondeDeploiement.vider();
       expect(await envoi.call({'messageCourt': 'x'}), SupportReponse.routeAbsente);
       expect(appel, 'POST http://srv/prestige/api/v1/support/events');
+      // Prestige en redéploiement (404 partout, /officine compris) : gardé et renvoyé, jamais « route absente ».
+      prestigeDeploye = false;
+      SondeDeploiement.vider();
+      expect(await envoi.call({'messageCourt': 'x'}), SupportReponse.echec);
+      SondeDeploiement.vider();
       expect(envoi.racine, 'http://srv/prestige');
       envoi.dio.httpClientAdapter = _Adapter((o) async {
         appel = '${o.method} ${o.uri}';

@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 enum EtatEtapeBorne { ok, attention, echec }
 
@@ -57,11 +58,10 @@ class TesteurBorne {
     return dio;
   }
 
+  /// 4.3.3 : aucune réponse (délai, réseau, PC serveur éteint) → « Serveur injoignable… ».
   static String _reseau(DioException e) => switch (e.type) {
-        DioExceptionType.connectionTimeout || DioExceptionType.receiveTimeout || DioExceptionType.sendTimeout =>
-          'Le serveur ne répond pas (délai dépassé). Vérifiez le Wi-Fi et l\'adresse du serveur.',
         DioExceptionType.badCertificate => 'Certificat du serveur refusé (HTTPS). Vérifiez l\'adresse du serveur.',
-        _ => 'Serveur injoignable : vérifiez le Wi-Fi et l\'adresse du serveur (Réglages › Connexion).',
+        _ => '${MessagesServeur.injoignable} (Réglages › Connexion : adresse du serveur.)',
       };
 
   Future<DiagnosticBorne> tester(BorneConfig c) async {
@@ -91,6 +91,10 @@ class TesteurBorne {
       final d = r.data;
       if (r.statusCode == 200 && d is Map && d['success'] == true) {
         etapes.add(const EtapeBorne('Connexion', EtatEtapeBorne.ok, 'Connexion de l\'utilisateur borne acceptée par le serveur.'));
+      } else if (r.statusCode == 404 || codePasserelle(r.statusCode)) {
+        // 4.3.3 : /user/auth existe sur tout serveur Prestige : Prestige en démarrage / redéploiement (jamais « refusée »).
+        etapes.add(const EtapeBorne('Connexion', EtatEtapeBorne.echec, MessagesServeur.indisponible));
+        return DiagnosticBorne(etapes);
       } else {
         final msg = d is Map ? '${d['msg'] ?? ''}'.trim() : '';
         etapes.add(EtapeBorne('Connexion', EtatEtapeBorne.echec,
@@ -111,7 +115,9 @@ class TesteurBorne {
         final r = await dio.get('/vente/search', queryParameters: {'query': q, 'page': 1, 'start': 0, 'limit': 20});
         final d = r.data;
         final liste = d is Map ? d['data'] : null;
-        if (r.statusCode != 200 || liste is! List) {
+        if (r.statusCode == 404 || codePasserelle(r.statusCode)) {
+          etapes.add(const EtapeBorne('Recherche de produits', EtatEtapeBorne.echec, MessagesServeur.indisponible));
+        } else if (r.statusCode != 200 || liste is! List) {
           etapes.add(EtapeBorne('Recherche de produits', EtatEtapeBorne.echec,
               'Réponse inattendue du serveur (HTTP ${r.statusCode}) pour la recherche « ${cat.motCle} » : '
               'droits de l\'utilisateur borne à vérifier (vente / prévente).'));

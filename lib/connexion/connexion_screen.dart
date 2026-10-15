@@ -21,6 +21,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/providers/auth_provider.dart';
 
 /// Entrée de la connexion : « Qui êtes-vous ? » si la connexion rapide est activée et qu'au moins un
 /// utilisateur s'est déjà connecté sur l'appareil ; sinon l'écran de connexion classique.
@@ -79,7 +80,7 @@ class _ConnexionScreenState extends State<ConnexionScreen> {
   final _focusLogin = FocusNode();
   final _focusMdp = FocusNode();
   late final SettingsProvider _settings = context.read<SettingsProvider>();
-  late final ControleServeur _serveur = ControleServeur(() => _sv.sonderCourant(_settings));
+  late final ControleServeur _serveur = ControleServeur(() => _sv.sonderCourant(_settings), panneSonde: () => _settings.pingPanne);
 
   bool _voir = false;
   bool _rester = false;
@@ -152,7 +153,8 @@ class _ConnexionScreenState extends State<ConnexionScreen> {
         _mdp.clear();
         _focusMdp.requestFocus();
       case IssueConnexion.serveur:
-        _serveur.signalerInjoignable();
+        // 4.3.3 : panne constatée par la connexion (injoignable ≠ Prestige indisponible), sinon par la sonde.
+        _serveur.signalerInjoignable(context.read<AuthProvider>().dernierePanne ?? _settings.pingPanne);
       case IssueConnexion.erreur:
         break;
     }

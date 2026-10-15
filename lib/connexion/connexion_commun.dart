@@ -22,6 +22,7 @@ import 'package:prestige_vente_app/version_app.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 // ---------------------------------------------------------------------------
 // Services remplaçables
@@ -262,7 +263,13 @@ class ControleServeur extends ChangeNotifier {
   Future<void>? _enCours;
   bool _fini = false;
 
-  ControleServeur(this.sonde);
+  /// 4.3.3 : panne constatée par la sonde (null : non précisée → injoignable).
+  final PanneServeur? Function()? panneSonde;
+
+  /// Panne affichée quand [etat] est injoignable : aucune réponse ≠ Prestige en démarrage / redéploiement.
+  PanneServeur panne = PanneServeur.injoignable;
+
+  ControleServeur(this.sonde, {this.panneSonde});
 
   void _relayer() {
     if (!_fini) notifyListeners();
@@ -281,14 +288,16 @@ class ControleServeur extends ChangeNotifier {
       ok = false;
     }
     if (_fini) return;
+    if (!ok) panne = panneSonde?.call() ?? PanneServeur.injoignable;
     etat = ok ? EtatServeur.connecte : EtatServeur.injoignable;
     if (!ok) rebours.demarrer();
     _relayer();
   }
 
   /// Après une tentative de connexion : le serveur ne répond pas.
-  void signalerInjoignable() {
+  void signalerInjoignable([PanneServeur? constatee]) {
     if (_fini) return;
+    panne = constatee ?? panne;
     etat = EtatServeur.injoignable;
     if (!rebours.actif) rebours.demarrer();
     _relayer();
@@ -322,7 +331,7 @@ class IndicateurServeur extends StatelessWidget {
           EtatServeur.injoignable => (
               const Color(0xFFEF4444),
               // HTTPS (4.1.0) : certificat refusé ≠ serveur injoignable.
-              s.pingTls?.titre ?? 'Serveur injoignable',
+              s.pingTls?.titre ?? MessagesServeur.titre(controle.panne),
               controle.rebours.reste > 0 ? 'Nouvel essai dans ${controle.rebours.reste} s' : adresse
             ),
         };
@@ -540,8 +549,8 @@ class ConnexionFlux {
     try {
       final ok = await auth.login(login, motDePasse);
       if (!ok) {
-        // 4.3.2 : Prestige indisponible (redéploiement : 404, 502/503, connexion refusée) → « Serveur indisponible »,
-        // jamais « mot de passe incorrect ». Sinon : le serveur a-t-il répondu (identifiants refusés) ?
+        // 4.3.3 : serveur injoignable / Prestige indisponible (démarrage, redéploiement) → message du serveur, jamais
+        // « mot de passe incorrect ». Sinon : le serveur a-t-il répondu (identifiants refusés) ?
         if (auth.dernierEchecServeur) return IssueConnexion.serveur;
         return await sv.sonderCourant(settings) ? IssueConnexion.identifiants : IssueConnexion.serveur;
       }
@@ -592,9 +601,9 @@ class ConnexionFlux {
   }
 
   /// Message affiché (jamais d'exception technique).
-  static String message(IssueConnexion i) => switch (i) {
+  static String message(IssueConnexion i, {PanneServeur panne = PanneServeur.injoignable}) => switch (i) {
         IssueConnexion.identifiants => 'Identifiant ou mot de passe incorrect. Vérifiez les majuscules et réessayez.',
-        IssueConnexion.serveur => 'Serveur indisponible, veuillez réessayer. Vos identifiants ne sont pas en cause.',
+        IssueConnexion.serveur => '${MessagesServeur.message(panne)} Vos identifiants ne sont pas en cause.',
         IssueConnexion.erreur => 'La connexion n\'a pas abouti. Réessayez ; si le problème continue, appelez l\'assistance.',
         IssueConnexion.licence || IssueConnexion.reussie => '',
       };
@@ -637,20 +646,22 @@ class EncadreServeurInjoignable extends StatelessWidget {
       builder: (context, _) {
         // HTTPS (4.1.0) : échec TLS du dernier test du serveur (certificat refusé, port non HTTPS).
         final tls = context.read<SettingsProvider?>()?.pingTls;
+        final p = controle.panne;
         return Container(
         key: const Key('encadre_injoignable'),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(color: t.erreurFond, borderRadius: BorderRadius.circular(14), border: Border.all(color: t.erreur.withValues(alpha: 0.35))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(Icons.wifi_off, color: t.erreur),
+            Icon(p == PanneServeur.indisponible && tls == null ? Icons.hourglass_top : Icons.wifi_off, color: t.erreur),
             const SizedBox(width: 10),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(tls?.titre ?? 'Serveur indisponible, veuillez réessayer', style: TextStyle(color: t.erreur, fontWeight: FontWeight.w800, fontSize: 15)),
+                Text(tls?.titre ?? MessagesServeur.titre(p),
+                    key: const Key('encadre_injoignable_titre'), style: TextStyle(color: t.erreur, fontWeight: FontWeight.w800, fontSize: 15)),
                 const SizedBox(height: 2),
                 Text(
-                    '${tls != null ? tls.explication : 'Prestige en cours de redémarrage, Wifi coupé, adresse erronée ou serveur éteint.'} Vos identifiants ne sont pas en cause.'
+                    '${tls != null ? tls.explication : MessagesServeur.detail(p)} Vos identifiants ne sont pas en cause.'
                     '${controle.rebours.reste > 0 ? '\nNouvel essai automatique dans ${controle.rebours.reste} s.' : ''}',
                     style: TextStyle(color: t.texte, fontSize: 13.5)),
               ]),

@@ -15,13 +15,14 @@ import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_ui.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 /// Résumé de la rubrique : « En ligne · catalogue du 10/10 08:30 ».
 String horsLigneSummary([HorsLigne? hl]) {
   final h = hl ?? HorsLigne.instance;
   final etat = switch (h.monitor.etat) {
     EtatServeur.enLigne => 'En ligne',
-    EtatServeur.injoignable => 'Serveur injoignable',
+    EtatServeur.injoignable => MessagesServeur.titre(h.monitor.panne),
     EtatServeur.horsLigne => 'Hors ligne',
   };
   return '$etat · ${h.catalogueLabel}';
@@ -61,7 +62,7 @@ class _HorsLignePageState extends State<HorsLignePage> {
     final depuis = m.depuis == null ? '' : ' depuis ${HorsLigne.formatDate(m.depuis!)}';
     return switch (m.etat) {
       EtatServeur.enLigne => 'En ligne : le serveur répond.',
-      EtatServeur.injoignable => 'Serveur injoignable$depuis. Vous pouvez continuer hors ligne.',
+      EtatServeur.injoignable => '${MessagesServeur.titre(m.panne)}$depuis. ${MessagesServeur.detail(m.panne)} Vous pouvez continuer hors ligne.',
       EtatServeur.horsLigne => m.raison == RaisonHorsLigne.manuel
           ? 'Hors ligne (choisi)$depuis. Retour en ligne automatique dès que le serveur répond.'
           : 'Hors ligne$depuis. Retour en ligne automatique dès que le serveur répond.',

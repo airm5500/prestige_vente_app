@@ -60,11 +60,11 @@ void main() {
             expect(l.issue, LicenceIssue.serverError, reason: 'HTTP ${r.statut}');
             expect(l.licence, isNull);
           }
-          // 4.3.2 : 502 / 503 / 504 (Prestige en redémarrage) → serveur indisponible, jamais « aucune licence ».
+          // 4.3.2 / 4.3.3 : 502 / 503 / 504 (Prestige en démarrage) → indisponible, jamais « aucune licence ».
           for (final code in [502, 503, 504]) {
             srv.licence = FauxServeurPrestige.erreurServeur(code);
             final l = await api.lookupLicence();
-            expect(l.issue, LicenceIssue.unreachable, reason: 'HTTP $code');
+            expect(l.issue, LicenceIssue.appNotFound, reason: 'HTTP $code : Prestige en démarrage / redéploiement');
             expect(l.licence, isNull);
           }
         }));
@@ -83,7 +83,7 @@ void main() {
           await srv.couper();
           expect((await api.lookupLicence()).issue, LicenceIssue.unreachable);
           expect(await p.checkLicence(), LicenceStatus.error);
-          expect(p.errorTitle, 'Serveur indisponible, veuillez réessayer');
+          expect(p.errorTitle, 'Serveur injoignable');
           expect(await p.mustBlockAccess(), isFalse, reason: 'coupure réseau : le travail continue');
           await srv.retablir();
           expect(await p.checkLicence(), LicenceStatus.valid);

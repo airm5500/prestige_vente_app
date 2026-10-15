@@ -32,14 +32,14 @@ void droits(FauxServeurPrestige s, {bool admin = false, bool ordonnances = false
 void main() {
   // ---------------------------------------------------------------------------
   group('Lancement et licence', () {
-    testWidgets('serveur injoignable : « Serveur indisponible, veuillez réessayer », jamais « Aucune licence » ; Réessayer → connexion', (t) async {
+    testWidgets('serveur injoignable : « Serveur injoignable », jamais « Aucune licence » ; Réessayer → connexion', (t) async {
       TailleEcran.sunmiV2s.appliquer(t);
       final app = AppE2E();
       await app.preparer();
       await app.serveur.couper();
       await app.lancer(t);
       expect(await app.attendreQue(t, find.byKey(const Key('lancement_injoignable'))), isTrue);
-      expect(find.text('Serveur indisponible, veuillez réessayer'), findsOneWidget);
+      expect(find.text('Serveur injoignable'), findsOneWidget);
       expect(find.textContaining('La licence n\'est pas en cause'), findsOneWidget);
       expect(find.byKey(const Key('lancement_licence')), findsNothing);
       expect(find.textContaining('Aucune licence'), findsNothing);

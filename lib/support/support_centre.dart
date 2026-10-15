@@ -24,6 +24,7 @@ import 'package:prestige_vente_app/support/support_event.dart';
 import 'package:prestige_vente_app/support/support_file.dart';
 import 'package:prestige_vente_app/version_app.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 /// Réponse du serveur à un envoi.
 enum SupportReponse {
@@ -441,6 +442,7 @@ class DioSupportEnvoi {
       validateStatus: (_) => true,
     ))
       ..interceptors.add(CookieManager(DioClient.cookieJar)));
+    avecDeploiement(d);
     d.options.baseUrl = baseUrl();
     return d;
   }

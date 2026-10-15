@@ -18,6 +18,7 @@ import 'dart:typed_data';
 
 import 'package:dio/io.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 import 'serveur_json_local.dart';
 
@@ -218,6 +219,7 @@ class FauxServeurPrestige extends ServeurJsonLocal {
 
   @override
   Future<void> demarrer() async {
+    SondeDeploiement.vider();
     _reseauLocal = true;
     await super.demarrer();
   }
@@ -283,7 +285,21 @@ class FauxServeurPrestige extends ServeurJsonLocal {
     return rep;
   }
 
+  /// 4.3.3 : Prestige NON DÉPLOYÉ (démarrage / redéploiement) : Payara répond [statutAbsent] (404 par défaut, page
+  /// HTML « Error report ») sur toutes les routes, /officine et /user/auth compris.
+  bool prestigeAbsent = false;
+  int statutAbsent = 404;
+
+  /// Page d'erreur de Payara (application absente, ou route inconnue d'un serveur ancien : même corps).
+  static const ReponseLocale payara404 = ReponseLocale(
+      '<!DOCTYPE html><html><head><title>Payara Server  5.2022.5 #badassfish - Error report</title></head>'
+      '<body><h1>HTTP Status 404 - Not Found</h1></body></html>',
+      statut: 404);
+
   Future<ReponseLocale> _repondre(RequeteRecue r) async {
+    if (prestigeAbsent) {
+      return statutAbsent == 404 ? payara404 : ReponseLocale('<html><body>$statutAbsent</body></html>', statut: statutAbsent);
+    }
     // Filtre d'authentification : requête refusée AVANT d'être exécutée.
     if (exigerSession && !routePubliquePrestige(r.chemin) && !_sessionValide(r)) {
       refusSession++;
@@ -428,6 +444,7 @@ class FauxServeurPrestige extends ServeurJsonLocal {
   /// Remplace le client HTTP de l'application par un client en mémoire relié à ce serveur (toutes les
   /// instances Dio de l'appli). À appeler dans le test ; [desinstaller] (ou addTearDown) remet l'ancien.
   void installerEnMemoire() {
+    SondeDeploiement.vider(); // 4.3.3 : vérifications « Prestige déployé ? » d'un test précédent oubliées
     _enMemoire = true;
     _precedent = HttpOverrides.current;
     _actifs[hoteEnMemoire] = this;

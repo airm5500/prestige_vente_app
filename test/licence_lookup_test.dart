@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/models/licence_lookup.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Faux serveur : répond selon le chemin demandé.
@@ -40,6 +41,7 @@ void main() {
   SharedPreferences.setMockInitialValues({});
   const base = 'http://192.168.1.50:8080/prestige/api/v1';
   late ApiService api;
+  setUp(SondeDeploiement.vider); // 4.3.3 : vérification « Prestige déployé ? » d'un test précédent oubliée
 
   void serve(Future<ResponseBody> Function(RequestOptions o) handler) {
     api = ApiService(baseUrl: base);
@@ -77,7 +79,12 @@ void main() {
 
   test('404 sur la licence mais application Prestige présente : pas de licence enregistrée', () async {
     // Application déployée : /user/auth répond (401), seule la licence est absente
-    serve((o) async => o.uri.path.endsWith('/user/auth') ? _json({'msg': 'bad credentials'}, 401) : _html404());
+    // 4.3.3 : /officine répond (Prestige déployé) : le 404 de la licence n'est pas « Prestige indisponible ».
+    serve((o) async => o.uri.path.endsWith('/user/auth')
+        ? _json({'msg': 'bad credentials'}, 401)
+        : o.uri.path.endsWith('/officine')
+            ? _json([{'fullName': 'X'}])
+            : _html404());
     final r = await api.lookupLicence();
     expect(r.issue, isNull);
     expect(r.licence, isNull);
@@ -100,7 +107,8 @@ void main() {
     final p = LicenceProvider(api);
     expect(await p.checkLicence(), LicenceStatus.error);
     expect(p.issue, LicenceIssue.appNotFound);
-    expect(p.errorTitle, 'Serveur indisponible, veuillez réessayer');
+    expect(p.errorTitle, 'Serveur indisponible');
+    expect(p.errorMessage, startsWith('Serveur indisponible : Prestige est en cours de démarrage ou de redéploiement.'));
     expect(p.errorMessage, contains('nom de l\'application'));
     expect(p.errorMessage, isNot(contains('Détail')));
 
@@ -142,14 +150,18 @@ void main() {
 
     test('serveur présent mais autre nom d\'application : échec explicite (404)', () async {
       expect(await settings.ping('127.0.0.1', '${server.port}', 'autre'), isFalse);
-      expect(settings.pingError, contains('n\'y est pas'));
+      // 4.3.3 : /user/auth absent = Prestige non déployé à cette adresse (démarrage, redéploiement, ou nom erroné).
+      expect(settings.pingError, startsWith('Serveur indisponible : Prestige est en cours de démarrage ou de redéploiement.'));
+      expect(settings.pingError, contains('nom de l\'application « autre »'));
+      expect(settings.pingPanne, PanneServeur.indisponible);
     });
 
     test('aucun serveur : échec "aucun serveur ne répond"', () async {
       final port = server.port;
       await server.close(force: true);
       expect(await settings.ping('127.0.0.1', '$port', 'prestige'), isFalse);
-      expect(settings.pingError, contains('Aucun serveur'));
+      expect(settings.pingError, startsWith('Serveur injoignable. Vérifiez le Wi-Fi et que le PC serveur est allumé.'));
+      expect(settings.pingPanne, PanneServeur.injoignable);
     });
   });
 
