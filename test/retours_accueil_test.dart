@@ -172,9 +172,10 @@ Future<_Api> _accueil(
   return api;
 }
 
-/// Douchette Sunmi : chaque caractère arrive comme une touche, puis Entrée.
-Future<void> _douchette(WidgetTester tester, String code) async {
-  for (final ch in code.split('')) {
+/// Douchette Sunmi : chaque caractère arrive comme une touche, puis Entrée. [pause] : appelée après chaque
+/// caractère (machine chargée, temps simulé qui passe…).
+Future<void> _douchette(WidgetTester tester, String code, {Future<void> Function(int i)? pause}) async {
+  for (final (i, ch) in code.split('').indexed) {
     final key = switch (ch) {
       _ when RegExp(r'\d').hasMatch(ch) => LogicalKeyboardKey(LogicalKeyboardKey.digit0.keyId + int.parse(ch)),
       _gs => LogicalKeyboardKey.keyG,
@@ -182,6 +183,7 @@ Future<void> _douchette(WidgetTester tester, String code) async {
     };
     await tester.sendKeyDownEvent(key, character: ch);
     await tester.sendKeyUpEvent(key);
+    await pause?.call(i);
   }
   await tester.sendKeyEvent(LogicalKeyboardKey.enter);
   await tester.pumpAndSettle();
@@ -190,6 +192,8 @@ Future<void> _douchette(WidgetTester tester, String code) async {
 void main() {
   setUpAll(() => initializeDateFormatting('fr_FR'));
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  // État partagé entre les tests du fichier : cache des fiches de l'application (60 s d'heure réelle).
+  setUp(FicheInfoCache.instance.vider);
 
   // ---------------------------------------------------------------------------
   // 1 a) Scan
@@ -314,6 +318,31 @@ void main() {
       await _douchette(tester, '0103583315558079172710311012345${_gs}21XYZ9');
       expect(find.byType(FicheProduitScreen), findsOneWidget);
       expect(find.text('ULTRALEVURE 250 SACH B/10'), findsOneWidget);
+    });
+
+    // Test autrefois instable (échec isolé en lancement groupé) : l'accueil mesurait l'écart entre deux touches
+    // à l'heure RÉELLE (DateTime.now) ; une machine chargée qui suspend le processus plus de 400 ms au milieu du
+    // code vidait le tampon → code tronqué, pas de fiche. Depuis la 4.2.1 : clock.now() (temps simulé en test,
+    // heure réelle sur l'appareil) → résultat identique quelle que soit la charge.
+    testWidgets('machine chargée : processus suspendu 450 ms (heure réelle) au milieu du code → fiche quand même', (tester) async {
+      _phone(tester);
+      await _accueil(tester);
+      await _douchette(tester, '3400922385563', pause: (i) async {
+        if (i == 5) sleep(const Duration(milliseconds: 450));
+      });
+      expect(find.byType(FicheProduitScreen), findsOneWidget);
+      expect(find.text('HELICIDINE 10% SS EDULCORE SPF/125ML'), findsOneWidget);
+    });
+
+    testWidgets('règle conservée : plus de 400 ms (temps simulé) entre deux touches = nouveau code', (tester) async {
+      _phone(tester);
+      final api = await _accueil(tester);
+      // « 99 » tapé à la main, pause, puis le vrai code de la douchette : seul le code est cherché.
+      await _douchette(tester, '993400922385563', pause: (i) async {
+        if (i == 1) await tester.pump(const Duration(milliseconds: 401));
+      });
+      expect(find.byType(FicheProduitScreen), findsOneWidget);
+      expect(api.requetes.first, '3400922385563');
     });
 
     testWidgets('dans la recherche : code tapé + Entrée → fiche directe ; GS gardé visible « ␝ »', (tester) async {

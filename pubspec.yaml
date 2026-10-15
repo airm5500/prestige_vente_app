@@ -2,7 +2,7 @@ name: prestige_vente_app
 description: "Application de point de vente Prestige Vente"
 publish_to: 'none'
 
-version: 4.2.0+14
+version: 4.2.1+15
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -43,6 +43,8 @@ dependencies:
   cupertino_icons: ^1.0.6
 
   collection: any
+  # Heure courante de la douchette de l'accueil (clock.now() = DateTime.now() sur l'appareil, temps simulé en test).
+  clock: ^1.1.1
   mobile_scanner: 7.0.1 # Version figée : CameraX 1.4 (minSdk 21, compileSdk 35), rendu compatible Impeller
   google_mlkit_text_recognition: ^0.15.0
   image_picker: ^1.1.2
