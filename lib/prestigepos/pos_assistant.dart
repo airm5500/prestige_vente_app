@@ -22,6 +22,7 @@ import 'package:prestige_vente_app/ui/taille_ecran.dart';
 import 'package:prestige_vente_app/prestigepos/pos_styles.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 /// Premier lancement : présentation et accès à l'assistant (code administrateur).
 class PosBienvenue extends StatelessWidget {
@@ -154,7 +155,8 @@ class _PosAssistantState extends State<PosAssistant> {
     if (!mounted) return;
     setState(() {
       _verification = false;
-      _erreurServeur = ok ? null : (_s.pingError.isEmpty ? 'Serveur injoignable.' : _s.pingError);
+      // 1.1.3 : « Serveur injoignable… » ou « Serveur indisponible… » (Prestige en démarrage / redéploiement).
+      _erreurServeur = ok ? null : (_s.pingError.isEmpty ? MessagesServeur.injoignable : _s.pingError);
     });
     if (ok) _suivant();
   }
