@@ -631,6 +631,9 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: HorsLignePage(horsLigne: hl)));
       await tester.pumpAndSettle();
       expect(find.text('En ligne : le serveur répond.'), findsOneWidget);
+      // 4.1.2 : fraîcheur des données affichée sous l'état (la copie locale est plus bas).
+      expect(find.text('Aucune donnée sur ce terminal'), findsOneWidget);
+      await tester.dragUntilVisible(find.byKey(const Key('resume_copie')), find.byType(ListView), const Offset(0, -200));
       expect(find.text('0 produits · 0 clients'), findsOneWidget);
       expect(find.text('jamais'), findsNWidgets(CatalogueCategorie.values.length));
 
@@ -651,6 +654,7 @@ void main() {
       await tester.tap(find.byType(Switch));
       await tester.pump();
       expect(hl.monitor.raison, RaisonHorsLigne.manuel);
+      await tester.dragUntilVisible(find.byKey(const Key('etat_serveur')), find.byType(ListView), const Offset(0, 300));
       expect(find.textContaining('Hors ligne (choisi) depuis 10/10 08:30'), findsOneWidget);
       await tester.scrollUntilVisible(find.byKey(const Key('maj_copie')), 200);
       await tester.ensureVisible(find.byKey(const Key('maj_copie')));

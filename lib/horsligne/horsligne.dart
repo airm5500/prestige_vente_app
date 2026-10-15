@@ -116,6 +116,61 @@ class HorsLigne {
     return at == null ? 'aucun catalogue local' : 'catalogue du ${formatDate(at)}';
   }
 
+  // ---------------------------------------------------------------------------
+  // Condition du passage hors ligne : des données sur le terminal
+  // ---------------------------------------------------------------------------
+
+  /// Refus du passage hors ligne (manuel ou après « Continuer hors ligne ») sans copie locale.
+  static const String messageSansDonnees =
+      'Impossible de passer hors ligne : aucune donnée sur ce terminal. Téléchargez le catalogue quand le serveur est joignable.';
+
+  /// Données disponibles pour travailler hors ligne : copie locale du catalogue (produits et prix) lisible
+  /// et non vide (même condition que la recherche hors ligne, [localPage]).
+  bool get donneesDisponibles => sync.storeError == null && sync.stats.count(CatalogueCategorie.produits) > 0;
+
+  /// Téléchargement du catalogue possible maintenant (serveur joignable, synchro branchée, aucune en cours).
+  bool get telechargementPossible => monitor.etat == EtatServeur.enLigne && sync.fetch != null && !sync.running;
+
+  /// Passe hors ligne SEULEMENT si des données sont disponibles sur le terminal ; false (rien ne change) sinon.
+  /// Copie déjà lue : bascule immédiate (sans attente).
+  Future<bool> passerHorsLigne({bool manuel = true}) async {
+    if (monitor.isOffline) return true;
+    if (!sync.statsLoaded) await sync.refreshStats();
+    if (!donneesDisponibles) {
+      JournalTerminal.instance.noter(
+        type: TypeJournal.reseau,
+        action: 'Passage hors ligne refusé : aucune donnée sur le terminal',
+        resultat: ResultatJournal.info,
+        source: SourceJournal.enLigne,
+      );
+      return false;
+    }
+    monitor.goOffline(manuel: manuel);
+    return true;
+  }
+
+  /// Fraîcheur des données : « catalogue du 10/10 08:30 (il y a 2 h) » ; « aucune donnée sur ce terminal ».
+  String fraicheurLabel([DateTime? maintenant]) {
+    final at = sync.catalogueAt;
+    if (at == null || !donneesDisponibles) return 'aucune donnée sur ce terminal';
+    return 'catalogue du ${formatDate(at)} (${ilYa(at, maintenant ?? monitor.now)})';
+  }
+
+  /// Données de plus de [CatalogueSync.maxAge] (prix et stock peut-être changés depuis).
+  bool donneesAnciennes([DateTime? maintenant]) {
+    final at = sync.catalogueAt;
+    return at != null && (maintenant ?? monitor.now).difference(at) > CatalogueSync.maxAge;
+  }
+
+  /// « à l'instant », « il y a 5 min », « il y a 3 h », « il y a 2 jours ».
+  static String ilYa(DateTime at, DateTime maintenant) {
+    final d = maintenant.difference(at);
+    if (d.inMinutes < 1) return 'à l\'instant';
+    if (d.inHours < 1) return 'il y a ${d.inMinutes} min';
+    if (d.inDays < 1) return 'il y a ${d.inHours} h';
+    return 'il y a ${d.inDays} jour${d.inDays > 1 ? 's' : ''}';
+  }
+
   /// Recherche produit par pages dans la copie locale (même format que le serveur).
   Future<VenteResult<ProductPage>> localPage(String query, int start, int limit) async {
     try {

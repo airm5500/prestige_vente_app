@@ -5,6 +5,7 @@
 // H2 : ventes hors ligne (en attente, anomalies), accès à la liste, aux anomalies et au rapport du jour.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_screen.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
@@ -96,6 +97,41 @@ class _HorsLignePageState extends State<HorsLignePage> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copie locale vidée.')));
   }
 
+  /// « Données du terminal : catalogue du 10/10 08:30 (il y a 2 h) » ; sans données : passage hors ligne
+  /// impossible ; données de plus de 12 h : prix et stock peut-être changés.
+  Widget _fraicheur(HorsLigne hl) {
+    final aucune = !hl.donneesDisponibles;
+    final ancienne = !aucune && hl.donneesAnciennes();
+    final couleur = aucune ? const Color(0xFFB91C1C) : (ancienne ? const Color(0xFF92400E) : Pal.ink);
+    return SettingCard(
+      key: const Key('carte_fraicheur_donnees'),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(aucune ? Icons.report_problem_outlined : (ancienne ? Icons.history : Icons.inventory_2_outlined), color: couleur),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(
+              aucune ? 'Aucune donnée sur ce terminal' : 'Données du terminal : ${hl.fraicheurLabel()}',
+              key: const Key('fraicheur_donnees'),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: couleur),
+            ),
+            if (aucune || ancienne)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  aucune
+                      ? 'Passage hors ligne impossible : téléchargez le catalogue quand le serveur est joignable (« Mettre à jour maintenant »).'
+                      : 'Données de plus de 12 h : prix et stock peuvent avoir changé. Mettez-les à jour quand le serveur répond.',
+                  key: const Key('fraicheur_donnees_detail'),
+                  style: const TextStyle(fontSize: 12.5, color: Pal.muted),
+                ),
+              ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
   Widget _ligne(CatalogueCategorie c, LocalStats s) {
     final at = s.lastSync[c];
     return Padding(
@@ -141,12 +177,14 @@ class _HorsLignePageState extends State<HorsLignePage> {
                 Expanded(child: Text(_etat(m), key: const Key('etat_serveur'), style: const TextStyle(fontSize: 14, color: Pal.ink))),
               ]),
             ),
+            // Date et fraîcheur des données utilisées hors ligne (condition du passage hors ligne).
+            _fraicheur(hl),
             SwitchCard(
               key: const Key('interrupteur_hors_ligne'),
               title: 'Passer en hors ligne',
               subtitle: 'La recherche produit utilise la copie locale. Désactiver pour revenir en ligne.',
               value: offline,
-              onChanged: (v) => v ? m.goOffline(manuel: true) : m.goOnline(),
+              onChanged: (v) => v ? demanderPassageHorsLigne(hl, manuel: true, context: context) : m.goOnline(),
             ),
             const SectionLabel('Ventes hors ligne'),
             SettingCard(
