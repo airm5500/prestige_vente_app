@@ -43,6 +43,16 @@ import 'package:prestige_vente_app/api/models/depot_model.dart'; // Pour DepotSa
 import 'package:prestige_vente_app/api/models/ajustement.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart' show ProductPage;
 
+/// Cause d'un échec de connexion ([ApiService.login]).
+class EchecConnexion {
+  static const refusee = 'refusee';
+  static const reseau = 'reseau';
+  final String type;
+  final String message;
+  const EchecConnexion(this.type, this.message);
+  bool get estRefus => type == refusee;
+}
+
 /// Échec de chargement d'une liste (à distinguer d'une liste vide).
 class ApiLoadException implements Exception {
   final String message;
@@ -66,7 +76,31 @@ class ApiService {
   /// Connexion. Le serveur renouvelle l'identifiant de session (JSESSIONID) à chaque connexion : on repart d'un
   /// pot à cookies vide pour que seul le cookie de la RÉPONSE de connexion soit envoyé ensuite (un ancien cookie,
   /// par ex. reçu à la lecture de la licence, provoquerait des 401 sur toutes les routes de données).
-  Future<User?> login(String login, String password) async { try { await DioClient.cookieJar.deleteAll(); final response = await _dio.post( '/user/auth', data: {'login': login, 'password': password}); if (response.statusCode == 200 && response.data['success'] == true) { return User.fromJson(response.data); } return null; } on DioException catch (e) { print("Error logging in: $e"); return null; } }
+  Future<User?> login(String login, String password) async {
+    dernierEchecConnexion = null;
+    try {
+      await DioClient.cookieJar.deleteAll();
+      final response = await _dio.post('/user/auth', data: {'login': login, 'password': password});
+      if (response.statusCode == 200 && response.data is Map && response.data['success'] == true) {
+        return User.fromJson(response.data);
+      }
+      final msg = response.data is Map ? '${response.data['msg'] ?? ''}'.trim() : '';
+      dernierEchecConnexion = EchecConnexion(EchecConnexion.refusee, msg.isEmpty ? 'Identifiants refusés par le serveur.' : msg);
+      return null;
+    } on DioException catch (e) {
+      print("Error logging in: $e");
+      final code = e.response?.statusCode;
+      dernierEchecConnexion = code != null
+          ? EchecConnexion(EchecConnexion.refusee, 'Le serveur a répondu HTTP $code.')
+          : EchecConnexion(EchecConnexion.reseau,
+              ErreurTls.de(e)?.message ?? 'Serveur injoignable : vérifiez le Wi-Fi et l\'adresse du serveur (Réglages › Connexion).');
+      return null;
+    }
+  }
+
+  /// Cause du dernier échec de [login] (null : réussi ou jamais tenté) — borne (4.1.2) : « connexion refusée »
+  /// ≠ « serveur injoignable ».
+  EchecConnexion? dernierEchecConnexion;
   Future<void> logout() async { try { await _dio.post('/user/logout'); } catch (e) { print("Error logging out: $e"); } }
   Future<Officine?> fetchOfficineInfo() async { try { final response = await _dio.get('/officine'); if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) { return Officine.fromJson(response.data[0]); } return null; } catch (e) { print("Error fetching officine info: $e"); return null; } }
   Future<List<ProductSearchResult>> searchProducts(String query) async { try { final response = await _dio.get( '/vente/search', queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 30}, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List) .map((item) => ProductSearchResult.fromJson(item)) .toList(); } return []; } catch (e) { print("Error searching products: $e"); return []; } }

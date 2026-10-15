@@ -1,7 +1,8 @@
 // lib/borne/borne_screen.dart
 // B1 — Borne de vente libre-service : accueil, recherche, fiche, panier, vérification, ticket.
 // Mode kiosque : bouton retour neutralisé, aucune navigation vers le reste de l'appli,
-// sortie par appui long caché (coin haut gauche, 5 s) + code administrateur.
+// sortie (4.1.2) : cadenas discret en haut à droite de l'en-tête (et sur l'écran « indisponible »), appui long 2 s
+// → confirmation → code administrateur (lib/widgets/sortie_kiosque.dart).
 // Retour automatique à l'accueil (panier vidé) après le ticket et après l'inactivité.
 // Serveur injoignable : « Borne momentanément indisponible — adressez-vous au comptoir ».
 import 'dart:async';
@@ -25,6 +26,7 @@ import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/sortie_kiosque.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 enum BorneVue { accueil, resultats, fiche, panier, ecarts, ticket, operateur, mobile }
@@ -44,6 +46,10 @@ class BorneScreen extends StatefulWidget {
 
   /// Connexion de l'utilisateur borne (null : déjà connecté). Rappelée au retour du serveur.
   final Future<bool> Function()? connexion;
+
+  /// Cause précise d'un échec de [connexion] (« Utilisateur borne non configuré », « Connexion refusée… »),
+  /// affichée sous « Borne momentanément indisponible » pour le personnel (4.1.2). null : aucune précision.
+  final String? Function()? motifConnexion;
 
   /// Scan caméra (null : pas de bouton).
   final Future<String?> Function(BuildContext)? scanner;
@@ -77,6 +83,7 @@ class BorneScreen extends StatefulWidget {
     required this.onSortie,
     this.kiosque,
     this.connexion,
+    this.motifConnexion,
     this.scanner,
     this.officine = '',
     this.codeType = 'QR_CODE',
@@ -88,7 +95,7 @@ class BorneScreen extends StatefulWidget {
     this.delaiTicket = const Duration(seconds: 10),
     this.delaiTicketEcran = const Duration(seconds: 30),
     this.avertissement = const Duration(seconds: 10),
-    this.appuiSortie = const Duration(seconds: 5),
+    this.appuiSortie = dureeSortieKiosque,
   });
 
   static const indisponibleTitre = 'Borne momentanément indisponible';
@@ -135,7 +142,6 @@ class BorneScreenState extends State<BorneScreen> {
   Timer? _avertTimer;
   int? _avertReste;
 
-  Timer? _sortieTimer;
   bool _connecte = true;
   bool _connexionEnCours = false;
   Timer? _reconnexion;
@@ -163,7 +169,7 @@ class BorneScreenState extends State<BorneScreen> {
   void dispose() {
     HorsLigneScope.masquer.value = false;
     _m.removeListener(_onMonitor);
-    for (final t in [_debounce, _ticketTimer, _inactif, _avertTimer, _sortieTimer, _reconnexion]) {
+    for (final t in [_debounce, _ticketTimer, _inactif, _avertTimer, _reconnexion]) {
       t?.cancel();
     }
     _attente?.dispose();
@@ -180,6 +186,14 @@ class BorneScreenState extends State<BorneScreen> {
   // ---------------------------------------------------------------------------
   // Serveur / connexion
   // ---------------------------------------------------------------------------
+
+  /// Session de l'utilisateur borne perdue (session expirée sur le serveur) : borne indisponible et nouvelle
+  /// connexion de l'utilisateur borne (jamais l'écran de connexion de l'appli, 4.1.2).
+  void connexionPerdue() {
+    if (!mounted || widget.connexion == null) return;
+    setState(() => _connecte = false);
+    _connecter();
+  }
 
   Future<void> _connecter() async {
     final c = widget.connexion;
@@ -576,18 +590,23 @@ class BorneScreenState extends State<BorneScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Sortie du kiosque (appui long caché 5 s + code administrateur)
+  // Sortie du kiosque : cadenas (appui long 2 s) → confirmation → code administrateur
   // ---------------------------------------------------------------------------
 
-  void _sortieDebut() {
-    _sortieTimer?.cancel();
-    _sortieTimer = Timer(widget.appuiSortie, _demanderSortie);
-  }
-
-  void _sortieFin() => _sortieTimer?.cancel();
+  bool _sortieEnCours = false;
 
   Future<void> _demanderSortie() async {
-    final ok = await widget.adminCheck(context);
+    if (_sortieEnCours) return;
+    _sortieEnCours = true;
+    bool ok;
+    try {
+      ok = await confirmerSortieKiosque(context,
+          codeAdmin: widget.adminCheck,
+          texte: 'La borne sera arrêtée sur cet appareil (désépinglage, mode borne désactivé) et l\'appli reviendra à '
+              'l\'écran de connexion. Le code administrateur va être demandé.');
+    } finally {
+      _sortieEnCours = false;
+    }
     if (!ok || !mounted) return;
     await widget.kiosque?.arreter();
     if (!mounted) return;
@@ -630,23 +649,6 @@ class BorneScreenState extends State<BorneScreen> {
           body: Stack(children: [
             Positioned.fill(child: SafeArea(child: corps)),
             if (avertissementVisible) Positioned.fill(child: _avertissement()),
-            // Coin caché : appui long 5 s → code administrateur.
-            Positioned(
-              left: 0,
-              top: 0,
-              width: 64,
-              height: 64,
-              child: GestureDetector(
-                key: const ValueKey('borne-sortie'),
-                behavior: HitTestBehavior.translucent,
-                onLongPressStart: (_) => _sortieDebut(),
-                onLongPressEnd: (_) => _sortieFin(),
-                onLongPressCancel: _sortieFin,
-                onTapDown: (_) => _sortieDebut(),
-                onTapUp: (_) => _sortieFin(),
-                onTapCancel: _sortieFin,
-              ),
-            ),
           ]),
         ),
       ),
@@ -666,7 +668,8 @@ class BorneScreenState extends State<BorneScreen> {
 
   Widget _indisponible() => Center(
         key: const ValueKey('borne-indisponible'),
-        child: Padding(
+        // Défile si besoin (petit écran, cause affichée, texte agrandi).
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(28),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
@@ -683,6 +686,18 @@ class BorneScreenState extends State<BorneScreen> {
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 20, color: Pal.navy, fontWeight: FontWeight.w700)),
             const SizedBox(height: 18),
             const Text('La borne reprendra automatiquement dès que possible.', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted)),
+            // Cause précise pour le personnel (utilisateur borne non configuré, connexion refusée…).
+            if (!_connecte && (widget.motifConnexion?.call() ?? '').isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Container(
+                key: const ValueKey('borne-motif'),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: const Color(0xFFFFF4E0), borderRadius: BorderRadius.circular(12)),
+                child: Text(widget.motifConnexion!.call()!, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF7C2D12), fontSize: 15)),
+              ),
+            ],
+            const SizedBox(height: 22),
+            _boutonSortie(texte: libelleSortieKiosque),
           ]),
         ),
       );
@@ -766,8 +781,13 @@ class BorneScreenState extends State<BorneScreen> {
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (guidee) ...[_etapes(vue == BorneVue.panier || vue == BorneVue.ecarts ? 1 : 0), const SizedBox(height: 10)],
-        if (widget.officine.isNotEmpty)
-          Text(widget.officine, style: TextStyle(fontSize: 13, color: liste ? Pal.muted : Pal.headerMuted)),
+        // Nom de l'officine et cadenas de sortie (appui long 2 s, discret, toujours au même endroit).
+        Row(children: [
+          Expanded(
+            child: Text(widget.officine, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: liste ? Pal.muted : Pal.headerMuted)),
+          ),
+          _boutonSortie(couleur: liste ? Pal.muted : Pal.headerMuted),
+        ]),
         if (accueil) ...[
           const SizedBox(height: 4),
           Text(cfg.accueil,
@@ -783,6 +803,16 @@ class BorneScreenState extends State<BorneScreen> {
       ]),
     );
   }
+
+  /// Cadenas de sortie du mode borne (appui long [BorneScreen.appuiSortie]).
+  Widget _boutonSortie({Color couleur = Pal.muted, String? texte}) => BoutonSortieKiosque(
+        key: const ValueKey('borne-sortie'),
+        duree: widget.appuiSortie,
+        couleur: couleur,
+        texte: texte,
+        onAppuiCourt: () => montrerAideSortieKiosque(context),
+        onSortie: _demanderSortie,
+      );
 
   Widget _etapes(int actif) {
     Widget e(int i, String t) => Expanded(
@@ -1026,7 +1056,7 @@ class BorneScreenState extends State<BorneScreen> {
         child: ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 20), children: [
           Center(child: BornePicto(p, taille: 170, image: widget.image)),
           const SizedBox(height: 14),
-          Text(p.nom, key: const ValueKey('borne-fiche-nom'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Pal.ink)),
+          Text(nomInsecable(p.nom), key: const ValueKey('borne-fiche-nom'), semanticsLabel: p.nom, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Pal.ink)),
           const SizedBox(height: 4),
           Text('${p.forme.label} · code ${p.code}', style: const TextStyle(fontSize: 15, color: Pal.muted)),
           const SizedBox(height: 10),
@@ -1070,7 +1100,7 @@ class BorneScreenState extends State<BorneScreen> {
           if (!compact) ...[BornePicto(p, taille: 44, image: widget.image), const SizedBox(width: 10)],
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(p.nom, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5, color: Pal.ink)),
+              Text(nomInsecable(p.nom), maxLines: 2, overflow: TextOverflow.ellipsis, semanticsLabel: p.nom, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5, color: Pal.ink)),
               Text('${prixF(p.prix)} l\'unité', style: const TextStyle(fontSize: 13, color: Pal.muted)),
             ]),
           ),
@@ -1343,50 +1373,69 @@ class BorneScreenState extends State<BorneScreen> {
   Widget _ticketVue() {
     final p = _prevente!;
     final t = _ticket!;
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              width: 88,
-              height: 88,
-              decoration: const BoxDecoration(color: Color(0xFFE6F4EA), shape: BoxShape.circle),
-              child: const Icon(Icons.check, size: 52, color: Color(0xFF166534)),
+    // 4.1.2 (captures Sunmi V2s) : le compte à rebours et « TERMINÉ » sont TOUJOURS visibles, dans une barre fixe en
+    // bas ; le reste (numéro, QR, ticket) défile au-dessus si l'écran est petit.
+    final petit = MediaQuery.sizeOf(context).height < 760;
+    return Column(children: [
+      Expanded(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: petit ? 64 : 88,
+                  height: petit ? 64 : 88,
+                  decoration: const BoxDecoration(color: Color(0xFFE6F4EA), shape: BoxShape.circle),
+                  child: Icon(Icons.check, size: petit ? 38 : 52, color: const Color(0xFF166534)),
+                ),
+                const SizedBox(height: 8),
+                const Text('Merci !', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Pal.ink)),
+                const SizedBox(height: 6),
+                Text(_imprime ? 'Votre ticket s\'imprime.' : 'Montrez cet écran à la caisse (ou notez le numéro).',
+                    textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, color: Pal.muted)),
+                const SizedBox(height: 10),
+                const Text('N° de prévente', style: TextStyle(fontSize: 16, color: Pal.muted)),
+                Text(p.numero,
+                    key: const ValueKey('borne-numero'),
+                    style: TextStyle(fontSize: petit ? 60 : 72, fontWeight: FontWeight.w900, color: Pal.navy, height: 1.05)),
+                if (!_imprime) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    color: Colors.white,
+                    padding: const EdgeInsets.all(10),
+                    child: QrImageView(key: const ValueKey('borne-qr'), data: p.reference, size: petit ? 170 : 190),
+                  ),
+                  Text(p.reference, key: const ValueKey('borne-reference'), style: const TextStyle(fontSize: 16, color: Pal.ink)),
+                  const SizedBox(height: 8),
+                  ExpansionTile(
+                    title: const Text('Voir le ticket', style: TextStyle(fontWeight: FontWeight.w700)),
+                    children: [Container(color: Colors.white, padding: const EdgeInsets.all(10), child: t.apercu())],
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Text('${prixF(p.total)} · ${BorneTicket.invitation}',
+                    textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Pal.ink)),
+              ]),
             ),
-            const SizedBox(height: 8),
-            const Text('Merci !', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Pal.ink)),
-            const SizedBox(height: 6),
-            Text(_imprime ? 'Votre ticket s\'imprime.' : 'Montrez cet écran à la caisse (ou notez le numéro).',
-                textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, color: Pal.muted)),
-            const SizedBox(height: 10),
-            const Text('N° de prévente', style: TextStyle(fontSize: 16, color: Pal.muted)),
-            Text(p.numero, key: const ValueKey('borne-numero'), style: const TextStyle(fontSize: 72, fontWeight: FontWeight.w900, color: Pal.navy, height: 1.05)),
-            if (!_imprime) ...[
-              const SizedBox(height: 8),
-              Container(
-                color: Colors.white,
-                padding: const EdgeInsets.all(10),
-                child: QrImageView(key: const ValueKey('borne-qr'), data: p.reference, size: 190),
-              ),
-              Text(p.reference, key: const ValueKey('borne-reference'), style: const TextStyle(fontSize: 16, color: Pal.ink)),
-              const SizedBox(height: 8),
-              ExpansionTile(
-                title: const Text('Voir le ticket', style: TextStyle(fontWeight: FontWeight.w700)),
-                children: [Container(color: Colors.white, padding: const EdgeInsets.all(10), child: t.apercu())],
-              ),
-            ],
-            const SizedBox(height: 10),
-            Text('${prixF(p.total)} · ${BorneTicket.invitation}',
-                textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Pal.ink)),
-            const SizedBox(height: 14),
-            Text('Retour à l\'accueil dans $_resteTicket s', key: const ValueKey('borne-retour-ticket'), style: const TextStyle(color: Pal.muted, fontSize: 15)),
-            const SizedBox(height: 12),
-            BorneBouton('TERMINÉ', key: const ValueKey('borne-termine'), principal: false, onPressed: _accueil),
-          ]),
+          ),
         ),
       ),
-    );
+      Container(
+        key: const ValueKey('borne-ticket-barre'),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Pal.line))),
+        child: Row(children: [
+          Expanded(
+            child: Text('Retour à l\'accueil dans $_resteTicket s',
+                key: const ValueKey('borne-retour-ticket'), style: const TextStyle(color: Pal.muted, fontSize: 15)),
+          ),
+          const SizedBox(width: 10),
+          BorneBouton('TERMINÉ', key: const ValueKey('borne-termine'), principal: false, onPressed: _accueil),
+        ]),
+      ),
+    ]);
   }
+
 }

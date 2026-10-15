@@ -11,6 +11,11 @@ const double borneToucheMin = 56;
 
 String prixF(int v) => '${Constants.formatNumber(v)} F';
 
+/// Nom de produit à afficher sans retour à la ligne APRÈS une barre oblique (« B/8 », « FL/100ML » restent
+/// entiers ; 4.1.2, captures de la borne : « FL/ » en fin de ligne et « 100ML » à la suivante) : un gluon (U+2060,
+/// WORD JOINER, invisible) suit chaque « / ». Affichage seulement : le nom envoyé au serveur ou imprimé est inchangé.
+String nomInsecable(String nom) => nom.replaceAll('/', '/\u2060');
+
 /// Constructeur d'image produit (B2) : image du serveur, ou [picto] tant qu'elle n'est pas connue.
 typedef BorneImageBuilder = Widget Function(BorneProduit p, double taille, Widget picto);
 
@@ -161,11 +166,19 @@ class BorneCarteProduit extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = produit;
     final dispo = p.disponible;
-    final nom = Text(p.nom,
-        maxLines: 2,
+    // Liste rapide (terminal Sunmi, 4.1.2) : nom sur 3 lignes, police un peu plus petite — les noms longs
+    // (« VITAMINE C UPSA 1000MG CPR EFFV B/20 ») ne sont plus coupés.
+    final liste = presentation == BornePresentation.listeRapide;
+    final nom = Text(nomInsecable(p.nom),
+        maxLines: liste ? 3 : 2,
         overflow: TextOverflow.ellipsis,
         textAlign: grille ? TextAlign.center : TextAlign.start,
-        style: TextStyle(fontWeight: FontWeight.w700, fontSize: presentation == BornePresentation.guidee ? 17 : 15, color: Pal.ink));
+        semanticsLabel: p.nom,
+        style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: presentation == BornePresentation.guidee ? 17 : (liste ? 14 : 15),
+            height: liste ? 1.2 : null,
+            color: Pal.ink));
     final prix = Text(prixF(p.prix), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: Pal.navy));
     final ajouter = dispo && onAjouter != null
         ? SizedBox(
