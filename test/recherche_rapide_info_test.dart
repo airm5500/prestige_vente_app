@@ -10,6 +10,8 @@
 // - fiche produit : affichée tout de suite (nom, stock, prix), le bloc GET /info ensuite, sans bloquer l'écran ;
 // - État de Stock : la requête de la frappe précédente est annulée ; un serveur de 15 s n'échoue plus à 10 s,
 //   mêmes chiffres (même route GET /fichearticle/comparaison).
+// 4.3.2 (mode hybride, docs/NOTE_VERSION_4.3.2.md) : toujours aucun GET /info par lettre, mais UN GET /info de la
+// saisie finale dès la liste affichée ; le détail et la fiche s'en servent (aucune 2ᵉ requête au clic).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/accueil/fiche_produit_screen.dart';
@@ -91,7 +93,7 @@ Future<void> _frappe(WidgetTester t, String texte, {Finder? champ}) async {
 void main() {
   group('Analyse article : liste rapide, puis détail du produit choisi', () {
     for (final style in ListPresentation.values) {
-      testWidgets('${style.label} : GET /info lent (12 s) → liste en moins d\'1 s, aucun GET /info pendant la frappe, détail ensuite',
+      testWidgets('${style.label} : GET /info lent (12 s) → liste en moins d\'1 s, un seul GET /info (saisie finale, après la liste), détail ensuite',
           (t) async {
         final app = await _lancer(t, style: style);
         await app.ouvrirMenu(t, style, 'analyse_article');
@@ -102,19 +104,25 @@ void main() {
         await app.attendre(t, const Duration(milliseconds: 900));
         expect(find.text(_doli), findsOneWidget, reason: 'liste rapide affichée sans attendre GET /info');
         expect(find.text(_doliD), findsOneWidget);
-        expect(app.serveur.recuesSur('/info').length, infoAvant, reason: 'aucun GET /info pendant la frappe');
         final recherches = app.serveur.recuesSur('/vente/search');
         expect(recherches.last.query['query'], 'doli');
         expect(recherches.where((r) => r.query['query'] == 'd'), isEmpty, reason: '1 lettre : rien n\'est envoyé');
+        // 4.3.2 (mode hybride) : aucun GET /info par lettre ; UN lot pour la saisie finale, APRÈS la liste rapide.
+        expect([for (final r in app.serveur.recuesSur('/info').skip(infoAvant)) r.query['search']], ['doli'],
+            reason: 'un seul GET /info (la saisie finale), aucun pour « do » / « dol »');
+        final ordre = [for (final r in app.serveur.recues) if (r.chemin.endsWith('/info') || r.chemin.endsWith('/vente/search')) r];
+        expect(ordre.last.chemin.endsWith('/info'), isTrue, reason: 'le lot part après la liste rapide');
 
-        // Choix du produit : GET /info par SON CIP exact, indicateur pendant l'attente, l'écran reste utilisable.
+        // Choix du produit : stock et prix tout de suite, indicateur pendant l'attente du lot, AUCUNE 2ᵉ requête.
         await t.tap(find.text(_doli).hitTestable().first);
         await app.attendre(t, const Duration(milliseconds: 500));
         expect(find.text("Détails de l'Article"), findsOneWidget);
         expect(find.byKey(const ValueKey('analyse-detail-chargement')), findsOneWidget, reason: 'indicateur, stock et prix déjà là');
         expect(find.textContaining('Chargement de l\'analyse'), findsOneWidget);
+        expect(find.text('1475 FCFA'), findsOneWidget, reason: 'prix de vente de la liste, sans attendre');
+        expect(find.text('18'), findsWidgets, reason: 'stock de la liste, sans attendre');
         final infos = app.serveur.recuesSur('/info').skip(infoAvant).toList();
-        expect([for (final r in infos) r.query['search']], ['3595583'], reason: 'une seule requête, CIP exact');
+        expect([for (final r in infos) r.query['search']], ['doli'], reason: 'le détail attend le lot : pas de 2ᵉ requête');
 
         await app.attendre(t, const Duration(seconds: 12));
         expect(find.byKey(const ValueKey('analyse-detail')), findsOneWidget);
@@ -160,16 +168,19 @@ void main() {
       await _frappe(t, 'ibex');
       await app.attendre(t, const Duration(seconds: 1));
       expect(find.text(_ibex), findsWidgets, reason: 'recherche rapide de l\'accueil');
-      expect(app.serveur.recuesSur('/info').length, infoAvant, reason: 'aucun GET /info pendant la frappe');
+      expect([for (final r in app.serveur.recuesSur('/info').skip(infoAvant)) r.query['search']], ['ibex'],
+          reason: '4.3.2 : un seul GET /info, celui de la saisie finale (lot), après la liste');
       await t.tap(find.text(_ibex).hitTestable().first);
       await app.attendre(t, const Duration(milliseconds: 600));
       expect(find.byType(FicheProduitScreen), findsOneWidget);
       expect(find.text(_ibex), findsWidgets);
       expect(find.text('37'), findsWidgets, reason: 'stock de la liste, sans attendre');
-      expect(find.byKey(const ValueKey('fiche-squelette-Emplacement')), findsOneWidget, reason: 'bloc /info en attente');
-      expect([for (final r in app.serveur.recuesSur('/info').skip(infoAvant)) r.query['search']], ['8049052']);
+      expect(find.byKey(const ValueKey('fiche-connu-Emplacement')), findsOneWidget, reason: 'emplacement de la liste, sans attendre');
+      expect(find.byKey(const ValueKey('fiche-squelette-Grossiste')), findsOneWidget, reason: 'bloc /info en attente');
+      expect([for (final r in app.serveur.recuesSur('/info').skip(infoAvant)) r.query['search']], ['ibex'],
+          reason: 'la fiche attend le lot : pas de 2ᵉ requête');
       await app.attendre(t, const Duration(seconds: 12));
-      expect(find.byKey(const ValueKey('fiche-squelette-Emplacement')), findsNothing);
+      expect(find.byKey(const ValueKey('fiche-squelette-Grossiste')), findsNothing);
       expect(find.byKey(const ValueKey('fiche-info-Grossiste')), findsOneWidget);
       expect(find.textContaining('Délai dépassé'), findsNothing);
       expect(t.takeException(), isNull);

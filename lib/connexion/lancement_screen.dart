@@ -348,10 +348,10 @@ class _LancementScreenState extends State<LancementScreen> {
           _encadre(
             key: Key(tls == null ? 'lancement_injoignable' : 'lancement_certificat'),
             icone: tls == null ? Icons.wifi_off : Icons.gpp_bad_outlined,
-            titre: tls == null ? 'Le serveur ne répond pas' : tls.titre,
+            titre: tls == null ? 'Serveur indisponible, veuillez réessayer' : tls.titre,
             texte: tls == null
                 ? '$type · ${s.adresseAffichee(s.isRemote)}\n'
-                    'Vérifiez le Wifi et que le serveur de l\'officine est allumé. La licence n\'est pas en cause.'
+                    'La licence n\'est pas en cause.'
                 : '$type · ${s.adresseAffichee(s.isRemote)}\n${tls.explication} La licence n\'est pas en cause.',
           ),
           const SizedBox(height: 12),

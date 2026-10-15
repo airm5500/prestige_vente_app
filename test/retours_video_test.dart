@@ -324,7 +324,7 @@ void main() {
       expect(s.annulees, ['/info?search=dolip'], reason: 'la requête est abandonnée, pas laissée en vol');
     });
 
-    test('Analyse article (provider) : liste rapide en erreur, aucun résultat, Réessayer — jamais GET /info', () async {
+    test('Analyse article (provider) : liste rapide en erreur, aucun résultat, Réessayer — GET /info seulement pour une liste reçue', () async {
       final (api, s) = _brancher();
       final p = ArticleAnalysisProvider(api, cache: FicheInfoCache());
       s
@@ -341,17 +341,18 @@ void main() {
       await p.reessayer();
       expect(p.error, isNull);
       expect(p.aucunResultat, isTrue);
-      s.sansProduit = false;
+      expect(s.requetes.where((r) => r.startsWith('/info')), isEmpty, reason: 'liste en erreur ou vide : aucun GET /info');
+      s
+        ..sansProduit = false
+        ..info = [_doliprane, _dolipraneSansVente];
       await p.reessayer();
       expect(p.results.single.strNAME, 'DOLIPRANE 1000MG');
       expect(p.aucunResultat, isFalse);
-      expect(s.requetes.where((r) => r.startsWith('/info')), isEmpty, reason: 'liste : GET /vente/search seulement');
-      // Détail du produit choisi : GET /info par son CIP exact, une seule ligne retenue.
-      s.info = [_doliprane, _dolipraneSansVente];
+      // 4.3.2 : liste reçue → UN GET /info de la saisie (lot), dont le détail du produit choisi est tiré.
       final d = await p.chargerDetail(p.results.single);
-      expect(s.requetes.where((r) => r.startsWith('/info')), ['/info?search=3529422']);
+      expect(s.requetes.where((r) => r.startsWith('/info')), ['/info?search=dolip'], reason: 'aucune 2ᵉ requête au clic');
       expect(d!.grossiste, 'LABOREX-CI YOP');
-      expect(d.codeCip, '3529422');
+      expect(d.codeCip, '3529422', reason: 'la ligne du produit choisi, pas une autre du lot');
     });
 
     testWidgets('écran Analyse article : « dolip » en erreur → message + Réessayer (jamais un écran vide)', (tester) async {
@@ -424,6 +425,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('fiche-info-Grossiste')), findsOneWidget);
       expect(find.textContaining('Délai dépassé'), findsNothing);
+      expect(appels, 2, reason: 'Réessayer envoie une NOUVELLE requête (jamais rattachée à celle restée muette)');
     });
 
     testWidgets('fiche produit : 401 « Veuillez vous connecter » → « Session expirée — reconnectez-vous »', (tester) async {
@@ -463,15 +465,21 @@ void main() {
       expect(p.query, 'doli');
       expect(p.error, isNull, reason: 'l\'annulation de la recherche remplacée n\'est pas une erreur');
       expect(p.results, hasLength(1));
-      // Moins de 2 caractères : rien n'est envoyé, la requête en vol est abandonnée.
-      final f3 = p.searchArticles('dolip');
+      // 4.3.2 : liste reçue → lot GET /info de la saisie « doli » (retenu ici par le faux serveur).
       await _jusqua(() => s.requetes.length == 3);
+      expect(s.requetes.last, '/info?search=doli');
+      // « dolip » prolonge « doli » : couverte par le lot en route, aucun nouveau GET /info.
+      final f3 = p.searchArticles('dolip');
+      await _jusqua(() => s.requetes.length == 4);
+      expect(s.requetes.last, startsWith('/vente/search?query=dolip&'));
+      // Moins de 2 caractères : rien n'est envoyé, la recherche en vol ET le lot devenu inutile sont abandonnés.
       await p.searchArticles('d');
       await f3;
-      await _jusqua(() => s.annulees.length == 2);
-      expect(s.annulees.last, startsWith('/vente/search?query=dolip&'));
+      await _jusqua(() => s.annulees.length == 3);
+      expect(s.annulees, containsAll(['/info?search=doli']));
+      expect(s.annulees.where((r) => r.startsWith('/vente/search?query=dolip&')), hasLength(1));
       expect(s.requetes.where((r) => r.startsWith('/vente/search?query=d&')), isEmpty);
-      expect(s.requetes.where((r) => r.startsWith('/info')), isEmpty, reason: 'aucun GET /info pendant la frappe');
+      expect(s.requetes.where((r) => r.startsWith('/info')), ['/info?search=doli'], reason: 'aucun GET /info par lettre');
       expect(p.isLoading, isFalse);
     });
 
@@ -498,7 +506,7 @@ void main() {
       expect(s.annulees, hasLength(2));
     });
 
-    testWidgets('Analyse article : frappe rapide « d o l i p » → UNE seule requête, 350 ms après la dernière frappe', (tester) async {
+    testWidgets('Analyse article : frappe rapide « d o l i p » → UNE recherche 350 ms après la dernière frappe, puis UN lot', (tester) async {
       phone(tester);
       final (api, s) = _brancher();
       s.info = [_doliprane];
@@ -513,13 +521,14 @@ void main() {
       expect(s.requetes, isEmpty, reason: 'anti-rebond : rien pendant la frappe');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
-      expect(s.requetes, hasLength(1));
-      expect(s.requetes.single, startsWith('/vente/search?query=dolip&'), reason: 'liste rapide, pas GET /info');
+      expect(s.requetes, hasLength(2));
+      expect(s.requetes.first, startsWith('/vente/search?query=dolip&'), reason: 'liste rapide d\'abord');
+      expect(s.requetes.last, '/info?search=dolip', reason: '4.3.2 : puis UN lot GET /info de la saisie finale');
       expect(find.text('DOLIPRANE 1000MG'), findsOneWidget);
       // 1 caractère : aucune requête.
       await tester.enterText(find.byType(TextField), 'd');
       await tester.pump(const Duration(milliseconds: 500));
-      expect(s.requetes, hasLength(1));
+      expect(s.requetes, hasLength(2));
     });
   });
 

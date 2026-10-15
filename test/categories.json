@@ -121,6 +121,9 @@
     "test/reseau/reponses_tronquees_test.dart": "reseau",
     "test/reseau/coupures_reprise_test.dart": "reseau",
     "test/reseau/adresse_serveur_test.dart": "reseau",
-    "test/reseau/https_test.dart": "reseau"
+    "test/reseau/https_test.dart": "reseau",
+    "test/lenteur_detail_432_test.dart": "performance",
+    "test/ergonomie_analyse_432_test.dart": "ergonomie",
+    "test/reseau/redeploiement_test.dart": "reseau"
   }
 }

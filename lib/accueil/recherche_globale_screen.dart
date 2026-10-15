@@ -130,6 +130,17 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
     final current = await _search.run(q);
     if (!mounted || !current) return;
     setState(() => _loading = false);
+    _prechargerSaisie(q);
+  }
+
+  /// 4.3.2 : détails (GET /info) de toute la liste courte en une lecture, dès qu'elle est affichée : la fiche
+  /// d'un produit choisi s'ouvre alors avec son analyse (FicheInfoCache.chargerSaisie). Faux service des tests : rien.
+  void _prechargerSaisie(String q) {
+    if (widget.api != null) return;
+    try {
+      prechargerSaisie(Provider.of<ApiService>(context, listen: false), q,
+          produits: _search.error == null && !_search.byCode ? _search.items.length : 0, suite: _search.hasMore);
+    } catch (_) {}
   }
 
   /// Code scanné : produit exact → fiche ; sinon liste des candidats / message.
@@ -204,6 +215,7 @@ class _RechercheGlobaleScreenState extends State<RechercheGlobaleScreen> {
   void _effacer() {
     _debounce?.cancel();
     _codeBrut = null;
+    _prechargerSaisie('');
     _controller.clear();
     _lastText = '';
     _lastSent = '';

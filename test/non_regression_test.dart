@@ -38,6 +38,7 @@ const _horsCI = {
   'test/outils/apercus_connexion_test.dart': 'génère des aperçus PNG (APERCUS=1), jamais en CI',
   'test/outils/captures_borne_test.dart': 'génère les captures PNG de la borne (APERCUS=1), jamais en CI',
   'test/outils/captures_prestigepos_test.dart': 'génère les captures PNG de PrestigePOS (APERCUS=1), jamais en CI',
+  'test/outils/video_lenteur_test.dart': 'filme l\'application contre le serveur Prestige de test local (VIDEO=…), jamais en CI',
 };
 
 /// Tests de PrestigePOS : tout le dossier, exécuté par le job « prestigepos » de la CI (flutter test test/prestigepos).

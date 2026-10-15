@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.3.1+17** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.3.2+18** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -21,7 +21,9 @@ prévente » et noms longs sur deux lignes (4.1.1+13, voir `docs/NOTE_VERSION_4.
 de l'accueil (4.2.1+15, voir `docs/NOTE_VERSION_4.2.1.md`) + EAN fabricant sans contrôle, lectures en double de la
 connexion supprimées (ANO-09), intégrations de la réponse du serveur du 15/10 avec repli, message « Ajouté » de la
 borne en haut de l'écran (4.3.0+16, voir `docs/NOTE_VERSION_4.3.0.md`) + boîte déjà scannée refusée à la réception
-(D18, 4.3.1+17, voir `docs/NOTE_VERSION_4.3.1.md`).
+(D18, 4.3.1+17, voir `docs/NOTE_VERSION_4.3.1.md`) + Analyse article et fiche produit de nouveau rapides (mode
+hybride, détail immédiat), mise en page compacte de l'Analyse article, « Serveur indisponible, veuillez réessayer »
+pendant un redéploiement (4.3.2+18, voir `docs/NOTE_VERSION_4.3.2.md`).
 
 ## Les 3 règles (permanentes)
 

@@ -54,10 +54,17 @@ void main() {
         }));
 
     test('5xx, 401 et 403 « Veuillez vous connecter » : problème de serveur, jamais « aucune licence »', () => avecVraiHttp(() async {
-          for (final r in [FauxServeurPrestige.erreurServeur(500), FauxServeurPrestige.erreurServeur(503), FauxServeurPrestige.nonConnecte401, FauxServeurPrestige.nonConnecte403]) {
+          for (final r in [FauxServeurPrestige.erreurServeur(500), FauxServeurPrestige.nonConnecte401, FauxServeurPrestige.nonConnecte403]) {
             srv.licence = r;
             final l = await api.lookupLicence();
             expect(l.issue, LicenceIssue.serverError, reason: 'HTTP ${r.statut}');
+            expect(l.licence, isNull);
+          }
+          // 4.3.2 : 502 / 503 / 504 (Prestige en redémarrage) → serveur indisponible, jamais « aucune licence ».
+          for (final code in [502, 503, 504]) {
+            srv.licence = FauxServeurPrestige.erreurServeur(code);
+            final l = await api.lookupLicence();
+            expect(l.issue, LicenceIssue.unreachable, reason: 'HTTP $code');
             expect(l.licence, isNull);
           }
         }));
@@ -76,7 +83,7 @@ void main() {
           await srv.couper();
           expect((await api.lookupLicence()).issue, LicenceIssue.unreachable);
           expect(await p.checkLicence(), LicenceStatus.error);
-          expect(p.errorTitle, 'Serveur injoignable');
+          expect(p.errorTitle, 'Serveur indisponible, veuillez réessayer');
           expect(await p.mustBlockAccess(), isFalse, reason: 'coupure réseau : le travail continue');
           await srv.retablir();
           expect(await p.checkLicence(), LicenceStatus.valid);

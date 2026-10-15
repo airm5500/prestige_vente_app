@@ -100,7 +100,7 @@ void main() {
     final p = LicenceProvider(api);
     expect(await p.checkLicence(), LicenceStatus.error);
     expect(p.issue, LicenceIssue.appNotFound);
-    expect(p.errorTitle, 'Application Prestige introuvable');
+    expect(p.errorTitle, 'Serveur indisponible, veuillez réessayer');
     expect(p.errorMessage, contains('nom de l\'application'));
     expect(p.errorMessage, isNot(contains('Détail')));
 

@@ -8,6 +8,12 @@
 // 2. DÉTAIL : quand un produit est CHOISI, GET /info?search=<son CIP exact> (une seule ligne retenue : même
 //    identifiant, sinon même CIP — jamais celle d'un autre produit), délai ApiService.delaiInfo (30 s), cache court
 //    partagé avec la fiche produit (FicheInfoCache), requête abandonnée si le détail est fermé avant la réponse.
+// 3. MODE HYBRIDE (4.3.2, lenteur signalée par le pharmacien) : dès que la liste rapide est affichée (1 à 30
+//    produits, saisie de 3 caractères ou plus), GET /info?search=<saisie> est lu UNE fois en arrière-plan (lot,
+//    FicheInfoCache.chargerSaisie) : comme avant la 4.2.0, le détail d'un produit de la liste s'ouvre alors sans
+//    attente ; un clic avant la réponse attend CE lot (jamais une 2ᵉ requête) ; une saisie qui prolonge la
+//    précédente (« dolip » après « doli ») ne relance rien. Le détail affiche tout de suite ce que la liste connaît
+//    (nom, CIP, stock, prix de vente, prix d'achat, emplacement), le reste dès que GET /info répond.
 // Jamais « rien » : chargement, résultats, « aucun produit » ou erreur précise avec Réessayer.
 import 'dart:async';
 
@@ -59,6 +65,7 @@ class ArticleAnalysisProvider with ChangeNotifier, PagedProductSearchHost {
 
   void clear() {
     _search.clear();
+    _cache.lacherSaisie(cleSource(_apiService));
     _query = '';
     _isLoading = false;
     notifyListeners();
@@ -82,6 +89,8 @@ class ArticleAnalysisProvider with ChangeNotifier, PagedProductSearchHost {
     if (!courante) return; // une recherche plus récente (ou l'effacement) a pris la main
     _isLoading = false;
     notifyListeners();
+    // Lot de la saisie (détails de toute la liste en une lecture), seulement pour une liste courte et complète.
+    prechargerSaisie(_apiService, q, produits: error == null ? results.length : 0, suite: _search.hasMore, cache: _cache);
   }
 
   // ---------------------------------------------------------------------------
@@ -95,21 +104,22 @@ class ArticleAnalysisProvider with ChangeNotifier, PagedProductSearchHost {
   Future<ArticleAnalysis?> chargerDetail(ProductSearchResult p) {
     if (p.intCIP.trim().isEmpty) return Future.value(null);
     final delai = delaiMaxFiche();
-    return _cache.charger(_cle(p), chargeurFiche(_apiService, p)).timeout(delai, onTimeout: () {
-      lacherDetail(p);
+    return _cache.charger(_cle(p), chargeurFiche(_apiService, p), produit: p).timeout(delai, onTimeout: () {
+      _cache.abandonner(_cle(p)); // « Réessayer » enverra une nouvelle requête
       throw ApiLoadException('Délai dépassé : pas de réponse du serveur en ${delai.inSeconds} s (GET /info). Réessayez.');
     });
   }
 
   /// Détail encore en mémoire (réouverture sans attente), sinon null.
-  ({ArticleAnalysis? article})? detailConnu(ProductSearchResult p) => _cache.connu(_cle(p));
+  ({ArticleAnalysis? article})? detailConnu(ProductSearchResult p) => _cache.connuPour(_cle(p), p);
 
-  /// Le détail de [p] n'est plus affiché : la requête est abandonnée si personne d'autre ne l'attend.
+  /// Le détail de [p] n'est plus affiché : la requête continue et remplit le cache (réouverture immédiate).
   void lacherDetail(ProductSearchResult p) => _cache.lacher(_cle(p));
 
   @override
   void dispose() {
     _search.clear();
+    _cache.lacherSaisie(cleSource(_apiService));
     super.dispose();
   }
 }

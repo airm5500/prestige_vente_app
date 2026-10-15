@@ -47,10 +47,30 @@ import 'package:prestige_vente_app/ventes/core/product_lookup.dart' show Product
 class EchecConnexion {
   static const refusee = 'refusee';
   static const reseau = 'reseau';
+
+  /// 4.3.2 : Prestige absent ou en cours de (re)démarrage (404 sur la connexion, 502 / 503 / 504, connexion refusée
+  /// par le poste serveur) : ce n'est jamais un mot de passe faux.
+  static const indisponible = 'indisponible';
+
+  /// Message affiché pendant un redéploiement de Prestige (les deux interfaces, la borne).
+  static const messageIndisponible = 'Serveur indisponible, veuillez réessayer.';
+
   final String type;
   final String message;
   const EchecConnexion(this.type, this.message);
   bool get estRefus => type == refusee;
+
+  /// Codes HTTP d'un serveur Prestige indisponible (application non déployée ou en redémarrage, proxy) : 404 sur
+  /// une route de connexion, 502, 503, 504.
+  static bool codeIndisponible(int? code) => code == 404 || code == 502 || code == 503 || code == 504;
+
+  /// Échec d'une requête de connexion qui vient du serveur indisponible (code ci-dessus, connexion refusée ou
+  /// coupée) — jamais des identifiants.
+  static bool serveurIndisponible(DioException e) {
+    final code = e.response?.statusCode;
+    if (code != null) return codeIndisponible(code);
+    return e.type == DioExceptionType.connectionError || e.type == DioExceptionType.connectionTimeout || e.error is SocketException;
+  }
 }
 
 /// Échec de chargement d'une liste (à distinguer d'une liste vide).
@@ -90,10 +110,17 @@ class ApiService {
     } on DioException catch (e) {
       print("Error logging in: $e");
       final code = e.response?.statusCode;
-      dernierEchecConnexion = code != null
-          ? EchecConnexion(EchecConnexion.refusee, 'Le serveur a répondu HTTP $code.')
-          : EchecConnexion(EchecConnexion.reseau,
-              ErreurTls.de(e)?.message ?? 'Serveur injoignable : vérifiez le Wi-Fi et l\'adresse du serveur (Réglages › Connexion).');
+      final tls = ErreurTls.de(e);
+      // 4.3.2 : Prestige en cours de redéploiement (404 HTML de Payara, 502/503, connexion refusée) → « Serveur
+      // indisponible, veuillez réessayer » ; jamais « mot de passe incorrect » ni « erreur 404 ».
+      dernierEchecConnexion = tls != null
+          ? EchecConnexion(EchecConnexion.reseau, tls.message)
+          : EchecConnexion.serveurIndisponible(e)
+              ? const EchecConnexion(EchecConnexion.indisponible, EchecConnexion.messageIndisponible)
+              : code != null
+                  ? EchecConnexion(EchecConnexion.refusee, 'Le serveur a répondu HTTP $code.')
+                  : const EchecConnexion(EchecConnexion.reseau,
+                      'Serveur injoignable : vérifiez le Wi-Fi et l\'adresse du serveur (Réglages › Connexion).');
       return null;
     }
   }
@@ -507,6 +534,8 @@ class ApiService {
                 ? const LicenceLookup.noLicence()
                 : LicenceLookup.failure(LicenceIssue.appNotFound, 'HTTP 404 sur ${e.requestOptions.uri}');
           }
+          // 4.3.2 : 502 / 503 / 504 : Prestige (ou son proxy) en redémarrage → serveur indisponible, pas une erreur.
+          if (EchecConnexion.codeIndisponible(code)) return LicenceLookup.failure(LicenceIssue.unreachable, 'HTTP $code');
           return LicenceLookup.failure(LicenceIssue.serverError, 'HTTP $code');
         default:
           if (e.error is SocketException) {
