@@ -392,7 +392,9 @@ void main() {
       _phone(tester);
       final gw = _Gw();
       await _open(tester, gw, style: style);
-      _expectSteps(style);
+      // 4.1.2 : recherche du client obligatoire d'abord, aucune barre d'étapes (pas de « flash » des étapes).
+      expect(find.byType(StepsBar), findsNothing);
+      expect(find.byType(CarnetStepPills), findsNothing);
       expect(find.text('Vente carnet'), findsOneWidget);
       expect(_clientField, findsOneWidget);
       expect(find.byKey(const ValueKey('carnet-historique')), findsOneWidget);
@@ -646,6 +648,7 @@ void main() {
     _phone(tester);
     final gw = _Gw();
     await _open(tester, gw);
+    await _toBon(tester); // étapes affichées après la recherche du client
     expect(find.byType(CarnetStepPills), findsOneWidget); // A par défaut
     await tester.tap(find.byTooltip('Présentation'));
     await tester.pumpAndSettle();
