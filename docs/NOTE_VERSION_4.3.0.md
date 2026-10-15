@@ -35,8 +35,8 @@ Toutes les nouveautés liées au serveur ont un **repli** : avec un serveur qui 
 - **Rôle** (demande 10) : le libellé de `role` renvoyé par `user/auth` est affiché sur « Qui êtes-vous ? ».
 - **Réserve** (demande 28) : suggestion annulée ouverte en consultation seule, suggestion d'un autre emplacement
   « introuvable » (déjà géré, désormais testé).
-- Réponses aux questions du serveur : `docs/serveur/REPONSES_APP_MOBILE_2026-10-15.md` ; décisions du pharmacien :
-  `docs/serveur/DECISIONS_PHARMACIEN_2026-10-15.md`.
+- Réponses aux questions du serveur, décisions du pharmacien et nouvelles demandes des trois applications : un seul
+  fichier à transmettre, `docs/serveur/TRANSMISSION_SERVEUR_2026-10-15.md`.
 
 ## Borne
 
