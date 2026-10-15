@@ -5,11 +5,13 @@
 // l'aperçu et un compte à rebours (~2 s), puis la photo est prise sans action de sa part. L'empreinte (Sunmi V3H)
 // reste la méthode la plus sûre : aucune photo pour un pointage par empreinte.
 //
-// Le serveur Prestige n'accepte AUCUNE photo avec le pointage (POST v1/rh/pointages : employeId, jour, heure, sens,
-// motif ; aucune route d'envoi) : la photo est gardée sur CE terminal, dans le stockage privé de l'application
-// (jamais dans la galerie ni sur la carte mémoire, exclue des sauvegardes Android), liée au pointage par son
-// identifiant, consultable par l'administrateur et effacée automatiquement après la durée de conservation
-// (30 jours par défaut). Demande au serveur : docs/serveur/DEMANDE_PHOTO_POINTAGE.md.
+// La photo est gardée sur CE terminal, dans le stockage privé de l'application (jamais dans la galerie ni sur la
+// carte mémoire, exclue des sauvegardes Android), liée au pointage par son identifiant, consultable par
+// l'administrateur et effacée automatiquement après la durée de conservation (30 jours par défaut).
+// 4.3.0 (réponse du serveur du 15/10/2026, demande 31) : un serveur à jour reçoit en plus le pointage avec son
+// identifiant et son contrôle (photo / sans photo et motif), puis la photo (POST v1/rh/pointages/{id}/photo) ; état
+// de cet envoi : [PhotoPointage.photoServeur]. Serveur plus ancien (404 / 405) : comme avant, la photo reste ici.
+// Demande d'origine : docs/serveur/DEMANDE_PHOTO_POINTAGE.md.
 //
 // Pannes : caméra absente, autorisation refusée, erreur, trop lente → le pointage n'est JAMAIS bloqué ; il est
 // marqué « sans photo (motif) », noté dans le journal du terminal et signalé dans le rapport d'anomalies.
@@ -467,6 +469,10 @@ class PhotoPointage {
   /// « Sans photo » vu par l'administrateur.
   final bool traitee;
 
+  /// 4.3.0 : envoi de la photo au serveur — '' (pas encore), 'envoyee', 'refusee' (refus du serveur, motif dans le
+  /// journal) ; une route absente (ancien serveur) ne change rien.
+  final String photoServeur;
+
   const PhotoPointage({
     required this.id,
     this.source = 'rh',
@@ -480,11 +486,12 @@ class PhotoPointage {
     this.taille = 0,
     this.envoi = '',
     this.traitee = false,
+    this.photoServeur = '',
   });
 
   String get etat => avecPhoto ? 'Photo de contrôle' : libelleSansPhoto(motif ?? MotifSansPhoto.erreurCamera);
 
-  PhotoPointage copie({String? envoi, bool? traitee}) => PhotoPointage(
+  PhotoPointage copie({String? envoi, bool? traitee, String? photoServeur}) => PhotoPointage(
         id: id,
         source: source,
         employeId: employeId,
@@ -497,6 +504,7 @@ class PhotoPointage {
         taille: taille,
         envoi: envoi ?? this.envoi,
         traitee: traitee ?? this.traitee,
+        photoServeur: photoServeur ?? this.photoServeur,
       );
 
   Map<String, dynamic> toJson() => {
@@ -512,6 +520,7 @@ class PhotoPointage {
         'taille': taille,
         'envoi': envoi,
         'traitee': traitee,
+        if (photoServeur.isNotEmpty) 'photoServeur': photoServeur,
       };
 
   factory PhotoPointage.fromJson(Map<String, dynamic> j) => PhotoPointage(
@@ -527,6 +536,7 @@ class PhotoPointage {
         taille: j['taille'] is num ? (j['taille'] as num).toInt() : 0,
         envoi: '${j['envoi'] ?? ''}',
         traitee: j['traitee'] == true,
+        photoServeur: '${j['photoServeur'] ?? ''}',
       );
 }
 
@@ -774,6 +784,23 @@ class RegistrePhotosPointage extends ChangeNotifier implements AnomalieSourceLis
     } catch (_) {}
     notifyListeners();
   }
+
+  /// 4.3.0 : état de l'envoi de la photo au serveur ([PhotoPointage.photoServeur]).
+  Future<void> majPhotoServeur(String id, String etat) async {
+    final i = _photos.indexWhere((p) => p.id == id);
+    if (i < 0 || _photos[i].photoServeur == etat) return;
+    _photos[i] = _photos[i].copie(photoServeur: etat);
+    try {
+      await stockage.ecrire(_photos[i]);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// Photos de pointages enregistrés par le serveur (Pointage présence), pas encore envoyées au serveur.
+  List<PhotoPointage> get photosAEnvoyer => [
+        for (final p in _photos)
+          if (p.source == 'rh' && p.avecPhoto && p.photoServeur.isEmpty && (p.envoi == 'envoye' || p.envoi == 'dejaApplique')) p
+      ];
 
   Future<Uint8List?> image(String id) async {
     try {

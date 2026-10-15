@@ -129,7 +129,8 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      Provider.of<AuthProvider>(context, listen: false).loadOfficineInfo();
+      // ANO-09 : officine déjà lue par la connexion qui ouvre cet accueil → pas de 2e lecture identique.
+      Provider.of<AuthProvider>(context, listen: false).loadOfficineInfoPourAccueil();
       Provider.of<LicenceProvider>(context, listen: false).checkReminders(context);
       _actualiser();
     });

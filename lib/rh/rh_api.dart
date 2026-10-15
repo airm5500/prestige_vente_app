@@ -5,8 +5,13 @@
 //   GET  rh/employes?query=&inactifs=false      → {data:[{id, matricule, badge, nom, prenoms, poste, statut…}]}
 //   GET  rh/presence?jour=YYYY-MM-DD            → {data:[RhPresenceDTO], pointages:[{id, employeId, horodatage, sens, source, motif}]}
 //   POST rh/pointages {employeId, jour, heure, sens, motif} → {success, message} (doublon de minute : refus « existe déjà »)
-// Pas de journal des réponses (LogInterceptor) : seules les erreurs utiles remontent.
+// 4.3.0 (réponse du serveur du 15/10/2026, demande 31) — serveur à jour, rien d'obligatoire :
+//   POST rh/pointages {id, …, controle?} → {success, id, message} ; même id renvoyé → {success, id, deja:true}
+//   POST rh/pointages/{id}/photo (multipart : photo = JPEG, prise = date et heure ISO de la prise) → {success}
+//     ancien serveur : 404 / 405 → la photo reste sur le terminal (comme avant).
+// Pas de journal des réponses (LogInterceptor) : seules les erreurs utiles remontent. Jamais la photo dans un journal.
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
@@ -26,8 +31,13 @@ abstract class RhServeur {
   Future<ReponseRh> post(String chemin, Map<String, dynamic> corps);
 }
 
+/// Envoi de la photo de contrôle d'un pointage (demande 31) ; facultatif pour un [RhServeur].
+abstract class RhPhotos {
+  Future<ReponseRh> envoyerPhoto(String pointageId, Uint8List jpeg, DateTime prise);
+}
+
 /// Même session (cookies) et même adresse que l'appli.
-class DioRhServeur implements RhServeur {
+class DioRhServeur implements RhServeur, RhPhotos {
   final String Function() baseUrl;
   Dio? _dio;
   DioRhServeur(this.baseUrl);
@@ -68,6 +78,21 @@ class DioRhServeur implements RhServeur {
   @override
   Future<ReponseRh> post(String chemin, Map<String, dynamic> corps) => _envoyer(
       (d) => d.post<String>(chemin, data: jsonEncode(corps), options: Options(headers: {'Content-Type': 'application/json'})));
+
+  @override
+  Future<ReponseRh> envoyerPhoto(String pointageId, Uint8List jpeg, DateTime prise) => _envoyer((d) => d.post<String>(
+        '/rh/pointages/${Uri.encodeComponent(pointageId)}/photo',
+        data: FormData.fromMap({
+          'photo': MultipartFile.fromBytes(jpeg, filename: 'controle.jpg', contentType: DioMediaType('image', 'jpeg')),
+          'prise': isoLocal(prise),
+        }),
+      ));
+}
+
+/// « 2026-10-15T08:02:00 » (heure du terminal, sans fuseau) : format lu par le serveur.
+String isoLocal(DateTime t) {
+  String d2(int v) => v.toString().padLeft(2, '0');
+  return '${t.year.toString().padLeft(4, '0')}-${d2(t.month)}-${d2(t.day)}T${d2(t.hour)}:${d2(t.minute)}:${d2(t.second)}';
 }
 
 /// Message d'une réponse Prestige (`message`, sinon `msg`).

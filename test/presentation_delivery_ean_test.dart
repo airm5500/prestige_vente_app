@@ -127,16 +127,15 @@ void main() {
       );
 
   group('contrôles de saisie', () {
-    test('EAN : chiffres, longueur 8/12/13/14, clé EAN-13', () {
-      expect(validateEanCode(''), 'Veuillez saisir un code');
-      expect(validateEanCode('12AB5678'), contains('chiffres'));
-      expect(validateEanCode('1234567'), contains('Longueur invalide'));
-      expect(validateEanCode('3400930000015'), contains('Clé EAN-13 incorrecte'));
-      expect(validateEanCode('3400930000014'), isNull);
-      expect(validateEanCode('4006381333931'), isNull);
-      expect(validateEanCode('12345670'), isNull);
-      expect(validateEanCode('012345678905'), isNull);
-      expect(validateEanCode('01234567890128'), isNull);
+    test('EAN (4.3.0, décision du pharmacien) : valeur lue enregistrée telle quelle, aucun contrôle', () {
+      expect(eanAEnregistrer(''), '');
+      expect(eanAEnregistrer(null), '');
+      expect(eanAEnregistrer('   \n'), '', reason: 'champ vide : rien à envoyer');
+      // Plus de contrôle de chiffres, de longueur ni de clé : la valeur est gardée.
+      for (final v in ['12AB5678', '1234567', '3400930000015', '3400930000014', '0123456789012345678', 'ABC-123']) {
+        expect(eanAEnregistrer(v), v, reason: v);
+      }
+      expect(eanAEnregistrer(' 3400930000014\n'), '3400930000014', reason: 'espaces / retour de la douchette retirés');
     });
 
     test('quantité contrôlée : entier de 0 à 10 000', () {
@@ -262,7 +261,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('EAN ${style.name} : recherche, code invalide refusé, pas de double envoi', (tester) async {
+    testWidgets('EAN ${style.name} : recherche, valeur enregistrée telle quelle après confirmation, pas de double envoi', (tester) async {
       small(tester);
       final api = _FakeApi();
       await tester.pumpWidget(ChangeNotifierProvider(
@@ -279,21 +278,25 @@ void main() {
       expect(tester.takeException(), isNull);
 
       final ean = find.widgetWithText(TextFormField, 'Code EAN Fabricant');
+      // 4.3.0 : champ vide → rien (ni fenêtre, ni envoi).
+      await tester.enterText(ean, '');
+      await tester.tap(find.text('Valider'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('ean-confirmation')), findsNothing);
+      expect(api.liteInfo, isEmpty);
+
+      // 4.3.0 : plus aucun contrôle (longueur, clé) : la confirmation s'ouvre ; « Non » n'envoie rien.
       await tester.enterText(ean, '1234567');
       await tester.tap(find.text('Valider'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Longueur invalide'), findsOneWidget);
-
-      // 4.1.2 : clé incorrecte = avertissement dans la confirmation, « Corriger » par défaut, rien envoyé.
-      await tester.enterText(ean, '3400930000015');
-      await tester.tap(find.text('Valider'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('Clé EAN-13 incorrecte'), findsOneWidget);
-      await tester.tap(find.text('Corriger'));
+      expect(find.textContaining('Longueur invalide'), findsNothing);
+      expect(find.textContaining('Clé'), findsNothing);
+      expect(find.byKey(const ValueKey('ean-confirmation')), findsOneWidget);
+      await tester.tap(find.text('Non'));
       await tester.pumpAndSettle();
       expect(api.liteInfo, isEmpty);
 
-      await tester.enterText(ean, '3400930000014');
+      await tester.enterText(ean, '3400930000015'); // clé « fausse » : enregistrée quand même, sans avertissement
       api.pendingUpdate = Completer<bool>();
       await tester.tap(find.text('Valider'));
       await tester.pumpAndSettle();
@@ -307,7 +310,7 @@ void main() {
       api.pendingUpdate!.complete(true);
       await tester.pumpAndSettle();
       expect(api.liteInfo, [
-        {'id': 'p1', 'codeEanFabriquant': '3400930000014'}
+        {'id': 'p1', 'codeEanFabriquant': '3400930000015'}
       ]);
       expect(find.text('EAN mis à jour avec succès.'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -331,12 +334,12 @@ void main() {
     await tester.tap(find.text('Valider'));
     await tester.pumpAndSettle();
     expect(find.text('Remplacer l\'EAN Fabricant ?'), findsOneWidget);
-    await tester.tap(find.text('Annuler'));
+    await tester.tap(find.text('Non'));
     await tester.pumpAndSettle();
     expect(api.liteInfo, isEmpty);
     await tester.tap(find.text('Valider'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Enregistrer'));
+    await tester.tap(find.text('Oui'));
     await tester.pumpAndSettle();
     expect(api.liteInfo.length, 1);
     await tester.pump(const Duration(seconds: 3));

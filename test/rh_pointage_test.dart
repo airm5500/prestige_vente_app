@@ -733,7 +733,8 @@ void main() {
       expect(l.sens, SensPointage.sortie);
       final r = await e.pr.enregistrer(l, l.sens);
       expect(r.issue, IssueBadge.enregistre);
-      expect(e.rh.posts.single, {'employeId': 'E1', 'jour': '2026-10-12', 'heure': '08:02', 'sens': 'SORTIE', 'motif': 'Badge terminal Accueil'});
+      // 4.3.0 (demande 31) : + identifiant du terminal (celui du pointage, ignoré par un ancien serveur).
+      expect(e.rh.posts.single, {'id': r.pointage.id, 'employeId': 'E1', 'jour': '2026-10-12', 'heure': '08:02', 'sens': 'SORTIE', 'motif': 'Badge terminal Accueil'});
       e.now = e.now.add(const Duration(seconds: 70));
       expect(e.pr.lire('PV12AB34'), isA<BadgeIgnore>());
       e.now = e.now.add(const Duration(minutes: 2));

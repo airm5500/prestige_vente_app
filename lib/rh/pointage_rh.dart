@@ -12,7 +12,12 @@
 // Session Prestige expirée (401) : le pointage n'est JAMAIS perdu — gardé en file, envoyé après reconnexion.
 // Badge inconnu en ligne : la copie des employés est relue (employé créé depuis l'ouverture du terminal).
 // Photo de contrôle (badge, jamais l'empreinte) : prise par la caméra frontale avant l'enregistrement, gardée sur le
-// terminal et liée au pointage par son identifiant (le serveur n'accepte pas de photo) — voir photo_controle.dart.
+// terminal et liée au pointage par son identifiant — voir photo_controle.dart.
+// 4.3.0 (réponse du serveur du 15/10/2026, demande 31) : le pointage part avec son identifiant (`id`, le même dans
+// la file hors ligne : un renvoi répond `deja:true`, rien n'est créé deux fois) et son contrôle (`controle`), puis
+// la photo est envoyée (POST rh/pointages/{id}/photo) une fois le pointage enregistré ; photo non envoyée (réseau)
+// → réessayée au prochain envoi ; route absente (ancien serveur, 404 / 405) → plus d'essai pendant la session, la
+// photo reste sur le terminal comme avant. Jamais bloquant pour le pointage.
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -533,8 +538,9 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     notifyListeners();
   }
 
-  /// Enregistre le pointage confirmé (sens éventuellement corrigé) avec l'heure de LECTURE.
-  Future<ResultatBadge> enregistrer(BadgeAConfirmer l, SensPointage sens) async {
+  /// Enregistre le pointage confirmé (sens éventuellement corrigé) avec l'heure de LECTURE. [controle] : contrôle
+  /// de la photo (demande 31), envoyé avec le pointage.
+  Future<ResultatBadge> enregistrer(BadgeAConfirmer l, SensPointage sens, {Map<String, dynamic>? controle}) async {
     await chargerFile();
     final p = PointageBadge(
       id: const Uuid().v4(),
@@ -543,6 +549,7 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
       lu: DateTime(l.lu.year, l.lu.month, l.lu.day, l.lu.hour, l.lu.minute),
       sens: sens,
       motif: l.moyen.motif(nomTerminal()),
+      controle: controle,
     );
     _nouveauJour();
     final precedent = _derniers[l.employe.id];
@@ -583,7 +590,7 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
         ph = const PhotoAbsente(MotifSansPhoto.delaiDepasse);
       }
     }
-    final r = await enregistrer(l, sens);
+    final r = await enregistrer(l, sens, controle: ph == null ? null : controlePhoto(ph));
     final reg = photos?.registre;
     if (ph != null && reg != null) {
       try {
@@ -598,8 +605,79 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
           envoi: r.pointage.statut.name,
         );
       } catch (_) {}
+      // Pointage enregistré par le serveur : envoi de la photo, sans faire attendre l'employé.
+      if (ph is PhotoPrise && (r.issue == IssueBadge.enregistre || r.issue == IssueBadge.dejaEnregistre)) {
+        envoiPhotos = envoyerPhotos();
+      }
     }
     return r;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Photos de contrôle envoyées au serveur (demande 31)
+  // ---------------------------------------------------------------------------
+
+  /// Dernier envoi de photos lancé (tests ; jamais attendu par l'écran de pointage).
+  Future<int>? envoiPhotos;
+  bool _envoiPhotosEnCours = false;
+
+  /// Adresse du serveur sans la route photo (404 / 405) : plus d'essai pendant la session.
+  String? _sansRoutePhoto;
+
+  /// Envoie les photos des pointages enregistrés, pas encore envoyées (au plus [max]) ; renvoie le nombre envoyé.
+  /// Jamais d'exception : réseau coupé → arrêt (réessai au prochain envoi), refus → photo marquée « refusée ».
+  Future<int> envoyerPhotos({int max = 20}) async {
+    final s = serveur, reg = photos?.registre;
+    if (s is! RhPhotos || reg == null || _envoiPhotosEnCours || horsLigne()) return 0;
+    final cle = _baseUrl.isEmpty ? 'serveur-${identityHashCode(s)}' : _baseUrl;
+    if (_sansRoutePhoto == cle) return 0;
+    _envoiPhotosEnCours = true;
+    var n = 0;
+    try {
+      for (final p in reg.photosAEnvoyer.take(max)) {
+        final jpeg = await reg.image(p.id);
+        if (jpeg == null || jpeg.isEmpty) continue;
+        final ReponseRh r;
+        try {
+          r = await (s as RhPhotos).envoyerPhoto(p.id, jpeg, p.lu);
+        } on RhHorsLigne {
+          break; // réessai au prochain envoi
+        }
+        if (r.status == 404 || r.status == 405) {
+          _sansRoutePhoto = cle; // serveur sans la route : la photo reste sur le terminal, comme avant
+          break;
+        }
+        if (r.status == 401) break; // session expirée : réessai après reconnexion
+        if (r.status == 200 && r.body?['success'] == true) {
+          await reg.majPhotoServeur(p.id, 'envoyee');
+          n++;
+          _noterPhoto(p.id, 'Photo de contrôle envoyée à Prestige', ResultatJournal.ok);
+        } else if (r.status == 200 || r.status == 400 || r.status == 403 || r.status == 413) {
+          // Refus du serveur (pointage inconnu, taille, format, droit) : pas de renvoi en boucle.
+          await reg.majPhotoServeur(p.id, 'refusee');
+          _noterPhoto(p.id, 'Photo de contrôle refusée par Prestige', ResultatJournal.refus, motif: messageRh(r.body, 'code ${r.status}'));
+        } else {
+          break; // erreur du serveur (5xx) : réessai au prochain envoi
+        }
+      }
+    } catch (_) {
+      // Jamais bloquant.
+    } finally {
+      _envoiPhotosEnCours = false;
+    }
+    return n;
+  }
+
+  void _noterPhoto(String id, String action, ResultatJournal r, {String motif = ''}) {
+    try {
+      journal().noter(
+        type: TypeJournal.pointageRh,
+        action: action,
+        refLocale: id.length > 8 ? id.substring(0, 8) : id,
+        resultat: r,
+        motif: motif,
+      );
+    } catch (_) {}
   }
 
   void _majEnvoiPhoto(PointageBadge p) {
@@ -620,6 +698,14 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
   Future<ResultatBadge> _issue(PointageBadge p, ReponseRh r, {required String source}) async {
     final b = r.body;
     final m = messageRh(b, r.status == 401 ? 'Session expirée : reconnectez-vous.' : 'Pointage refusé (${r.status}).');
+    // Demande 31 : même identifiant déjà reçu (renvoi après une coupure) → déjà enregistré, rien de créé.
+    if (r.status == 200 && b?['success'] == true && b?['deja'] == true) {
+      final ok = p.copie(statut: StatutPointageBadge.dejaApplique, message: m);
+      if (p.horsLigne) await _sauver(ok);
+      _majEnvoiPhoto(ok);
+      _noter(ok, 'Pointage ${p.sens.majuscules} déjà enregistré sur le serveur', ResultatJournal.dejaApplique, motif: m, source: source);
+      return ResultatBadge(IssueBadge.dejaEnregistre, messageDejaPointe(_prenom(p), p.sens, p.heure), ok);
+    }
     if (r.status == 200 && b?['success'] == true) {
       final ok = p.copie(statut: StatutPointageBadge.envoye, message: m);
       if (p.horsLigne) await _sauver(ok);
@@ -709,6 +795,8 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
       _envoiEnCours = false;
       notifyListeners();
     }
+    // Photos des pointages enregistrés (demande 31), sans retarder le bilan.
+    if (!interrompu) envoiPhotos = envoyerPhotos();
     return BilanEnvoiRh(envoyes: envoyes, dejaAppliques: deja, refuses: refus, interrompu: interrompu, sessionExpiree: session);
   }
 
@@ -767,3 +855,18 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     super.dispose();
   }
 }
+
+/// Contrôle envoyé avec un pointage par badge (demande 31) : `{photo: true}` ou `{photo: false, motif: CODE}`.
+Map<String, dynamic> controlePhoto(ResultatPhoto ph) => switch (ph) {
+      PhotoPrise() => const {'photo': true},
+      PhotoAbsente(:final motif) => {'photo': false, 'motif': codeSansPhoto(motif)},
+    };
+
+/// Code du motif « sans photo » attendu par le serveur.
+String codeSansPhoto(MotifSansPhoto m) => switch (m) {
+      MotifSansPhoto.cameraAbsente => 'CAMERA_ABSENTE',
+      MotifSansPhoto.permissionRefusee => 'PERMISSION_REFUSEE',
+      MotifSansPhoto.erreurCamera => 'ERREUR_CAMERA',
+      MotifSansPhoto.delaiDepasse => 'DELAI_DEPASSE',
+      MotifSansPhoto.photoIllisible => 'PHOTO_ILLISIBLE',
+    };

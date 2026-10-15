@@ -25,6 +25,17 @@ class LicenceProvider with ChangeNotifier {
 
   LicenceProvider(this._apiService);
 
+  /// 4.3.0 (demande 11, option A) : message quand le serveur exige une session pour activer la licence.
+  static const messageActivationAdministrateur = 'Activez la licence après connexion d\'un administrateur.';
+
+  /// L'écran « Clé de licence » est ouvert avec la session d'un ADMINISTRATEUR gardée (licence absente ou expirée
+  /// constatée à sa connexion) : seule l'activation est possible, la session est fermée ensuite.
+  bool activationParAdministrateur = false;
+
+  /// Le dernier refus d'activation venait de l'absence de session (bouton « Connexion administrateur »).
+  bool get sessionRequise => _sessionRequise;
+  bool _sessionRequise = false;
+
   LicenceModel? get licence => _licence;
   LicenceStatus get status => _status;
   String get errorMessage => _errorMessage;
@@ -142,9 +153,19 @@ class LicenceProvider with ChangeNotifier {
     notifyListeners();
 
     // Protection crash si API mal configurée
+    _sessionRequise = false;
     try {
-      final success = await _apiService.saveLicence(key);
-      if (success) {
+      final r = await _apiService.enregistrerLicence(key);
+      if (r.sessionRequise) {
+        // Option A du pharmacien : jamais d'activation sans session ; on explique quoi faire.
+        _status = LicenceStatus.error;
+        _issue = null;
+        _sessionRequise = true;
+        _errorMessage = messageActivationAdministrateur;
+        notifyListeners();
+        return false;
+      }
+      if (r.ok) {
         await checkLicence();
         return _status == LicenceStatus.valid;
       } else {

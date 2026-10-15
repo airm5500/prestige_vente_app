@@ -40,6 +40,7 @@ class AuthProvider with ChangeNotifier {
   Future<bool> login(String login, String password) async {
     _status = AuthStatus.Loading;
     _errorMessage = null;
+    _officineDeLaConnexion = false;
     notifyListeners();
 
     try {
@@ -143,6 +144,7 @@ class AuthProvider with ChangeNotifier {
   void sessionExpiree() {
     _user = null;
     _officine = null;
+    _officineDeLaConnexion = false;
     _userLogin = null;
     _status = AuthStatus.Unauthenticated;
     notifyListeners();
@@ -157,6 +159,22 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  // ANO-09 (4.3.0) : l'officine lue par la connexion (GET /officine) sert à l'accueil qui s'ouvre JUSTE APRÈS cette
+  // connexion, au lieu d'une 2e lecture identique. Un seul usage : tout autre accueil (connexion automatique,
+  // retour, changement d'interface) relit l'officine comme avant.
+  bool _officineDeLaConnexion = false;
+
+  /// Chargements de la connexion : l'officine vient d'être lue (marque posée seulement si elle a été lue).
+  void marquerOfficineDeLaConnexion() => _officineDeLaConnexion = _officine != null;
+
+  /// Accueil : relit l'officine, sauf si la connexion qui l'ouvre vient de la lire (marque consommée).
+  Future<void> loadOfficineInfoPourAccueil() async {
+    final deja = _officineDeLaConnexion && _officine != null;
+    _officineDeLaConnexion = false;
+    if (deja) return;
+    await loadOfficineInfo();
+  }
+
   Future<void> logout() async {
     try {
       await _apiService.logout();
@@ -166,6 +184,7 @@ class AuthProvider with ChangeNotifier {
 
     _user = null;
     _officine = null;
+    _officineDeLaConnexion = false;
     // AJOUT : On nettoie le login
     _userLogin = null;
     _status = AuthStatus.Unauthenticated;

@@ -1,8 +1,12 @@
 // Intégration : flux complet du pointage par badge avec photo de contrôle, contre un serveur Prestige simulé
 // (HttpServer local, vraies requêtes HTTP de DioRhServeur) :
-// badge lu → caméra frontale (simulée) → photo compressée gardée sur le terminal → POST v1/rh/pointages (contrat
-// inchangé : aucune photo envoyée, le serveur n'en accepte pas) ; caméra en échec → pointage envoyé quand même,
-// marqué « sans photo » ; serveur injoignable → pointage en file avec sa photo, puis envoyé au retour du serveur.
+// badge lu → caméra frontale (simulée) → photo compressée gardée sur le terminal → POST v1/rh/pointages ; caméra en
+// échec → pointage envoyé quand même, marqué « sans photo » ; serveur injoignable → pointage en file avec sa photo,
+// puis envoyé au retour du serveur.
+// 4.3.0 (réponse du serveur du 15/10/2026, demande 31) : le corps porte en plus `id` (identifiant du terminal) et
+// `controle` ; serveur À JOUR : photo envoyée en multipart (POST rh/pointages/{id}/photo), renvoi du même id →
+// `deja:true` (déjà enregistré) ; serveur ANCIEN (route photo absente, 404) : une seule tentative par session, la
+// photo reste sur le terminal comme avant.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -69,11 +73,40 @@ class _Serveur {
   final typesContenu = <String>[];
   final tailles = <int>[];
 
+  /// Serveur à jour (demande 31) : route photo et `id` du terminal gérés.
+  bool aJour = false;
+  final ids = <String>{};
+
+  /// Envois de la photo : chemin, type de contenu, taille du corps, champs du formulaire présents.
+  final photos = <({String chemin, String type, int taille, bool champPhoto, bool champPrise, bool jpeg})>[];
+  int statutPhoto = 200;
+  Map<String, dynamic> reponsePhoto = const {'success': true, 'message': 'Photo de contrôle enregistrée.'};
+
   Future<void> demarrer([int port = 0]) async {
     http = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
     http.listen((req) async {
       final res = req.response..headers.contentType = ContentType.json;
       final chemin = req.uri.path;
+      if (chemin.contains('/rh/pointages/') && chemin.endsWith('/photo') && req.method == 'POST') {
+        final octets = await req.fold<List<int>>(<int>[], (a, b) => a..addAll(b));
+        final texte = latin1.decode(octets);
+        photos.add((
+          chemin: chemin,
+          type: req.headers.contentType?.mimeType ?? '',
+          taille: octets.length,
+          champPhoto: texte.contains('name="photo"'),
+          champPrise: texte.contains('name="prise"'),
+          jpeg: texte.contains('\u00ff\u00d8\u00ff'),
+        ));
+        if (!aJour) {
+          res.statusCode = 404;
+        } else {
+          res.statusCode = statutPhoto;
+          res.write(jsonEncode(reponsePhoto));
+        }
+        await res.close();
+        return;
+      }
       final corps = await utf8.decoder.bind(req).join();
       if (chemin.endsWith('/rh/droits')) {
         res.write(jsonEncode({'success': true}));
@@ -88,8 +121,14 @@ class _Serveur {
       } else if (chemin.endsWith('/rh/pointages') && req.method == 'POST') {
         typesContenu.add(req.headers.contentType?.mimeType ?? '');
         tailles.add(corps.length);
-        posts.add(Map<String, dynamic>.from(jsonDecode(corps) as Map));
-        res.write(jsonEncode({'success': true, 'message': 'Pointage manuel enregistré.'}));
+        final j = Map<String, dynamic>.from(jsonDecode(corps) as Map);
+        posts.add(j);
+        final id = '${j['id'] ?? ''}';
+        if (aJour && id.isNotEmpty && !ids.add(id)) {
+          res.write(jsonEncode({'success': true, 'id': id, 'deja': true, 'message': 'Pointage déjà existant.'}));
+        } else {
+          res.write(jsonEncode({'success': true, if (aJour) 'id': id, 'message': 'Pointage manuel enregistré.'}));
+        }
       } else {
         res.statusCode = 404;
       }
@@ -157,13 +196,15 @@ void main() {
     }
   }
 
-  test('badge → photo (caméra simulée) → POST rh/pointages : contrat inchangé, photo gardée sur le terminal et liée', () async {
+  test('badge → photo (caméra simulée) → POST rh/pointages (+ id et contrôle), photo gardée sur le terminal et liée ; serveur ancien : 1 essai d\'envoi de photo (404)', () async {
     await monter(() async {
       expect(await pr.rafraichirEmployes(), isNull);
       final r = await pointer('pv12ab34');
       expect(r.issue, IssueBadge.enregistre);
-      // Serveur : le corps JSON habituel, sans photo (le serveur n'en accepte pas), petit.
-      expect(serveur.posts.single.keys, unorderedEquals(['employeId', 'jour', 'heure', 'sens', 'motif']));
+      // Serveur : le corps JSON habituel + id du terminal et contrôle (4.3.0), sans photo, petit.
+      expect(serveur.posts.single.keys, unorderedEquals(['id', 'employeId', 'jour', 'heure', 'sens', 'motif', 'controle']));
+      expect(serveur.posts.single['id'], r.pointage.id);
+      expect(serveur.posts.single['controle'], {'photo': true});
       expect(serveur.posts.single['employeId'], 'E1');
       expect(serveur.posts.single['sens'], 'ENTREE');
       expect(serveur.posts.single['motif'], 'Badge terminal Accueil');
@@ -184,6 +225,56 @@ void main() {
       final j = [for (final x in await journal.lire()) '${x.action} ${x.motif} ${x.refLocale}'].join('\n');
       expect(j, contains('Photo de contrôle prise'));
       expect(j, isNot(contains(base64Encode(jpeg).substring(0, 40))));
+      // Serveur ancien : la route photo répond 404 → la photo reste ici, plus d'essai pendant la session.
+      await pr.envoiPhotos;
+      expect(serveur.photos, hasLength(1));
+      expect(registre.photos.single.photoServeur, '', reason: 'pas marquée envoyée');
+      await pointer('04A1B2C3');
+      await pr.envoiPhotos;
+      expect(serveur.photos, hasLength(1), reason: 'route absente : aucun nouvel essai');
+    });
+  });
+
+  test('serveur À JOUR (demande 31) : photo envoyée en multipart après le pointage, liée par l\'id ; renvoi du même id → déjà enregistré', () async {
+    await monter(() async {
+      serveur.aJour = true;
+      await pr.rafraichirEmployes();
+      final r = await pointer('PV12AB34');
+      expect(r.issue, IssueBadge.enregistre);
+      expect(await pr.envoiPhotos, 1);
+      final ph = serveur.photos.single;
+      expect(ph.chemin, endsWith('/rh/pointages/${r.pointage.id}/photo'));
+      expect(ph.type, 'multipart/form-data');
+      expect([ph.champPhoto, ph.champPrise, ph.jpeg], [true, true, true]);
+      expect(ph.taille, lessThan(150 * 1024), reason: 'limite du serveur : 150 Ko');
+      expect(registre.photos.single.photoServeur, 'envoyee');
+      // Aucune photo renvoyée ensuite.
+      expect(await pr.envoyerPhotos(), 0);
+      expect(serveur.photos, hasLength(1));
+      // Même pointage renvoyé (réponse perdue puis file rejouée) : deja:true → déjà enregistré, rien de créé.
+      final again = await DioRhServeur(() => base).post('/rh/pointages', r.pointage.corps);
+      expect(again.body?['deja'], isTrue);
+      await journal.idle;
+      final j = [for (final x in await journal.lire()) '${x.action} ${x.motif}'].join('\n');
+      expect(j, contains('Photo de contrôle envoyée à Prestige'));
+    });
+  });
+
+  test('serveur À JOUR : refus de la photo (trop lourde) → marquée refusée, jamais renvoyée en boucle ; sans photo → contrôle {photo:false, motif}', () async {
+    await monter(() async {
+      serveur.aJour = true;
+      serveur.reponsePhoto = const {'success': false, 'message': 'Photo trop lourde : 160 Ko, 150 Ko au plus.'};
+      await pr.rafraichirEmployes();
+      await pointer('PV12AB34');
+      await pr.envoiPhotos;
+      expect(registre.photos.single.photoServeur, 'refusee');
+      expect(await pr.envoyerPhotos(), 0);
+      expect(serveur.photos, hasLength(1));
+      camera.echec = MotifSansPhoto.cameraAbsente;
+      await pointer('04A1B2C3');
+      expect(serveur.posts.last['controle'], {'photo': false, 'motif': 'CAMERA_ABSENTE'});
+      await pr.envoiPhotos;
+      expect(serveur.photos, hasLength(1), reason: 'aucune photo à envoyer pour un pointage sans photo');
     });
   });
 
@@ -194,6 +285,7 @@ void main() {
       final r = await pointer('04A1B2C3');
       expect(r.issue, IssueBadge.enregistre);
       expect(serveur.posts.single['employeId'], 'E2');
+      expect(serveur.posts.single['controle'], {'photo': false, 'motif': 'PERMISSION_REFUSEE'});
       final p = registre.photos.single;
       expect([p.id, p.avecPhoto, p.motif], [r.pointage.id, false, MotifSansPhoto.permissionRefusee]);
       expect(registre.anomaliesNonTraitees, 1);
@@ -220,8 +312,10 @@ void main() {
       await serveur.demarrer(port);
       final bilan = await pr.envoyer();
       expect(bilan.envoyes, 1);
+      await pr.envoiPhotos;
       expect(serveur.posts.single['employeId'], 'E1');
       expect(serveur.posts.single.containsKey('photo'), isFalse);
+      expect(serveur.posts.single['id'], r.pointage.id, reason: 'même identifiant que celui de la file');
       expect(registre.photos.single.envoi, StatutPointageBadge.envoye.name);
       // 31 jours plus tard (conservation 30 j par défaut), la photo est effacée automatiquement.
       final plusTard = RegistrePhotosPointage(

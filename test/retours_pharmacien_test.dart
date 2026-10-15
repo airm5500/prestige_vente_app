@@ -546,26 +546,13 @@ void main() {
   });
 
   // =======================================================================================================
-  group('4. EAN fabricant : confirmation avant d\'enregistrer', () {
-    test('format bloquant, clé de contrôle EAN-8 / 12 / 13 / 14 en avertissement', () {
-      expect(validateEanFormat(''), 'Veuillez saisir un code');
-      expect(validateEanFormat('12AB5678'), contains('chiffres'));
-      expect(validateEanFormat('1234567'), contains('Longueur invalide'));
-      expect(validateEanFormat('3400930000015'), isNull, reason: 'clé incorrecte : non bloquante');
-      expect(cleEanAttendue('3400930000015'), 4);
-      expect(cleEanAttendue('12345670'), 0);
-      expect(cleEanAttendue('012345678905'), 5);
-      expect(cleEanAttendue('01234567890128'), 8);
-      expect(cleEanAttendue('1234'), isNull);
-      for (final bon in ['3400930000014', '4006381333931', '12345670', '96385074', '012345678905', '01234567890128']) {
-        expect(avertissementCleEan(bon), isNull, reason: bon);
+  group('4. EAN fabricant : confirmation avant d\'enregistrer, aucun contrôle (4.3.0)', () {
+    test('valeur lue enregistrée telle quelle : ni chiffres, ni longueur, ni clé ; champ vide = rien', () {
+      expect(eanAEnregistrer(''), '');
+      expect(eanAEnregistrer('  '), '');
+      for (final v in ['3400930000015', '12AB5678', '1234567', '12345671', '0123456789012345678901', '96385074']) {
+        expect(eanAEnregistrer(v), v, reason: v);
       }
-      expect(avertissementCleEan('3400930000015'), 'Clé EAN-13 incorrecte : le dernier chiffre devrait être 4. Vérifiez le code.');
-      expect(avertissementCleEan('12345671'), contains('Clé EAN-8 incorrecte'));
-      expect(avertissementCleEan('012345678906'), contains('Clé UPC-A incorrecte'));
-      expect(avertissementCleEan('01234567890129'), contains('Clé GTIN-14 incorrecte'));
-      // Clé EAN-13 calculée comme avant.
-      expect(cleEanAttendue('400638133393${ean13CheckDigit('400638133393')}'), ean13CheckDigit('400638133393'));
     });
 
     Future<_ApiProduit> ouvrir(WidgetTester t, {String eanActuel = '4006381333931'}) async {
@@ -580,38 +567,45 @@ void main() {
     }
 
     Finder champ() => find.widgetWithText(TextFormField, 'Code EAN Fabricant');
+    bool focusChamp(WidgetTester t) => t.widget<EditableText>(find.descendant(of: champ(), matching: find.byType(EditableText))).focusNode.hasFocus;
 
     for (final taille in _tailles) {
       for (final echelle in _echelles) {
         final cfg = '$taille, texte ×$echelle';
-        testWidgets('récapitulatif, « Annuler » ne change rien, Entrée (douchette) enregistre — $cfg', (t) async {
+        testWidgets('récapitulatif Oui / Non, « Non » remet le curseur dans le champ (valeur gardée), Entrée (douchette) = Oui — $cfg', (t) async {
           taille.appliquer(t);
           _texte(t, echelle);
           final api = await ouvrir(t);
-          await t.enterText(champ(), '3400930000014');
+          await t.enterText(champ(), '3400930000015'); // clé « fausse » : plus d'avertissement (4.3.0)
           await t.testTextInput.receiveAction(TextInputAction.done); // Entrée de la douchette dans le champ
           await t.pumpAndSettle();
           expect(find.byKey(const ValueKey('ean-confirmation')), findsOneWidget);
           expect(find.text('Remplacer l\'EAN Fabricant ?'), findsOneWidget);
           expect(t.widget<Text>(find.byKey(const ValueKey('ean-confirmation-produit'))).data, 'DOLIPRANE 1000MG CP B/8 BOITE FAMILIALE');
           expect(t.widget<Text>(find.byKey(const ValueKey('ean-confirmation-ancien'))).data, '4006381333931');
-          expect(t.widget<Text>(find.byKey(const ValueKey('ean-confirmation-nouveau'))).data, '3400930000014  (EAN-13)');
-          expect(find.byKey(const ValueKey('ean-confirmation-avertissement')), findsNothing);
+          expect(t.widget<Text>(find.byKey(const ValueKey('ean-confirmation-nouveau'))).data, '3400930000015');
+          expect(find.textContaining('incorrecte'), findsNothing, reason: 'aucun contrôle de clé');
+          expect(find.text('Enregistrer quand même'), findsNothing);
+          expect(find.text('Oui'), findsOneWidget);
+          expect(find.text('Non'), findsOneWidget);
           _fenetreCharte(t, 'Confirmation EAN $cfg');
           // Cibles ≥ 48 dp (de l'interface) pour les deux boutons.
           for (final k in ['ean-confirmation-annuler', 'ean-confirmation-enregistrer']) {
             expect(t.getSize(find.byKey(ValueKey(k))).height, greaterThanOrEqualTo(48 * 0.9 - 0.01), reason: k);
           }
 
-          await t.tap(find.byKey(const ValueKey('ean-confirmation-annuler')));
+          await t.tap(find.byKey(const ValueKey('ean-confirmation-annuler'))); // « Non »
           await t.pumpAndSettle();
-          expect(api.envois, isEmpty, reason: '« Annuler » ne change rien');
-          expect(t.widget<TextFormField>(champ()).controller!.text, '3400930000014', reason: 'saisie gardée');
+          expect(api.envois, isEmpty, reason: '« Non » ne change rien');
+          expect(find.byKey(const ValueKey('ean-confirmation')), findsNothing);
+          expect(t.widget<TextFormField>(champ()).controller!.text, '3400930000015', reason: 'valeur gardée pour correction');
+          expect(focusChamp(t), isTrue, reason: '« Non » : curseur de retour dans le champ');
 
-          await t.tap(find.text('Valider'));
+          // Correction puis Entrée : la confirmation revient, « Oui » par défaut.
+          await t.enterText(champ(), '3400930000014');
+          await t.testTextInput.receiveAction(TextInputAction.done);
           await t.pumpAndSettle();
-          // Bouton par défaut : Entrée / OK de la douchette valide la confirmation.
-          expect(Focus.of(t.element(find.text('Enregistrer'))).hasFocus, isTrue);
+          expect(Focus.of(t.element(find.text('Oui'))).hasFocus, isTrue);
           await t.sendKeyEvent(LogicalKeyboardKey.enter);
           await t.pumpAndSettle();
           expect(api.envois, [
@@ -621,32 +615,43 @@ void main() {
           expect(t.takeException(), isNull);
           await t.pump(const Duration(seconds: 3));
         });
-
-        testWidgets('clé incorrecte : avertissement, Entrée = « Corriger », « Enregistrer quand même » explicite — $cfg', (t) async {
-          taille.appliquer(t);
-          _texte(t, echelle);
-          final api = await ouvrir(t, eanActuel: '');
-          await t.enterText(champ(), '3400930000015');
-          await t.tap(find.text('Valider'));
-          await t.pumpAndSettle();
-          expect(find.text('Enregistrer l\'EAN Fabricant ?'), findsOneWidget);
-          expect(t.widget<Text>(find.byKey(const ValueKey('ean-confirmation-ancien'))).data, 'aucun');
-          expect(find.textContaining('Clé EAN-13 incorrecte : le dernier chiffre devrait être 4'), findsOneWidget);
-          _fenetreCharte(t, 'Confirmation EAN (clé incorrecte) $cfg');
-          await t.sendKeyEvent(LogicalKeyboardKey.enter);
-          await t.pumpAndSettle();
-          expect(api.envois, isEmpty, reason: 'Entrée ramène à la saisie');
-          expect(find.byKey(const ValueKey('ean-confirmation')), findsNothing);
-
-          await t.tap(find.text('Valider'));
-          await t.pumpAndSettle();
-          await t.tap(find.byKey(const ValueKey('ean-confirmation-enregistrer-quand-meme')));
-          await t.pumpAndSettle();
-          expect(api.envois.single['codeEanFabriquant'], '3400930000015');
-          await t.pump(const Duration(seconds: 3));
-        });
       }
     }
+
+    testWidgets('aucun contrôle de forme : lettres, longueur quelconque, clé fausse enregistrées telles quelles ; champ vide = rien', (t) async {
+      TailleEcran.sunmiV2s.appliquer(t);
+      final api = await ouvrir(t, eanActuel: '');
+      // Champ vide : ni fenêtre ni envoi, curseur dans le champ, aucun message bloquant.
+      await t.enterText(champ(), '');
+      await t.tap(find.text('Valider'));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('ean-confirmation')), findsNothing);
+      expect(focusChamp(t), isTrue);
+      expect(api.envois, isEmpty);
+      var n = 0;
+      for (final v in ['12AB5678', '1234567', '0123456789012345678901', '12345671']) {
+        await t.enterText(champ(), v);
+        await t.tap(find.text('Valider'));
+        await t.pumpAndSettle();
+        expect(find.text('Enregistrer l\'EAN Fabricant ?'), findsOneWidget, reason: v);
+        expect(t.widget<Text>(find.byKey(const ValueKey('ean-confirmation-nouveau'))).data, v);
+        expect(find.textContaining('Longueur'), findsNothing);
+        expect(find.textContaining('chiffres'), findsNothing);
+        await t.tap(find.text('Oui'));
+        await t.pumpAndSettle();
+        n++;
+        expect(api.envois.length, n, reason: v);
+        expect(api.envois.last['codeEanFabriquant'], v, reason: 'valeur lue enregistrée telle quelle');
+        await t.pump(const Duration(seconds: 3));
+        // Formulaire fermé après l'enregistrement : on rouvre le produit.
+        if (champ().evaluate().isEmpty) {
+          await t.enterText(find.byType(TextField).first, 'doliprane');
+          await t.pump(const Duration(milliseconds: 600));
+          await t.pumpAndSettle();
+        }
+      }
+      expect(t.takeException(), isNull);
+    });
   });
 
   // =======================================================================================================

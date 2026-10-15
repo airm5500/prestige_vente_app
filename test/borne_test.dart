@@ -877,6 +877,39 @@ void main() {
     }
   });
 
+  group('Message « Ajouté : NOM » en haut de l\'écran (4.3.0)', () {
+    bool chevauche(Rect a, Rect b) => a.overlaps(b) && a.intersect(b).width > 0.5 && a.intersect(b).height > 0.5;
+    for (final taille in const [Size(360, 640), Size(360, 740), Size(1280, 800)]) {
+      for (final echelle in const [1.0, 1.3]) {
+        testWidgets('${taille.width.toInt()}×${taille.height.toInt()} dp, texte ×$echelle : en haut, ne recouvre ni la recherche ni le panier, 2 s', (tester) async {
+          tester.platformDispatcher.textScaleFactorTestValue = echelle;
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          await _borne(tester, taille: taille);
+          await _chercher(tester, 'doli');
+          expect(tester.takeException(), isNull, reason: 'AVANT le message');
+          await _tap(tester, find.byKey(const ValueKey('borne-ajouter-P2')));
+          final b = find.byKey(const ValueKey('borne-ajoute'));
+          expect(b, findsOneWidget);
+          expect(find.textContaining('Ajouté : '), findsOneWidget);
+          expect(find.byType(SnackBar), findsNothing, reason: 'plus de message en bas de l\'écran');
+          final rb = tester.getRect(b);
+          expect(rb.top, lessThanOrEqualTo(1), reason: 'en haut de l\'écran');
+          expect(rb.height, greaterThanOrEqualTo(44), reason: 'lisible');
+          for (final k in ['borne-voir-panier', 'borne-recherche', 'borne-ajouter-P1']) {
+            final f = find.byKey(ValueKey(k));
+            if (f.evaluate().isEmpty) continue;
+            expect(chevauche(rb, tester.getRect(f.first)), isFalse, reason: 'le message recouvre $k');
+          }
+          expect(tester.takeException(), isNull, reason: 'aucun débordement');
+          await tester.pump(const Duration(milliseconds: 1900));
+          expect(b, findsOneWidget, reason: 'même durée qu\'avant (2 s)');
+          await tester.pump(const Duration(milliseconds: 200));
+          expect(b, findsNothing);
+        });
+      }
+    }
+  });
+
   group('Intégration serveur de test', () {
     final url = Platform.environment['PRESTIGE_TEST_URL'] ?? 'http://localhost:8080/prestige/api/v1';
     test('prévente borne créée sur le vrai serveur (retrouvable par sa référence), puis supprimée', () => HttpOverrides.runWithHttpOverrides(() async {

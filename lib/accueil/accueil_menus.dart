@@ -150,7 +150,7 @@ Map<MenuFamille, List<AccueilMenu>> avecMenusAdmin(Map<MenuFamille, List<Accueil
 /// que si le compte connecté y a droit ([AccueilMenu.visible]) ; ils ne sont ni organisables ni proposés en favoris.
 final List<AccueilMenu> menusSousDroits = [
   // Analyse posologie (Posos via Prestige) : interactions, contre-indications, posologies. Compte connecté.
-  AccueilMenu(id: 'posos', label: 'Analyse posologie', short: 'Posologie', icon: Icons.health_and_safety_outlined, color: Colors.pink.shade600, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.connu, screen: () => const PososScreen()),
+  AccueilMenu(id: 'posos', label: 'Analyse posologie', short: 'Posologie', icon: Icons.health_and_safety_outlined, color: Colors.pink.shade600, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.posos, screen: () => const PososScreen()),
   // Ordonnances des clients (onglet « Fiche client ») : droit Prestige P_ORDONNANCE_CLIENT.
   AccueilMenu(id: 'ordonnances_clients', label: 'Ordonnances des clients', short: 'Fiche client', icon: Icons.assignment_ind, color: Colors.teal.shade800, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.ordonnancesConsulter, screen: () => const OrdonnancesClientsScreen()),
   // Réserve : réappros rayon ↔ réserve (suggestion puis traitement). Administrateur (+ droit dédié quand le serveur l'exposera).

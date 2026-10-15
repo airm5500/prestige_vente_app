@@ -438,6 +438,24 @@ class ApiService {
 
   // --- GESTION LICENCE (AJOUT) ---
 
+  /// 4.3.0 (demande 11, option A) : enregistrement de la licence avec la cause d'un refus. `GET v1/licence/save`
+  /// exige une session : sans connexion le serveur répond 401 (ou 403 « Veuillez vous connecter ») →
+  /// [sessionRequise] (« Activez la licence après connexion d'un administrateur »).
+  Future<({bool ok, bool sessionRequise})> enregistrerLicence(String key) async {
+    try {
+      final response = await _dio.get('/licence/save/$key'); // même adresse qu'avant (clé telle quelle)
+      return (ok: response.statusCode == 200, sessionRequise: false);
+    } on DioException catch (e) {
+      final r = e.response;
+      final code = r?.statusCode;
+      final texte = r?.data is String ? (r!.data as String).toLowerCase() : '';
+      final session = code == 401 || (code == 403 && texte.contains('vous connecter'));
+      return (ok: false, sessionRequise: session);
+    } catch (_) {
+      return (ok: false, sessionRequise: false);
+    }
+  }
+
   Future<bool> saveLicence(String key) async {
     try {
       // L'URL demandée est /licence/save/{key}
