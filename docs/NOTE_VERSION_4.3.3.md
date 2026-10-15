@@ -18,7 +18,8 @@ Mot de passe faux, erreur 500 et refus métier : **inchangés** (jamais confondu
 - **Accueil** : la surveillance du serveur lit `/officine` ; un 404 (page de Payara) ou un 502/503/504 ne compte
   plus comme « serveur joignable » : pastille et bandeau « Serveur indisponible » (Prestige en démarrage ou
   redéploiement), sinon « Serveur injoignable ».
-- **Borne** : « Tester la borne » et le motif d'échec de connexion donnent le bon message.
+- **Borne** : « Tester la borne », le motif d'échec de connexion et l'écran « Borne momentanément indisponible »
+  (ligne pour le personnel) donnent le bon message.
 - **Pointage** : terminal RH (pointage gardé en file, bilan « envoi interrompu : serveur injoignable / indisponible »)
   et téléphones de pointage.
 - **Modules** (Réserve, Posos, Fiche client, ventes, réception, retours, images, paiements, copie hors ligne) : même

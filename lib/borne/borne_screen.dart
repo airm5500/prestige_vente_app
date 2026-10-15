@@ -28,6 +28,7 @@ import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sortie_kiosque.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 enum BorneVue { accueil, resultats, fiche, panier, ecarts, ticket, operateur, mobile }
 
@@ -722,6 +723,14 @@ class BorneScreenState extends State<BorneScreen> {
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 20, color: Pal.navy, fontWeight: FontWeight.w700)),
             const SizedBox(height: 18),
             const Text('La borne reprendra automatiquement dès que possible.', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted)),
+            // 4.3.3 : serveur injoignable ≠ Prestige en démarrage / redéploiement (pour le personnel).
+            if (_m.etat != EtatServeur.enLigne) ...[
+              const SizedBox(height: 14),
+              Text(MessagesServeur.message(_m.panne),
+                  key: const ValueKey('borne-panne-serveur'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Color(0xFF7C2D12), fontSize: 15)),
+            ],
             // Cause précise pour le personnel (utilisateur borne non configuré, connexion refusée…).
             if (!_connecte && (widget.motifConnexion?.call() ?? '').isNotEmpty) ...[
               const SizedBox(height: 14),
