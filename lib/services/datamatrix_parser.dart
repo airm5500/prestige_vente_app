@@ -46,6 +46,10 @@ class DataMatrixData {
   /// Une date de péremption est présente dans le code mais elle est impossible.
   final bool invalidExpiry;
 
+  /// Numéro de série de la boîte (GS1, AI 21), seulement s'il est certain (même valeur dans toutes les lectures
+  /// possibles du code). 4.3.1 (D18) : envoyé avec le lot pour refuser une boîte déjà scannée. Jamais journalisé.
+  final String? serie;
+
   const DataMatrixData({
     required this.raw,
     required this.format,
@@ -56,6 +60,7 @@ class DataMatrixData {
     this.expiryCandidates = const [],
     this.expiryCertain = false,
     this.invalidExpiry = false,
+    this.serie,
   });
 
   String? get lot => lotCertain && lotCandidates.length == 1 ? lotCandidates.first : null;
@@ -393,6 +398,7 @@ class DataMatrixParser {
     final expiries = <DateTime>[];
     var lotCertain = true;
     var expiryCertain = true;
+    final series = <String?>{};
 
     for (final fields in interpretations) {
       final gtin = _first(fields, '01');
@@ -404,6 +410,8 @@ class DataMatrixParser {
       } else if (!lots.contains(lot)) {
         lots.add(lot);
       }
+
+      series.add(_first(fields, '21'));
 
       final exp = _first(fields, '17');
       final date = exp == null ? null : gs1Date(exp, now: now);
@@ -423,6 +431,7 @@ class DataMatrixParser {
       expiryCandidates: expiries,
       expiryCertain: expiryCertain && expiries.length == 1,
       invalidExpiry: invalidExpiry,
+      serie: series.length == 1 && (series.first ?? '').isNotEmpty ? series.first : null,
     );
   }
 

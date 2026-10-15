@@ -81,7 +81,7 @@ utilisés dans une version suivante.
 | 31 | `id` et `controle` dans `POST rh/pointages`, photo par `POST rh/pointages/{id}/photo` |
 | 403 | `{interdit:true, msg}` affiché, jamais une déconnexion |
 | 6, 37 | sans objet (pas d'annulation de vente clôturée, pas de versement d'inventaire dans cette application) |
-| 36 | écrans D10–D16 à construire dans une version suivante ; D18 : envoi de `serie` / `gtin` (décision § 1) |
+| 36 | écrans D10–D16 à construire dans une version suivante ; **D18 fait en 4.3.1** : `serie` (AI 21) et `gtin` (AI 01) envoyés sur `commande/add-lot` quand la boîte scannée est un DataMatrix GS1 qui les porte (en ligne et file hors ligne) ; `SERIE_DEJA_CONSOMMEE` → « Boîte déjà scannée », rien d'ajouté, ligne refusée à la synchro sans renvoi ; serveur `dev` : champs inconnus ignorés (JSON-B), et un éventuel 400 renvoie le même lot sans série |
 
 ### Demande 43 — Empreintes des employés partagées entre terminaux de pointage (P2)
 

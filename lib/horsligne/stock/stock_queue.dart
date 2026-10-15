@@ -129,6 +129,8 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
     int ug = 0,
     required String numLot,
     DateTime? expiry,
+    String? serie,
+    String? gtin,
   }) async {
     final op = await _openOrNew(StockOpType.reception, blId, reference: 'BL $blRef', grossiste: grossiste, meta: {'blRef': blRef});
     op.lines.add(StockOpLine(key: _lineKey(op), label: produit, data: {
@@ -138,6 +140,9 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
       'ug': ug,
       'numLot': numLot,
       'expiry': expiry == null ? '' : _iso.format(expiry),
+      // D18 (4.3.1) : numéro de série et GTIN de la boîte (stockage privé de l'application, jamais journalisés).
+      if ((serie ?? '').trim().isNotEmpty) 'serie': serie!.trim(),
+      if ((serie ?? '').trim().isNotEmpty && (gtin ?? '').trim().isNotEmpty) 'gtin': gtin!.trim(),
     }));
     await _save(op);
     journalStockOp(op, 'lot saisi hors ligne', ligne: op.lines.last);

@@ -256,7 +256,8 @@ class _OnlineReception implements ReceptionGateway {
   }
 
   @override
-  Future<ReceptionResult> addLot({required String detailId, required int quantity, required int freeQty, required String numLot, DateTime? expiry}) async {
+  Future<ReceptionResult> addLot(
+      {required String detailId, required int quantity, required int freeQty, required String numLot, DateTime? expiry, String? serie, String? gtin}) async {
     calls.add('addLot $detailId');
     return const ReceptionResult(true, 'Lot enregistré');
   }

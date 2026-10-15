@@ -21,12 +21,16 @@ abstract class ReceptionGateway {
   /// Lignes du BL. [query] : CIP, EAN ou début du nom (recherche du serveur).
   Future<List<ReceptionLine>> lines(String blId, {String query = ''});
 
+  /// [serie] / [gtin] (4.3.1, D18) : numéro de série et GTIN du DataMatrix de la boîte scannée ; un serveur à
+  /// jour refuse une boîte déjà scannée (`code:"SERIE_DEJA_CONSOMMEE"`), un ancien serveur les ignore.
   Future<ReceptionResult> addLot({
     required String detailId,
     required int quantity,
     required int freeQty,
     required String numLot,
     DateTime? expiry,
+    String? serie,
+    String? gtin,
   });
 
   /// Efface tous les lots saisis sur la ligne (pour ressaisir).
@@ -134,18 +138,33 @@ class DioReceptionGateway implements ReceptionGateway {
     required int freeQty,
     required String numLot,
     DateTime? expiry,
+    String? serie,
+    String? gtin,
   }) async {
+    Map<String, dynamic> corps({required bool avecSerie}) => {
+          'idBonDetail': detailId,
+          'qty': quantity,
+          'freeQty': freeQty,
+          'numLot': numLot,
+          'datePeremption': expiry == null ? '' : _iso.format(expiry),
+          // Toujours un nouveau lot (le mode « import direct » remplacerait le lot existant).
+          'directImport': false,
+          ...champsSerie(serie, gtin, avecSerie: avecSerie),
+        };
     try {
-      final r = await dio.post('/commande/add-lot', data: {
-        'idBonDetail': detailId,
-        'qty': quantity,
-        'freeQty': freeQty,
-        'numLot': numLot,
-        'datePeremption': expiry == null ? '' : _iso.format(expiry),
-        // Toujours un nouveau lot (le mode « import direct » remplacerait le lot existant).
-        'directImport': false,
-      });
-      return _result(r.data, ok: 'Lot enregistré');
+      final r = await dio.post('/commande/add-lot', data: corps(avecSerie: true));
+      return resultatAjoutLot(_result(r.data, ok: 'Lot enregistré'));
+    } on DioException catch (e) {
+      // Serveur qui refuserait des champs inconnus (400 avant toute écriture) : même lot, sans série.
+      if (e.response?.statusCode == 400 && champsSerie(serie, gtin).isNotEmpty) {
+        try {
+          final r = await dio.post('/commande/add-lot', data: corps(avecSerie: false));
+          return resultatAjoutLot(_result(r.data, ok: 'Lot enregistré'));
+        } catch (e2) {
+          return _error(e2);
+        }
+      }
+      return _error(e);
     } catch (e) {
       return _error(e);
     }
@@ -195,4 +214,27 @@ class DioReceptionGateway implements ReceptionGateway {
       return _error(e);
     }
   }
+}
+
+/// D18 (4.3.1) : refus d'une boîte déjà scannée par le serveur.
+const String codeSerieDejaConsommee = 'SERIE_DEJA_CONSOMMEE';
+
+/// Message affiché pour une boîte déjà scannée.
+const String messageBoiteDejaScannee = 'Boîte déjà scannée';
+
+/// Champs `serie` / `gtin` du corps de `commande/add-lot` (vides si absents ; [avecSerie] faux : aucun).
+Map<String, dynamic> champsSerie(String? serie, String? gtin, {bool avecSerie = true}) {
+  final s = (serie ?? '').trim();
+  if (!avecSerie || s.isEmpty) return const {};
+  final g = (gtin ?? '').trim();
+  return {'serie': s, if (g.isNotEmpty) 'gtin': g};
+}
+
+/// Réponse de `commande/add-lot` : le refus « boîte déjà scannée » reçoit son message clair et son code.
+ReceptionResult resultatAjoutLot(ReceptionResult r) {
+  if (r.success) return r;
+  if ('${r.data['code'] ?? ''}' == codeSerieDejaConsommee) {
+    return ReceptionResult(false, '$messageBoiteDejaScannee : cette boîte a déjà été enregistrée. Aucune quantité ajoutée ; scannez la boîte suivante.', r.data);
+  }
+  return r;
 }

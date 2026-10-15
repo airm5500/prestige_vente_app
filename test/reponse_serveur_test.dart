@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/accueil/accueil_menus.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/api/dio_client.dart' show masquerSerie;
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/connexion/connexion_commun.dart';
 import 'package:prestige_vente_app/droits/droits_modules.dart';
@@ -25,6 +26,9 @@ import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_sender.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
+import 'package:prestige_vente_app/reception/reception_gateway.dart';
+import 'package:prestige_vente_app/reception/reception_models.dart';
+import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 import 'package:prestige_vente_app/reserve/reserve_api.dart';
 import 'package:prestige_vente_app/reserve/reserve_models.dart';
 import 'package:prestige_vente_app/reserve/reserve_traitement_screen.dart';
@@ -40,6 +44,9 @@ import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 import 'outils/app_e2e.dart';
 
+/// Dernière série reçue par le faux serveur stock (test D18 hors ligne).
+String? srv0Serie;
+
 List<String> _ids() => orderedMenus(const []).map((m) => m.id).toList();
 
 /// Serveur stock simulé (routes réception / retour) : enregistre chemin, en-têtes et corps de chaque appel.
@@ -47,6 +54,7 @@ class _Stock implements StockServer {
   final appels = <({String methode, String chemin, Map<String, String>? entetes, Object? corps})>[];
   StockHttp? Function(String methode, String chemin)? reponse;
   String? coupe; // chemin dont le prochain appel n'arrive pas (serveur injoignable)
+  void Function(Object? corps)? surAppel;
 
   @override
   Future<StockHttp> call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers}) async {
@@ -55,6 +63,7 @@ class _Stock implements StockServer {
       throw const StockStopException('Serveur injoignable : envoi interrompu.');
     }
     appels.add((methode: method, chemin: path, entetes: headers, corps: data));
+    surAppel?.call(data);
     final r = reponse?.call(method, path);
     if (r != null) return r;
     if (path.startsWith('/commande/bon/items/') && method == 'GET') {
@@ -260,6 +269,124 @@ void main() {
       final op2 = _reception();
       await expectLater(StockSender(srv2, persist: (_) async {}).apply(op2), throwsA(isA<StockStopException>()));
       expect(op2.lines.where((l) => l.etat == StockLineEtat.rejected), isEmpty);
+    });
+  });
+
+  // =======================================================================================================
+  group('D18 (4.3.1) : boîte déjà scannée refusée', () {
+    const gs = '\u001d';
+    const gtin = '03400935955838';
+    test('DataMatrix GS1 : numéro de série (AI 21) lu avec le GTIN ; absent → null', () {
+      final a = DataMatrixParser.parse('01${gtin}21SN0001${gs}17271031' '10A123')!;
+      expect([a.gtin, a.serie, a.lot], [gtin, 'SN0001', 'A123']);
+      final b = DataMatrixParser.parse('(01)$gtin(21)XY-77(17)271031(10)L9')!;
+      expect(b.serie, 'XY-77');
+      expect(DataMatrixParser.parse('01${gtin}17271031' '10A123')!.serie, isNull);
+    });
+
+    test('corps, refus et journal : série seulement si connue, message clair, jamais en clair dans le journal', () {
+      expect(champsSerie('SN1', gtin), {'serie': 'SN1', 'gtin': gtin});
+      expect(champsSerie('SN1', null), {'serie': 'SN1'});
+      expect(champsSerie(null, gtin), isEmpty);
+      expect(champsSerie(' ', gtin), isEmpty);
+      expect(champsSerie('SN1', gtin, avecSerie: false), isEmpty);
+      final r = resultatAjoutLot(const ReceptionResult(false, 'Boîte déjà scannée', {'success': false, 'code': 'SERIE_DEJA_CONSOMMEE'}));
+      expect(r.message, startsWith('Boîte déjà scannée'));
+      expect(r.message, contains('Aucune quantité ajoutée'));
+      expect(resultatAjoutLot(const ReceptionResult(false, 'Autre refus')).message, 'Autre refus');
+      expect(masquerSerie('{idBonDetail: d1, qty: 1, serie: SN0001, gtin: $gtin}'), isNot(contains('SN0001')));
+      expect(masquerSerie('{"qty":1,"serie":"SN0001","gtin":"$gtin"}'), isNot(contains('SN0001')));
+      expect(masquerSerie('{"qty":1,"serie":"SN0001"}'), contains('"serie":"***"'));
+      expect(masquerSerie('GET /info'), 'GET /info');
+    });
+
+    group('en ligne (vrai HTTP local)', () {
+      late ServeurJsonLocal srv;
+      setUp(() => avecVraiHttp(() async {
+            srv = ServeurJsonLocal();
+            await srv.demarrer();
+          }));
+      tearDown(() => avecVraiHttp(() => srv.arreter()));
+      DioReceptionGateway gw() => DioReceptionGateway(Dio(BaseOptions(baseUrl: srv.base)));
+
+      test('serveur à jour : 1 requête avec serie et gtin ; boîte déjà scannée → refus clair', () => avecVraiHttp(() async {
+            final vues = <String>{};
+            srv.routes['POST /commande/add-lot'] = (r) {
+              final j = r.json;
+              if (j['serie'] != null && !vues.add('${j['gtin']}/${j['serie']}')) {
+                return const ReponseLocale({'success': false, 'code': 'SERIE_DEJA_CONSOMMEE', 'msg': 'Boîte déjà scannée'});
+              }
+              return const ReponseLocale({'success': true});
+            };
+            final a = await gw().addLot(detailId: 'd1', quantity: 1, freeQty: 0, numLot: 'A1', serie: 'SN1', gtin: gtin);
+            expect(a.success, isTrue);
+            expect(srv.recues.single.json, containsPair('serie', 'SN1'));
+            expect(srv.recues.single.json, containsPair('gtin', gtin));
+            final b = await gw().addLot(detailId: 'd1', quantity: 1, freeQty: 0, numLot: 'A1', serie: 'SN1', gtin: gtin);
+            expect(b.success, isFalse);
+            expect(b.message, startsWith('Boîte déjà scannée'));
+            expect(b.data['code'], 'SERIE_DEJA_CONSOMMEE');
+            expect(srv.recues, hasLength(2), reason: 'aucun renvoi automatique');
+          }));
+
+      test('ancien serveur (dev) : champs inconnus ignorés → accepté ; serveur qui les refuserait (400) → renvoi sans série', () => avecVraiHttp(() async {
+            srv.routes['POST /commande/add-lot'] = (_) => const ReponseLocale({'success': true});
+            expect((await gw().addLot(detailId: 'd1', quantity: 1, freeQty: 0, numLot: 'A1', serie: 'SN1', gtin: gtin)).success, isTrue);
+            srv.recues.clear();
+            srv.routes['POST /commande/add-lot'] = (r) => r.json.containsKey('serie')
+                ? const ReponseLocale('Unrecognized field "serie"', statut: 400)
+                : const ReponseLocale({'success': true});
+            final r = await gw().addLot(detailId: 'd1', quantity: 2, freeQty: 0, numLot: 'A1', serie: 'SN2', gtin: gtin);
+            expect(r.success, isTrue);
+            expect(srv.recues, hasLength(2));
+            expect(srv.recues.last.json.containsKey('serie'), isFalse);
+            expect(srv.recues.last.json['qty'], 2);
+            // Sans série : jamais de 2e envoi.
+            srv.recues.clear();
+            srv.routes['POST /commande/add-lot'] = (_) => const ReponseLocale('Bad request', statut: 400);
+            expect((await gw().addLot(detailId: 'd1', quantity: 1, freeQty: 0, numLot: 'A1')).success, isFalse);
+            expect(srv.recues, hasLength(1));
+          }));
+
+      test('réseau : réponse trop lente (délai dépassé) → « lot non enregistré » (jamais « boîte déjà scannée »), aucun renvoi', () => avecVraiHttp(() async {
+            srv.routes['POST /commande/add-lot'] = (_) => const ReponseLocale({'success': true}, delai: Duration(seconds: 4));
+            final g = DioReceptionGateway(Dio(BaseOptions(baseUrl: srv.base, receiveTimeout: const Duration(seconds: 1))));
+            final r = await g.addLot(detailId: 'd1', quantity: 1, freeQty: 0, numLot: 'A1', serie: 'SN1', gtin: gtin);
+            expect(r.success, isFalse);
+            expect(r.message, isNot(contains('déjà scannée')));
+            expect(srv.recues, hasLength(1));
+          }));
+    });
+
+    test('hors ligne : série gardée dans la file, envoyée à la synchro ; boîte déjà scannée → ligne refusée lisible, jamais renvoyée', () async {
+      final srv = _Stock()
+        ..reponse = (m, c) => c == '/commande/add-lot' && srv0Serie != null && srv0Serie!.contains('SN-DEJA')
+            ? const StockHttp(200, {'success': false, 'code': 'SERIE_DEJA_CONSOMMEE', 'msg': 'Boîte déjà scannée'})
+            : null;
+      final op = StockOp(
+        id: 'HL3-20261015100000-se18',
+        type: StockOpType.reception,
+        createdAt: DateTime(2026, 10, 15, 10),
+        refId: 'bl1',
+        lines: [
+          StockOpLine(key: 'k1', label: 'PRODUIT A', data: {'detailId': 'd1', 'qty': 1, 'ug': 0, 'numLot': 'L1', 'expiry': '2027-01-31', 'serie': 'SN-DEJA', 'gtin': gtin}),
+          StockOpLine(key: 'k2', label: 'PRODUIT B', data: {'detailId': 'd2', 'qty': 1, 'ug': 0, 'numLot': 'L2', 'expiry': '2027-01-31', 'serie': 'SN-NEUF', 'gtin': gtin}),
+        ],
+      );
+      srv.surAppel = (corps) => srv0Serie = corps is Map ? '${corps['serie']}' : null;
+      final sender = StockSender(srv, persist: (_) async {});
+      await sender.apply(op);
+      final lots = [for (final a in srv.appels) if (a.chemin == '/commande/add-lot') a.corps as Map];
+      expect(lots.map((c) => c['serie']), ['SN-DEJA', 'SN-NEUF']);
+      expect(lots.first['gtin'], gtin);
+      expect(op.lines[0].etat, StockLineEtat.rejected);
+      expect(op.lines[0].motif, startsWith('Boîte déjà scannée'));
+      expect(op.lines[0].motif, isNot(contains('SN-DEJA')), reason: 'motif lisible, sans le numéro de série');
+      expect(op.lines[1].etat, StockLineEtat.applied);
+      // Synchro suivante : la ligne refusée n'est jamais renvoyée (pas de boucle).
+      final avant = srv.appels.length;
+      await sender.apply(op);
+      expect(srv.appels.length, avant);
     });
   });
 

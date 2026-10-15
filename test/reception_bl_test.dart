@@ -19,6 +19,9 @@ String dm(String gtin, String yymmdd, String lot) => '01$gtin' '17$yymmdd' '10$l
 /// Serveur Prestige simulé, avec ses règles : somme des lots <= quantité commandée ; entrée en stock refusée
 /// si une ligne commencée est incomplète.
 class FakePrestige implements ReceptionGateway {
+  /// D18 : séries déjà enregistrées (« gtin/serie ») et séries reçues avec chaque lot accepté.
+  final seriesConsommees = <String>{};
+  final seriesRecues = <({String? serie, String? gtin})>[];
   final Map<String, ({ReceptionLine line, String ean})> rows = {};
   final List<Map<String, Object?>> addLotCalls = [];
   final List<String> created = [];
@@ -57,8 +60,14 @@ class FakePrestige implements ReceptionGateway {
   }
 
   @override
-  Future<ReceptionResult> addLot({required String detailId, required int quantity, required int freeQty, required String numLot, DateTime? expiry}) async {
+  Future<ReceptionResult> addLot(
+      {required String detailId, required int quantity, required int freeQty, required String numLot, DateTime? expiry, String? serie, String? gtin}) async {
     final r = rows[detailId]!;
+    // D18 (4.3.1) : serveur à jour, boîte déjà scannée refusée, rien d'ajouté.
+    if (serie != null && !seriesConsommees.add('$gtin/$serie')) {
+      return const ReceptionResult(false, 'Boîte déjà scannée', {'success': false, 'code': 'SERIE_DEJA_CONSOMMEE', 'msg': 'Boîte déjà scannée'});
+    }
+    seriesRecues.add((serie: serie, gtin: gtin));
     if (r.line.entered + quantity > r.line.ordered) {
       return const ReceptionResult(false, 'La quantité réçue est supérieure à la quantité commantée.');
     }
@@ -318,6 +327,88 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('supérieure au reste'), findsOneWidget);
       expect(server.addLotCalls, isEmpty);
+    });
+
+    // D18 (4.3.1, décision du pharmacien) : une boîte déjà scannée est refusée.
+    testWidgets('D18 : série + GTIN envoyés ; même boîte rescannée → « Boîte déjà scannée », rien d\'ajouté, boîte suivante acceptée', (tester) async {
+      await pump(tester);
+      await scan(tester, '01${dolipraneGtin}21SN0001$gs' '17271031' '10A123$gs');
+      expect(field(tester, 'N° de lot'), 'A123');
+      await tester.enterText(find.widgetWithText(TextField, 'Quantité (boîtes)'), '1');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirmer 1'));
+      await tester.pumpAndSettle();
+      expect(server.seriesRecues.single, (serie: 'SN0001', gtin: dolipraneGtin));
+      expect(server.addLotCalls, hasLength(1));
+      // Même boîte rescannée : refus clair, aucune quantité ajoutée.
+      await scan(tester, '01${dolipraneGtin}21SN0001$gs' '17271031' '10A123$gs');
+      await tester.enterText(find.widgetWithText(TextField, 'Quantité (boîtes)'), '1');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirmer 1'));
+      await tester.pumpAndSettle();
+      // Même lot déjà saisi sur la ligne : confirmation habituelle « déjà saisi ».
+      if (find.text('Confirmer').evaluate().isNotEmpty) {
+        await tester.tap(find.text('Confirmer'));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Boîte déjà scannée'), findsOneWidget);
+      expect(find.textContaining('Aucune quantité ajoutée'), findsOneWidget);
+      expect(find.textContaining('SN0001'), findsNothing, reason: 'jamais le numéro de série à l\'écran');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(server.addLotCalls, hasLength(1), reason: 'rien d\'ajouté');
+      expect(find.text('1/2 lignes · 5/34 boîtes').evaluate().isNotEmpty || find.textContaining('5/34').evaluate().isNotEmpty, isTrue);
+      expect(field(tester, 'N° de lot'), '', reason: 'ligne remise à zéro : scan suivant');
+      // Boîte suivante (autre série) : acceptée.
+      await scan(tester, '01${dolipraneGtin}21SN0002$gs' '17271031' '10A123$gs');
+      await tester.enterText(find.widgetWithText(TextField, 'Quantité (boîtes)'), '1');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirmer 1'));
+      await tester.pumpAndSettle();
+      if (find.text('Confirmer').evaluate().isNotEmpty) {
+        await tester.tap(find.text('Confirmer'));
+        await tester.pumpAndSettle();
+      }
+      expect(server.addLotCalls, hasLength(2));
+      expect(server.seriesRecues.last.serie, 'SN0002');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('D18 ergonomie : refus « Boîte déjà scannée » lisible sur 360×640 dp, texte ×1,3, bouton OK ≥ 48 dp', (tester) async {
+      server.seriesConsommees.add('$dolipraneGtin/SN0009');
+      await pump(tester);
+      tester.view.physicalSize = const Size(720, 1280);
+      tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpAndSettle();
+      await scan(tester, '01${dolipraneGtin}21SN0009$gs' '17271031' '10A123$gs');
+      await tester.enterText(find.widgetWithText(TextField, 'Quantité (boîtes)'), '1');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Confirmer 1'));
+      await tester.tap(find.text('Confirmer 1'));
+      await tester.pumpAndSettle();
+      expect(find.text('Boîte déjà scannée'), findsOneWidget);
+      expect(tester.getSize(find.widgetWithText(ElevatedButton, 'OK')).height, greaterThanOrEqualTo(48));
+      expect(tester.takeException(), isNull, reason: 'aucun débordement');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(server.addLotCalls, isEmpty);
+    });
+
+    testWidgets('D18 : DataMatrix sans numéro de série, ou saisie à la main → aucune série envoyée', (tester) async {
+      await pump(tester);
+      await scan(tester, dm(dolipraneGtin, '271031', 'A123$gs'));
+      await tester.tap(find.text('Confirmer 24'));
+      await tester.pumpAndSettle();
+      expect(server.seriesRecues.single, (serie: null, gtin: null));
+      await scan(tester, '3000000');
+      await tester.enterText(find.widgetWithText(TextField, 'N° de lot'), 'B7');
+      await tester.enterText(find.widgetWithText(TextField, 'Péremption (JJ/MM/AAAA ou MM/AAAA)'), '31/01/2028');
+      await tester.enterText(find.widgetWithText(TextField, 'Quantité (boîtes)'), '1');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirmer 1'));
+      await tester.pumpAndSettle();
+      expect(server.seriesRecues.last, (serie: null, gtin: null));
     });
 
     testWidgets('autre lot du même produit : ligne incomplète reste ouverte ; même lot : « déjà saisi »', (tester) async {

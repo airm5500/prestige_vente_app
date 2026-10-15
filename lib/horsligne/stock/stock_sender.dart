@@ -20,6 +20,8 @@
 //    ci-dessus inchangée). Jamais `clientEventId` dans le corps (champ inconnu d'un ancien serveur).
 // Les refus du serveur (BL clôturé, ligne déjà pointée, produit inconnu…) donnent une ligne « rejected »
 // avec le motif ; une panne réseau ou une session expirée interrompt l'envoi ([StockStopException]).
+// 4.3.1 (D18) : `serie` / `gtin` de la boîte (DataMatrix) envoyés avec le lot ; « boîte déjà scannée »
+// (`code:"SERIE_DEJA_CONSOMMEE"`) → ligne refusée, jamais renvoyée (pas de boucle).
 // 4.3.0 : un refus de DROIT (HTTP 403 `{interdit:true, msg}`) n'est pas une session expirée : la ligne est refusée
 // avec le message du serveur (rapport d'anomalies), l'envoi continue.
 import 'package:dio/dio.dart';
@@ -28,6 +30,7 @@ import 'package:prestige_vente_app/horsligne/client_ref.dart';
 import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
+import 'package:prestige_vente_app/reception/reception_gateway.dart' show champsSerie, codeSerieDejaConsommee, messageBoiteDejaScannee;
 
 /// Réponse brute du serveur (code HTTP + corps).
 class StockHttp {
@@ -199,16 +202,26 @@ class StockSender {
       }
       l.avant = entered;
       await _set(op, l, StockLineEtat.sending);
-      final r = await _call('POST', '/commande/add-lot',
-          data: {
+      Map<String, dynamic> corps({required bool avecSerie}) => {
             'idBonDetail': d['detailId'],
             'qty': qty,
             'freeQty': ug,
             'numLot': numLot,
             'datePeremption': '${d['expiry'] ?? ''}',
             'directImport': false,
-          },
-          headers: {enteteClientRef: cleEvenementLigne(op, l)});
+            ...champsSerie(d['serie'] as String?, d['gtin'] as String?, avecSerie: avecSerie),
+          };
+      final entetes = {enteteClientRef: cleEvenementLigne(op, l)};
+      var r = await _call('POST', '/commande/add-lot', data: corps(avecSerie: true), headers: entetes);
+      // Serveur qui refuserait des champs inconnus (400 avant toute écriture) : même lot, sans série.
+      if (r.status == 400 && champsSerie(d['serie'] as String?, d['gtin'] as String?).isNotEmpty) {
+        r = await _call('POST', '/commande/add-lot', data: corps(avecSerie: false), headers: entetes);
+      }
+      if (r.map['code'] == codeSerieDejaConsommee) {
+        // D18 : boîte déjà scannée → ligne refusée (anomalie lisible), jamais renvoyée.
+        await _set(op, l, StockLineEtat.rejected, '$messageBoiteDejaScannee (lot $numLot) : aucune quantité ajoutée.');
+        continue;
+      }
       if (r.ok && r.map['success'] != false) {
         srv['quantiteSaisie'] = entered + qty + ug;
         srv['lots'] = [...lots.where((e) => e.isNotEmpty), numLot].join(' | ');
