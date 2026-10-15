@@ -16,6 +16,7 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 enum StatutPM { enAttente, paye, echoue, expire, annule, payeApresAnnulation }
 
@@ -130,6 +131,7 @@ class DioPaiementsMobileApi implements PaiementsMobileApi {
     try {
       final r = await f(dio());
       final code = r.statusCode ?? 0;
+      if (reponseIndisponible(r)) return const VenteFailed('Paiement : ${MessagesServeur.indisponible}');
       if (code == 404) return const VenteRefused('Paiement mobile money non disponible sur ce serveur.', code: '404');
       if (code == 401 || code == 403) return const VenteFailed('Session expirée : reconnectez-vous.');
       if (code != 200) return VenteFailed('Paiement : erreur du serveur (code $code).');

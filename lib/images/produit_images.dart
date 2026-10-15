@@ -22,6 +22,7 @@ import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 /// Image d'un produit dans la liste du serveur.
 class ImageProduitInfo {
@@ -55,6 +56,8 @@ abstract class ProduitImagesApi {
 
 /// Lecture de la liste du serveur.
 VenteResult<ImagesListe?> imagesListeDepuis(int status, Object? body) {
+  // 4.3.3 : Prestige en démarrage / redéploiement (404 de Payara vérifié → 503) : échec passager, jamais « sans images ».
+  if (codePasserelle(status)) return const VenteFailed('Images : ${MessagesServeur.indisponible}');
   if (status == 404) return const VenteOk(null);
   if (status == 401 || status == 403) return const VenteFailed('Session expirée : reconnectez-vous.');
   if (status != 200) return VenteFailed('Images : erreur du serveur (code $status).');
@@ -88,6 +91,7 @@ VenteResult<ImagesListe?> imagesListeDepuis(int status, Object? body) {
 /// Réponse de l'ajout (text/html contenant du JSON).
 VenteResult<String> ajoutDepuis(int status, Object? body) {
   if (status == 401 || status == 403) return const VenteFailed('Session expirée : reconnectez-vous.');
+  if (codePasserelle(status)) return const VenteFailed('Envoi de la photo : ${MessagesServeur.indisponible}');
   if (status == 404) return const VenteRefused('Ce serveur ne gère pas les images des produits.');
   if (status != 200) return VenteFailed('Envoi de la photo : erreur du serveur (code $status).');
   Object? b = body;
@@ -115,6 +119,7 @@ class DioProduitImagesApi implements ProduitImagesApi {
   Dio get dio {
     final d = _dio ??= (Dio(BaseOptions(connectTimeout: const Duration(seconds: 8), receiveTimeout: const Duration(seconds: 20)))
       ..interceptors.add(CookieManager(DioClient.cookieJar)));
+    avecDeploiement(d);
     d.options.baseUrl = serveur();
     return d;
   }
@@ -141,6 +146,7 @@ class DioProduitImagesApi implements ProduitImagesApi {
           options: Options(responseType: ResponseType.bytes, validateStatus: (_) => true));
       final code = r.statusCode ?? 0;
       if (code == 200 && r.data != null && r.data!.isNotEmpty) return VenteOk(Uint8List.fromList(r.data!));
+      if (codePasserelle(code)) return const VenteFailed('Image : ${MessagesServeur.indisponible}');
       if (code == 404) return const VenteRefused('Image introuvable.');
       if (code == 401) return const VenteFailed('Session expirée : reconnectez-vous.');
       return VenteFailed('Image : erreur du serveur (code $code).');

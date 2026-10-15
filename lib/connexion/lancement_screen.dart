@@ -32,6 +32,7 @@ import 'package:prestige_vente_app/screens/auth/licence_registration_screen.dart
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 enum EtatEtape { attente, enCours, fait, echec, alerte }
 
@@ -344,14 +345,15 @@ class _LancementScreenState extends State<LancementScreen> {
           LicenceIssue.notHttps => ErreurTls.protocole,
           _ => null,
         };
+        // 4.3.3 : aucune réponse ≠ Prestige en démarrage / redéploiement (404 de Payara, 502/503/504).
+        final panne = context.read<LicenceProvider>().issue == LicenceIssue.appNotFound ? PanneServeur.indisponible : PanneServeur.injoignable;
         return [
           _encadre(
             key: Key(tls == null ? 'lancement_injoignable' : 'lancement_certificat'),
-            icone: tls == null ? Icons.wifi_off : Icons.gpp_bad_outlined,
-            titre: tls == null ? 'Serveur indisponible, veuillez réessayer' : tls.titre,
+            icone: tls != null ? Icons.gpp_bad_outlined : (panne == PanneServeur.indisponible ? Icons.hourglass_top : Icons.wifi_off),
+            titre: tls == null ? MessagesServeur.titre(panne) : tls.titre,
             texte: tls == null
-                ? '$type · ${s.adresseAffichee(s.isRemote)}\n'
-                    'La licence n\'est pas en cause.'
+                ? '$type · ${s.adresseAffichee(s.isRemote)}\n${MessagesServeur.detail(panne)} La licence n\'est pas en cause.'
                 : '$type · ${s.adresseAffichee(s.isRemote)}\n${tls.explication} La licence n\'est pas en cause.',
           ),
           const SizedBox(height: 12),

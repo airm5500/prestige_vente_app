@@ -205,7 +205,9 @@ void main() {
       final env = _Env()..api.licence = () => const LicenceLookup.failure(LicenceIssue.unreachable, 'timeout');
       await t.pumpWidget(env.app(LancementScreen(services: env.services)));
       await laisser(t);
-      expect(find.text('Serveur indisponible, veuillez réessayer'), findsOneWidget);
+      // 4.3.3 : aucune réponse → « Serveur injoignable. Vérifiez le Wi-Fi et que le PC serveur est allumé. »
+      expect(find.text('Serveur injoignable'), findsOneWidget);
+      expect(find.textContaining('Vérifiez le Wi-Fi et que le PC serveur est allumé.'), findsOneWidget);
       expect(find.textContaining('La licence n\'est pas en cause'), findsOneWidget);
       expect(find.text('Connexion au serveur impossible'), findsOneWidget);
       expect(find.text('Nouvel essai automatique dans 10 s'), findsOneWidget);
@@ -395,9 +397,11 @@ void main() {
       await env.settings.loadSettings();
       await t.pumpWidget(env.app(ConnexionScreen(services: env.services)));
       await laisser(t);
-      expect(find.text('Serveur injoignable'), findsOneWidget);
+      expect(t.widget<Text>(find.byKey(const Key('etat_serveur'))).data, 'Serveur injoignable');
       expect(find.text('Nouvel essai dans 10 s'), findsOneWidget);
       expect(find.byKey(const Key('encadre_injoignable')), findsOneWidget);
+      expect(t.widget<Text>(find.byKey(const Key('encadre_injoignable_titre'))).data, 'Serveur injoignable');
+      expect(find.textContaining('Vérifiez le Wi-Fi et que le PC serveur est allumé.'), findsOneWidget);
       expect(find.text('Continuer hors ligne'), findsNothing);
       final avant = env.sondes.length;
       await t.pump(const Duration(seconds: 10));

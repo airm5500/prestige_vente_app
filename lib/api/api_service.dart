@@ -8,6 +8,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/proforma_models.dart';
@@ -48,12 +49,22 @@ class EchecConnexion {
   static const refusee = 'refusee';
   static const reseau = 'reseau';
 
-  /// 4.3.2 : Prestige absent ou en cours de (re)démarrage (404 sur la connexion, 502 / 503 / 504, connexion refusée
-  /// par le poste serveur) : ce n'est jamais un mot de passe faux.
+  /// 4.3.2 / 4.3.3 : le serveur répond mais Prestige n'est pas déployé (404 de Payara, 502 / 503 / 504) : ce n'est
+  /// jamais un mot de passe faux. [reseau] : aucune réponse (PC serveur éteint, Payara arrêté, Wi-Fi, délai).
   static const indisponible = 'indisponible';
 
-  /// Message affiché pendant un redéploiement de Prestige (les deux interfaces, la borne).
-  static const messageIndisponible = 'Serveur indisponible, veuillez réessayer.';
+  /// Message affiché pendant un démarrage / redéploiement de Prestige (les deux interfaces, la borne).
+  static const messageIndisponible = MessagesServeur.indisponible;
+
+  /// Message affiché quand le serveur ne répond pas du tout.
+  static const messageInjoignable = MessagesServeur.injoignable;
+
+  /// Panne de disponibilité (null : refus des identifiants ou autre réponse du serveur).
+  PanneServeur? get panne => switch (type) {
+        indisponible => PanneServeur.indisponible,
+        reseau => PanneServeur.injoignable,
+        _ => null,
+      };
 
   final String type;
   final String message;
@@ -64,12 +75,25 @@ class EchecConnexion {
   /// une route de connexion, 502, 503, 504.
   static bool codeIndisponible(int? code) => code == 404 || code == 502 || code == 503 || code == 504;
 
-  /// Échec d'une requête de connexion qui vient du serveur indisponible (code ci-dessus, connexion refusée ou
-  /// coupée) — jamais des identifiants.
+  /// Échec de connexion qui vient du serveur (aucune réponse, ou Prestige non déployé) — jamais des identifiants.
   static bool serveurIndisponible(DioException e) {
     final code = e.response?.statusCode;
-    if (code != null) return codeIndisponible(code);
-    return e.type == DioExceptionType.connectionError || e.type == DioExceptionType.connectionTimeout || e.error is SocketException;
+    if (code != null) return codeIndisponible(code) || reponseIndisponible(e.response);
+    return panneDe(e) != null;
+  }
+
+  /// Échec d'une requête de connexion (POST /user/auth) : null si le serveur Prestige a répondu autre chose.
+  static EchecConnexion? depuisPanne(DioException e) {
+    final tls = ErreurTls.de(e);
+    if (tls != null) return EchecConnexion(reseau, tls.message);
+    final code = e.response?.statusCode;
+    // /user/auth existe sur tout serveur Prestige : son 404 prouve que Prestige n'est pas déployé.
+    if (code != null && (codeIndisponible(code) || reponseIndisponible(e.response))) return const EchecConnexion(indisponible, messageIndisponible);
+    return switch (panneDe(e)) {
+      PanneServeur.injoignable => const EchecConnexion(reseau, messageInjoignable),
+      PanneServeur.indisponible => const EchecConnexion(indisponible, messageIndisponible),
+      null => null,
+    };
   }
 }
 
@@ -110,17 +134,12 @@ class ApiService {
     } on DioException catch (e) {
       print("Error logging in: $e");
       final code = e.response?.statusCode;
-      final tls = ErreurTls.de(e);
-      // 4.3.2 : Prestige en cours de redéploiement (404 HTML de Payara, 502/503, connexion refusée) → « Serveur
-      // indisponible, veuillez réessayer » ; jamais « mot de passe incorrect » ni « erreur 404 ».
-      dernierEchecConnexion = tls != null
-          ? EchecConnexion(EchecConnexion.reseau, tls.message)
-          : EchecConnexion.serveurIndisponible(e)
-              ? const EchecConnexion(EchecConnexion.indisponible, EchecConnexion.messageIndisponible)
-              : code != null
-                  ? EchecConnexion(EchecConnexion.refusee, 'Le serveur a répondu HTTP $code.')
-                  : const EchecConnexion(EchecConnexion.reseau,
-                      'Serveur injoignable : vérifiez le Wi-Fi et l\'adresse du serveur (Réglages › Connexion).');
+      // 4.3.3 : serveur injoignable (aucune réponse) ≠ Prestige indisponible (démarrage / redéploiement : 404 de
+      // Payara, 502/503/504) ≠ identifiants refusés ; jamais « mot de passe incorrect » ni « erreur 404 ».
+      dernierEchecConnexion = EchecConnexion.depuisPanne(e) ??
+          (code != null
+              ? EchecConnexion(EchecConnexion.refusee, 'Le serveur a répondu HTTP $code.')
+              : const EchecConnexion(EchecConnexion.reseau, EchecConnexion.messageInjoignable));
       return null;
     }
   }
@@ -404,21 +423,20 @@ class ApiService {
   static String _networkMessage(DioException e, String what) {
     final tls = ErreurTls.de(e);
     if (tls != null) return '${tls.message} ($what non chargés)';
+    if (reponseIndisponible(e.response)) return '${MessagesServeur.indisponible} ($what non chargés)';
     switch (e.type) {
-      case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
         return 'Le serveur met trop de temps à répondre ($what non chargés). Vérifiez le réseau puis réessayez.';
+      case DioExceptionType.connectionTimeout:
       case DioExceptionType.connectionError:
-        return 'Serveur injoignable ($what non chargés). Vérifiez le Wi-Fi ou les données mobiles puis réessayez.';
+        return '${MessagesServeur.injoignable} ($what non chargés)';
       case DioExceptionType.badResponse:
         final code = e.response?.statusCode ?? 0;
         if (code == 401 || code == 403) return 'Session expirée ou accès refusé ($what). Reconnectez-vous.';
         return 'Erreur du serveur (code $code) lors du chargement des $what.';
       default:
-        if (e.error is SocketException) {
-          return 'Serveur injoignable ($what non chargés). Vérifiez le Wi-Fi ou les données mobiles puis réessayez.';
-        }
+        if (e.error is SocketException) return '${MessagesServeur.injoignable} ($what non chargés)';
         return 'Impossible de charger les $what : ${e.message ?? e.type.name}.';
     }
   }
@@ -534,8 +552,10 @@ class ApiService {
                 ? const LicenceLookup.noLicence()
                 : LicenceLookup.failure(LicenceIssue.appNotFound, 'HTTP 404 sur ${e.requestOptions.uri}');
           }
-          // 4.3.2 : 502 / 503 / 504 : Prestige (ou son proxy) en redémarrage → serveur indisponible, pas une erreur.
-          if (EchecConnexion.codeIndisponible(code)) return LicenceLookup.failure(LicenceIssue.unreachable, 'HTTP $code');
+          // 502 / 503 / 504 (et 404 de Payara vérifié) : Prestige en démarrage / redéploiement → indisponible.
+          if (EchecConnexion.codeIndisponible(code) || reponseIndisponible(e.response)) {
+            return LicenceLookup.failure(LicenceIssue.appNotFound, 'HTTP $code');
+          }
           return LicenceLookup.failure(LicenceIssue.serverError, 'HTTP $code');
         default:
           if (e.error is SocketException) {
@@ -559,7 +579,7 @@ class ApiService {
     try {
       final r = await _dio.post('/user/auth',
           data: const {}, options: Options(validateStatus: (_) => true, responseType: ResponseType.plain));
-      return (r.statusCode ?? 404) != 404;
+      return (r.statusCode ?? 404) != 404 && !reponseIndisponible(r);
     } catch (_) {
       return false;
     }
@@ -1137,9 +1157,10 @@ class ApiService {
 
   static String analyseErreurMessage(DioException e) {
     String secondes(Duration? d) => d == null ? '' : ' en ${d.inSeconds} s';
+    if (reponseIndisponible(e.response)) return '${MessagesServeur.indisponible} (GET /info)';
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
-        return 'Délai dépassé : serveur non joint${secondes(e.requestOptions.connectTimeout)} (GET /info).';
+        return '${MessagesServeur.injoignable} (GET /info)';
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
         return 'Délai dépassé : pas de réponse du serveur${secondes(e.requestOptions.receiveTimeout)} (GET /info).';
@@ -1151,11 +1172,11 @@ class ApiService {
         if (code == 403) return 'Accès refusé (HTTP 403, GET /info).';
         return 'Le serveur a répondu HTTP $code (GET /info).';
       case DioExceptionType.connectionError:
-        return 'Serveur injoignable (GET /info). Vérifiez le Wi-Fi ou les données mobiles.';
+        return '${MessagesServeur.injoignable} (GET /info)';
       case DioExceptionType.badCertificate:
         return '${ErreurTls.messageCertificat} (GET /info)';
       default:
-        if (e.error is SocketException) return 'Serveur injoignable (GET /info). Vérifiez le Wi-Fi ou les données mobiles.';
+        if (e.error is SocketException) return '${MessagesServeur.injoignable} (GET /info)';
         final tls = ErreurTls.de(e);
         if (tls != null) return '${tls.message} (GET /info)';
         if (e.error is FormatException) {

@@ -36,6 +36,7 @@ import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/rh/rh_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 /// Accès du compte connecté au terminal de pointage (voie B).
 enum AccesRh {
@@ -115,12 +116,16 @@ class BilanEnvoiRh {
 
   /// Session Prestige expirée (401) : envoi arrêté, pointages restants gardés en attente.
   final bool sessionExpiree;
-  const BilanEnvoiRh({this.envoyes = 0, this.dejaAppliques = 0, this.refuses = 0, this.interrompu = false, this.sessionExpiree = false});
+
+  /// 4.3.3 : cause d'une interruption (serveur injoignable ≠ Prestige indisponible).
+  final PanneServeur panne;
+  const BilanEnvoiRh(
+      {this.envoyes = 0, this.dejaAppliques = 0, this.refuses = 0, this.interrompu = false, this.sessionExpiree = false, this.panne = PanneServeur.injoignable});
   String get message => [
         '$envoyes pointage(s) envoyé(s) à Prestige',
         if (dejaAppliques > 0) '$dejaAppliques déjà enregistré(s)',
         if (refuses > 0) '$refuses refusé(s) (voir les anomalies)',
-        if (interrompu && !sessionExpiree) 'envoi interrompu : serveur injoignable',
+        if (interrompu && !sessionExpiree) 'envoi interrompu : ${MessagesServeur.titre(panne).toLowerCase()}',
         if (sessionExpiree) 'session Prestige expirée : reconnectez l\'application, les autres restent en attente',
       ].join(' · ');
 }
@@ -334,8 +339,8 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     try {
       final r = await s.get('/rh/employes', const {'query': '', 'inactifs': 'false'});
       return _appliquerEmployes(r.status, r.body);
-    } on RhHorsLigne {
-      return 'Serveur injoignable : copie des employés inchangée.';
+    } on RhHorsLigne catch (e) {
+      return '${e.titre} : copie des employés inchangée.';
     }
   }
 
@@ -438,8 +443,8 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
         }
       }
       return (presences: presences, pointages: pointages, erreur: null);
-    } on RhHorsLigne {
-      return (presences: const <PresenceRh>[], pointages: const <PointageJourRh>[], erreur: 'Serveur injoignable : présence disponible en ligne uniquement.');
+    } on RhHorsLigne catch (e) {
+      return (presences: const <PresenceRh>[], pointages: const <PointageJourRh>[], erreur: '${e.titre} : présence disponible en ligne uniquement.');
     }
   }
 
@@ -763,6 +768,7 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     notifyListeners();
     var envoyes = 0, deja = 0, refus = 0;
     var interrompu = false, session = false;
+    var panne = PanneServeur.injoignable;
     final choix = ids?.toSet();
     try {
       for (final p in aEnvoyer) {
@@ -785,8 +791,9 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
             case IssueBadge.enFile:
               break;
           }
-        } on RhHorsLigne {
+        } on RhHorsLigne catch (e) {
           interrompu = true;
+          panne = e.panne;
           _attache?.monitor.signalNetworkFailure();
           break;
         }
@@ -797,7 +804,7 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     }
     // Photos des pointages enregistrés (demande 31), sans retarder le bilan.
     if (!interrompu) envoiPhotos = envoyerPhotos();
-    return BilanEnvoiRh(envoyes: envoyes, dejaAppliques: deja, refuses: refus, interrompu: interrompu, sessionExpiree: session);
+    return BilanEnvoiRh(envoyes: envoyes, dejaAppliques: deja, refuses: refus, interrompu: interrompu, sessionExpiree: session, panne: panne);
   }
 
   /// Purge de l'historique au-delà de la durée de conservation.

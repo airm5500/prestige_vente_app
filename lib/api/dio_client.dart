@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 class DioClient {
   // On crée une seule instance de CookieJar
@@ -25,6 +26,8 @@ class DioClient {
 
     // On attache le CookieJar unique
     dio.interceptors.add(CookieManager(_cookieJar));
+    // 4.3.3 : 404 de Payara pendant un redéploiement → 503 « Prestige indisponible » (lib/serveur/panne_serveur.dart).
+    avecDeploiement(dio);
     // Session expirée (401 « Veuillez vous connecter ») : reconnexion silencieuse et requête rejouée, sinon
     // retour à l'écran de connexion (lib/api/session_expiree.dart).
     dio.interceptors.add(IntercepteurSession(dio));

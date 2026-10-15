@@ -9,6 +9,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 enum EtatServeur { enLigne, injoignable, horsLigne }
 
@@ -42,6 +43,17 @@ class ServerMonitor extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _timer;
 
   EtatServeur get etat => _etat;
+
+  /// 4.3.3 : cause des derniers échecs (aucune réponse ≠ Prestige en démarrage / redéploiement).
+  PanneServeur get panne => _panne;
+  PanneServeur _panne = PanneServeur.injoignable;
+
+  /// Le ping (ou une opération) a constaté [p] : affichée tant que le serveur ne répond pas.
+  void noterPanne(PanneServeur p) {
+    if (_panne == p) return;
+    _panne = p;
+    if (_etat != EtatServeur.enLigne) notifyListeners();
+  }
   bool get isOffline => _etat == EtatServeur.horsLigne;
   RaisonHorsLigne? get raison => _raison;
 
@@ -135,6 +147,13 @@ class ServerMonitor extends ChangeNotifier with WidgetsBindingObserver {
   /// Le serveur a répondu à une opération : il est joignable.
   void signalReachable() => _succes();
 
+  /// 4.3.3 : une opération a reçu « Prestige indisponible » (404 de Payara vérifié, 502/503/504) : ce n'est pas
+  /// une réponse de Prestige ; vérification immédiate comme pour un échec réseau.
+  void signalIndisponible() {
+    noterPanne(PanneServeur.indisponible);
+    signalNetworkFailure();
+  }
+
   /// Hors ligne MANUEL et serveur de nouveau joignable : on reste hors ligne (choix de
   /// l'utilisateur) mais on le propose (« Repasser en ligne »).
   bool get joignablePendantManuel => _joignablePendantManuel;
@@ -142,6 +161,7 @@ class ServerMonitor extends ChangeNotifier with WidgetsBindingObserver {
 
   void _succes() {
     _echecs = 0;
+    _panne = PanneServeur.injoignable;
     _premierEchec = null;
     if (_etat == EtatServeur.enLigne) return;
     if (_etat == EtatServeur.horsLigne && _raison == RaisonHorsLigne.manuel) {
@@ -210,13 +230,15 @@ class ServerMonitorInterceptor extends Interceptor {
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
-    monitor().signalReachable();
+    reponseIndisponible(response) ? monitor().signalIndisponible() : monitor().signalReachable();
     handler.next(response);
   }
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    if (err.response != null) {
+    if (reponseIndisponible(err.response)) {
+      monitor().signalIndisponible();
+    } else if (err.response != null) {
       monitor().signalReachable();
     } else if (ServerMonitor.isNetworkError(err)) {
       monitor().signalNetworkFailure();

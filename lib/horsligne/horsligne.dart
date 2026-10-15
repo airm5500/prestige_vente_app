@@ -27,6 +27,7 @@ import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 class HorsLigne {
   final ServerMonitor monitor;
@@ -77,8 +78,10 @@ class HorsLigne {
   void _journalEtat(EtatServeur avant) {
     final action = switch (_etat) {
       EtatServeur.enLigne => 'Retour en ligne (serveur joignable)',
-      EtatServeur.injoignable => 'Serveur injoignable',
-      EtatServeur.horsLigne => monitor.raison == RaisonHorsLigne.manuel ? 'Passage hors ligne (choisi)' : 'Passage hors ligne (serveur injoignable)',
+      EtatServeur.injoignable => MessagesServeur.titre(monitor.panne),
+      EtatServeur.horsLigne => monitor.raison == RaisonHorsLigne.manuel
+          ? 'Passage hors ligne (choisi)'
+          : 'Passage hors ligne (${MessagesServeur.titre(monitor.panne).toLowerCase()})',
     };
     JournalTerminal.instance.noter(
       type: TypeJournal.reseau,
@@ -261,8 +264,15 @@ class HorsLigne {
     try {
       final r = await d.get('/officine');
       final code = r.statusCode ?? 0;
-      return code > 0 && code < 500;
+      // 4.3.3 : /officine existe sur tout serveur Prestige : 404 (page de Payara), 502/503/504 = Prestige en
+      // démarrage / redéploiement (avant : un 404 comptait comme « serveur joignable »).
+      if (code == 404 || code >= 500) {
+        monitor.noterPanne(PanneServeur.indisponible);
+        return false;
+      }
+      return code > 0;
     } catch (_) {
+      monitor.noterPanne(PanneServeur.injoignable);
       return false;
     }
   }
@@ -272,6 +282,7 @@ class HorsLigne {
     final d = _syncDio ??= (Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 60)))
       ..transformer = BackgroundTransformer()
       ..interceptors.add(CookieManager(DioClient.cookieJar)));
+    avecDeploiement(d);
     d.options.baseUrl = _baseUrl;
     return d;
   }
@@ -298,8 +309,10 @@ class HorsLigne {
     } on DioException catch (e) {
       if (ServerMonitor.isNetworkError(e)) {
         monitor.signalNetworkFailure();
-        throw const CatalogueSyncException('Serveur injoignable.', network: true);
+        throw const CatalogueSyncException(MessagesServeur.injoignable, network: true);
       }
+      // 4.3.3 : Prestige en démarrage / redéploiement : à réessayer (comme une panne réseau).
+      if (reponseIndisponible(e.response)) throw const CatalogueSyncException(MessagesServeur.indisponible, network: true);
       final code = e.response?.statusCode ?? 0;
       if (code == 401 || code == 403) throw const CatalogueSyncException('Session expirée : reconnectez-vous.');
       if (e.type == DioExceptionType.receiveTimeout) throw const CatalogueSyncException('Le serveur met trop de temps à répondre.', network: true);

@@ -126,8 +126,8 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
       if (s.peutPointer) await _chargerHistorique();
     } on MobileSessionExpiree catch (e) {
       _expire(e.message);
-    } on MobileHorsLigne {
-      _dire(MobileHorsLigne.message);
+    } on MobileHorsLigne catch (e) {
+      _dire(e.texte);
     } on MobileIndisponible {
       _dire(MobileIndisponible.message);
     }
@@ -139,8 +139,8 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
       if (mounted) setState(() => _historique = h);
     } on MobileSessionExpiree catch (e) {
       _expire(e.message);
-    } on MobileHorsLigne {
-      _dire(MobileHorsLigne.message);
+    } on MobileHorsLigne catch (e) {
+      _dire(e.texte);
     } on MobileIndisponible {
       _dire(MobileIndisponible.message);
     }
@@ -178,8 +178,8 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
       setState(() => _session = r.valeur);
       _dire(null);
       if (r.valeur!.peutPointer) await _chargerHistorique();
-    } on MobileHorsLigne {
-      _dire(MobileHorsLigne.message);
+    } on MobileHorsLigne catch (e) {
+      _dire(e.texte);
     } on MobileIndisponible {
       _dire(MobileIndisponible.message);
     } finally {
@@ -310,8 +310,8 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
       }
     } on MobileSessionExpiree catch (e) {
       _expire(e.message);
-    } on MobileHorsLigne {
-      _dire(MobileHorsLigne.message);
+    } on MobileHorsLigne catch (e) {
+      _dire(e.texte);
     } on MobileIndisponible {
       _dire(MobileIndisponible.message);
     } finally {

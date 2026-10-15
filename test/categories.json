@@ -124,6 +124,7 @@
     "test/reseau/https_test.dart": "reseau",
     "test/lenteur_detail_432_test.dart": "performance",
     "test/ergonomie_analyse_432_test.dart": "ergonomie",
-    "test/reseau/redeploiement_test.dart": "reseau"
+    "test/reseau/redeploiement_test.dart": "reseau",
+    "test/reseau/indisponible_replis_test.dart": "reseau"
   }
 }

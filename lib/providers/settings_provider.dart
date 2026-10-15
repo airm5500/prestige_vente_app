@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/services/identifiants_securises.dart';
 import 'package:prestige_vente_app/services/pin_securise.dart';
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 class SettingsProvider with ChangeNotifier {
   static const String _localIpKey = 'local_ip';
@@ -371,6 +372,7 @@ class SettingsProvider with ChangeNotifier {
   Future<bool> ping(String ip, String port, String appName) async {
     _pingError = '';
     _pingTls = null;
+    _pingPanne = null;
     if (ip.trim().isEmpty) {
       _pingError = 'Adresse IP vide.';
       return false;
@@ -383,9 +385,12 @@ class SettingsProvider with ChangeNotifier {
       return true;
     } on DioException catch (e) {
       final code = e.response?.statusCode;
-      if (code == 404) {
-        _pingError = 'Un serveur répond à $adresse, mais l\'application "$appName" n\'y est pas '
-            '(vérifiez le nom de l\'application et le port).';
+      // 4.3.3 : /user/auth existe sur tout serveur Prestige : un 404 (ou 502/503/504) = Prestige non déployé à cette
+      // adresse — en démarrage / redéploiement, ou nom d'application / port erroné.
+      if (code == 404 || codePasserelle(code)) {
+        _pingPanne = PanneServeur.indisponible;
+        _pingError = '${MessagesServeur.indisponible} ($adresse ; si cela persiste, vérifiez le nom de l\'application '
+            '« $appName » et le port.)';
         return false;
       }
       if (e.response != null) return true; // 400/401/500 : l'application Prestige répond
@@ -395,7 +400,8 @@ class SettingsProvider with ChangeNotifier {
         _pingError = '${tls.explication} ($adresse)';
         return false;
       }
-      _pingError = 'Aucun serveur ne répond à $adresse (Wifi, IP, serveur éteint).';
+      _pingPanne = PanneServeur.injoignable;
+      _pingError = '${MessagesServeur.injoignable} ($adresse)';
       return false;
     } catch (e) {
       final tls = ErreurTls.de(e);
@@ -404,10 +410,15 @@ class SettingsProvider with ChangeNotifier {
         _pingError = '${tls.explication} ($adresse)';
         return false;
       }
-      _pingError = 'Aucun serveur ne répond à $adresse.';
+      _pingPanne = PanneServeur.injoignable;
+      _pingError = '${MessagesServeur.injoignable} ($adresse)';
       return false;
     }
   }
+
+  /// 4.3.3 : panne constatée au dernier [ping] (injoignable ≠ Prestige indisponible), ou null.
+  PanneServeur? _pingPanne;
+  PanneServeur? get pingPanne => _pingPanne;
 
   /// Échec TLS du dernier [ping] (certificat refusé, port non HTTPS), ou null.
   ErreurTls? _pingTls;

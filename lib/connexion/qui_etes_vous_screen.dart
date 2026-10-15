@@ -14,6 +14,8 @@ import 'package:prestige_vente_app/connexion/pin_personnel.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/providers/auth_provider.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 /// Point + texte d'état du serveur (en-tête compact).
 class _EtatServeurCompact extends StatelessWidget {
@@ -32,7 +34,7 @@ class _EtatServeurCompact extends StatelessWidget {
           EtatServeur.connecte => (const Color(0xFF22C55E), 'Serveur $type connecté'),
           EtatServeur.injoignable => (
               const Color(0xFFEF4444),
-              'Serveur injoignable${controle.rebours.reste > 0 ? ' · nouvel essai dans ${controle.rebours.reste} s' : ''}'
+              '${MessagesServeur.titre(controle.panne)}${controle.rebours.reste > 0 ? ' · nouvel essai dans ${controle.rebours.reste} s' : ''}'
             ),
         };
         return Semantics(
@@ -67,7 +69,7 @@ class QuiEtesVousScreen extends StatefulWidget {
 class _QuiEtesVousScreenState extends State<QuiEtesVousScreen> {
   ConnexionServices get _sv => widget.services ?? ConnexionServices.instance;
   late final SettingsProvider _settings = context.read<SettingsProvider>();
-  late final ControleServeur _serveur = ControleServeur(() => _sv.sonderCourant(_settings));
+  late final ControleServeur _serveur = ControleServeur(() => _sv.sonderCourant(_settings), panneSonde: () => _settings.pingPanne);
   List<DernierUtilisateur> _utilisateurs = const [];
   bool _charge = false;
 
@@ -213,7 +215,7 @@ class UtilisateurConnexionScreen extends StatefulWidget {
 class _UtilisateurConnexionScreenState extends State<UtilisateurConnexionScreen> {
   ConnexionServices get _sv => widget.services ?? ConnexionServices.instance;
   late final SettingsProvider _settings = context.read<SettingsProvider>();
-  late final ControleServeur _serveur = ControleServeur(() => _sv.sonderCourant(_settings));
+  late final ControleServeur _serveur = ControleServeur(() => _sv.sonderCourant(_settings), panneSonde: () => _settings.pingPanne);
   final _mdp = TextEditingController();
   final _focusMdp = FocusNode();
 
@@ -347,14 +349,15 @@ class _UtilisateurConnexionScreenState extends State<UtilisateurConnexionScreen>
         _mdp.clear();
         _focusMdp.requestFocus();
       case IssueConnexion.serveur:
-        _serveur.signalerInjoignable();
+        // 4.3.3 : panne constatée par la connexion (injoignable ≠ Prestige indisponible), sinon par la sonde.
+        _serveur.signalerInjoignable(context.read<AuthProvider>().dernierePanne ?? _settings.pingPanne);
       case IssueConnexion.erreur:
         break;
     }
     setState(() {
       _occupe = false;
       _saisie = '';
-      _erreur = ConnexionFlux.message(issue);
+      _erreur = ConnexionFlux.message(issue, panne: _serveur.panne);
     });
   }
 

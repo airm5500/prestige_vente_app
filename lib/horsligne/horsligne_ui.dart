@@ -24,6 +24,7 @@ import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 enum BandeauHorsLigne { injoignable, horsLigne, retour, envoi, enAttente, aVerifier }
 
@@ -231,8 +232,10 @@ class HorsLigneBanner extends StatelessWidget {
       BandeauHorsLigne.injoignable => (
           const Color(0xFFFFF3D6),
           const Color(0xFF92400E),
-          Icons.wifi_off,
-          'Serveur injoignable${m.depuis == null ? '' : ' depuis ${heure(m.depuis!)}'}',
+          m.panne == PanneServeur.indisponible ? Icons.hourglass_top : Icons.wifi_off,
+          // 4.3.3 : aucune réponse ≠ Prestige en démarrage / redéploiement.
+          '${MessagesServeur.titre(m.panne)}${m.depuis == null ? '' : ' depuis ${heure(m.depuis!)}'}'
+              '${m.panne == PanneServeur.indisponible ? ' · Prestige en démarrage ou redéploiement' : ''}',
         ),
       BandeauHorsLigne.horsLigne => (
           const Color(0xFF334155),

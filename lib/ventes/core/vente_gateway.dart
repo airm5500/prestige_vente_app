@@ -19,6 +19,7 @@ import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 /// Tiers payant d'une vente (forme attendue par le serveur).
 typedef VenteTp = ({String compteTp, String numBon, int taux});
@@ -228,7 +229,8 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
   }
 
   // Échec TLS (certificat refusé, port non HTTPS) : la requête n'est jamais partie.
-  static bool _mayHaveReached(DioException e) => ErreurTls.de(e) != null
+  // 4.3.3 : Prestige non déployé (404 de Payara vérifié, 502/503/504) : rien n'a été exécuté.
+  static bool _mayHaveReached(DioException e) => ErreurTls.de(e) != null || reponseIndisponible(e.response)
       ? false
       : switch (e.type) {
         DioExceptionType.connectionTimeout => false,
@@ -243,14 +245,15 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
   static String _networkMessage(DioException e, String what) {
     final tls = ErreurTls.de(e);
     if (tls != null) return '${tls.message} ($what)';
+    // 4.3.3 : serveur injoignable (aucune réponse) ≠ Prestige indisponible (démarrage / redéploiement).
+    if (reponseIndisponible(e.response)) return '${MessagesServeur.indisponible} ($what)';
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
-        return 'Le serveur ne répond pas ($what). Vérifiez le réseau puis réessayez.';
+      case DioExceptionType.connectionError:
+        return '${MessagesServeur.injoignable} ($what)';
       case DioExceptionType.receiveTimeout:
         return 'Le serveur met trop de temps à répondre ($what). Vérification nécessaire avant de réessayer.';
-      case DioExceptionType.connectionError:
-        return 'Serveur injoignable ($what). Vérifiez le Wi-Fi ou les données mobiles puis réessayez.';
       case DioExceptionType.badResponse:
         final code = e.response?.statusCode ?? 0;
         if (code == 401 || code == 403) return 'Session expirée ou accès refusé ($what). Reconnectez-vous.';
@@ -258,7 +261,7 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
         if (data is Map && (data['msg'] ?? data['message']) != null) return '${data['msg'] ?? data['message']}';
         return 'Erreur du serveur (code $code) : $what.';
       default:
-        if (e.error is SocketException) return 'Serveur injoignable ($what). Vérifiez le Wi-Fi ou les données mobiles puis réessayez.';
+        if (e.error is SocketException) return '${MessagesServeur.injoignable} ($what)';
         return 'Impossible de $what : ${e.message ?? e.type.name}.';
     }
   }

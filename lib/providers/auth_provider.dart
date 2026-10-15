@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart';
 import 'package:prestige_vente_app/services/identifiants_securises.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 enum AuthStatus { Uninitialized, Authenticated, Unauthenticated, Loading }
 
@@ -25,6 +26,9 @@ class AuthProvider with ChangeNotifier {
   AuthStatus get status => _status;
 
   /// 4.3.2 : le dernier échec de [login] vient du serveur (indisponible, injoignable), pas des identifiants.
+  /// 4.3.3 : panne du dernier échec de [login] (injoignable ≠ Prestige indisponible), ou null.
+  PanneServeur? get dernierePanne => _apiService.dernierEchecConnexion?.panne;
+
   bool get dernierEchecServeur {
     final e = _apiService.dernierEchecConnexion;
     return e != null && !e.estRefus;
