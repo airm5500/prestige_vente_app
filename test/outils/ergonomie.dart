@@ -1,5 +1,6 @@
 // Contrôles d'ergonomie et de cohérence d'affichage réutilisables (voir test/ergonomie_test.dart et test/README.md).
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/ui/taille_ecran.dart' as ecran;
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -114,6 +115,45 @@ void verifierCharte(WidgetTester t, {required bool charte, required String conte
     expect(couleursLavande.contains(c.toARGB32()), isFalse, reason: '$contexte : ${b.widget.runtimeType} en lavande Material par défaut ($c)');
     if (charte) expect(c.toARGB32(), Pal.navy.toARGB32(), reason: '$contexte : ${b.widget.runtimeType} hors charte ($c)');
   }
+  // 4.1.2 : fenêtres ouvertes (dialogues, feuilles du bas, messages) jamais en lavande non plus.
+  if (charte) verifierFenetresCharte(t, contexte: contexte);
+}
+
+/// Fenêtres affichées (AlertDialog / SimpleDialog / Dialog, feuilles du bas, SnackBar) : fond, titre, textes et
+/// boutons jamais dans les couleurs de Material 3 par défaut (« lavande ») ; fond des dialogues blanc (charte).
+/// Renvoie le nombre de fenêtres contrôlées.
+int verifierFenetresCharte(WidgetTester t, {required String contexte}) {
+  bool lavande(Color? c) => c != null && c.a > 0 && couleursLavande.contains(c.toARGB32());
+  final fenetres = <(String, Finder)>[
+    for (final e in find.byType(Dialog).evaluate()) ('dialogue', find.byWidget(e.widget)),
+    for (final e in find.byType(BottomSheet).evaluate()) ('feuille du bas', find.byWidget(e.widget)),
+    for (final e in find.byType(SnackBar).evaluate()) ('message', find.byWidget(e.widget)),
+  ];
+  for (final (nature, f) in fenetres) {
+    final titre = find.descendant(of: f, matching: find.byType(RichText)).evaluate().map((e) => (e.widget as RichText).text.toPlainText()).take(1).join();
+    final quoi = '$contexte : $nature « $titre »';
+    final materiaux = find.descendant(of: f, matching: find.byType(Material));
+    if (nature == 'dialogue' && materiaux.evaluate().isNotEmpty) {
+      final fond = t.widget<Material>(materiaux.first).color;
+      expect(fond?.toARGB32(), Colors.white.toARGB32(), reason: '$quoi : fond hors charte ($fond)');
+    }
+    for (final m in materiaux.evaluate()) {
+      final c = (m.widget as Material).color;
+      expect(lavande(c), isFalse, reason: '$quoi : surface en lavande Material par défaut ($c)');
+      final teinte = (m.widget as Material).surfaceTintColor;
+      expect(lavande(teinte), isFalse, reason: '$quoi : teinte lavande Material par défaut ($teinte)');
+    }
+    for (final p in find.descendant(of: f, matching: find.byType(RichText)).evaluate()) {
+      final c = (p.renderObject as RenderParagraph).text.style?.color;
+      expect(lavande(c), isFalse, reason: '$quoi : texte « ${(p.widget as RichText).text.toPlainText()} » en lavande Material par défaut ($c)');
+    }
+    for (final i in find.descendant(of: f, matching: find.byType(Icon)).evaluate()) {
+      final c = IconTheme.of(i).color;
+      final propre = (i.widget as Icon).color;
+      expect(lavande(propre ?? c), isFalse, reason: '$quoi : icône en lavande Material par défaut (${propre ?? c})');
+    }
+  }
+  return fenetres.length;
 }
 
 /// Le champ [champ] reste visible au-dessus du clavier simulé (40 % de la hauteur de l'écran).

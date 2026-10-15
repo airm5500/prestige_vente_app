@@ -4,6 +4,7 @@
 // Le choix est mémorisé sur l'appareil et partagé par les deux écrans.
 // Bouton « Présentation » réservé au compte administrateur (AuthProvider.isAdmin) : pour les autres
 // comptes il est masqué et la présentation choisie par l'administrateur s'applique.
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
@@ -25,16 +26,21 @@ class PresentationPrefs {
   PresentationPrefs._();
   static const _key = 'presentation_listes_v1';
 
+  /// Dernière présentation lue ou choisie (null : pas encore lue). Un écran qui s'ouvre démarre avec elle
+  /// (PresentationAware) : pas d'image dans la présentation A avant de passer à B / C (« flash » à l'ouverture).
+  static ListPresentation? derniere;
+
   static Future<ListPresentation> load() async {
     try {
       final v = (await SharedPreferences.getInstance()).getString(_key);
-      return ListPresentation.values.asNameMap()[v] ?? ListPresentation.dashboard;
+      return derniere = ListPresentation.values.asNameMap()[v] ?? ListPresentation.dashboard;
     } catch (_) {
       return ListPresentation.dashboard;
     }
   }
 
   static Future<void> save(ListPresentation p) async {
+    derniere = p;
     try {
       await (await SharedPreferences.getInstance()).setString(_key, p.name);
     } catch (_) {}
@@ -109,6 +115,63 @@ ThemeData themeCharte(ThemeData base) {
     ),
     progressIndicatorTheme: const ProgressIndicatorThemeData(color: Pal.navy),
   );
+}
+
+/// Thème de TOUTE la nouvelle interface (posé au-dessus du navigateur par [CharteNouvelleInterface]) :
+/// [themeCharte] + couleurs de surface neutres (plus de teinte lavande de Material 3 par défaut) et messages
+/// du bas aux couleurs de la charte. Couvre d'un coup toutes les fenêtres de dialogue (AlertDialog,
+/// SimpleDialog, sélecteurs de date / heure), feuilles du bas, menus ⋮ et messages (SnackBar), quel que soit
+/// l'écran qui les ouvre. Les couleurs données explicitement par un écran restent prioritaires.
+ThemeData themeNouvelleInterface(ThemeData base) {
+  final t = themeCharte(base);
+  const fond = Colors.white;
+  return t.copyWith(
+    colorScheme: t.colorScheme.copyWith(
+      primary: Pal.navy,
+      onPrimary: Colors.white,
+      primaryContainer: const Color(0xFFE3ECF7),
+      onPrimaryContainer: Pal.navy,
+      secondaryContainer: const Color(0xFFE3ECF7),
+      onSecondaryContainer: Pal.navy,
+      inversePrimary: Pal.headerMuted,
+      surfaceTint: Colors.transparent,
+      surface: fond,
+      surfaceBright: fond,
+      surfaceContainerLowest: fond,
+      surfaceContainerLow: const Color(0xFFF8FAFC),
+      surfaceContainer: Pal.page,
+      surfaceContainerHigh: const Color(0xFFEEF1F5),
+      surfaceContainerHighest: Pal.line,
+      surfaceDim: const Color(0xFFDCE2EA),
+      inverseSurface: Pal.ink,
+      onInverseSurface: Colors.white,
+    ),
+    snackBarTheme: t.snackBarTheme.copyWith(backgroundColor: Pal.ink, actionTextColor: Pal.amber, contentTextStyle: const TextStyle(color: Colors.white, fontSize: 14)),
+    datePickerTheme: t.datePickerTheme.copyWith(backgroundColor: fond, surfaceTintColor: Colors.transparent, headerBackgroundColor: Pal.navy, headerForegroundColor: Colors.white),
+    timePickerTheme: t.timePickerTheme.copyWith(backgroundColor: fond),
+    // Boutons pleins : bleu nuit, forme et marges de l'application gardées (mise en page identique).
+    elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white).merge(base.elevatedButtonTheme.style)),
+    outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(foregroundColor: Pal.navy).merge(base.outlinedButtonTheme.style)),
+    textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: Pal.navy).merge(base.textButtonTheme.style)),
+    textSelectionTheme: t.textSelectionTheme.copyWith(cursorColor: Pal.navy, selectionHandleColor: Pal.navy),
+  );
+}
+
+/// Charte de la nouvelle interface sur toute l'application (au-dessus du navigateur : écrans, fenêtres
+/// de dialogue, feuilles du bas et messages). Interface d'origine ([nouvelle] faux) : thème inchangé.
+class CharteNouvelleInterface extends StatelessWidget {
+  final ValueListenable<bool> nouvelle;
+  final Widget child;
+  const CharteNouvelleInterface({super.key, required this.nouvelle, required this.child});
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+        valueListenable: nouvelle,
+        // Toujours un Theme (arbre identique) : basculer d'interface ne recrée pas le navigateur.
+        builder: (context, oui, child) => Theme(data: oui ? themeNouvelleInterface(Theme.of(context)) : Theme.of(context), child: child!),
+        child: child,
+      );
 }
 
 /// Bouton « Présentation » de la barre du haut.
@@ -456,7 +519,7 @@ class Figure extends StatelessWidget {
 /// Charge la présentation choisie sur l'appareil (si elle n'est pas imposée) pour un écran intérieur.
 mixin PresentationAware<T extends StatefulWidget> on State<T> {
   ListPresentation? get forcedPresentation;
-  late ListPresentation style = forcedPresentation ?? ListPresentation.dashboard;
+  late ListPresentation style = forcedPresentation ?? PresentationPrefs.derniere ?? ListPresentation.dashboard;
 
   void loadPresentation() {
     if (forcedPresentation != null) return;

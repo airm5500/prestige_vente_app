@@ -2,6 +2,7 @@
 // 10/11/2025 09:30 (Ajout LicenceProvider)
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
+import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/interface_version.dart';
@@ -221,8 +222,12 @@ class MyApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           // Thème des dialogues adapté aux tablettes + bandeau hors ligne (rien tant que le serveur répond)
           // + messages « Connexion au serveur perdue » / « De nouveau en ligne » (le retour n'est pas répété dans le bandeau).
-          builder: (context, child) => HorsLigneScope(
-              bandeauRetour: false, child: ConnexionToasts(child: ResponsiveTheme(child: child ?? const SizedBox.shrink()))),
+          // Nouvelle interface : charte bleu nuit / ambre pour toutes les fenêtres (dialogues, feuilles, messages).
+          builder: (context, child) => CharteNouvelleInterface(
+            nouvelle: InterfaceVersion.useNew,
+            child: HorsLigneScope(
+                bandeauRetour: false, child: ConnexionToasts(child: ResponsiveTheme(child: child ?? const SizedBox.shrink()))),
+          ),
           home: const SplashScreen(),
         ),
       ),

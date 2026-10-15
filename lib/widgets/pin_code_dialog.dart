@@ -104,6 +104,8 @@ class _VerificationDialogState extends State<_VerificationDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+        // Petit écran, texte agrandi, clavier ouvert : le contenu défile au lieu de déborder.
+        scrollable: true,
         title: const Text('Accès Sécurisé'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
