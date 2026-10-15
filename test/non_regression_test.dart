@@ -106,7 +106,7 @@ void main() {
     test('rapport de tests de livraison : produit par la CI (format --machine) et publié avec l\'APK', () {
       final ci = File('.github/workflows/build-apk.yml').readAsStringSync();
       expect(ci, contains('--file-reporter json:build/rapport_tests/tests.json'), reason: 'résultats JSON (format --machine) de la suite');
-      expect(ci, contains('dart run tool/rapport_tests.dart build/rapport_tests >> "\$GITHUB_STEP_SUMMARY"'));
+      expect(ci, contains('dart run tool/rapport_tests.dart build/rapport_tests | tee -a "\$GITHUB_STEP_SUMMARY"'), reason: 'résumé du job et journal');
       expect(ci, contains('name: rapport-tests'));
       expect(File('tool/rapport_tests.dart').existsSync(), isTrue);
     });

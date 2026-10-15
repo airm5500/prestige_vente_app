@@ -37,7 +37,7 @@ jobs:
       - name: Rapport de tests de livraison
         if: ${{ !cancelled() }}
         shell: bash
-        run: dart run tool/rapport_tests.dart build/rapport_tests >> "$GITHUB_STEP_SUMMARY"
+        run: dart run tool/rapport_tests.dart build/rapport_tests | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}

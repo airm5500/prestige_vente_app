@@ -13,7 +13,7 @@
 //
 // Utilisation :
 //   dart run tool/rapport_tests.dart build/rapport_tests            # Markdown sur la sortie standard
-//   dart run tool/rapport_tests.dart build/rapport_tests >> "$GITHUB_STEP_SUMMARY"
+//   dart run tool/rapport_tests.dart build/rapport_tests | tee -a "$GITHUB_STEP_SUMMARY"   (CI : résumé + journal)
 // Écrit aussi build/rapport_tests/rapport.md et build/rapport_tests/resume.json (artefact « rapport-tests »).
 // Code de sortie 0 : le rapport ne décide pas du succès du job (l'étape de test échoue d'elle-même).
 import 'dart:convert';
