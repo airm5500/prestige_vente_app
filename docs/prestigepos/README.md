@@ -20,7 +20,7 @@ borne verticale, panier, ticket, imprimante en panne, terminal Sunmi).
 | Saveur Android | `mobile` (par défaut) | `pos` |
 | Point d'entrée | `lib/main.dart` (inchangé) | `lib/main_pos.dart` |
 | applicationId | `com.dici.prestige_vente_app` | `com.dici.prestigepos` |
-| Version | `pubspec.yaml` (4.2.0+14) | `android/app/prestigepos-version.properties` (1.0.0+1) |
+| Version | `pubspec.yaml` (4.2.1+15) | `android/app/prestigepos-version.properties` (1.0.0+1) |
 | Nom, icône, activité | `android/app/src/main` | `android/app/src/pos` (remplace nom, icône, activité) |
 | Permissions en plus | — | Bluetooth (SPP), USB (OTG) : `src/pos/AndroidManifest.xml` |
 | APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.0.0.apk`) |
@@ -36,7 +36,7 @@ de ticket ESC/POS (`lib/prestigepos/impression/`) et le pont Android Bluetooth /
 
 `flutter build apk --release` **sans** `--flavor` construit toujours Prestige Mobile (`pubspec.yaml` :
 `flutter › default-flavor: mobile`). La CI vérifie que l'APK de Prestige Mobile garde le même applicationId, le même
-nom, la même version et **exactement les mêmes permissions** que la version 4.2.0+14 (job `prestige-mobile-identique`).
+nom, la même version et **exactement les mêmes permissions** que la version 4.2.1+15 (job `prestige-mobile-identique`).
 
 ## Ouvrir dans Android Studio
 

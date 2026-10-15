@@ -9,6 +9,7 @@
 // la licence au retour au premier plan et toutes les 15 min, rappels de licence, tâches en attente.
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -166,7 +167,9 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       _tampon = '';
       return false;
     }
-    final now = DateTime.now();
+    // clock.now() : DateTime.now() sur l'appareil ; temps simulé dans les tests (avant : heure réelle, un
+    // test chargé de plus de 400 ms entre deux touches perdait le début du code — test instable, 4.2.1).
+    final now = clock.now();
     if (now.difference(_derniereTouche) > _delaiTouches) _tampon = '';
     _derniereTouche = now;
     if (e.logicalKey == LogicalKeyboardKey.enter || e.logicalKey == LogicalKeyboardKey.numpadEnter) {

@@ -129,8 +129,14 @@ bool routePubliquePrestige(String chemin) {
 }
 
 class FauxServeurPrestige extends ServeurJsonLocal {
-  FauxServeurPrestige({this.exigerSession = true, Map<String, String>? comptes})
+  FauxServeurPrestige({this.exigerSession = true, Map<String, String>? comptes, this.hoteEnMemoire = hoteMemoire})
       : comptes = comptes ?? {DonneesFictives.login: DonneesFictives.motDePasse, DonneesFictives.admin: DonneesFictives.motDePasseAdmin};
+
+  /// Nom d'hôte de ce serveur dans le transport en mémoire (deux serveurs : « local » et « distant »).
+  final String hoteEnMemoire;
+
+  /// HTTPS en mémoire : le certificat présenté est refusé par l'appareil (poignée de main TLS en échec).
+  bool certificatRefuse = false;
 
   // ---------------------------------------------------------------------------
   // Comportements types (utilisables dans les routes scriptées)
@@ -143,6 +149,16 @@ class FauxServeurPrestige extends ServeurJsonLocal {
   static const ReponseLocale nonConnecte403 = ReponseLocale(messageDeconnecte, statut: 403);
   static ReponseLocale erreurServeur([int statut = 500]) => ReponseLocale('<html><body>Erreur $statut</body></html>', statut: statut);
   static ReponseLocale lent(Object? corps, Duration delai) => ReponseLocale(corps, delai: delai);
+
+  /// Réponse annoncée en JSON mais illisible (JSON partiel ou invalide) : statut 200, connexion normale.
+  static ReponseLocale jsonInvalide(String texte, {Duration delai = Duration.zero}) =>
+      ReponseLocale(texte, delai: delai, entetes: const {'content-type': 'application/json; charset=utf-8'});
+
+  /// Réponse TRONQUÉE : la connexion se ferme après [part] du corps (réseau qui lâche pendant la réponse).
+  static ReponseLocale coupeeEnCours(Object? corps, {double part = 0.5}) {
+    final r = ReponseLocale(corps);
+    return ReponseLocale(corps, coupeeApres: (utf8.encode(r.texte).length * part).floor());
+  }
 
   static const messageDeconnecte = 'Veuillez vous connecter';
 
@@ -403,9 +419,10 @@ class FauxServeurPrestige extends ServeurJsonLocal {
   final List<Uri> tentatives = [];
 
   @override
-  String get hote => _enMemoire ? '$hoteMemoire:$portMemoire' : super.hote;
+  String get hote => _enMemoire ? '$hoteEnMemoire:$portMemoire' : super.hote;
 
-  static FauxServeurPrestige? _actif;
+  /// Serveurs installés en mémoire, par nom d'hôte.
+  static final Map<String, FauxServeurPrestige> _actifs = {};
   HttpOverrides? _precedent;
 
   /// Remplace le client HTTP de l'application par un client en mémoire relié à ce serveur (toutes les
@@ -413,14 +430,14 @@ class FauxServeurPrestige extends ServeurJsonLocal {
   void installerEnMemoire() {
     _enMemoire = true;
     _precedent = HttpOverrides.current;
-    _actif = this;
+    _actifs[hoteEnMemoire] = this;
     HttpOverrides.global = _FauxHttpOverrides();
     // Le client Dio partagé garde son HttpClient : on lui en donne un neuf (créé avec ces overrides).
     DioClient.getClient(base).httpClientAdapter = IOHttpClientAdapter();
   }
 
   void desinstaller() {
-    if (identical(_actif, this)) _actif = null;
+    if (identical(_actifs[hoteEnMemoire], this)) _actifs.remove(hoteEnMemoire);
     HttpOverrides.global = _precedent;
     DioClient.getClient('').httpClientAdapter = IOHttpClientAdapter();
   }
@@ -455,10 +472,15 @@ class _FauxHttpClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> openUrl(String method, Uri url) async {
-    final s = FauxServeurPrestige._actif;
-    s?.tentatives.add(url);
-    if (s == null || s.coupe || url.host != FauxServeurPrestige.hoteMemoire) {
+    final actifs = FauxServeurPrestige._actifs;
+    final s = actifs[url.host];
+    // Adresse inconnue : notée chez le serveur principal (ANO-08 : adresses refusées comprises).
+    (s ?? actifs[FauxServeurPrestige.hoteMemoire] ?? (actifs.isEmpty ? null : actifs.values.first))?.tentatives.add(url);
+    if (s == null || s.coupe) {
       throw SocketException('Connection refused', osError: const OSError('Connection refused', 111), address: InternetAddress.loopbackIPv4, port: url.port);
+    }
+    if (s.certificatRefuse && url.scheme == 'https') {
+      throw const HandshakeException('Handshake error in client', OSError('CERTIFICATE_VERIFY_FAILED: self signed certificate(handshake.cc:393)', 0));
     }
     return _FauxRequete(s, method, url);
   }
@@ -583,10 +605,11 @@ class _FauxReponse extends Stream<List<int>> implements HttpClientResponse {
   final HttpHeaders headers = _Entetes();
 
   _FauxReponse(this.rep) {
-    final texte = rep.corps is String ? rep.corps as String : jsonEncode(rep.corps);
-    _octets = utf8.encode(texte);
-    headers.set('content-type', rep.corps is String ? 'text/plain; charset=utf-8' : 'application/json; charset=utf-8');
-    rep.entetes.forEach((k, v) => headers.add(k, v));
+    _octets = utf8.encode(rep.texte);
+    headers.set('content-type', rep.typeContenu);
+    rep.entetes.forEach((k, v) {
+      if (k.toLowerCase() != 'content-type') headers.add(k, v);
+    });
   }
 
   @override
@@ -609,8 +632,19 @@ class _FauxReponse extends Stream<List<int>> implements HttpClientResponse {
   List<Cookie> get cookies => const [];
 
   @override
-  StreamSubscription<List<int>> listen(void Function(List<int> event)? onData, {Function? onError, void Function()? onDone, bool? cancelOnError}) =>
-      Stream<List<int>>.fromIterable([Uint8List.fromList(_octets)]).listen(onData, onError: onError, onDone: onDone, cancelOnError: cancelOnError);
+  StreamSubscription<List<int>> listen(void Function(List<int> event)? onData, {Function? onError, void Function()? onDone, bool? cancelOnError}) {
+    final coupe = rep.coupeeApres;
+    if (coupe == null || coupe >= _octets.length) {
+      return Stream<List<int>>.fromIterable([Uint8List.fromList(_octets)]).listen(onData, onError: onError, onDone: onDone, cancelOnError: cancelOnError);
+    }
+    // Réponse tronquée : une partie du corps, puis la connexion se ferme (comme dart:io).
+    Stream<List<int>> tronquee() async* {
+      yield Uint8List.fromList(_octets.sublist(0, coupe));
+      throw const HttpException('Connection closed while receiving data');
+    }
+
+    return tronquee().listen(onData, onError: onError, onDone: onDone, cancelOnError: cancelOnError);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError('HttpClientResponse en mémoire : ${invocation.memberName}');

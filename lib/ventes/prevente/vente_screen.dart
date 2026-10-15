@@ -889,7 +889,9 @@ class _StatusBanner extends StatelessWidget {
       return LoadErrorBanner(message: 'Net à payer non calculé : ${venteMessage(c.netError)}', onRetry: c.busy ? null : c.reload);
     }
     if (discret) return const SizedBox.shrink();
-    if (c.busy && c.venteId != null) {
+    // 4.2.1 : aussi pendant la création de la vente (1er article, pas encore d'identifiant) : sur un serveur lent,
+    // le panier restait « vide » sans aucun indicateur pendant toute l'attente (ANO-10, tests réseau).
+    if (c.busy && (c.venteId != null || !HorsLigne.instance.offline)) {
       return const _Strip(
         key: ValueKey('vente-etat-envoi'),
         bg: Color(0xFFE3ECF7),

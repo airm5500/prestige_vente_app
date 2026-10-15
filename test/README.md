@@ -1,29 +1,52 @@
 # Tests de Prestige Mobile
 
-Socle de tests exigé pour chaque application : **unitaires**, **intégration**, **e2e**, **ergonomie et cohérence
-d'affichage**, **non-régression**. Tout s'exécute avec `flutter test` sur Linux (CI GitHub), **sans émulateur ni
-téléphone**, contre des **données fictives** uniquement (aucun vrai patient, aucune vraie pharmacie).
+Socle de tests exigé pour chaque application et à chaque livraison : **unitaires**, **écrans**, **intégration**,
+**e2e**, **non-régression**, **ergonomie et cohérence d'affichage**, **performance** et **réseau** (4.2.1). Tout
+s'exécute avec `flutter test` sur Linux (CI GitHub), **sans émulateur ni téléphone**, contre des **données
+fictives** uniquement (aucun vrai patient, aucune vraie pharmacie). Chaque livraison est accompagnée d'un
+**rapport de tests** (voir « Rapport de tests de livraison »).
 
 ## Lancer les tests
 
 ```bash
-# Toute la suite de la CI (liste explicite, ligne 32 de .github/workflows/build-apk.yml)
+# Toute la suite de la CI (liste explicite, ligne 32 de .github/workflows/build-apk.yml), résultats JSON compris
 flutter test $(sed -n 32p .github/workflows/build-apk.yml | sed 's/.*flutter test //')
+# Rapport de tests de livraison (Markdown) à partir de ces résultats
+dart run tool/rapport_tests.dart build/rapport_tests
 
 # Un fichier, ou un test précis
 flutter test test/e2e_parcours_test.dart
 flutter test test/ergonomie_test.dart --plain-name "Sunmi V2s 720×1440, texte ×1.3"
+flutter test test/performance test/reseau        # performance et réseau seulement
 ```
 
 La CI liste **explicitement** chaque fichier (ligne 32). `test/non_regression_test.dart` échoue si un fichier
 `test/**/*_test.dart` n'y figure pas (exceptions déclarées : `test/outils/apercus_connexion_test.dart` et
 `test/outils/captures_borne_test.dart`, outils manuels qui génèrent des aperçus PNG avec `APERCUS=1` — captures de la
 borne dans `docs/maquettes/captures_borne/` — et `test/outils/captures_prestigepos_test.dart`, captures de PrestigePOS
-dans `docs/prestigepos/captures/`).
+dans `docs/prestigepos/captures/`), si un fichier de la ligne 32 n'a pas de catégorie dans
+**`test/categories.json`** (ou y figure sans être dans la CI, ou avec une catégorie inconnue), si l'une des huit
+catégories est vide, ou si la CI ne produit plus le rapport.
+
+## Rapport de tests de livraison
+
+La ligne 32 écrit les résultats de toute la suite au format `flutter test --machine` (JSON, option
+`--file-reporter json:build/rapport_tests/tests.json`). L'étape « Rapport de tests de livraison » lance ensuite
+`tool/rapport_tests.dart` (même script que Prestige Inventaire, étendu à la table des catégories) qui écrit, dans le
+**résumé du job GitHub** (`$GITHUB_STEP_SUMMARY`) et dans l'artefact **`rapport-tests`** (à côté de l'APK
+`prestige-vente-apk`) :
+- par catégorie (table versionnée `test/categories.json` : catégorie principale de chaque fichier) : nombre de
+  fichiers, tests, réussis, sautés, échecs, durée cumulée ; durée réelle de la suite ;
+- toutes les **mesures de performance et de requêtes** avec leur seuil et la part du seuil utilisée (⚠️ au-delà de
+  80 % d'un seuil de temps, ❌ au-delà du seuil — le test échoue alors) ;
+- les tests en échec et les tests sautés (anomalies connues « sauté : ANO-xx »).
+
+Le rapport est produit même si des tests échouent (l'APK n'est alors pas construit). Fichiers de l'artefact :
+`rapport.md`, `resume.json` (chiffres pour un tableau de bord), `tests.json` (résultats bruts).
 
 **PrestigePOS** : tout le dossier `test/prestigepos/` est exécuté par le job `prestigepos` de la CI
-(`flutter test test/prestigepos`, résumé dans la page du job) ; ses fichiers ne sont donc pas listés ligne 32.
-Voir `docs/prestigepos/README.md`.
+(`flutter test test/prestigepos`, résumé dans la page du job) ; ses fichiers ne sont donc pas listés ligne 32 ni dans
+`test/categories.json`. Voir `docs/prestigepos/README.md`.
 
 ## Catégories
 
@@ -34,7 +57,12 @@ Voir `docs/prestigepos/README.md`.
 | **Intégration** | vrais clients HTTP de l'application contre un serveur simulé (vrai HTTP local ou en mémoire) | `integration_services` (ApiService, licence, connexion, préventes, BL, analyse article, AuthProvider, passerelle de vente), `client_prestige`, `client_prestige_session`, `reserve`, `posos`, `fiche_client`, `droits_modules` (parties « serveur local »), `session_expiree`, `session_renouvelee`, `pointage_photo_integration`, `faux_serveur_prestige` (auto-contrôle du simulateur), `https_integration` (4.1.0 : faux serveur en HTTPS, `bindSecure` + certificat de test : même adresse https et cookie renouvelé pour tous les clients, session expirée, certificat refusé ≠ injoignable ≠ licence) |
 | **E2E** | application ENTIÈRE (`MyApp`, vrais providers, vrai Dio, intercepteur de session, surveillance du serveur) reliée au faux serveur Prestige en mémoire | `e2e_parcours`, `widget_test` (démarrage), `recherche_rapide_info` (4.1.2 : Analyse article, fiche produit et État de Stock contre un serveur lent), `sortie_borne` (4.1.2 : borne activée puis quittée, borne sans données, session de l'utilisateur borne expirée), `recherche_debut_cip` (4.0.3 F3 : « 3595 » dans Recherche Article et Évaluation Vente en Début / Contient — liste et détails du produit choisi —, Analyse article, recherche de l'accueil, contre des réponses triées par nom comme le serveur), `https_configuration` (4.1.0 : application configurée en https, toutes les requêtes vers la même adresse) |
 | **Ergonomie / cohérence d'affichage** | 21 écrans et fenêtres × 5 tailles × 2 échelles de texte : débordements, cibles ≥ 48 dp, contraste, charte, clavier (petits écrans en Compact automatique, 4.0.1) ; Sunmi V2s aux 3 tailles d'écran (Automatique / Compact / Très compact), vente clavier ouvert, douchette, autres appareils en Automatique, réglage dans les deux interfaces ; Configuration d'origine (4.0.3 F1) sans débordement aux 5 tailles × texte 1,0 / 1,3 | `ergonomie`, `ergonomie_taille_ecran`, `configuration_origine` (+ `responsive` : rendu à 360 px figé par `responsive_reference_360.json`) |
-| **Non-régression** | garde-fou de la liste CI ; anomalies corrigées (ANO-01, 02, 04, 05, 08) ; versions alignées sur le magasin Sunmi (`docs/VERSIONS_SUNMI.md` : pubspec.yaml ≥ version publiée, +N > versionCode publié, aucun numéro en dur dans Gradle) ; ensemble de la suite verte | `non_regression`, `version_sunmi`, `ticket_prevente` (4.1.1 : réglages par défaut → tickets identiques, appel par appel à l'imprimante Sunmi simulée et ligne par ligne à l'aperçu, à ceux de la 4.1.0 : `test/ticket_prevente_reference.json`) + toute la liste CI |
+| **Performance** (4.2.1, `test/performance/`) | temps réels mesurés et **seuils** (voir « Seuils de performance ») : démarrage → écran de connexion, connexion → accueil A / B / C ; défilement de longues listes (Recherche Article 500 produits, 200 préventes à encaisser, Réserve 300 lignes, journal 1 000 actions) ; 50 lignes ajoutées au panier ; **nombre de requêtes** des parcours clés (recherche tapée vite → 1 requête après l'anti-rebond, Analyse article, fiche produit, État de Stock, encaissement, synchro hors ligne) ; traitements locaux (classement par code de 5 000 produits, 100 tickets) | `demarrage`, `listes_longues`, `requetes`, `traitement_local` |
+| **Réseau** (4.2.1, `test/reseau/`) | serveur lent qui répond (2 / 5 / 8 s ; 25 s pour `GET /info`) sur la vente, l'encaissement, la recherche, l'Analyse article : indicateur, écran utilisable, pas de double envoi, pas d'erreur avant le délai ; réponses tronquées et JSON invalide ; coupure puis retour (reprise de la file hors ligne, coupure pendant l'envoi) ; local ↔ distant (deux serveurs) ; certificat HTTPS refusé (application entière ; le vrai TLS est dans `https_integration`) | `serveur_lent`, `reponses_tronquees`, `coupures_reprise`, `adresse_serveur`, `https` |
+| **Non-régression** | garde-fou de la liste CI et des catégories (`test/categories.json`) ; anomalies corrigées (ANO-01, 02, 04, 05, 08) ; versions alignées sur le magasin Sunmi (`docs/VERSIONS_SUNMI.md` : pubspec.yaml ≥ version publiée, +N > versionCode publié, aucun numéro en dur dans Gradle) ; ensemble de la suite verte | `non_regression`, `version_sunmi`, `ticket_prevente` (4.1.1 : réglages par défaut → tickets identiques, appel par appel à l'imprimante Sunmi simulée et ligne par ligne à l'aperçu, à ceux de la 4.1.0 : `test/ticket_prevente_reference.json`) + toute la liste CI |
+
+Un fichier peut toucher plusieurs catégories (tableau ci-dessus) ; le rapport de livraison le compte dans sa
+catégorie **principale**, celle de `test/categories.json`.
 
 ## Parcours clés et couverture
 
@@ -59,6 +87,8 @@ Voir `docs/prestigepos/README.md`.
 | Réception BL, contrôle livraison / réception, pointage BL, retours fournisseur | `reception_bl`, `presentation_*`, `retour_frs`, `sync_load_errors` |
 | Stock, périmés, péremption, ajustement, emplacement, EAN, réserve | `presentation_*`, `stock_reserve`, `reserve`, `horsligne_stock` |
 | Pointage (local, badge, NFC, présence, photo de contrôle) | `pointage_*`, `rh_pointage`, `pointage_photo*` |
+| Performance des parcours (4.2.1) : démarrage, accueil A / B / C, longues listes, panier de 50 lignes, requêtes par parcours, traitements locaux | `performance/*` |
+| Réseau (4.2.1) : serveur lent, réponses tronquées / JSON invalide, coupures et reprise de la file hors ligne, local ↔ distant, certificat refusé | `reseau/*`, `https_integration` |
 | Ordonnances (vérification, OCR, apprentissage, lecture avancée) | `prescription_check`, `ordonnances_*` |
 
 ## Outils communs (`test/outils/`)
@@ -96,6 +126,28 @@ s.activerModules();                        // Réserve, Posos, Fiche client avec
   par `openssl` (aucune clé dans le dépôt). `avecConfianceTest(cert, …)` l'approuve **dans le test seulement**
   (HttpOverrides) ; avec `avecVraiHttp` il est refusé, comme sur un téléphone. Le code de l'application ne
   contourne jamais la vérification.
+
+Tests réseau (4.2.1) :
+
+```dart
+FauxServeurPrestige.jsonInvalide('[{"id":1,"lib');        // 200, annoncé JSON, illisible
+FauxServeurPrestige.coupeeEnCours(corps, part: 0.5);        // connexion fermée au milieu du corps
+s.certificatRefuse = true;                                  // en mémoire : poignée de main TLS refusée (https)
+FauxServeurPrestige(hoteEnMemoire: 'distant.test');         // 2e serveur en mémoire (local ↔ distant)
+```
+
+### Performance — `performance.dart`
+
+`Seuils` (tous les seuils, documentés ci-dessous), `mesurer(nom, valeur, seuil:, unite:, detail:)` (compare au seuil
+et imprime `PRESTIGE_MESURE {json}` pour le rapport), `ChronoImages` (chaque `pump` chronométré en temps réel :
+max, p90, moyenne), `defilerJusquEnBas`, `plusGrandeListe`, `remonter`, `meilleurDe(n, …)` (meilleur de n passages),
+`compterRequetes(serveur, action)` et `detailRequetes` (« GET /vente/search ×1, … »).
+
+### Parcours de vente — `parcours_vente.dart`
+
+`CatalogueFictif(serveur, nombre:, preventes:)` : N produits fictifs servis par pages par `GET /vente/search`
+(« commence par », comme le serveur), modes de règlement, clôture comptée (`clotures`), délais réglables
+(`delaiRecherche`, `delaiCloture`), N préventes à encaisser. Gestes : `ajouterAuPanier`, `validerEncaissementEspeces`.
 
 ### Tickets imprimés — `ticket_capture.dart`
 
@@ -142,6 +194,59 @@ champ de saisie visible au-dessus du clavier (`viewInsets` à 40 % de la hauteur
 5. **CI** : ajouter le fichier à la ligne 32 de `.github/workflows/build-apk.yml` (le garde-fou le rappelle).
 6. Données **fictives** seulement ; pas de golden ; vérifier `flutter analyze lib test`.
 
+## Seuils de performance
+
+Seuils dans `Seuils` (`test/outils/performance.dart`) ; une mesure au-delà fait échouer la CI. Temps : temps
+**réels** du test en mode test (JIT, assertions), suite complète en parallèle (un fichier par cœur) — ce sont des
+seuils de **non-régression**, pas des temps du terminal. Marge ≈ ×3 sur la valeur la plus lente mesurée (PC Linux
+4 cœurs, suite complète en parallèle, et CI GitHub : voir le rapport `rapport-tests` de chaque run). Requêtes :
+plafond = fonctionnement voulu, **sans marge**. Un seuil ne se relève qu'avec une justification écrite ici.
+
+| Mesure | Seuil | Mesuré (suite en parallèle) |
+|---|---:|---:|
+| Démarrage → écran de connexion, à froid | 6 000 ms | 1,5 – 2,0 s |
+| Démarrage : requêtes (licence + test du serveur) | 2 | 2 |
+| Connexion → accueil A / B / C | 3 500 ms | 0,6 – 2,0 s |
+| Accueil : pire image en parcourant la page (2e passage) | 250 ms | 17 – 117 ms |
+| Connexion + accueil : requêtes (dont 5 en double, ANO-09) | 26 | 26 |
+| Longue liste : pire image, 1er passage (à froid) | 500 ms | 25 – 96 ms |
+| Longue liste : pire image, 2e passage | 150 ms | 21 – 48 ms |
+| Longue liste : 90 % des images, 2e passage | 80 ms | 6 – 23 ms |
+| Ouverture d'une longue liste / 1re page de résultats | 3 000 ms | 0,15 – 0,4 s |
+| Recherche Article 500 produits : requêtes (pages de 50) | 10 | 10 |
+| Préventes à encaisser (200) : requêtes à l'ouverture | 1 | 1 |
+| Vente : ajout d'une ligne (moyenne sur 50) | 600 ms | 200 – 240 ms |
+| Vente : pire image pendant l'ajout de 50 lignes | 900 ms | 120 – 306 ms |
+| Vente : requêtes par ligne (recherche, ajout, lignes, net) | 4 (200 pour 50) | 4 |
+| Recherche tapée vite (Vente, accueil, Recherche Article, Analyse article, État de Stock) | 1 | 1 |
+| Analyse article : ouverture / détail du produit choisi | 0 / 1 | 0 / 1 |
+| Fiche produit : ouverture (`/info` + images) / réouverture < 60 s | 2 / 0 | 2 / 0 |
+| État de Stock : ouverture (rayons, grossistes) | 2 | 2 |
+| Encaissement d'une vente (modes, QR, client, clôture, préventes) | 5, dont 1 clôture | 5 |
+| Synchro hors ligne : par prévente d'une ligne | 5 (15 pour 3) | 5 |
+| Classement par code de 5 000 produits (20 saisies), meilleur de 3 | 400 ms | 70 – 83 ms |
+| 100 tickets de vente (Sunmi simulée), meilleur de 3 | 2 500 ms | 0,6 – 1,0 s |
+| 100 tickets de la borne, meilleur de 3 | 100 ms | 4 – 7 ms |
+
+## Ajouter les tests de performance et réseau d'un nouvel écran
+
+1. **Temps d'affichage et défilement** : dans `test/performance/listes_longues_test.dart` (ou un nouveau fichier
+   `test/performance/<module>_test.dart`), ouvrir l'écran avec une longue liste fictive (application entière via
+   `AppE2E` + `CatalogueFictif`, ou l'écran seul avec `FauxServeurPrestige(exigerSession: false)..installerEnMemoire()`),
+   puis `mesurerDefilement(t, 'Nom')` : deux passages, seuils `imageFroideMs` / `imageDefilementMs` / `imageCouranteMs`.
+2. **Requêtes** : dans `requetes_test.dart`, entourer l'ouverture et chaque action de `compterRequetes(...)` et
+   `mesurer('Requêtes — …', n, seuil: <nombre voulu>, unite: 'requêtes', detail: detailRequetes(rs))`. Plafond =
+   fonctionnement voulu **sans marge** ; justifier chaque requête dans un commentaire (ex. « rayons (1) + grossistes (1) »).
+3. **Serveur lent** : dans `test/reseau/serveur_lent_test.dart`, ralentir la route (`ralentir(serveur, 'GET /x', d)`)
+   pour 2 / 5 / 8 s et appeler `attendreServeurLent(t, d, 'Écran', attendu: <indicateur>, pendant: <second toucher>)` :
+   indicateur visible et aucune erreur à chaque pas de 250 ms, puis vérifier le résultat et l'absence de double envoi
+   (compter les requêtes d'écriture).
+4. **Réponses illisibles** : ajouter l'écran à `reponses_tronquees_test.dart` (boucle `pannes` : JSON partiel et
+   connexion coupée) : message d'erreur + « Réessayer », jamais une liste vide ; puis la réponse correcte.
+5. **Catégorie** : ajouter le fichier à la ligne 32 de la CI **et** à `test/categories.json` (le garde-fou le rappelle).
+6. Seuil nouveau : le calibrer sur la CI (valeur du rapport `rapport-tests`), marge ≈ ×3 pour un temps, et l'écrire
+   dans `Seuils` et dans le tableau « Seuils de performance » ci-dessous.
+
 ## Anomalies
 
 | Id | Description | État |
@@ -156,6 +261,10 @@ champ de saisie visible au-dessus du clavier (`viewInsets` à 40 % de la hauteur
 | ANO-08 | Interface d'origine (`AncienSplashScreen`) : la 1re vérification de licence partait vers `http://localhost:8080` (ApiService créé à la 1re image avant la lecture des réglages, recréé par le ProxyProvider seulement à l'image suivante ; `Future.delayed(Duration.zero)` ne laisse passer aucune image) → « Serveur injoignable » au démarrage ; « Réessayer » fonctionnait. | **Corrigée** (4.0.2 : attente de la fin de l'image suivante si l'adresse n'est pas encore celle des réglages ; écran d'origine et nouvelle interface inchangés) — `non_regression_test` (1re requête = serveur configuré dans les deux interfaces ; sans configuration : aucune requête), démarrage « interface d'origine » réactivé dans `widget_test` |
 | F1 | Configuration d'origine (`lib/screens/auth/settings_screen.dart`) : ligne « Type de code ticket » débordant d'environ 132 px même sur tablette (et, sur 360 dp / Sunmi, « Largeur du ticket », « Mode test d'impression », « Comparaison Stock BL » texte ×1,3). | **Corrigée** (4.0.3 : choix sous le libellé quand ils ne tiennent pas côte à côte, mêmes valeurs) — `configuration_origine`, exception retirée de `non_regression_test` (« sans configuration »), `version_affichee_test`, `ergonomie_taille_ecran_test` |
 | F3 | Recherche Article / Évaluation Vente : début de CIP pas en première ligne (serveur : nom, CIP et EAN « commence par », trié par nom ; appli : ordre affiché tel quel, 1re ligne de `/info?search=CIP` prise pour les détails). | **Corrigée** (4.0.3 : `lib/services/classement_code.dart`, aussi recherche de l'accueil et Analyse article) — `recherche_debut_cip` |
+
+| ANO-09 | Connexion → accueil : lectures EN DOUBLE (même route, mêmes paramètres) : `GET /officine` ×3, `GET /ventestats/preventes` ×2, `GET /commande/list-bons` (BL du jour) ×2, `GET /modereglement/all` ×2 — chargements après la connexion puis de l'accueil (26 requêtes au lieu de 21). Sans effet visible, du trafic en plus sur un réseau lent. | Signalée — plafond actuel (26) gardé par `performance/demarrage` (non-régression), test « aucune lecture en double — sauté : ANO-09 » |
+| ANO-10 | Vente : pendant la création de la vente (1er article, `POST /vente/add/vno`), aucun indicateur : sur un serveur lent (2 à 8 s), le panier restait « vide » sans rien afficher. | **Corrigée** (4.2.1 : bandeau « Envoi au serveur… » dès le 1er article en ligne ; aucune vente en double) — `reseau/serveur_lent` |
+| Instable | `retours_accueil_test` « douchette sur l'accueil : EAN-13 → fiche » échouait parfois en lancement groupé : l'accueil mesurait l'écart entre deux touches de la douchette à l'heure **réelle** (`DateTime.now()`, 400 ms au plus) ; une machine chargée qui suspend le processus plus de 400 ms au milieu du code tronquait le code (reproduit en suspendant le test 450 ms). | **Corrigée** (4.2.1 : `clock.now()` — heure réelle sur le terminal, temps simulé en test ; cache des fiches vidé entre les tests) — `retours_accueil_test` (« machine chargée », « règle conservée ») |
 
 Les écrans touchés restent contrôlés pour tous les autres critères et toutes les autres configurations : seul le
 contrôle concerné est sauté, dans un test marqué « sauté : ANO-xx » (voir `anomaliesErgonomie` dans
