@@ -1,5 +1,6 @@
 // lib/reserve/reserve_screen.dart
-// Menu « Réserve » : réappros manuels (Rayon → Réserve, Réserve → Rayon) et suggestions automatiques à traiter.
+// Menu « Réserve » : réappros manuels (Rayon → Réserve, Réserve → Rayon) et suggestions automatiques à traiter,
+// en deux onglets dès l'ouverture : « Manuel » (à gauche) et « Automatique » (à droite).
 // Parcours décidé avec le pharmacien : suggestion PUIS traitement (comme l'écran web), jamais de mouvement direct.
 // Menu réservé aux administrateurs (droit dédié quand le serveur l'exposera) : voir lib/droits/droits_modules.dart.
 import 'package:flutter/material.dart';
@@ -63,8 +64,8 @@ class _ReserveScreenState extends State<ReserveScreen> {
   int _nombre(SensReserve s, OrigineSuggestion o) => suggestionsAReprendre(_enAttente, s, o).length;
 
   Future<void> _ouvrirPanier(SensReserve s) async {
-    await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ReservePanierScreen(sens: s, api: _api, choixProduit: widget.choixProduit, scanner: widget.scanner)));
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => ReservePanierScreen(sens: s, api: _api, choixProduit: widget.choixProduit, scanner: widget.scanner)));
     _charger();
   }
 
@@ -119,70 +120,112 @@ class _ReserveScreenState extends State<ReserveScreen> {
     ]);
   }
 
+  /// Contenu d'un onglet (tirer pour actualiser).
+  Widget _onglet(String cle, List<Widget> enfants) => RefreshIndicator(
+        onRefresh: _charger,
+        child: ListView(
+          key: PageStorageKey<String>(cle),
+          padding: EdgeInsets.fromLTRB(16 + Responsive.sideInset(context), 4, 16 + Responsive.sideInset(context), 24),
+          children: enfants,
+        ),
+      );
+
+  /// Onglet avec le nombre de suggestions à traiter (« Automatique · 3 »), cible tactile ≥ 48 dp.
+  Widget _tab(Key key, String libelle, int nombre) => Tab(
+        key: key,
+        height: 48,
+        child: Text(nombre > 0 ? '$libelle · $nombre' : libelle, maxLines: 1, overflow: TextOverflow.ellipsis),
+      );
+
   @override
   Widget build(BuildContext context) {
     const manuelle = OrigineSuggestion.manuelle, auto = OrigineSuggestion.automatique;
-    return Scaffold(
-      backgroundColor: Pal.page,
-      body: Column(children: [
-        NavyHeader(
-          title: 'Réserve',
-          subtitle: 'Réappros entre le rayon et la réserve',
-          actions: [IconButton(tooltip: 'Actualiser', onPressed: _chargement ? null : _charger, icon: const Icon(Icons.refresh, color: Colors.white))],
-        ),
-        if (_chargement) const LinearProgressIndicator(minHeight: 2),
-        if (_erreur != null) BandeauErreur(erreur: _erreur!, onReessayer: _charger),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _charger,
-            child: ListView(
-              padding: EdgeInsets.fromLTRB(16 + Responsive.sideInset(context), 4, 16 + Responsive.sideInset(context), 24),
+    int total(OrigineSuggestion o) => _nombre(SensReserve.versReserve, o) + _nombre(SensReserve.versRayon, o);
+    // Deux onglets dès l'ouverture : « Manuel » (à gauche, ouvert) et « Automatique » (à droite).
+    // Mêmes cartes, mêmes écrans et mêmes routes qu'avant : seule la navigation change.
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: Pal.page,
+        body: Column(children: [
+          NavyHeader(
+            title: 'Réserve',
+            subtitle: 'Réappros entre le rayon et la réserve',
+            actions: [IconButton(tooltip: 'Actualiser', onPressed: _chargement ? null : _charger, icon: const Icon(Icons.refresh, color: Colors.white))],
+          ),
+          Material(
+            color: Colors.white,
+            child: ContentWidth(
+              child: TabBar(
+                key: const ValueKey('reserve-onglets'),
+                labelColor: Pal.navy,
+                unselectedLabelColor: const Color(0xFF4A5A70),
+                indicatorColor: Pal.navy,
+                indicatorWeight: 3,
+                indicatorSize: TabBarIndicatorSize.tab,
+                labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15),
+                tabs: [
+                  _tab(const ValueKey('reserve-onglet-manuel'), 'Manuel', total(manuelle)),
+                  _tab(const ValueKey('reserve-onglet-auto'), 'Automatique', total(auto)),
+                ],
+              ),
+            ),
+          ),
+          if (_chargement) const LinearProgressIndicator(minHeight: 2),
+          if (_erreur != null) BandeauErreur(erreur: _erreur!, onReessayer: _charger),
+          Expanded(
+            child: TabBarView(
               children: [
-                _section('Réappro manuel', [
-                  _carte(
-                    key: const ValueKey('reserve-manuel-versReserve'),
-                    sens: SensReserve.versReserve,
-                    titre: 'Ranger en réserve',
-                    detail: 'Réappro RÉSERVE : le surplus du rayon part en réserve.',
-                    bouton: 'Préparer',
-                    nombre: _nombre(SensReserve.versReserve, manuelle),
-                    onTap: () => _ouvrirPanier(SensReserve.versReserve),
-                  ),
-                  _carte(
-                    key: const ValueKey('reserve-manuel-versRayon'),
-                    sens: SensReserve.versRayon,
-                    titre: 'Regarnir le rayon',
-                    detail: 'Réappro RAYON : les boîtes sortent de la réserve vers le rayon.',
-                    bouton: 'Préparer',
-                    nombre: _nombre(SensReserve.versRayon, manuelle),
-                    onTap: () => _ouvrirPanier(SensReserve.versRayon),
-                  ),
+                _onglet('reserve-liste-manuel', [
+                  _section('Réappro manuel', [
+                    _carte(
+                      key: const ValueKey('reserve-manuel-versReserve'),
+                      sens: SensReserve.versReserve,
+                      titre: 'Ranger en réserve',
+                      detail: 'Réappro RÉSERVE : le surplus du rayon part en réserve.',
+                      bouton: 'Préparer',
+                      nombre: _nombre(SensReserve.versReserve, manuelle),
+                      onTap: () => _ouvrirPanier(SensReserve.versReserve),
+                    ),
+                    _carte(
+                      key: const ValueKey('reserve-manuel-versRayon'),
+                      sens: SensReserve.versRayon,
+                      titre: 'Regarnir le rayon',
+                      detail: 'Réappro RAYON : les boîtes sortent de la réserve vers le rayon.',
+                      bouton: 'Préparer',
+                      nombre: _nombre(SensReserve.versRayon, manuelle),
+                      onTap: () => _ouvrirPanier(SensReserve.versRayon),
+                    ),
+                  ])
                 ]),
-                _section('Suggestions automatiques', [
-                  _carte(
-                    key: const ValueKey('reserve-auto-versRayon'),
-                    sens: SensReserve.versRayon,
-                    titre: 'Rayon à regarnir',
-                    detail: 'Proposées par Prestige après les ventes (rayon sous le seuil mini).',
-                    bouton: 'Voir les suggestions',
-                    nombre: _nombre(SensReserve.versRayon, auto),
-                    onTap: () => _ouvrirListe(SensReserve.versRayon, auto),
-                  ),
-                  _carte(
-                    key: const ValueKey('reserve-auto-versReserve'),
-                    sens: SensReserve.versReserve,
-                    titre: 'Surplus à ranger',
-                    detail: 'Proposées par Prestige (rayon au-dessus du seuil réserve).',
-                    bouton: 'Voir les suggestions',
-                    nombre: _nombre(SensReserve.versReserve, auto),
-                    onTap: () => _ouvrirListe(SensReserve.versReserve, auto),
-                  ),
+                _onglet('reserve-liste-auto', [
+                  _section('Suggestions automatiques', [
+                    _carte(
+                      key: const ValueKey('reserve-auto-versRayon'),
+                      sens: SensReserve.versRayon,
+                      titre: 'Rayon à regarnir',
+                      detail: 'Proposées par Prestige après les ventes (rayon sous le seuil mini).',
+                      bouton: 'Voir les suggestions',
+                      nombre: _nombre(SensReserve.versRayon, auto),
+                      onTap: () => _ouvrirListe(SensReserve.versRayon, auto),
+                    ),
+                    _carte(
+                      key: const ValueKey('reserve-auto-versReserve'),
+                      sens: SensReserve.versReserve,
+                      titre: 'Surplus à ranger',
+                      detail: 'Proposées par Prestige (rayon au-dessus du seuil réserve).',
+                      bouton: 'Voir les suggestions',
+                      nombre: _nombre(SensReserve.versReserve, auto),
+                      onTap: () => _ouvrirListe(SensReserve.versReserve, auto),
+                    ),
+                  ])
                 ]),
               ],
             ),
           ),
-        ),
-      ]),
+        ]),
+      ),
     );
   }
 }
