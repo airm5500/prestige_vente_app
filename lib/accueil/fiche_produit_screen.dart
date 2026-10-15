@@ -44,11 +44,18 @@ ArticleAnalysis? articleDuProduit(List<ArticleAnalysis> lignes, ProductSearchRes
 ChargeurFiche chargeurFiche(ApiService api, ProductSearchResult p) =>
     (token) async => articleDuProduit(await api.fetchArticleAnalysisOrFail(p.intCIP.trim(), cancelToken: token), p);
 
-/// Cache mémoire court des analyses de fiche : réouverture sans attente, une seule requête
-/// à la fois par produit, requête abandonnée quand plus aucune fiche ne l'attend.
+/// Cache mémoire court des analyses de fiche (jamais sur disque) : réouverture sans attente, une seule requête
+/// à la fois par produit. 4.3.2 (lenteur signalée par le pharmacien) :
+/// - une fiche ou un détail FERMÉ avant la réponse ne fait plus abandonner la requête : le serveur la calcule de
+///   toute façon (l'abandon côté téléphone ne l'arrête pas) ; sa réponse remplit le cache et la réouverture du même
+///   produit est immédiate (avant : nouvelle requête, nouvelle attente complète) ;
+/// - LOT de la saisie ([chargerSaisie]) : GET /info?search=<saisie> lu dès que la liste rapide est affichée ; il
+///   couvre tous les produits dont le CIP ou le nom commence par la saisie (même règle que le serveur). Au clic,
+///   un produit couvert est pris dans le lot (déjà arrivé : immédiat ; en route : on attend CE lot, jamais une
+///   2ᵉ requête en parallèle) ; sinon GET /info par son CIP exact.
 /// Seules les réponses du serveur sont gardées (jamais une erreur).
 class FicheInfoCache {
-  FicheInfoCache({this.duree = const Duration(seconds: 60), DateTime Function()? horloge}) : horloge = horloge ?? DateTime.now;
+  FicheInfoCache({this.duree = const Duration(minutes: 2), DateTime Function()? horloge}) : horloge = horloge ?? DateTime.now;
 
   /// Cache de l'application.
   static final FicheInfoCache instance = FicheInfoCache();
@@ -58,10 +65,23 @@ class FicheInfoCache {
   final Map<String, ({DateTime at, ArticleAnalysis? article})> _connus = {};
   final Map<String, _Demande> _enCours = {};
 
-  /// Requêtes réellement envoyées (diagnostic, tests).
+  /// Lot de la saisie en cours, par source (service : serveur et session).
+  final Map<String, _Lot> _lots = {};
+
+  /// Dernier lot arrivé, par source : une saisie qui le prolonge (« dolip » après « doli ») est déjà couverte.
+  final Map<String, _Lot> _lotsFaits = {};
+
+  /// Requêtes par produit réellement envoyées (diagnostic, tests).
   int requetes = 0;
 
-  /// Requêtes abandonnées (fiche quittée avant la réponse).
+  /// Lots (GET /info d'une saisie) réellement envoyés / annulés car devenus inutiles (diagnostic, tests).
+  int lots = 0;
+  int lotsAnnules = 0;
+
+  /// Détails servis par un lot (sans requête propre au produit).
+  int servisParLot = 0;
+
+  /// Écrans fermés avant la réponse (la requête continue et remplit le cache).
   int abandons = 0;
 
   /// Réponse encore fraîche (null : rien de frais) ; `article` null : le serveur n'a pas de ligne.
@@ -75,10 +95,23 @@ class FicheInfoCache {
     return (article: e.article);
   }
 
-  /// Analyse de [cle] : fraîche en cache, sinon la requête en cours, sinon une nouvelle requête.
-  /// [attendre] faux (préchargement) : la requête ne compte pas d'écran en attente.
+  /// Comme [connu], en cherchant aussi dans le dernier lot arrivé qui couvre [p] (ouverture sans attente).
+  ({ArticleAnalysis? article})? connuPour(String cle, ProductSearchResult p) {
+    final c = connu(cle);
+    if (c != null) return c;
+    final fait = _lotFrais(sourceDeCle(cle));
+    if (fait == null || !fait.couvre(p)) return null;
+    final a = articleDuProduit(fait.lignes!, p);
+    if (a == null) return null;
+    _connus[cle] = (at: fait.at!, article: a);
+    servisParLot++;
+    return (article: a);
+  }
+
+  /// Analyse de [cle] : fraîche en cache, sinon la requête en cours, sinon le lot de la saisie qui couvre
+  /// [produit], sinon une nouvelle requête. [attendre] faux (préchargement) : aucun écran en attente.
   /// Une erreur (ApiLoadException, délai…) est transmise à l'écran, jamais mise en cache.
-  Future<ArticleAnalysis?> charger(String cle, ChargeurFiche chargeur, {bool attendre = true}) {
+  Future<ArticleAnalysis?> charger(String cle, ChargeurFiche chargeur, {bool attendre = true, ProductSearchResult? produit}) {
     final c = connu(cle);
     if (c != null) return Future.value(c.article);
     final d = _enCours[cle];
@@ -86,40 +119,170 @@ class FicheInfoCache {
       if (attendre) d.abonnes++;
       return d.future;
     }
+    // Dernier lot arrivé (encore frais) qui couvre ce produit : sa ligne, sans requête (même règle que GET /info
+    // par le CIP : même identifiant, sinon même CIP). Produit absent du lot : requête par son CIP (prudence).
+    final fait = produit == null ? null : _lotFrais(sourceDeCle(cle));
+    final duLot = fait != null && fait.couvre(produit!) ? articleDuProduit(fait.lignes!, produit) : null;
+    if (duLot != null) {
+      _connus[cle] = (at: fait!.at!, article: duLot);
+      servisParLot++;
+      return Future.value(duLot);
+    }
     final token = CancelToken();
-    requetes++;
+    final lot = produit == null ? null : _lots[sourceDeCle(cle)];
     late final _Demande demande;
-    final f = Future<ArticleAnalysis?>.sync(() => chargeur(token)).then<ArticleAnalysis?>((a) {
-      if (!token.isCancelled) _connus[cle] = (at: horloge(), article: a);
-      return a;
-    }).whenComplete(() {
+    Future<ArticleAnalysis?> envoyer() {
+      requetes++;
+      return Future<ArticleAnalysis?>.sync(() => chargeur(token)).then<ArticleAnalysis?>((a) {
+        if (!token.isCancelled) _connus[cle] = (at: horloge(), article: a);
+        return a;
+      });
+    }
+
+    final Future<ArticleAnalysis?> source;
+    if (lot != null && lot.couvre(produit!)) {
+      // Le lot en route contient ce produit : on l'attend (aucune 2ᵉ requête) ; s'il échoue ou ne l'a pas,
+      // requête par le CIP exact.
+      lot.attentes++;
+      source = lot.fin.then((_) {
+        lot.attentes--;
+        final lignes = lot.lignes;
+        // Lot en échec (délai, réseau…) : même cause affichée, avec Réessayer (qui lira le CIP exact) ; jamais une
+        // 2ᵉ attente complète enchaînée derrière un serveur déjà trop lent. Lot abandonné : CIP exact.
+        final erreur = lot.erreur;
+        if (erreur != null) throw erreur;
+        final a = lignes == null ? null : articleDuProduit(lignes, produit);
+        if (a == null) return envoyer(); // lot abandonné, ou produit absent du lot : CIP exact
+        _connus[cle] = (at: lot.at ?? horloge(), article: a);
+        servisParLot++;
+        return a;
+      });
+    } else {
+      source = envoyer();
+    }
+    final f = source.whenComplete(() {
       if (identical(_enCours[cle], demande)) _enCours.remove(cle);
     });
-    // Préchargement sans écran, requête abandonnée : l'erreur n'est pas « non traitée ».
+    // Préchargement sans écran : l'erreur n'est pas « non traitée ».
     f.ignore();
     demande = _Demande(token, f, attendre ? 1 : 0);
     _enCours[cle] = demande;
     return f;
   }
 
-  /// Un écran n'attend plus [cle] : la requête est abandonnée si personne d'autre ne l'attend.
+  /// Un écran n'attend plus [cle] (fiche ou détail fermé) : la requête CONTINUE (le serveur la calcule de toute
+  /// façon) et sa réponse reste en cache pour une réouverture immédiate. Elle reste bornée par son délai.
   void lacher(String cle) {
     final d = _enCours[cle];
     if (d == null) return;
-    d.abonnes--;
-    if (d.abonnes <= 0) {
-      abandons++;
-      d.token.cancel('Fiche produit quittée');
-      _enCours.remove(cle);
-    }
+    if (d.abonnes > 0) d.abonnes--;
+    if (d.abonnes <= 0) abandons++;
+  }
+
+  /// Délai dépassé pour [cle] : la requête est abandonnée et oubliée, « Réessayer » en enverra une nouvelle
+  /// (jamais rattachée à une requête restée sans réponse).
+  void abandonner(String cle) {
+    final d = _enCours.remove(cle);
+    if (d == null) return;
+    abandons++;
+    d.token.cancel('Délai dépassé');
   }
 
   bool enCours(String cle) => _enCours.containsKey(cle);
 
+  /// Lot GET /info?search=<[saisie]> pour [source] (3 caractères au moins). Rien n'est envoyé si la saisie est
+  /// déjà couverte par le lot en route ou par le dernier lot arrivé (saisie qui le prolonge). Un lot devenu
+  /// inutile (autre saisie) est abandonné s'il n'est attendu par aucun détail.
+  Future<void> chargerSaisie(String source, String saisie, Future<List<ArticleAnalysis>> Function(CancelToken token) lecture) {
+    final s = saisieLot(saisie);
+    if (s.length < longueurMiniLot) return Future.value();
+    final enRoute = _lots[source];
+    if (enRoute != null && s.startsWith(enRoute.saisie)) return enRoute.fin;
+    final fait = _lotFrais(source);
+    if (fait != null && s.startsWith(fait.saisie)) return Future.value();
+    if (enRoute != null) lacherSaisie(source);
+    final token = CancelToken();
+    lots++;
+    final lot = _Lot(s, token);
+    _lots[source] = lot;
+    lot.fin = Future<List<ArticleAnalysis>>.sync(() => lecture(token)).then<void>((lignes) {
+      if (lot.abandonne) return;
+      lot
+        ..lignes = lignes
+        ..at = horloge();
+      _lotsFaits[source] = lot;
+    }).catchError((Object e) {
+      if (!lot.abandonne) lot.erreur = e;
+    }).whenComplete(() {
+      if (identical(_lots[source], lot)) _lots.remove(source);
+    });
+    return lot.fin;
+  }
+
+  /// Le lot de [source] n'est plus utile (saisie effacée, liste trop longue, écran quitté) : abandonné s'il
+  /// n'est attendu par aucun détail.
+  void lacherSaisie(String source) {
+    final lot = _lots[source];
+    if (lot == null || lot.attentes > 0) return;
+    _lots.remove(source);
+    lotsAnnules++;
+    lot.abandonne = true;
+    lot.token.cancel('Saisie remplacée');
+  }
+
+  /// Dernier lot arrivé pour [source], s'il est encore frais.
+  _Lot? _lotFrais(String source) {
+    final l = _lotsFaits[source];
+    if (l == null || l.at == null) return null;
+    if (horloge().difference(l.at!) > duree) {
+      _lotsFaits.remove(source);
+      return null;
+    }
+    return l;
+  }
+
+  /// Lot en route pour [source] (tests).
+  String? lotEnRoute(String source) => _lots[source]?.saisie;
+
   void vider() {
     _connus.clear();
     _enCours.clear();
+    _lots.clear();
+    _lotsFaits.clear();
   }
+}
+
+/// Longueur minimale d'une saisie pour lire son lot GET /info (2 lettres : trop de produits).
+const int longueurMiniLot = 3;
+
+/// Nombre maximal de produits de la liste rapide pour lire le lot de la saisie (au-delà : détail par CIP au clic).
+const int produitsMaxLot = 30;
+
+/// Saisie normalisée comme la recherche « commence par » du serveur (casse ignorée).
+String saisieLot(String saisie) => saisie.trim().toUpperCase();
+
+class _Lot {
+  final String saisie;
+  final CancelToken token;
+  late final Future<void> fin;
+
+  /// Détails qui attendent ce lot (il n'est alors jamais abandonné).
+  int attentes = 0;
+
+  /// Lignes reçues et heure de réception (null : pas encore arrivé, ou en échec).
+  List<ArticleAnalysis>? lignes;
+  DateTime? at;
+
+  /// Échec de la lecture (transmis aux détails qui l'attendaient).
+  Object? erreur;
+
+  /// Abandonné par l'application (saisie remplacée) : sa réponse éventuelle est ignorée.
+  bool abandonne = false;
+  _Lot(this.saisie, this.token);
+
+  /// Produit renvoyé par GET /info?search=<saisie> : CIP ou nom qui commence par la saisie.
+  bool couvre(ProductSearchResult p) =>
+      saisie.isNotEmpty && (p.intCIP.trim().toUpperCase().startsWith(saisie) || p.strNAME.trim().toUpperCase().startsWith(saisie));
 }
 
 class _Demande {
@@ -129,13 +292,34 @@ class _Demande {
   _Demande(this.token, this.future, this.abonnes);
 }
 
+/// Source d'une clé du cache (service : serveur et session).
+String cleSource(Object source) => '${identityHashCode(source)}';
+
+String sourceDeCle(String cle) {
+  final i = cle.indexOf('|');
+  return i < 0 ? cle : cle.substring(0, i);
+}
+
 /// Clé du cache : une source (service : serveur et session) et un produit (identifiant + CIP).
-String cleFiche(Object source, ProductSearchResult p) => '${identityHashCode(source)}|${p.lgFAMILLEID}|${p.intCIP.trim()}';
+String cleFiche(Object source, ProductSearchResult p) => '${cleSource(source)}|${p.lgFAMILLEID.trim()}|${p.intCIP.trim()}';
 
 /// Préchargement de l'analyse dès la sélection du produit (pendant l'ouverture de la fiche).
 void prechargerFiche(ApiService api, ProductSearchResult p, {FicheInfoCache? cache}) {
   if (p.intCIP.trim().isEmpty || HorsLigne.instance.offline) return;
-  (cache ?? FicheInfoCache.instance).charger(cleFiche(api, p), chargeurFiche(api, p), attendre: false);
+  (cache ?? FicheInfoCache.instance).charger(cleFiche(api, p), chargeurFiche(api, p), attendre: false, produit: p);
+}
+
+/// 4.3.2 — Lot de la saisie, lu dès que la liste rapide est affichée (Analyse article, recherche de l'accueil) :
+/// seulement si la liste compte de 1 à [produitsMaxLot] produits (liste complète) et la saisie
+/// [longueurMiniLot] caractères au moins ; sinon le lot en route est abandonné (le détail lira le CIP au clic).
+void prechargerSaisie(ApiService api, String saisie, {required int produits, required bool suite, FicheInfoCache? cache}) {
+  final c = cache ?? FicheInfoCache.instance;
+  final source = cleSource(api);
+  if (HorsLigne.instance.offline || produits <= 0 || produits > produitsMaxLot || suite || saisieLot(saisie).length < longueurMiniLot) {
+    c.lacherSaisie(source);
+    return;
+  }
+  c.chargerSaisie(source, saisie, (token) => api.fetchArticleAnalysisOrFail(saisie.trim(), cancelToken: token));
 }
 
 /// Message affiché pour une vraie erreur (cause précise, jamais « fiche introuvable »).
@@ -253,7 +437,7 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
     final Object source = widget.loadAnalyse ?? Provider.of<ApiService>(context, listen: false);
     final cle = cleFiche(source, p);
     // Déjà connu (réouverture, préchargement terminé) ou sans CIP : affiché tout de suite, sans requête.
-    final connu = _cache.connu(cle);
+    final connu = _cache.connuPour(cle, p);
     if (connu != null || p.intCIP.trim().isEmpty) {
       setState(() {
         _article = connu?.article;
@@ -275,9 +459,10 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
     String? erreur;
     try {
       final delai = delaiMaxFiche();
-      article = await _cache.charger(cle, chargeur).timeout(delai, onTimeout: () {
-        // Requête abandonnée (si plus personne ne l'attend) : la fiche affiche la cause et Réessayer.
-        _lacher();
+      article = await _cache.charger(cle, chargeur, produit: p).timeout(delai, onTimeout: () {
+        // Requête abandonnée et oubliée : la fiche affiche la cause et Réessayer (nouvelle requête).
+        _attendu = null;
+        _cache.abandonner(cle);
         throw ApiLoadException('Délai dépassé : pas de réponse du serveur en ${delai.inSeconds} s (GET /info). Réessayez.');
       });
     } catch (e) {
@@ -439,10 +624,17 @@ class _FicheProduitScreenState extends State<FicheProduitScreen> {
       DetailLine('Code CIP', orDash(_p.intCIP), bold: true),
       if (_p.strLIBELLEE.trim().isNotEmpty) DetailLine('Famille', orDash(_p.strLIBELLEE)),
       if (_loading) ...[
-        // Squelettes : la fiche reste lisible, l'analyse arrive en arrière-plan.
-        _squelette('Emplacement'),
+        // 4.3.2 : ce que la recherche rapide a déjà donné est affiché tout de suite (emplacement = zone du produit,
+        // prix d'achat) ; seul ce qui exige GET /info reste en squelette (grossiste, ventes, réserve).
+        if (_p.strLIBELLEE.trim().isNotEmpty)
+          DetailLine('Emplacement', _p.strLIBELLEE.trim(), key: const ValueKey('fiche-connu-Emplacement'))
+        else
+          _squelette('Emplacement'),
         _squelette('Grossiste'),
-        _squelette("Prix d'achat"),
+        if (_p.intPAF > 0)
+          DetailLine("Prix d'achat", '${_p.intPAF} FCFA', key: const ValueKey("fiche-connu-Prix d'achat"))
+        else
+          _squelette("Prix d'achat"),
       ] else if (_offline) ...[
         const DetailLine('Emplacement', 'Disponible en ligne uniquement'),
         const DetailLine('Grossiste', 'Disponible en ligne uniquement'),

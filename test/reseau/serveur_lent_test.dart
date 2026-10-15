@@ -192,9 +192,15 @@ void main() {
       expect(find.byType(ArticleAnalysisScreen), findsOneWidget);
       await t.enterText(find.byType(TextField).first, nomCourt(7));
       await app.attendre(t, const Duration(seconds: 1));
+      // 4.3.2 : le GET /info de la saisie (lot) est parti dès la liste (≈ 0,4 s après la frappe) : le détail ouvert
+      // 1 s après la frappe attend la FIN de ce lot (≈ d − 0,6 s), pas une nouvelle requête de durée d.
+      expect(app.serveur.recuesSur('/info'), hasLength(1), reason: 'lot de la saisie déjà en route');
       await t.tap(find.text('PRODUIT 0007 CPR B/20').hitTestable().first);
       await t.pump();
-      await attendreServeurLent(t, d, 'Analyse article', attendu: find.byKey(const ValueKey('analyse-detail-chargement')));
+      expect(find.text('500 FCFA'), findsOneWidget, reason: "prix d'achat de la liste, sans attendre");
+      await attendreServeurLent(t, d - const Duration(seconds: 1), 'Analyse article',
+          attendu: find.byKey(const ValueKey('analyse-detail-chargement')));
+      await app.attendre(t, const Duration(seconds: 1));
       expect(find.byKey(const ValueKey('analyse-detail')), findsOneWidget);
       expect(find.text('RAYON FICTIF 7'), findsOneWidget);
       expect(app.serveur.recuesSur('/info'), hasLength(1), reason: 'un seul GET /info');

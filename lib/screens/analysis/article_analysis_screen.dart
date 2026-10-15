@@ -172,16 +172,30 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
 
   Color _stockColor(int stock) => stock <= 0 ? const Color(0xFFB91C1C) : Pal.ink;
 
-  Widget _metric(String value, String label, {Color fg = Pal.ink}) => Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(color: Pal.page, borderRadius: BorderRadius.circular(10)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: fg)),
-            Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF4A5A70))),
-          ]),
-        ),
-      );
+  /// 4.3.2 : « Stock 3 · Prix de vente 1 145 F » sur UNE ligne (libellé et valeur côte à côte) : cartes plus
+  /// compactes. Réduite si besoin (texte agrandi, écran étroit), jamais coupée ni débordante.
+  Widget _stockPrix(ProductSearchResult item) {
+    const libelle = TextStyle(fontSize: 13, color: Color(0xFF4A5A70));
+    return Container(
+      key: ValueKey('analyse-stock-prix-${item.lgFAMILLEID}'),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: Pal.page, borderRadius: BorderRadius.circular(10)),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, children: [
+          const Text('Stock', style: libelle),
+          const SizedBox(width: 6),
+          Text("${item.intNUMBERAVAILABLE}",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _stockColor(item.intNUMBERAVAILABLE))),
+          const Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('·', style: libelle)),
+          const Text('Prix de vente', style: libelle),
+          const SizedBox(width: 6),
+          Text(_prix(item), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink)),
+        ]),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) => switch (_style) {
@@ -234,12 +248,8 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
             ]),
             const SizedBox(height: 2),
             Text(_cip(item), style: const TextStyle(fontSize: 13, color: Pal.muted)),
-            const SizedBox(height: 12),
-            Row(children: [
-              _metric("${item.intNUMBERAVAILABLE}", 'Stock', fg: _stockColor(item.intNUMBERAVAILABLE)),
-              const SizedBox(width: 8),
-              _metric(_prix(item), 'Prix de vente'),
-            ]),
+            const SizedBox(height: 8),
+            _stockPrix(item),
           ]),
         ),
       );
@@ -348,12 +358,8 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
                               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                                 Text(item.strNAME, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
                                 Text(_cip(item), style: const TextStyle(fontSize: 13, color: Pal.muted)),
-                                const SizedBox(height: 12),
-                                Row(children: [
-                                  _metric("${item.intNUMBERAVAILABLE}", 'Stock', fg: _stockColor(item.intNUMBERAVAILABLE)),
-                                  const SizedBox(width: 8),
-                                  _metric(_prix(item), 'Prix de vente'),
-                                ]),
+                                const SizedBox(height: 8),
+                                _stockPrix(item),
                                 const SizedBox(height: 12),
                                 SizedBox(
                                   height: 48,
@@ -458,108 +464,118 @@ class _ArticleDetailDialogState extends State<_ArticleDetailDialog> {
   Widget build(BuildContext context) {
     final a = _article;
     final stock = a?.stock ?? _p.intNUMBERAVAILABLE;
-    // Informations et graphique bicolore partagés avec la fiche produit (article_analysis_widgets.dart).
+    // 4.3.2 : en-tête et bouton « Fermer » FIXES (toujours visibles, sans défiler), contenu entre les deux ;
+    // informations deux par ligne (stock rayon et stock réserve sur la même ligne). Informations et graphique
+    // bicolore partagés avec la fiche produit (article_analysis_widgets.dart).
+    // Écrans de 800 dp de haut ou moins (Sunmi V2s en taille Compact automatique : 400 × 800 dp vus) : graphe réduit.
+    final petit = MediaQuery.sizeOf(context).height < 820;
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        constraints: const BoxConstraints(maxWidth: 400),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Titre avec bouton fermer
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Expanded(child: Text("Détails de l'Article", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary))),
-                  IconButton(icon: const Icon(Icons.close), tooltip: 'Fermer', onPressed: () => Navigator.pop(context))
-                ],
-              ),
-              const Divider(),
-
-              // Header: CIP & Libellé
-              Center(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          key: const ValueKey('analyse-detail-fenetre'),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Titre avec bouton fermer
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 4, 0),
+              child: Row(children: [
+                const Expanded(
+                    child: Text("Détails de l'Article", style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: AppColors.primary))),
+                IconButton(icon: const Icon(Icons.close), tooltip: 'Fermer', onPressed: () => Navigator.pop(context)),
+              ]),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
                 child: Column(
-                  children: [
-                    Text("Code CIP: ${_p.intCIP}", style: const TextStyle(color: Color(0xFF5B6B82))),
-                    const SizedBox(height: 5),
-                    Text(a != null && a.libelle.isNotEmpty ? a.libelle : _p.strNAME,
-                        textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              if (_chargement)
-                _attente(stock)
-              else if (_erreur != null)
-                _erreurBloc(stock)
-              else if (a == null)
-                _sansAnalyse(stock)
-              else ...[
-                // Bloc Infos Central
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Column(
-                      key: const ValueKey('analyse-detail'),
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [for (final (label, value) in articleInfos(a)) _infoRow(label, value)],
-                    ),
-                    Positioned(right: 0, top: 0, child: _pastilleStock(a.stock)),
-                  ],
-                ),
-
-                // Stock rayon / réserve (« — » si non géré en réserve), seuils, total, alerte.
-                const Divider(),
-                Column(
-                  key: const ValueKey('analyse-stock-reserve'),
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final (label, value) in stockReserveInfos(a.stock, a.reserve)) _infoRow(label, value),
-                    PastilleReappro(reserve: a.reserve, rayon: a.stock),
+                    // Header: CIP & Libellé
+                    Center(
+                      child: Column(children: [
+                        Text("Code CIP: ${_p.intCIP}", style: const TextStyle(color: Color(0xFF5B6B82))),
+                        const SizedBox(height: 3),
+                        Text(a != null && a.libelle.isNotEmpty ? a.libelle : _p.strNAME,
+                            textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ]),
+                    ),
+                    const SizedBox(height: 12),
+                    if (_chargement)
+                      _attente(stock)
+                    else if (_erreur != null)
+                      _erreurBloc(stock)
+                    else if (a == null)
+                      _sansAnalyse(stock)
+                    else ...[
+                      // Stock rayon / réserve (« — » si non géré en réserve) sur une ligne, seuils, total, alerte.
+                      Column(
+                        key: const ValueKey('analyse-stock-reserve'),
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ..._paires(stockReserveInfos(a.stock, a.reserve), fort: true),
+                          PastilleReappro(reserve: a.reserve, rayon: a.stock),
+                        ],
+                      ),
+                      const Divider(height: 14),
+                      Column(
+                        key: const ValueKey('analyse-detail'),
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: _paires(articleInfos(a)),
+                      ),
+                      const SizedBox(height: 6),
+                      // Légende, « Évolution des ventes mensuelles: » et graphique bicolore
+                      ArticleVentesChart(article: a, height: petit ? 110 : 150),
+                    ],
                   ],
                 ),
-
-                const SizedBox(height: 20),
-
-                // Légende, « Évolution des ventes mensuelles: » et graphique bicolore
-                ArticleVentesChart(article: a),
-              ],
-
-              const SizedBox(height: 10),
-              Align(
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 2, 12, 4),
+              child: Align(
                 alignment: Alignment.centerRight,
-                child: TextButton(onPressed: () => Navigator.pop(context), child: const Text("Fermer")),
-              )
-            ],
-          ),
+                child: TextButton(
+                    key: const ValueKey('analyse-detail-fermer'), onPressed: () => Navigator.pop(context), child: const Text("Fermer")),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
+  /// Ce que la liste rapide connaît déjà (affiché tout de suite) : stock, prix de vente, prix d'achat (si connu),
+  /// emplacement (zone du produit, si connue).
+  List<(String, String)> _connus(int stock) => [
+        ('Stock', '$stock'),
+        ('Prix de vente', '${_p.intPRICE} FCFA'),
+        if (_p.intPAF > 0) ("Prix d'achat", '${_p.intPAF} FCFA'),
+        if (_p.strLIBELLEE.trim().isNotEmpty) ('Emplacement', _p.strLIBELLEE.trim()),
+      ];
+
   /// Stock et prix de la liste, en attendant l'analyse.
-  Widget _resume(int stock) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _infoRow('Stock', '$stock'),
-        _infoRow('Prix de vente', '${_p.intPRICE} FCFA'),
-      ]);
+  Widget _resume(int stock) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: _paires(_connus(stock)));
 
   Widget _attente(int stock) => Column(key: const ValueKey('analyse-detail-chargement'), crossAxisAlignment: CrossAxisAlignment.start, children: [
         _resume(stock),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         const Row(children: [
           SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
           SizedBox(width: 12),
-          Expanded(child: Text('Chargement de l\'analyse (ventes, grossiste, emplacement)…', style: TextStyle(color: Color(0xFF5B6B82)))),
+          Expanded(child: Text('Chargement de l\'analyse (ventes, grossiste, réserve)…', style: TextStyle(color: Color(0xFF5B6B82)))),
         ]),
       ]);
 
   Widget _erreurBloc(int stock) => Column(key: const ValueKey('analyse-detail-erreur'), crossAxisAlignment: CrossAxisAlignment.start, children: [
         _resume(stock),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         Row(children: [
           const Icon(Icons.cloud_off, color: Color(0xFFB45309)),
           const SizedBox(width: 10),
@@ -570,32 +586,30 @@ class _ArticleDetailDialogState extends State<_ArticleDetailDialog> {
 
   Widget _sansAnalyse(int stock) => Column(key: const ValueKey('analyse-detail-vide'), crossAxisAlignment: CrossAxisAlignment.start, children: [
         _resume(stock),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         const Text("Pas d'analyse sur le serveur pour ce produit (emplacement, grossiste ou ventes non renseignés).",
             style: TextStyle(color: Color(0xFF5B6B82), fontSize: 13)),
       ]);
 
-  Widget _pastilleStock(int stock) => Container(
-        padding: const EdgeInsets.all(15),
-        decoration: const BoxDecoration(
-            color: AppColors.primary, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(2, 2))]),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text("Stock", style: TextStyle(color: Colors.white, fontSize: 10)),
-            Text("$stock", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-          ],
-        ),
-      );
+  /// Informations deux par ligne (libellé au-dessus de la valeur) : une ligne gagnée sur deux.
+  List<Widget> _paires(List<(String, String)> infos, {bool fort = false}) => [
+        for (var i = 0; i < infos.length; i += 2)
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(child: _infoRow(infos[i].$1, infos[i].$2, fort: fort)),
+            const SizedBox(width: 12),
+            Expanded(child: i + 1 < infos.length ? _infoRow(infos[i + 1].$1, infos[i + 1].$2, fort: fort) : const SizedBox.shrink()),
+          ]),
+      ];
 
-  Widget _infoRow(String label, String value) {
+  Widget _infoRow(String label, String value, {bool fort = false}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
+      key: ValueKey('analyse-info-$label'),
+      padding: const EdgeInsets.only(bottom: 6.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          Text(value, style: TextStyle(fontWeight: fort ? FontWeight.bold : FontWeight.w600, fontSize: fort ? 16 : 14)),
         ],
       ),
     );

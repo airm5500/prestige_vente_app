@@ -205,7 +205,7 @@ void main() {
       final env = _Env()..api.licence = () => const LicenceLookup.failure(LicenceIssue.unreachable, 'timeout');
       await t.pumpWidget(env.app(LancementScreen(services: env.services)));
       await laisser(t);
-      expect(find.text('Le serveur ne répond pas'), findsOneWidget);
+      expect(find.text('Serveur indisponible, veuillez réessayer'), findsOneWidget);
       expect(find.textContaining('La licence n\'est pas en cause'), findsOneWidget);
       expect(find.text('Connexion au serveur impossible'), findsOneWidget);
       expect(find.text('Nouvel essai automatique dans 10 s'), findsOneWidget);
@@ -253,7 +253,7 @@ void main() {
       await t.pumpWidget(env.app(LancementScreen(services: env.services)));
       await laisser(t);
       expect(find.text('Borne libre-service — ouverture de la borne…'), findsOneWidget);
-      expect(find.text('Le serveur ne répond pas'), findsNothing);
+      expect(find.text('Serveur indisponible, veuillez réessayer'), findsNothing);
       await t.pump(const Duration(milliseconds: 1300));
       expect(env.bornes, 1);
       await fermer(t);

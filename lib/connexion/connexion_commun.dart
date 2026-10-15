@@ -540,7 +540,9 @@ class ConnexionFlux {
     try {
       final ok = await auth.login(login, motDePasse);
       if (!ok) {
-        // Le serveur a-t-il répondu ? (identifiants refusés) ou est-il injoignable ?
+        // 4.3.2 : Prestige indisponible (redéploiement : 404, 502/503, connexion refusée) → « Serveur indisponible »,
+        // jamais « mot de passe incorrect ». Sinon : le serveur a-t-il répondu (identifiants refusés) ?
+        if (auth.dernierEchecServeur) return IssueConnexion.serveur;
         return await sv.sonderCourant(settings) ? IssueConnexion.identifiants : IssueConnexion.serveur;
       }
       etape?.call(EtapeConnexion.identifiants);
@@ -592,7 +594,7 @@ class ConnexionFlux {
   /// Message affiché (jamais d'exception technique).
   static String message(IssueConnexion i) => switch (i) {
         IssueConnexion.identifiants => 'Identifiant ou mot de passe incorrect. Vérifiez les majuscules et réessayez.',
-        IssueConnexion.serveur => 'Le serveur ne répond pas. Vos identifiants ne sont pas en cause.',
+        IssueConnexion.serveur => 'Serveur indisponible, veuillez réessayer. Vos identifiants ne sont pas en cause.',
         IssueConnexion.erreur => 'La connexion n\'a pas abouti. Réessayez ; si le problème continue, appelez l\'assistance.',
         IssueConnexion.licence || IssueConnexion.reussie => '',
       };
@@ -645,10 +647,10 @@ class EncadreServeurInjoignable extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(tls?.titre ?? 'Le serveur ne répond pas', style: TextStyle(color: t.erreur, fontWeight: FontWeight.w800, fontSize: 15)),
+                Text(tls?.titre ?? 'Serveur indisponible, veuillez réessayer', style: TextStyle(color: t.erreur, fontWeight: FontWeight.w800, fontSize: 15)),
                 const SizedBox(height: 2),
                 Text(
-                    '${tls != null ? tls.explication : 'Wifi coupé, adresse erronée ou serveur éteint.'} Vos identifiants ne sont pas en cause.'
+                    '${tls != null ? tls.explication : 'Prestige en cours de redémarrage, Wifi coupé, adresse erronée ou serveur éteint.'} Vos identifiants ne sont pas en cause.'
                     '${controle.rebours.reste > 0 ? '\nNouvel essai automatique dans ${controle.rebours.reste} s.' : ''}',
                     style: TextStyle(color: t.texte, fontSize: 13.5)),
               ]),

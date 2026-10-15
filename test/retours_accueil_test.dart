@@ -84,9 +84,17 @@ class _Api extends ApiService {
   Future<List<ArticleAnalysis>> fetchArticleAnalysisOrFail(String query, {CancelToken? cancelToken}) async {
     infos++;
     if (delaiInfo > Duration.zero) await Future<void>.delayed(delaiInfo);
+    // Comme le serveur : recherche « commence par » sur le nom ou le CIP (lot de la saisie « heli », 4.3.2).
+    final heli = query.toLowerCase().startsWith('heli');
     return [
-      ArticleAnalysis.fromJson(
-          {'codeCip': query, 'emplacement': 'SIROPS ET GOUTTES BUVABLES', 'grossiste': 'LABOREX-CI YOP', 'libelle': '', 'stock': 1}),
+      ArticleAnalysis.fromJson({
+        'codeCip': heli ? _helicidine.intCIP : query,
+        if (heli) 'produitId': _helicidine.lgFAMILLEID,
+        'emplacement': 'SIROPS ET GOUTTES BUVABLES',
+        'grossiste': 'LABOREX-CI YOP',
+        'libelle': '',
+        'stock': 1
+      }),
     ];
   }
 
@@ -564,14 +572,15 @@ void main() {
       expect(find.text('2238556'), findsOneWidget);
       expect(find.text('${Constants.formatNumber(2080)} F'), findsOneWidget);
       expect(find.text('1'), findsOneWidget); // stock
-      expect(find.byKey(const ValueKey('fiche-squelette-Emplacement')), findsOneWidget);
+      // 4.3.2 : emplacement (zone de la recherche rapide) tout de suite ; le grossiste attend GET /info.
+      expect(find.byKey(const ValueKey('fiche-connu-Emplacement')), findsOneWidget);
       expect(find.byKey(const ValueKey('fiche-squelette-Grossiste')), findsOneWidget);
       expect(find.text('RAYON B2'), findsNothing);
       await tester.pump(const Duration(milliseconds: 799));
       expect(find.text('RAYON B2'), findsNothing);
       await tester.pump(const Duration(milliseconds: 2));
       expect(find.text('RAYON B2'), findsOneWidget);
-      expect(find.byKey(const ValueKey('fiche-squelette-Emplacement')), findsNothing);
+      expect(find.byKey(const ValueKey('fiche-squelette-Grossiste')), findsNothing);
       expect(appels, 1);
 
       // Réouverture (cache 60 s) : détails dès la 1ʳᵉ image, aucune requête.
@@ -583,7 +592,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('fiche quittée avant la réponse : requête abandonnée, aucune erreur', (tester) async {
+    testWidgets('fiche quittée avant la réponse : aucune erreur (la requête continue et remplit le cache)', (tester) async {
       _phone(tester);
       final cache = FicheInfoCache();
       final reponse = Completer<List<ArticleAnalysis>>();
@@ -609,7 +618,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400)); // transition de page
       expect(find.byType(FicheProduitScreen), findsOneWidget);
       expect(find.text('HELICIDINE 10% SS EDULCORE SPF/125ML'), findsOneWidget);
-      expect(find.byKey(const ValueKey('fiche-squelette-Emplacement')), findsOneWidget);
+      expect(find.byKey(const ValueKey('fiche-squelette-Grossiste')), findsOneWidget);
       await tester.pump(const Duration(seconds: 2));
       await tester.pumpAndSettle();
       expect(find.text('SIROPS ET GOUTTES BUVABLES'), findsOneWidget);

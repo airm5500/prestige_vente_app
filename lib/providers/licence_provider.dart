@@ -43,8 +43,8 @@ class LicenceProvider with ChangeNotifier {
 
   /// Titre court selon la cause (connexion ou serveur), pour les boîtes de dialogue.
   String get errorTitle => switch (_issue) {
-        LicenceIssue.unreachable => 'Serveur injoignable',
-        LicenceIssue.appNotFound => 'Application Prestige introuvable',
+        // 4.3.2 : Prestige en cours de redéploiement (404, 502/503, connexion refusée) : jamais « erreur 404 ».
+        LicenceIssue.unreachable || LicenceIssue.appNotFound => 'Serveur indisponible, veuillez réessayer',
         LicenceIssue.serverError => 'Erreur du serveur Prestige',
         LicenceIssue.unexpectedResponse => 'Réponse inattendue du serveur',
         LicenceIssue.certificate => ErreurTls.certificat.titre,
@@ -56,8 +56,9 @@ class LicenceProvider with ChangeNotifier {
     final base = switch (issue) {
       LicenceIssue.unreachable => 'Aucun serveur ne répond à l\'adresse configurée.\n\n'
           'Vérifiez :\n1. Que le serveur (PC) est allumé.\n2. Que le Wifi est activé.\n3. Que l\'adresse IP et le port sont corrects.',
-      LicenceIssue.appNotFound => 'Le serveur répond, mais l\'application Prestige n\'est pas à cette adresse.\n\n'
-          'Vérifiez dans Configuration :\n1. Le port.\n2. Le nom de l\'application (ex. "prestige").\n'
+      LicenceIssue.appNotFound => 'Le serveur répond, mais l\'application Prestige n\'y est pas disponible : elle est '
+          'peut-être en cours de redémarrage (redéploiement). Réessayez dans un instant.\n\nSi cela persiste, '
+          'vérifiez dans Configuration :\n1. Le port.\n2. Le nom de l\'application (ex. "prestige").\n'
           '3. Que l\'application est démarrée sur le serveur (console Payara).',
       LicenceIssue.serverError => 'Le serveur Prestige répond avec une erreur.\n\nRedémarrez l\'application sur le serveur ou contactez le support.',
       LicenceIssue.unexpectedResponse => 'Le serveur répond, mais ce n\'est pas une réponse Prestige.\n\nVérifiez l\'adresse IP, le port et le nom de l\'application.',

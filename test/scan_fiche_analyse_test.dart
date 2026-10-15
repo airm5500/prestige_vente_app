@@ -206,14 +206,16 @@ void main() {
       expect(find.text('8049052'), findsOneWidget);
       expect(find.text('37'), findsOneWidget);
       expect(find.text('${Constants.formatNumber(1435)} F'), findsOneWidget);
-      expect(find.byKey(const ValueKey('fiche-squelette-Emplacement')), findsOneWidget);
+      // 4.3.2 : emplacement (zone) et prix d'achat déjà connus par la recherche rapide : affichés tout de suite.
+      expect(find.byKey(const ValueKey('fiche-connu-Emplacement')), findsOneWidget);
+      expect(find.byKey(const ValueKey("fiche-connu-Prix d'achat")), findsOneWidget);
       expect(find.byKey(const ValueKey('fiche-squelette-Grossiste')), findsOneWidget);
       expect(find.byKey(const ValueKey('fiche-squelette-ventes')), findsOneWidget);
       expect(find.text('LABOREX-CI YOP'), findsNothing);
       await tester.pump(const Duration(milliseconds: 801));
       await tester.pump();
       // Détails : mêmes informations que « Détails de l'Article ».
-      expect(find.byKey(const ValueKey('fiche-squelette-Emplacement')), findsNothing);
+      expect(find.byKey(const ValueKey('fiche-squelette-Grossiste')), findsNothing);
       expect(find.text('RAYON ANTALGIQUES'), findsOneWidget);
       expect(find.text('LABOREX-CI YOP'), findsOneWidget);
       expect(find.text('930 FCFA'), findsOneWidget); // prix d'achat
@@ -293,18 +295,28 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('fiche quittée avant la réponse : requête abandonnée, aucune erreur', (tester) async {
+    testWidgets('fiche quittée avant la réponse : aucune erreur ; la réponse remplit le cache (réouverture sans requête)', (tester) async {
       phone(tester);
       brancher();
       _Install();
       final cache = FicheInfoCache();
       final reponse = Completer<List<ArticleAnalysis>>();
-      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _ibex, loadAnalyse: (_) => reponse.future, cache: cache)));
+      var appels = 0;
+      Future<List<ArticleAnalysis>> load(String _) {
+        appels++;
+        return reponse.future;
+      }
+
+      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _ibex, loadAnalyse: load, cache: cache)));
       await tester.pumpWidget(const SizedBox());
       expect(cache.abandons, 1);
+      // 4.3.2 : la requête continue (le serveur la calcule de toute façon) ; sa réponse sert à la réouverture.
       reponse.complete([ArticleAnalysis.fromJson(_ibexInfo)]);
       await tester.pump();
       expect(tester.takeException(), isNull);
+      await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _ibex, loadAnalyse: load, cache: cache)));
+      expect(find.text('LABOREX-CI YOP'), findsOneWidget, reason: 'réouverture : analyse affichée dès la 1ʳᵉ image');
+      expect(appels, 1);
     });
 
     testWidgets('hors ligne : copie locale, « Disponible en ligne uniquement », aucune requête (inchangé)', (tester) async {

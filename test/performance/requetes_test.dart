@@ -43,10 +43,14 @@ Future<(AppE2E, CatalogueFictif)> lancerConnecte(WidgetTester t) async {
   TailleEcran.sunmiV2s.appliquer(t);
   final app = AppE2E()..serveur.activerModules();
   final c = CatalogueFictif(app.serveur, nombre: 60);
+  // Comme le serveur : « commence par » sur le CIP ou le nom (CIP exact, ou saisie du lot 4.3.2).
   app.serveur.routes['GET /info'] = (r) {
-    final q = r.query['search'] ?? '';
-    final i = c.produits.indexWhere((p) => p['intCIP'] == q);
-    return FauxServeurPrestige.ok(i < 0 ? const [] : infoFictive(i + 1));
+    final q = (r.query['search'] ?? '').toUpperCase();
+    return FauxServeurPrestige.ok([
+      for (var i = 0; i < c.produits.length; i++)
+        if (q.isNotEmpty && ((c.produits[i]['intCIP'] as String).startsWith(q) || (c.produits[i]['strNAME'] as String).startsWith(q)))
+          ...infoFictive(i + 1),
+    ]);
   };
   app.serveur.routes['GET /fichearticle/comparaison'] = (r) => FauxServeurPrestige.ok({
         'total': 1,
@@ -104,7 +108,7 @@ void main() {
     await app.fermer(t);
   });
 
-  testWidgets('Analyse article : ouverture, frappe (aucun GET /info), choix du produit (un GET /info)', (t) async {
+  testWidgets('Analyse article : ouverture, frappe (liste puis UN GET /info de la saisie), choix du produit (aucune requête)', (t) async {
     final (app, c) = await lancerConnecte(t);
     var rs = await compterRequetes(app.serveur, () => app.ouvrirMenu(t, ListPresentation.dashboard, 'analyse_article'));
     expect(find.byType(ArticleAnalysisScreen), findsOneWidget);
@@ -113,15 +117,19 @@ void main() {
       await frappeRapide(t, find.byType(TextField).first, nomCourt(7));
       await app.attendre(t, const Duration(seconds: 1));
     });
-    mesurer('Requêtes — Analyse article : frappe', rs.length, seuil: 1, unite: 'requêtes', detail: detailRequetes(rs));
-    expect(sur(rs, '/info'), isEmpty, reason: 'aucun GET /info pendant la frappe');
+    mesurer('Requêtes — Analyse article : frappe', rs.length, seuil: 2, unite: 'requêtes', detail: detailRequetes(rs));
+    // 4.3.2 (mode hybride) : liste rapide, PUIS un seul GET /info pour la saisie finale (lot), jamais par lettre.
+    expect([for (final r in sur(rs, '/info')) r.query['search']], [nomCourt(7)]);
+    expect(rs.indexWhere((r) => r.chemin.endsWith('/vente/search')), lessThan(rs.indexWhere((r) => r.chemin.endsWith('/info'))),
+        reason: 'le lot part après la liste');
     rs = await compterRequetes(app.serveur, () async {
       await t.tap(find.text(produitFictif(7)['strNAME'] as String).hitTestable().first);
       await app.attendre(t, const Duration(seconds: 2));
     });
     expect(find.text('RAYON FICTIF 7'), findsOneWidget);
-    mesurer('Requêtes — Analyse article : détail du produit choisi', rs.length, seuil: 1, unite: 'requêtes', detail: detailRequetes(rs));
-    expect(sur(rs, '/info').single.query['search'], c.produits[6]['intCIP'], reason: 'CIP exact');
+    mesurer('Requêtes — Analyse article : détail du produit choisi', rs.length, seuil: 0, unite: 'requêtes', detail: detailRequetes(rs));
+    expect(sur(rs, '/info'), isEmpty, reason: 'détail tiré du lot de la saisie : aucune 2ᵉ requête');
+    expect(c.produits[6]['intCIP'], isNotEmpty);
     expect(t.takeException(), isNull);
     await app.fermer(t);
   });
@@ -140,9 +148,9 @@ void main() {
     });
     expect(find.byType(FicheProduitScreen), findsOneWidget);
     expect(find.byKey(const ValueKey('fiche-info-Grossiste')), findsOneWidget);
-    // Analyse du produit (GET /info, 1) + liste de ses images (photo de la fiche, 1).
-    mesurer('Requêtes — ouverture de la fiche produit', rs.length, seuil: 2, unite: 'requêtes', detail: detailRequetes(rs));
-    expect(sur(rs, '/info'), hasLength(1));
+    // 4.3.2 : analyse déjà lue avec la liste (lot de la saisie) ; reste la liste des images (photo de la fiche, 1).
+    mesurer('Requêtes — ouverture de la fiche produit', rs.length, seuil: 1, unite: 'requêtes', detail: detailRequetes(rs));
+    expect(sur(rs, '/info'), isEmpty, reason: 'analyse tirée du lot de la saisie');
     await app.retour(t);
     rs = await compterRequetes(app.serveur, () async {
       await t.tap(find.text(nom).hitTestable().first);

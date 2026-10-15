@@ -23,6 +23,12 @@ class AuthProvider with ChangeNotifier {
   String? _userLogin;
 
   AuthStatus get status => _status;
+
+  /// 4.3.2 : le dernier échec de [login] vient du serveur (indisponible, injoignable), pas des identifiants.
+  bool get dernierEchecServeur {
+    final e = _apiService.dernierEchecConnexion;
+    return e != null && !e.estRefus;
+  }
   User? get user => _user;
   Officine? get officine => _officine;
   String? get errorMessage => _errorMessage;
@@ -57,7 +63,9 @@ class AuthProvider with ChangeNotifier {
         return true;
       } else {
         _status = AuthStatus.Unauthenticated;
-        _errorMessage = 'Login ou mot de passe incorrect.';
+        // 4.3.2 : serveur indisponible (redéploiement : 404, 502/503, connexion refusée) ≠ mot de passe faux.
+        final echec = _apiService.dernierEchecConnexion;
+        _errorMessage = echec == null || echec.estRefus ? 'Login ou mot de passe incorrect.' : echec.message;
         notifyListeners();
         return false;
       }

@@ -1,7 +1,7 @@
 // lib/api/dio_client.dart
 // Mise à jour avec Timeout de sécurité
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart';
@@ -29,7 +29,12 @@ class DioClient {
     // retour à l'écran de connexion (lib/api/session_expiree.dart).
     dio.interceptors.add(IntercepteurSession(dio));
     // 4.3.1 (D18) : le numéro de série d'une boîte n'apparaît jamais dans le journal de la console.
-    dio.interceptors.add(LogInterceptor(responseBody: true, requestBody: true, logPrint: (o) => debugPrint(masquerSerie('$o'))));
+    // 4.3.2 : journal des requêtes en mode DÉBOGAGE seulement. Dans l'APK livré, il recopiait chaque corps de
+    // réponse (listes de produits, ventes, clients) dans le journal du téléphone : travail inutile à chaque
+    // requête et données de l'officine hors de l'application.
+    if (kDebugMode) {
+      dio.interceptors.add(LogInterceptor(responseBody: true, requestBody: true, logPrint: (o) => debugPrint(masquerSerie('$o'))));
+    }
 
     return dio;
   }
