@@ -520,11 +520,12 @@ void main() {
       final gw = _FakeGateway();
       await _open(tester, gw, style);
       expect(find.text('Vente assurance'), findsOneWidget);
+      // 4.1.2 : recherche du client obligatoire d'abord, aucune barre d'étapes (pas de « flash » des étapes).
       for (var i = 0; i < 4; i++) {
-        expect(_etape(i), findsOneWidget);
+        expect(_etape(i), findsNothing);
       }
-      expect(find.text('Couverture'), findsOneWidget);
-      expect(find.text('Encaisser'), findsOneWidget);
+      expect(find.text('Couverture'), findsNothing);
+      expect(find.text('Encaisser'), findsNothing);
       expect(find.text('Nom ou matricule du client'), findsOneWidget);
       expect(find.text('HISTORIQUE'), findsOneWidget); // Reprendre / Réimprimer
       expect(find.text('NOUVEAU CLIENT'), findsNothing);

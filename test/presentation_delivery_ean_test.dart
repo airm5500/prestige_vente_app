@@ -284,15 +284,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('Longueur invalide'), findsOneWidget);
 
+      // 4.1.2 : clé incorrecte = avertissement dans la confirmation, « Corriger » par défaut, rien envoyé.
       await tester.enterText(ean, '3400930000015');
       await tester.tap(find.text('Valider'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Clé EAN-13 incorrecte'), findsOneWidget);
+      await tester.tap(find.text('Corriger'));
+      await tester.pumpAndSettle();
       expect(api.liteInfo, isEmpty);
 
       await tester.enterText(ean, '3400930000014');
       api.pendingUpdate = Completer<bool>();
       await tester.tap(find.text('Valider'));
+      await tester.pumpAndSettle();
+      // Confirmation avant d'enregistrer (récapitulatif), puis envoi.
+      expect(find.byKey(const ValueKey('ean-confirmation')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('ean-confirmation-enregistrer')));
       await tester.pump();
       expect(find.text('Valider'), findsNothing); // bouton remplacé pendant l'envoi
       await tester.testTextInput.receiveAction(TextInputAction.done); // second envoi ignoré
@@ -329,7 +336,7 @@ void main() {
     expect(api.liteInfo, isEmpty);
     await tester.tap(find.text('Valider'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Remplacer'));
+    await tester.tap(find.text('Enregistrer'));
     await tester.pumpAndSettle();
     expect(api.liteInfo.length, 1);
     await tester.pump(const Duration(seconds: 3));

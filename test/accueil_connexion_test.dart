@@ -344,6 +344,9 @@ void main() {
     testWidgets('Hors ligne confirmé puis retour : un seul message de perte, puis « De nouveau en ligne »', (tester) async {
       phone(tester);
       final inst = _Install();
+      // 4.1.2 : passage hors ligne seulement avec des données sur le terminal.
+      await inst.store.replace(CatalogueCategorie.produits, [_row()], _catalogueAt);
+      await inst.hl.sync.refreshStats();
       await pumpApp(tester, inst.hl);
       await inst.perte();
       await tester.pumpAndSettle();

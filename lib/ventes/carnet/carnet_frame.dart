@@ -33,30 +33,36 @@ class CarnetFrame {
     Widget? bottom,
     bool pills = true,
     bool wide = false,
-  }) =>
-      PresentationScaffold(
-        style: style,
-        wide: wide,
-        title: title,
-        subtitle: subtitle,
-        actions: actions,
-        steps: StepsBar(active: active, steps: [for (final s in steps) (title: s.title, detail: s.detail, onTap: s.onTap)]),
-        header: [
-          if (style == ListPresentation.dashboard && pills) CarnetStepPills(steps: steps, active: active, dark: true),
-          ...header,
-        ],
-        compactHeader: [CarnetStepPills(steps: steps, active: active, dark: false), ...(compactHeader ?? header)],
-        body: body,
-        bottomNavigationBar: bottom,
-        // Clavier ouvert : pastilles d'étapes masquées (place gardée), pied posé au-dessus du clavier,
-        // clavier fermé en touchant hors champ ou en faisant défiler une liste.
-        clavierCompact: true,
-        headerClavier: [
-          if (style == ListPresentation.dashboard && pills) const SizedBox.shrink(),
-          ...header,
-        ],
-        compactHeaderClavier: [const SizedBox.shrink(), ...(compactHeader ?? header)],
-      );
+  }) {
+    // Recherche du client (étape 1, obligatoire avant tout) : aucune barre d'étapes, clavier ouvert ou fermé.
+    // Avant, la barre s'affichait à la 1re image puis disparaissait à l'ouverture du clavier (champ
+    // focalisé après la 1re image) : « flash » des étapes avant la recherche.
+    final etapes = active > 0;
+    final pastilles = style == ListPresentation.dashboard && pills && etapes;
+    return PresentationScaffold(
+      style: style,
+      wide: wide,
+      title: title,
+      subtitle: subtitle,
+      actions: actions,
+      steps: etapes ? StepsBar(active: active, steps: [for (final s in steps) (title: s.title, detail: s.detail, onTap: s.onTap)]) : null,
+      header: [
+        if (pastilles) CarnetStepPills(steps: steps, active: active, dark: true),
+        ...header,
+      ],
+      compactHeader: [if (etapes) CarnetStepPills(steps: steps, active: active, dark: false), ...(compactHeader ?? header)],
+      body: body,
+      bottomNavigationBar: bottom,
+      // Clavier ouvert : pastilles d'étapes masquées (place gardée), pied posé au-dessus du clavier,
+      // clavier fermé en touchant hors champ ou en faisant défiler une liste.
+      clavierCompact: true,
+      headerClavier: [
+        if (pastilles) const SizedBox.shrink(),
+        ...header,
+      ],
+      compactHeaderClavier: [if (etapes) const SizedBox.shrink(), ...(compactHeader ?? header)],
+    );
+  }
 }
 
 /// Barre d'étapes courte (A et B) : étape faite en vert, étape active en évidence.

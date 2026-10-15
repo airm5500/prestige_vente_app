@@ -284,29 +284,35 @@ class HorsLigneBanner extends StatelessWidget {
                 child: Text(text,
                     maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: fg, fontSize: 12.5, fontWeight: FontWeight.w600)),
               ),
+              // Libellés longs : réduits au besoin (360 dp, texte agrandi) au lieu de déborder.
               if (kind == BandeauHorsLigne.injoignable)
-                TextButton(
-                  key: const Key('continuer_hors_ligne'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: fg,
-                    minimumSize: const Size(44, 34),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                Flexible(
+                  child: TextButton(
+                    key: const Key('continuer_hors_ligne'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: fg,
+                      minimumSize: const Size(44, 34),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                    ),
+                    // Condition : des données sur le terminal (sinon refus expliqué).
+                    onPressed: () => demanderPassageHorsLigne(horsLigne, manuel: false, context: context),
+                    child: const FittedBox(fit: BoxFit.scaleDown, child: Text('Continuer hors ligne')),
                   ),
-                  onPressed: () => m.goOffline(manuel: false),
-                  child: const Text('Continuer hors ligne'),
                 ),
               if (kind == BandeauHorsLigne.horsLigne && m.joignablePendantManuel)
-                TextButton(
-                  key: const Key('repasser_en_ligne'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: fg,
-                    minimumSize: const Size(44, 34),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                Flexible(
+                  child: TextButton(
+                    key: const Key('repasser_en_ligne'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: fg,
+                      minimumSize: const Size(44, 34),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: m.goOnline,
+                    child: const FittedBox(fit: BoxFit.scaleDown, child: Text('Repasser en ligne')),
                   ),
-                  onPressed: m.goOnline,
-                  child: const Text('Repasser en ligne'),
                 ),
               if (kind == BandeauHorsLigne.enAttente)
                 TextButton(
@@ -372,6 +378,85 @@ class HorsLigneCatalogueNote extends StatelessWidget {
           ]),
         );
       },
+    );
+  }
+}
+
+/// Passage hors ligne demandé (« Continuer hors ligne » du bandeau : [manuel] faux ; interrupteur des Réglages :
+/// [manuel] vrai). Condition obligatoire : des données sur le terminal ([HorsLigne.donneesDisponibles]). Sans
+/// données : refus expliqué (« Impossible de passer hors ligne… ») et, si le serveur répond, bouton
+/// « Télécharger le catalogue ». Renvoie true si l'appareil est passé hors ligne.
+Future<bool> demanderPassageHorsLigne(HorsLigne hl, {required bool manuel, BuildContext? context}) async {
+  if (await hl.passerHorsLigne(manuel: manuel)) return true;
+  final nav = (context != null && context.mounted ? Navigator.maybeOf(context) : null) ?? HorsLigne.navigatorKey.currentState;
+  final ctx = nav?.overlay?.context ?? nav?.context;
+  if (ctx == null || !ctx.mounted) return false;
+  final telecharger = await showDialog<bool>(context: ctx, builder: (_) => HorsLigneImpossibleDialog(horsLigne: hl));
+  if (telecharger == true && ctx.mounted) await telechargerCatalogue(hl, context: ctx);
+  return false;
+}
+
+/// Téléchargement du catalogue (copie locale) avec un message du résultat.
+Future<bool> telechargerCatalogue(HorsLigne hl, {BuildContext? context}) async {
+  final ok = await hl.sync.syncAll();
+  await hl.sync.refreshStats();
+  final ctx = context != null && context.mounted ? context : HorsLigne.navigatorKey.currentContext;
+  if (ctx != null && ctx.mounted) {
+    ScaffoldMessenger.maybeOf(ctx)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        key: const Key('resultat_telechargement_catalogue'),
+        content: Text(ok
+            ? 'Catalogue téléchargé : ${hl.fraicheurLabel()}. Le passage hors ligne est possible.'
+            : 'Téléchargement incomplet : ${hl.sync.error ?? 'réessayez quand le serveur répond'}.'),
+      ));
+  }
+  return ok;
+}
+
+/// Refus du passage hors ligne sans données sur le terminal ; « Télécharger le catalogue » quand c'est possible.
+class HorsLigneImpossibleDialog extends StatelessWidget {
+  final HorsLigne horsLigne;
+  const HorsLigneImpossibleDialog({super.key, required this.horsLigne});
+
+  @override
+  Widget build(BuildContext context) {
+    final possible = horsLigne.telechargementPossible;
+    return AlertDialog(
+      key: const Key('hors_ligne_impossible'),
+      scrollable: true,
+      icon: const Icon(Icons.cloud_off, color: Color(0xFFB45309)),
+      title: const Text('Hors ligne impossible'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text(HorsLigne.messageSansDonnees, key: Key('hors_ligne_impossible_message'), style: TextStyle(fontSize: 15)),
+        if (!possible) ...[
+          const SizedBox(height: 10),
+          Text(
+            horsLigne.sync.running
+                ? 'Un téléchargement est déjà en cours : attendez la fin puis réessayez.'
+                : 'Le serveur ne répond pas pour l\'instant : le téléchargement sera possible à son retour (Réglages › Hors ligne).',
+            key: const Key('hors_ligne_impossible_attente'),
+            style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569)),
+          ),
+        ],
+      ]),
+      actions: [
+        TextButton(
+          key: const Key('hors_ligne_impossible_fermer'),
+          style: TextButton.styleFrom(minimumSize: const Size(64, 48)),
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Fermer'),
+        ),
+        if (possible)
+          ElevatedButton.icon(
+            key: const Key('telecharger_catalogue'),
+            autofocus: true,
+            style: ElevatedButton.styleFrom(minimumSize: const Size(88, 48)),
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.download),
+            label: const Text('Télécharger le catalogue'),
+          ),
+      ],
     );
   }
 }

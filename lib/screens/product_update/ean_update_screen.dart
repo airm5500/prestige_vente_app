@@ -1,6 +1,8 @@
 // lib/screens/product_update/ean_update_screen.dart
 // 11/11/2025 12:20 (Utilisation du champ codeEanFabriquant strict)
 // 10/10/2026 : présentations A/B/C, contrôle du code EAN (longueur, clé EAN-13), pas de double envoi.
+// 15/10/2026 : confirmation avant chaque enregistrement (produit, ancien → nouvel EAN), « Enregistrer » par
+// défaut (Entrée / OK de la douchette) ; clé de contrôle EAN-8 / 12 / 13 / 14 incorrecte : avertissement.
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -38,6 +40,138 @@ String? validateEanCode(String? raw) {
     }
   }
   return null;
+}
+
+/// Contrôle BLOQUANT du format saisi (chiffres, longueur 8 / 12 / 13 / 14) : null si le format est bon.
+/// La clé de contrôle n'est pas bloquante : voir [avertissementCleEan] (signalée dans la confirmation).
+String? validateEanFormat(String? raw) {
+  final code = (raw ?? '').trim();
+  if (code.isEmpty) return 'Veuillez saisir un code';
+  if (!RegExp(r'^\d+$').hasMatch(code)) return 'Le code EAN ne doit contenir que des chiffres.';
+  if (!eanLengths.contains(code.length)) {
+    return 'Longueur invalide (${code.length} chiffres) : un EAN fait 8, 12, 13 ou 14 chiffres.';
+  }
+  return null;
+}
+
+/// Clé de contrôle attendue d'un code EAN-8 / UPC-A (12) / EAN-13 / GTIN-14 (même calcul GS1 : poids 3 et 1
+/// en partant de la droite, clé exclue) ; null si le code n'a pas un format valide.
+int? cleEanAttendue(String code) {
+  if (validateEanFormat(code) != null) return null;
+  var sum = 0;
+  for (var i = code.length - 2, poids = 3; i >= 0; i--, poids = poids == 3 ? 1 : 3) {
+    sum += (code.codeUnitAt(i) - 48) * poids;
+  }
+  return (10 - sum % 10) % 10;
+}
+
+/// Nom du format d'après la longueur : EAN-8, UPC-A (12), EAN-13, GTIN-14.
+String nomFormatEan(String code) => switch (code.length) { 8 => 'EAN-8', 12 => 'UPC-A', 13 => 'EAN-13', _ => 'GTIN-14' };
+
+/// Avertissement si la clé de contrôle est incorrecte (« Clé EAN-13 incorrecte : … devrait être 4 ») ; null sinon.
+String? avertissementCleEan(String code) {
+  final attendue = cleEanAttendue(code.trim());
+  if (attendue == null) return null;
+  final c = code.trim();
+  if (c.codeUnitAt(c.length - 1) - 48 == attendue) return null;
+  return 'Clé ${nomFormatEan(c)} incorrecte : le dernier chiffre devrait être $attendue. Vérifiez le code.';
+}
+
+/// Confirmation AVANT d'enregistrer l'EAN fabricant : produit, ancien EAN → nouvel EAN, format.
+/// « Enregistrer » est le bouton par défaut (un appui, ou Entrée / OK de la douchette) ; « Annuler » ne change
+/// rien. Clé de contrôle incorrecte : avertissement, le bouton par défaut devient « Corriger » et l'envoi
+/// demande un appui explicite sur « Enregistrer quand même ».
+class EanConfirmationDialog extends StatelessWidget {
+  final String produit;
+  final String cip;
+  final String ancien;
+  final String nouveau;
+  const EanConfirmationDialog({super.key, required this.produit, required this.cip, required this.ancien, required this.nouveau});
+
+  static Future<bool> afficher(BuildContext context, {required String produit, required String cip, required String ancien, required String nouveau}) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (_) => EanConfirmationDialog(produit: produit, cip: cip, ancien: ancien, nouveau: nouveau),
+      ) ==
+      true;
+
+  Widget _ligne(String libelle, String valeur, {Key? key, Color couleur = Pal.ink, bool fort = false}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(width: 92, child: Text(libelle, style: const TextStyle(fontSize: 13.5, color: Pal.muted))),
+          Expanded(
+            child: Text(valeur, key: key, style: TextStyle(fontSize: 15, color: couleur, fontWeight: fort ? FontWeight.bold : FontWeight.w500)),
+          ),
+        ]),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final avertissement = avertissementCleEan(nouveau);
+    final identique = ancien.trim() == nouveau.trim();
+    return AlertDialog(
+      key: const ValueKey('ean-confirmation'),
+      scrollable: true,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: Text(ancien.trim().isEmpty ? 'Enregistrer l\'EAN Fabricant ?' : 'Remplacer l\'EAN Fabricant ?'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _ligne('Produit', produit.trim().isEmpty ? '—' : produit, key: const ValueKey('ean-confirmation-produit'), fort: true),
+        if (cip.trim().isNotEmpty) _ligne('CIP', cip),
+        const Divider(height: 18),
+        _ligne('Ancien EAN', ancien.trim().isEmpty ? 'aucun' : ancien, key: const ValueKey('ean-confirmation-ancien'), couleur: Pal.muted),
+        _ligne('Nouvel EAN', '$nouveau  (${nomFormatEan(nouveau)})', key: const ValueKey('ean-confirmation-nouveau'), couleur: Pal.navy, fort: true),
+        if (identique)
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text('Code identique à l\'EAN actuel.', key: ValueKey('ean-confirmation-identique'), style: TextStyle(fontSize: 13, color: Pal.muted)),
+          ),
+        if (avertissement != null)
+          Container(
+            key: const ValueKey('ean-confirmation-avertissement'),
+            margin: const EdgeInsets.only(top: 10),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: const Color(0xFFFDECEC), borderRadius: BorderRadius.circular(10)),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.warning_amber_rounded, color: Color(0xFFB91C1C), size: 20),
+              const SizedBox(width: 8),
+              Expanded(child: Text(avertissement, style: const TextStyle(fontSize: 13.5, color: Color(0xFF7F1D1D), fontWeight: FontWeight.w600))),
+            ]),
+          ),
+      ]),
+      actions: [
+        if (avertissement == null) ...[
+          TextButton(
+            key: const ValueKey('ean-confirmation-annuler'),
+            style: TextButton.styleFrom(minimumSize: const Size(64, 48)),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton.icon(
+            key: const ValueKey('ean-confirmation-enregistrer'),
+            autofocus: true, // bouton par défaut : Entrée / OK de la douchette
+            style: navyButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(120, 48))),
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.check_circle),
+            label: const Text('Enregistrer'),
+          ),
+        ] else ...[
+          TextButton(
+            key: const ValueKey('ean-confirmation-enregistrer-quand-meme'),
+            style: TextButton.styleFrom(minimumSize: const Size(64, 48), foregroundColor: const Color(0xFFB91C1C)),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Enregistrer quand même'),
+          ),
+          ElevatedButton(
+            key: const ValueKey('ean-confirmation-annuler'),
+            autofocus: true, // clé incorrecte : Entrée ramène à la saisie
+            style: navyButton.copyWith(minimumSize: const WidgetStatePropertyAll(Size(110, 48))),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Corriger'),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class EanUpdateScreen extends StatefulWidget {
@@ -150,22 +284,6 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> with PresentationAwar
     _searchController.selection = TextSelection(baseOffset: 0, extentOffset: _searchController.text.length);
   }
 
-  Future<bool> _confirmReplace(String current, String next) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Remplacer l\'EAN Fabricant ?'),
-        content: Text('Code actuel : $current\nNouveau code : $next'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Annuler')),
-          ElevatedButton(style: navyButton, onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remplacer')),
-        ],
-      ),
-    );
-    return ok == true;
-  }
-
   Future<void> _submitForm() async {
     if (_busy) return; // pas de double envoi
     final provider = Provider.of<ProductUpdateProvider>(context, listen: false);
@@ -177,10 +295,17 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> with PresentationAwar
 
     final ean = _eanController.text.trim();
     final current = provider.selectedProductDetails?.codeEanFabriquant.trim() ?? '';
+    final product = provider.selectedProduct!;
     _busy = true;
     try {
-      if (current.isNotEmpty && current != ean && !await _confirmReplace(current, ean)) return;
+      // Confirmation TOUJOURS demandée avant d'enregistrer (produit, ancien → nouvel EAN, clé de contrôle).
+      final ok = await EanConfirmationDialog.afficher(context, produit: product.strNAME, cip: product.intCIP, ancien: current, nouveau: ean);
       if (!mounted) return;
+      if (!ok) {
+        // Annuler : rien n'est envoyé, la saisie reste à corriger.
+        _eanFocusNode.requestFocus();
+        return;
+      }
       setState(() => _sending = true);
 
       bool success;
@@ -419,13 +544,14 @@ class _EanUpdateScreenState extends State<EanUpdateScreen> with PresentationAwar
                 enabled: !_sending,
                 decoration: _fieldDeco(
                   'Code EAN Fabricant',
-                  helper: '8, 12, 13 ou 14 chiffres (clé EAN-13 vérifiée)',
+                  helper: '8, 12, 13 ou 14 chiffres (clé de contrôle vérifiée à la confirmation)',
                 ),
                 maxLength: 14, // compteur de chiffres affiché
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(14)],
                 textInputAction: TextInputAction.done,
-                validator: validateEanCode,
+                // Format bloquant ; clé de contrôle incorrecte : avertissement dans la confirmation.
+                validator: validateEanFormat,
                 onFieldSubmitted: (_) => _submitForm(),
               ),
             ],

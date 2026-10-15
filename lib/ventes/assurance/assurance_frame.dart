@@ -43,15 +43,17 @@ class AssuranceFrame {
         title: title,
         subtitle: guided ? 'Étape ${step + 1} sur 4${subtitle == null ? '' : ' · $subtitle'}' : subtitle,
         actions: actions,
-        header: [AssuranceStepsBar(active: step, onDark: true, onTap: stepTap), ...header],
-        compactHeader: [AssuranceStepsBar(active: step, onDark: false, onTap: stepTap), ...(compactHeader ?? header)],
+        // Recherche du client (étape 1, obligatoire avant tout) : aucune barre d'étapes, clavier ouvert ou fermé
+        // (avant : barre affichée à la 1re image puis masquée à l'ouverture du clavier = « flash »).
+        header: [if (step > 0) AssuranceStepsBar(active: step, onDark: true, onTap: stepTap), ...header],
+        compactHeader: [if (step > 0) AssuranceStepsBar(active: step, onDark: false, onTap: stepTap), ...(compactHeader ?? header)],
         body: progress ? Column(children: [const LinearProgressIndicator(minHeight: 2), Expanded(child: body)]) : body,
         bottomNavigationBar: bottom,
         // Clavier ouvert : barre d'étapes masquée (place gardée), pied posé au-dessus du clavier,
         // clavier fermé en touchant hors champ ou en faisant défiler une liste.
         clavierCompact: true,
-        headerClavier: [const SizedBox.shrink(), ...header],
-        compactHeaderClavier: [const SizedBox.shrink(), ...(compactHeader ?? header)],
+        headerClavier: [if (step > 0) const SizedBox.shrink(), ...header],
+        compactHeaderClavier: [if (step > 0) const SizedBox.shrink(), ...(compactHeader ?? header)],
       );
 }
 

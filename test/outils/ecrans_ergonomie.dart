@@ -77,6 +77,19 @@ final ecransErgonomie = <EcranControle>[
       },
       champ: () => find.byKey(const ValueKey('fiche-valeur'))),
   EcranControle('reserve', 'Réserve', ouvrir: (t, app) => app.ouvrirMenu(t, ListPresentation.dashboard, 'reserve')),
+  // 4.1.2 : onglet « Automatique » de la Réserve (onglet « Manuel » ouvert par défaut : écran « reserve »).
+  EcranControle('reserve_automatique', 'Réserve : onglet Automatique', ouvrir: (t, app) async {
+    await app.ouvrirMenu(t, ListPresentation.dashboard, 'reserve');
+    await t.tap(find.byKey(const ValueKey('reserve-onglet-auto')));
+    await app.attendre(t);
+  }),
+  // 4.1.2 : fenêtres de la nouvelle interface à la charte (plus de lavande Material) : déconnexion, code administrateur.
+  EcranControle('deconnexion', 'Fenêtre « Se déconnecter ? »', charte: true, ouvrir: (t, app) async {
+    await t.tap(find.byKey(const Key('accueil_deconnexion')));
+    await app.attendre(t, const Duration(seconds: 1));
+  }),
+  EcranControle('code_administrateur', 'Fenêtre « Accès sécurisé » (code administrateur)',
+      charte: true, ouvrir: (t, app) => app.ouvrirMenu(t, ListPresentation.dashboard, 'ajustement'), champ: () => find.byKey(const Key('pin_admin_saisie'))),
   EcranControle('reserve_quantites', 'Réserve : traitement et quantités',
       ouvrir: (t, app) => _pousser(t, app, ReserveTraitementScreen(suggestionId: 'S1', api: ReserveApi(clientPrestige(_nav.context)))),
       avantSaisie: (t, app) async {

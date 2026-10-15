@@ -330,11 +330,21 @@ void main() {
           ];
         await t.pumpWidget(_app(ReserveScreen(api: api)));
         await t.pumpAndSettle();
+        // 4.1.2 : deux onglets, « Manuel » à gauche (ouvert) et « Automatique » à droite.
+        expect(find.text('Manuel'), findsOneWidget);
+        expect(find.text('Automatique · 2'), findsOneWidget);
+        expect(t.getCenter(find.byKey(const ValueKey('reserve-onglet-manuel'))).dx,
+            lessThan(t.getCenter(find.byKey(const ValueKey('reserve-onglet-auto'))).dx));
         expect(find.text('Ranger en réserve'), findsOneWidget);
         expect(find.text('Regarnir le rayon'), findsOneWidget);
+        expect(find.text('Rayon → Réserve'), findsOneWidget);
+        expect(find.text('Réserve → Rayon'), findsOneWidget);
+        await t.tap(find.byKey(const ValueKey('reserve-onglet-auto')));
+        await t.pumpAndSettle();
         expect(find.text('Rayon à regarnir'), findsOneWidget);
-        expect(find.text('Rayon → Réserve'), findsNWidgets(2));
-        expect(find.text('Réserve → Rayon'), findsNWidgets(2));
+        expect(find.text('Surplus à ranger'), findsOneWidget);
+        expect(find.text('Rayon → Réserve'), findsOneWidget);
+        expect(find.text('Réserve → Rayon'), findsOneWidget);
         expect(find.text('2 à traiter'), findsOneWidget);
         expect(t.takeException(), isNull);
       });

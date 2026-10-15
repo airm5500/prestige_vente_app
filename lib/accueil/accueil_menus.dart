@@ -87,7 +87,9 @@ class AccueilMenu {
 /// Les 23 menus, dans l'ordre par défaut (par famille).
 final List<AccueilMenu> accueilMenus = [
   // Ventes
-  AccueilMenu(id: 'prevente', label: 'Pre/Vente', short: 'Pré-vente', icon: Icons.point_of_sale, color: Colors.blue.shade700, famille: MenuFamille.ventes, screen: () => VentesVersion.preVente()),
+  // Pré-vente : panier préparé pour l'encaissement (shopping_cart_checkout), distinct de la Caisse (calculate)
+  // et du bouton « Encaisser » des ventes (point_of_sale) ; tuiles, favoris et recherche des menus.
+  AccueilMenu(id: 'prevente', label: 'Pre/Vente', short: 'Pré-vente', icon: Icons.shopping_cart_checkout, color: Colors.blue.shade700, famille: MenuFamille.ventes, screen: () => VentesVersion.preVente()),
   AccueilMenu(id: 'assurance', label: 'Pre/Vente Assurance', short: 'Assurance', icon: Icons.health_and_safety, color: Colors.red.shade700, famille: MenuFamille.ventes, screen: () => VentesVersion.assurance()),
   AccueilMenu(id: 'carnet', label: 'Vente Carnet', short: 'Carnet', icon: Icons.book, color: Colors.green.shade800, famille: MenuFamille.ventes, screen: () => VentesVersion.carnet()),
   AccueilMenu(id: 'depot', label: 'Vente Dépôt', short: 'Dépôt', icon: Icons.store_mall_directory, color: Colors.brown.shade600, famille: MenuFamille.ventes, screen: () => const DepotSaleListScreen()),
