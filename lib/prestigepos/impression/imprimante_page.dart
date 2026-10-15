@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/prestigepos/impression/escpos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_pos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/impression/transports.dart';
+import 'package:prestige_vente_app/prestigepos/pos_styles.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 /// Contenu des réglages de l'imprimante (sans Scaffold : intégré à l'assistant et à la page d'administration).
@@ -34,6 +35,7 @@ class _ImprimanteReglagesVueState extends State<ImprimanteReglagesVue> {
   AppareilImprimante? _choisi;
   String? _erreurRecherche;
   bool _btInactif = false;
+  AppareilImprimante? _ajoutee;
 
   bool _test = false;
   String? _resultatTest;
@@ -94,11 +96,8 @@ class _ImprimanteReglagesVueState extends State<ImprimanteReglagesVue> {
     final a = _choisi;
     if (a == null) return;
     await _maj(_c.ajouterBluetooth(a));
-    if (mounted) {
-      ScaffoldMessenger.maybeOf(context)
-        ?..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('Imprimante « ${a.libelle} » ajoutée et choisie.')));
-    }
+    // Confirmation dans la page (un message en bas d'écran masquerait les boutons de l'assistant).
+    if (mounted) setState(() => _ajoutee = a);
   }
 
   // --- USB ---------------------------------------------------------------------
@@ -204,7 +203,7 @@ class _ImprimanteReglagesVueState extends State<ImprimanteReglagesVue> {
         Wrap(spacing: 10, runSpacing: 8, children: [
           ElevatedButton.icon(
             key: const ValueKey('imp-bt-rechercher'),
-            style: navyButton,
+            style: posBoutonBleu,
             onPressed: _recherche ? null : _rechercherBluetooth,
             icon: _recherche
                 ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
@@ -236,13 +235,16 @@ class _ImprimanteReglagesVueState extends State<ImprimanteReglagesVue> {
               alignment: Alignment.centerLeft,
               child: ElevatedButton.icon(
                 key: const ValueKey('imp-bt-ajouter'),
-                style: amberButton,
+                style: posBoutonAmbre,
                 onPressed: _choisi == null ? null : _ajouter,
                 icon: const Icon(Icons.add),
                 label: Text(_choisi == null ? 'Choisissez un appareil' : 'Ajouter « ${_choisi!.libelle} »'),
               ),
             ),
         ],
+        if (_ajoutee != null && c.bluetooth == _ajoutee)
+          _message('Imprimante « ${_ajoutee!.libelle} » ajoutée et choisie. Faites un « Test d\'impression ».',
+              ok: true, key: const ValueKey('imp-bt-ajoutee')),
       ];
 
   List<Widget> _usb(ImprimanteConfig c) => [
@@ -254,7 +256,7 @@ class _ImprimanteReglagesVueState extends State<ImprimanteReglagesVue> {
           alignment: Alignment.centerLeft,
           child: ElevatedButton.icon(
             key: const ValueKey('imp-usb-rechercher'),
-            style: navyButton,
+            style: posBoutonBleu,
             onPressed: _recherche ? null : _rechercherUsb,
             icon: const Icon(Icons.usb),
             label: const Text('Rechercher'),
@@ -366,7 +368,7 @@ class _ImprimanteReglagesVueState extends State<ImprimanteReglagesVue> {
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
               key: const ValueKey('imp-test'),
-              style: outlineButton,
+              style: posBoutonContour,
               onPressed: _test ? null : _tester,
               icon: _test ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.print),
               label: const Text('Test d\'impression'),

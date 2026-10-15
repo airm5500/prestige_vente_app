@@ -11,7 +11,7 @@ from collections import OrderedDict
 
 
 def main(chemin: str, titre: str) -> int:
-    suites, tests, fichiers = {}, {}, OrderedDict()
+    suites, tests, fichiers, mesures = {}, {}, OrderedDict(), []
     debut, fin = None, 0
     if not os.path.exists(chemin):
         print(f"## {titre}\n\nRapport absent ({chemin}) : les tests n'ont pas pu démarrer.")
@@ -38,6 +38,8 @@ def main(chemin: str, titre: str) -> int:
                     continue
                 d["resultat"] = "ignoré" if e.get("skipped") else e["result"]
                 d["duree"] = e["time"] - d["debut"]
+            elif t == "print" and e.get("message", "").startswith("MESURE "):
+                mesures.append(e["message"][7:])
             elif t == "done":
                 fin = e["time"]
     for d in tests.values():
@@ -62,6 +64,10 @@ def main(chemin: str, titre: str) -> int:
     print("|---|---:|---:|---:|---:|")
     for nom, r in fichiers.items():
         print(f"| `{nom}` | {r['ok']} | {r['ko']} | {r['ign']} | {r['ms'] / 1000:.1f} s |")
+    if mesures:
+        print("\n### Mesures de performance\n")
+        for m in mesures:
+            print(f"- {m}")
     echecs = [(n, t) for n, r in fichiers.items() for t in r["echecs"]]
     if echecs:
         print("\n### Tests en échec\n")

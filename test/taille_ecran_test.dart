@@ -258,7 +258,14 @@ void main() {
       expect(main.indexOf('RacineTailleEcran('), lessThan(main.indexOf('MaterialApp(')));
       expect(main.indexOf('MultiProvider('), lessThan(main.indexOf('RacineTailleEcran(')), reason: 'providers gardés à la relance');
       final apps = Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart') && RegExp(r'\bMaterialApp\(').hasMatch(f.readAsStringSync()));
-      expect(apps.map((f) => f.path.replaceAll('\\', '/')), ['lib/main.dart']);
+      // Une MaterialApp par application : Prestige Mobile (main.dart) et PrestigePOS (saveur pos, même règle).
+      expect(apps.map((f) => f.path.replaceAll('\\', '/')).toSet(), {'lib/main.dart', 'lib/prestigepos/pos_app.dart'});
+      final pos = File('lib/prestigepos/pos_app.dart').readAsStringSync();
+      expect(pos.indexOf('RacineTailleEcran('), lessThan(pos.indexOf('MaterialApp(')));
+      expect(pos.indexOf('MultiProvider('), lessThan(pos.indexOf('RacineTailleEcran(')));
+      final mainPos = File('lib/main_pos.dart').readAsStringSync();
+      expect(mainPos.indexOf('TailleEcranReglage.charger()'), greaterThan(0));
+      expect(mainPos.indexOf('initialiserPrestigePos();', mainPos.indexOf('Future<void> main()')), lessThan(mainPos.indexOf('runApp(')));
     });
   });
 }

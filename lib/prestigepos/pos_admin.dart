@@ -19,6 +19,7 @@ import 'package:prestige_vente_app/prestigepos/pos_assistant.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/version_app.dart';
+import 'package:prestige_vente_app/prestigepos/pos_styles.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 
@@ -187,14 +188,14 @@ class PosLicenceScreen extends StatelessWidget {
                 Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.center, children: [
                   ElevatedButton.icon(
                     key: const ValueKey('pos-licence-reessayer'),
-                    style: navyButton,
+                    style: posBoutonBleu,
                     onPressed: () => Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const PosDemarrage()), (_) => false),
                     icon: const Icon(Icons.refresh),
                     label: const Text('Réessayer'),
                   ),
                   OutlinedButton.icon(
                     key: const ValueKey('pos-licence-admin'),
-                    style: outlineButton,
+                    style: posBoutonContour,
                     onPressed: () async {
                       if (!await PosApp.codeAdmin(context) || !context.mounted) return;
                       Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const PosAdminScreen()), (_) => false);

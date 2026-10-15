@@ -19,6 +19,7 @@ import 'package:prestige_vente_app/prestigepos/pos_reglages.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/ui/taille_ecran.dart';
+import 'package:prestige_vente_app/prestigepos/pos_styles.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 
@@ -62,7 +63,7 @@ class PosBienvenue extends StatelessWidget {
                     height: 56,
                     child: ElevatedButton.icon(
                       key: const ValueKey('pos-configurer'),
-                      style: navyButton,
+                      style: posBoutonBleu,
                       onPressed: () => _configurer(context),
                       icon: const Icon(Icons.settings),
                       label: const Text('Configurer PrestigePOS', style: TextStyle(fontSize: 17)),
@@ -321,7 +322,7 @@ class _PosAssistantState extends State<PosAssistant> {
           alignment: Alignment.centerLeft,
           child: OutlinedButton.icon(
             key: const ValueKey('pos-borne-tester'),
-            style: outlineButton,
+            style: posBoutonContour,
             onPressed: _test ? null : _tester,
             icon: _test ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.fact_check_outlined),
             label: const Text('Tester la borne'),
@@ -454,26 +455,32 @@ class _PosAssistantState extends State<PosAssistant> {
             child: Row(children: [
               TextButton.icon(
                 key: const ValueKey('pos-precedent'),
-                style: TextButton.styleFrom(minimumSize: const Size(96, 48), foregroundColor: Pal.navy),
+                style: TextButton.styleFrom(minimumSize: const Size(88, 48), foregroundColor: Pal.navy),
                 onPressed: _precedent,
                 icon: const Icon(Icons.arrow_back),
                 label: Text(_etape == 0 ? 'Annuler' : 'Retour'),
               ),
-              const Spacer(),
-              SizedBox(
-                height: 52,
-                child: ElevatedButton.icon(
-                  key: ValueKey(dernier ? 'pos-demarrer' : (_etape == 0 ? 'pos-serveur-verifier' : 'pos-suivant')),
-                  style: dernier ? amberButton : navyButton,
-                  onPressed: _verification
-                      ? null
-                      : dernier
-                          ? _terminer
-                          : (_etape == 0 ? _verifierServeur : _suivant),
-                  icon: _verification
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : Icon(dernier ? Icons.storefront : Icons.arrow_forward),
-                  label: Text(dernier ? 'Démarrer la borne' : (_etape == 0 ? 'Vérifier et continuer' : 'Continuer')),
+              const SizedBox(width: 12),
+              // Bouton principal : prend la place restante, texte réduit si l'écran est étroit (Sunmi, texte ×1,3).
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: ElevatedButton.icon(
+                    key: ValueKey(dernier ? 'pos-demarrer' : (_etape == 0 ? 'pos-serveur-verifier' : 'pos-suivant')),
+                    style: (dernier ? posBoutonAmbre : posBoutonBleu).copyWith(minimumSize: const WidgetStatePropertyAll(Size(64, 52))),
+                    onPressed: _verification
+                        ? null
+                        : dernier
+                            ? _terminer
+                            : (_etape == 0 ? _verifierServeur : _suivant),
+                    icon: _verification
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : Icon(dernier ? Icons.storefront : Icons.arrow_forward),
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(dernier ? 'Démarrer la borne' : (_etape == 0 ? 'Vérifier et continuer' : 'Continuer')),
+                    ),
+                  ),
                 ),
               ),
             ]),
