@@ -35,13 +35,21 @@ import 'outils/app_e2e.dart';
 const _horsCI = {
   'test/outils/apercus_connexion_test.dart': 'génère des aperçus PNG (APERCUS=1), jamais en CI',
   'test/outils/captures_borne_test.dart': 'génère les captures PNG de la borne (APERCUS=1), jamais en CI',
+  'test/outils/captures_prestigepos_test.dart': 'génère les captures PNG de PrestigePOS (APERCUS=1), jamais en CI',
 };
+
+/// Tests de PrestigePOS : tout le dossier, exécuté par le job « prestigepos » de la CI (flutter test test/prestigepos).
+const _dossierPos = 'test/prestigepos/';
+
 
 /// Fichiers listés par l'étape de tests de la CI.
 List<String> _listeCI() {
   final lignes = File('.github/workflows/build-apk.yml').readAsLinesSync();
-  final l = lignes.where((x) => x.contains('flutter test test/')).toList();
-  expect(l, hasLength(1), reason: 'une seule commande « flutter test » attendue dans la CI');
+  // Job PrestigePOS : son dossier entier (commande à part, vérifiée ci-dessous).
+  expect(lignes.where((x) => x.contains('flutter test ${_dossierPos.substring(0, _dossierPos.length - 1)} ')), hasLength(1),
+      reason: 'job PrestigePOS : « flutter test test/prestigepos » attendu');
+  final l = lignes.where((x) => x.contains('flutter test test/') && !x.contains('flutter test $_dossierPos'.substring(0, 'flutter test $_dossierPos'.length - 1))).toList();
+  expect(l, hasLength(1), reason: 'une seule commande « flutter test » (Prestige Mobile) attendue dans la CI');
   expect(lignes.indexOf(l.single) + 1, 32, reason: 'commande des tests attendue ligne 32 du workflow (documentée dans test/README.md)');
   return l.single.split('flutter test').last.trim().split(RegExp(r'\s+')).where((x) => x.endsWith('_test.dart')).toList();
 }
@@ -63,6 +71,7 @@ void main() {
           .map((f) => f.path.replaceAll('\\', '/'))
           .where((p) => p.endsWith('_test.dart'))
           .map((p) => p.startsWith('test/') ? p : 'test/${p.split('test/').last}')
+          .where((p) => !p.startsWith(_dossierPos))
           .toSet();
       final oublies = presents.difference(liste.toSet()).difference(_horsCI.keys.toSet()).toList()..sort();
       expect(oublies, isEmpty, reason: 'fichiers de test absents de la CI (à ajouter ligne 32) : ${oublies.join(' ')}');

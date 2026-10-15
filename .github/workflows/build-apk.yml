@@ -2,9 +2,8 @@ name: Build APK (test terminal)
 
 on:
   push:
-    branches:
-      - 'pres-/**'
-      - 'prestigepos'
+    # Branches de travail (Prestige Mobile) et branche de PrestigePOS (saveur pos, job « prestigepos »).
+    branches: ['pres-/**', 'prestigepos']
   workflow_dispatch:
 
 jobs:

@@ -18,7 +18,12 @@ flutter test test/ergonomie_test.dart --plain-name "Sunmi V2s 720×1440, texte �
 La CI liste **explicitement** chaque fichier (ligne 32). `test/non_regression_test.dart` échoue si un fichier
 `test/**/*_test.dart` n'y figure pas (exceptions déclarées : `test/outils/apercus_connexion_test.dart` et
 `test/outils/captures_borne_test.dart`, outils manuels qui génèrent des aperçus PNG avec `APERCUS=1` — captures de la
-borne dans `docs/maquettes/captures_borne/`).
+borne dans `docs/maquettes/captures_borne/` — et `test/outils/captures_prestigepos_test.dart`, captures de PrestigePOS
+dans `docs/prestigepos/captures/`).
+
+**PrestigePOS** : tout le dossier `test/prestigepos/` est exécuté par le job `prestigepos` de la CI
+(`flutter test test/prestigepos`, résumé dans la page du job) ; ses fichiers ne sont donc pas listés ligne 32.
+Voir `docs/prestigepos/README.md`.
 
 ## Catégories
 
