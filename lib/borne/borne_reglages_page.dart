@@ -2,10 +2,15 @@
 // Réglages › Borne (code administrateur demandé par la page des réglages) : activation sur CET
 // appareil, présentation, inactivité, plafonds, utilisateur borne (mot de passe en stockage sécurisé),
 // texte d'accueil, catégories (mots-clés), produits mis en avant, ticket discret.
+// 4.1.2 : « Tester la borne » (connexion de l'utilisateur borne et produits, cause précise en cas d'échec),
+// sortie expliquée (cadenas, appui long 2 s), textes d'aide sur plusieurs lignes à 360 px.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
+import 'package:prestige_vente_app/borne/borne_diagnostic.dart';
 import 'package:prestige_vente_app/borne/borne_launcher.dart';
+import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 
@@ -17,7 +22,10 @@ String borneSummary(BorneConfig c) => c.actif
 class BornePage extends StatefulWidget {
   /// Ouverture de la borne (tests) ; sinon BorneLauncher.ouvrir.
   final void Function(BuildContext)? ouvrir;
-  const BornePage({super.key, this.ouvrir});
+
+  /// Test de la borne (tests) ; sinon TesteurBorne sur l'adresse du serveur de l'appli.
+  final TesteurBorne Function()? testeur;
+  const BornePage({super.key, this.ouvrir, this.testeur});
 
   @override
   State<BornePage> createState() => _BornePageState();
@@ -91,6 +99,45 @@ class _BornePageState extends State<BornePage> {
     return true;
   }
 
+  bool _test = false;
+
+  /// « Tester la borne » : enregistre d'abord (silencieusement si possible), puis teste avec les réglages lus.
+  Future<void> _tester() async {
+    if (_test) return;
+    final c = _lu();
+    final mdp = _mdp.text;
+    TesteurBorne t;
+    try {
+      t = widget.testeur?.call() ?? TesteurBorne(baseUrl: context.read<ApiService>().dio.options.baseUrl);
+    } catch (_) {
+      return;
+    }
+    setState(() => _test = true);
+    if (mdp.isNotEmpty) {
+      try {
+        await BorneReglages.secrets.ecrire(mdp);
+        _mdpEnregistre = true;
+        _mdp.clear();
+      } catch (_) {}
+    }
+    DiagnosticBorne d;
+    try {
+      d = await t.tester(c);
+    } catch (e) {
+      d = DiagnosticBorne([EtapeBorne('Test', EtatEtapeBorne.echec, 'Test impossible : $e')]);
+    }
+    if (!mounted) return;
+    setState(() => _test = false);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Test de la borne'),
+        content: SingleChildScrollView(child: DiagnosticBorneVue(d)),
+        actions: [TextButton(key: const ValueKey('borne-diagnostic-fermer'), onPressed: () => Navigator.of(ctx).pop(), child: const Text('Fermer'))],
+      ),
+    );
+  }
+
   Future<void> _oublierMdp() async {
     await BorneReglages.secrets.ecrire(null);
     if (mounted) setState(() => _mdpEnregistre = false);
@@ -119,8 +166,17 @@ class _BornePageState extends State<BornePage> {
         child: Text(
           'La borne permet au client de chercher ses produits, de composer son panier et d\'imprimer un ticket de prévente '
           'à présenter à la caisse. Elle est désactivée par défaut ; activée, l\'appli s\'ouvre directement sur la borne '
-          '(mode kiosque, sortie par appui long de 5 s dans le coin haut gauche + code administrateur).',
+          '(mode kiosque). Pour en sortir : maintenir 2 s le cadenas en haut à droite de la borne, confirmer, puis saisir '
+          'le code administrateur.',
           style: TextStyle(color: Pal.muted, fontSize: 13.5),
+        ),
+      ),
+      const Padding(
+        padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: Text(
+          'À activer sur l\'appareil qui servira de borne (tablette, borne), pas sur le terminal de caisse.',
+          key: ValueKey('borne-aide-appareil'),
+          style: TextStyle(color: Pal.ink, fontSize: 13.5, fontWeight: FontWeight.w600),
         ),
       ),
       SwitchListTile(
@@ -158,7 +214,12 @@ class _BornePageState extends State<BornePage> {
             key: const ValueKey('borne-login'),
             controller: _login,
             inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'[\x00-\x1F\x7F]')), LengthLimitingTextInputFormatter(40)],
-            decoration: const InputDecoration(labelText: 'Login (vendeur des préventes de la borne)', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Login',
+              helperText: 'Utilisateur Prestige de la borne (vendeur des préventes de la borne).',
+              helperMaxLines: 5,
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 10),
           TextField(
@@ -167,7 +228,9 @@ class _BornePageState extends State<BornePage> {
             obscureText: true,
             inputFormatters: [LengthLimitingTextInputFormatter(64)],
             decoration: InputDecoration(
-              labelText: _mdpEnregistre ? 'Mot de passe (enregistré — laisser vide pour le garder)' : 'Mot de passe',
+              labelText: 'Mot de passe',
+              helperText: _mdpEnregistre ? 'Enregistré : laisser vide pour le garder.' : null,
+              helperMaxLines: 5,
               border: const OutlineInputBorder(),
               suffixIcon: _mdpEnregistre ? IconButton(tooltip: 'Oublier le mot de passe', icon: const Icon(Icons.delete_outline), onPressed: _oublierMdp) : null,
             ),
@@ -196,8 +259,9 @@ class _BornePageState extends State<BornePage> {
             minLines: 3,
             maxLines: 8,
             decoration: const InputDecoration(
-              labelText: 'Catégories (une par ligne : Libellé = mot-clé)',
-              helperText: 'Le mot-clé (3 lettres au moins) est cherché dans le nom des produits.',
+              labelText: 'Catégories',
+              helperText: 'Une par ligne : Libellé = mot-clé. Le mot-clé (3 lettres au moins) est cherché dans le nom des produits.',
+              helperMaxLines: 6,
               border: OutlineInputBorder(),
             ),
           ),
@@ -206,7 +270,9 @@ class _BornePageState extends State<BornePage> {
             key: const ValueKey('borne-vedettes'),
             controller: _vedettes,
             decoration: const InputDecoration(
-              labelText: 'Produits mis en avant (codes CIP, séparés par des virgules)',
+              labelText: 'Produits mis en avant',
+              helperText: 'Codes CIP, séparés par des virgules.',
+              helperMaxLines: 5,
               border: OutlineInputBorder(),
             ),
           ),
@@ -235,6 +301,12 @@ class _BornePageState extends State<BornePage> {
             onPressed: () => _enregistrer(),
             icon: const Icon(Icons.save),
             label: const Text('Enregistrer'),
+          ),
+          OutlinedButton.icon(
+            key: const ValueKey('borne-tester'),
+            onPressed: _test ? null : _tester,
+            icon: _test ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.fact_check_outlined),
+            label: const Text('Tester la borne'),
           ),
           if (_c.actif)
             OutlinedButton.icon(

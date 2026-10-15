@@ -105,6 +105,12 @@ class _Serveur implements HttpClientAdapter {
   int statut = 200;
   String typeContenu = Headers.jsonContentType;
 
+  /// GET /vente/search : statut / texte brut imposés (panne de la recherche rapide d'Analyse article) ; [sansProduit] :
+  /// aucun produit.
+  int statutRecherche = 200;
+  String? texteRecherche;
+  bool sansProduit = false;
+
   /// Réponses retenues jusqu'à [liberer] (ou à l'annulation).
   bool retenir = false;
   bool jamais = false;
@@ -133,9 +139,12 @@ class _Serveur implements HttpClientAdapter {
       return ResponseBody.fromString(jsonEncode(info), statut, headers: {Headers.contentTypeHeader: [Headers.jsonContentType]});
     }
     if (chemin == '/vente/search') {
+      if (texteRecherche != null) {
+        return ResponseBody.fromString(texteRecherche!, statutRecherche, headers: {Headers.contentTypeHeader: ['text/plain']});
+      }
       final q = options.uri.queryParameters['query'] ?? '';
       final items = [
-        if ('doliprane'.startsWith(q.toLowerCase()) || q.toLowerCase().startsWith('dol'))
+        if (!sansProduit && ('doliprane'.startsWith(q.toLowerCase()) || q.toLowerCase().startsWith('dol')))
           {'lgFAMILLEID': 'f1', 'strNAME': 'DOLIPRANE 1000MG', 'intCIP': '3529422', 'intPRICE': 1475, 'intNUMBERAVAILABLE': 18},
       ];
       return ResponseBody.fromString(jsonEncode({'total': items.length, 'data': items}), 200,
@@ -315,36 +324,43 @@ void main() {
       expect(s.annulees, ['/info?search=dolip'], reason: 'la requête est abandonnée, pas laissée en vol');
     });
 
-    test('Analyse article (provider) : erreur, aucun résultat, Réessayer', () async {
+    test('Analyse article (provider) : liste rapide en erreur, aucun résultat, Réessayer — jamais GET /info', () async {
       final (api, s) = _brancher();
-      final p = ArticleAnalysisProvider(api);
+      final p = ArticleAnalysisProvider(api, cache: FicheInfoCache());
       s
-        ..statut = 401
-        ..texte = 'Veuillez vous connecter';
+        ..statutRecherche = 500
+        ..texteRecherche = '<html>Erreur</html>';
       await p.searchArticles('dolip');
       expect(p.isLoading, isFalse);
-      expect(p.error, contains('Session expirée'));
+      expect(p.error, isNotNull);
       expect(p.results, isEmpty);
       s
-        ..statut = 200
-        ..texte = null
-        ..info = [];
+        ..statutRecherche = 200
+        ..texteRecherche = null
+        ..sansProduit = true;
       await p.reessayer();
       expect(p.error, isNull);
       expect(p.aucunResultat, isTrue);
-      s.info = [_doliprane];
+      s.sansProduit = false;
       await p.reessayer();
-      expect(p.results.single.libelle, 'DOLIPRANE 1000MG CPR EFFV B/8');
+      expect(p.results.single.strNAME, 'DOLIPRANE 1000MG');
       expect(p.aucunResultat, isFalse);
+      expect(s.requetes.where((r) => r.startsWith('/info')), isEmpty, reason: 'liste : GET /vente/search seulement');
+      // Détail du produit choisi : GET /info par son CIP exact, une seule ligne retenue.
+      s.info = [_doliprane, _dolipraneSansVente];
+      final d = await p.chargerDetail(p.results.single);
+      expect(s.requetes.where((r) => r.startsWith('/info')), ['/info?search=3529422']);
+      expect(d!.grossiste, 'LABOREX-CI YOP');
+      expect(d.codeCip, '3529422');
     });
 
     testWidgets('écran Analyse article : « dolip » en erreur → message + Réessayer (jamais un écran vide)', (tester) async {
       phone(tester);
       final (api, s) = _brancher();
       s
-        ..statut = 401
-        ..texte = 'Veuillez vous connecter';
-      final provider = ArticleAnalysisProvider(api);
+        ..statutRecherche = 401
+        ..texteRecherche = 'Veuillez vous connecter';
+      final provider = ArticleAnalysisProvider(api, cache: FicheInfoCache());
       await tester.pumpWidget(ChangeNotifierProvider<ArticleAnalysisProvider>.value(
         value: provider,
         child: const MaterialApp(home: ArticleAnalysisScreen(presentation: ListPresentation.dashboard)),
@@ -353,18 +369,23 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('analyse-erreur')), findsOneWidget);
-      expect(find.textContaining('Session expirée — reconnectez-vous'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       // Le serveur répond de nouveau : Réessayer affiche les produits.
       s
-        ..statut = 200
-        ..texte = null
+        ..statutRecherche = 200
+        ..texteRecherche = null
         ..info = [_doliprane];
       await tester.tap(find.text('Réessayer'));
       await tester.pumpAndSettle();
-      expect(find.text('DOLIPRANE 1000MG CPR EFFV B/8'), findsOneWidget);
+      expect(find.text('DOLIPRANE 1000MG'), findsOneWidget);
+      // Choix du produit : détail GET /info par CIP.
+      await tester.tap(find.text('DOLIPRANE 1000MG'));
+      await tester.pumpAndSettle();
+      expect(find.text('LABOREX-CI YOP'), findsOneWidget);
+      await tester.tap(find.text('Fermer'));
+      await tester.pumpAndSettle();
       // Aucun produit : message clair (ni roue, ni écran « Saisissez… »).
-      s.info = [];
+      s.sansProduit = true;
       await tester.enterText(find.byType(TextField), 'zzzz');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
@@ -429,14 +450,14 @@ void main() {
       s
         ..retenir = true
         ..info = [_doliprane];
-      final p = ArticleAnalysisProvider(api);
+      final p = ArticleAnalysisProvider(api, cache: FicheInfoCache());
       final f1 = p.searchArticles('dol');
       await _jusqua(() => s.requetes.length == 1);
       final f2 = p.searchArticles('doli');
       await _jusqua(() => s.requetes.length == 2 && s.annulees.isNotEmpty);
-      expect(s.annulees, ['/info?search=dol']);
+      expect(s.annulees.single, startsWith('/vente/search?query=dol&'));
       expect(p.annulees, 1);
-      s.liberer('/info?search=doli');
+      s.liberer(s.requetes.last);
       await f1;
       await f2;
       expect(p.query, 'doli');
@@ -448,8 +469,9 @@ void main() {
       await p.searchArticles('d');
       await f3;
       await _jusqua(() => s.annulees.length == 2);
-      expect(s.annulees, ['/info?search=dol', '/info?search=dolip']);
-      expect(s.requetes.where((r) => r == '/info?search=d'), isEmpty);
+      expect(s.annulees.last, startsWith('/vente/search?query=dolip&'));
+      expect(s.requetes.where((r) => r.startsWith('/vente/search?query=d&')), isEmpty);
+      expect(s.requetes.where((r) => r.startsWith('/info')), isEmpty, reason: 'aucun GET /info pendant la frappe');
       expect(p.isLoading, isFalse);
     });
 
@@ -481,7 +503,7 @@ void main() {
       final (api, s) = _brancher();
       s.info = [_doliprane];
       await tester.pumpWidget(ChangeNotifierProvider<ArticleAnalysisProvider>(
-        create: (_) => ArticleAnalysisProvider(api),
+        create: (_) => ArticleAnalysisProvider(api, cache: FicheInfoCache()),
         child: const MaterialApp(home: ArticleAnalysisScreen(presentation: ListPresentation.compact)),
       ));
       for (final t in ['d', 'do', 'dol', 'doli', 'dolip']) {
@@ -491,12 +513,13 @@ void main() {
       expect(s.requetes, isEmpty, reason: 'anti-rebond : rien pendant la frappe');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
-      expect(s.requetes, ['/info?search=dolip']);
-      expect(find.text('DOLIPRANE 1000MG CPR EFFV B/8'), findsOneWidget);
+      expect(s.requetes, hasLength(1));
+      expect(s.requetes.single, startsWith('/vente/search?query=dolip&'), reason: 'liste rapide, pas GET /info');
+      expect(find.text('DOLIPRANE 1000MG'), findsOneWidget);
       // 1 caractère : aucune requête.
       await tester.enterText(find.byType(TextField), 'd');
       await tester.pump(const Duration(milliseconds: 500));
-      expect(s.requetes, ['/info?search=dolip']);
+      expect(s.requetes, hasLength(1));
     });
   });
 

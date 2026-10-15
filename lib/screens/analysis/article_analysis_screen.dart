@@ -1,12 +1,18 @@
 // lib/screens/analysis/article_analysis_screen.dart
+// Analyse article (4.1.2) : la LISTE vient de la recherche rapide GET /vente/search (anti-rebond, annulation,
+// classement par début de code, comme la recherche de l'accueil) ; le DÉTAIL d'un produit choisi lit GET /info par
+// son CIP exact, avec un indicateur, sans bloquer l'écran (ArticleAnalysisProvider).
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
+import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/article_analysis_provider.dart';
 import 'package:prestige_vente_app/screens/analysis/article_analysis_widgets.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/product_paging.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 
 class ArticleAnalysisScreen extends StatefulWidget {
@@ -46,7 +52,8 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
   }
 
   /// Anti-rebond des frappes : la recherche part [rebond] après la dernière frappe ; chaque recherche
-  /// annule la précédente (une seule requête GET /info en vol, ArticleAnalysisProvider).
+  /// annule la précédente (une seule requête GET /vente/search en vol, ArticleAnalysisProvider). Aucun
+  /// GET /info pendant la frappe : seulement pour le produit choisi.
   static const rebond = Duration(milliseconds: 350);
 
   void _onSearchChanged(String query) {
@@ -66,10 +73,11 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
     });
   }
 
-  void _showDetailDialog(ArticleAnalysis article) {
+  void _showDetailDialog(ProductSearchResult produit) {
+    final provider = Provider.of<ArticleAnalysisProvider>(context, listen: false);
     showDialog(
       context: context,
-      builder: (context) => _ArticleDetailDialog(article: article),
+      builder: (context) => _ArticleDetailDialog(produit: produit, provider: provider),
     );
   }
 
@@ -133,7 +141,7 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
 
   /// Résultats (même source de données pour les trois présentations) : jamais « rien » — chargement,
   /// résultats, aucun produit, ou erreur précise avec Réessayer.
-  Widget _results(Widget Function(List<ArticleAnalysis> items) builder) => Consumer<ArticleAnalysisProvider>(
+  Widget _results(Widget Function(List<ProductSearchResult> items, Widget? fin) builder) => Consumer<ArticleAnalysisProvider>(
         builder: (context, provider, child) {
           if (provider.isLoading) {
             return Center(
@@ -151,11 +159,14 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
           }
           if (provider.aucunResultat) {
             return _message(const ValueKey('analyse-aucun'), Icons.search_off, Pal.muted,
-                'Aucun produit dont le nom ou le CIP commence par « ${provider.query} »',
+                provider.notFound ?? 'Aucun produit dont le nom ou le CIP commence par « ${provider.query} »',
                 detail: 'Vérifiez l\'orthographe ou saisissez le début du nom.');
           }
           if (provider.results.isEmpty) return _emptyState();
-          return builder(provider.results);
+          // « Charger la suite » / erreur de la suite (liste texte par pages, comme la recherche de l'accueil).
+          final s = provider.productSearch;
+          final fin = ProductPagingFooter.visibleFor(s) ? ProductPagingFooter(s, onLoadMore: provider.loadMoreProducts) : null;
+          return builder(provider.results, fin);
         },
       );
 
@@ -179,6 +190,21 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
         ListPresentation.guided => _buildGuided(),
       };
 
+  /// « CIP: 3595583 · FAMILLE » (famille du produit si connue).
+  String _cip(ProductSearchResult p) => "CIP: ${p.intCIP}${p.strLIBELLEE.trim().isNotEmpty ? ' · ${p.strLIBELLEE.trim()}' : ''}";
+
+  String _prix(ProductSearchResult p) => '${Constants.formatNumber(p.intPRICE)} F';
+
+  /// Liste séparée, avec la ligne « Charger la suite » en fin si besoin.
+  Widget _liste(List<ProductSearchResult> items, Widget? fin, Widget Function(int i, ProductSearchResult p) carte,
+          {EdgeInsets padding = const EdgeInsets.fromLTRB(16, 14, 16, 24)}) =>
+      ListView.separated(
+        padding: padding,
+        itemCount: items.length + (fin == null ? 0 : 1),
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (_, i) => i < items.length ? carte(i, items[i]) : fin!,
+      );
+
   // --- A ---
   Widget _buildDashboard() => Scaffold(
         backgroundColor: Pal.page,
@@ -191,44 +217,29 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
           ),
           Expanded(
             child: ContentWidth(
-              child: _results((items) => ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                    itemCount: items.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (_, i) => _cardA(items[i]),
-                  )),
+              child: _results((items, fin) => _liste(items, fin, (_, p) => _cardA(p))),
             ),
           ),
         ]),
       );
 
-  Widget _cardA(ArticleAnalysis item) => InkWell(
+  Widget _cardA(ProductSearchResult item) => InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () => _showDetailDialog(item),
         child: SoftCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
-              Expanded(child: Text(item.libelle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Pal.ink))),
+              Expanded(child: Text(item.strNAME, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Pal.ink))),
               const Icon(Icons.chevron_right, color: Pal.muted),
             ]),
             const SizedBox(height: 2),
-            Text(
-              "CIP: ${item.codeCip}${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
-              style: const TextStyle(fontSize: 13, color: Pal.muted),
-            ),
+            Text(_cip(item), style: const TextStyle(fontSize: 13, color: Pal.muted)),
             const SizedBox(height: 12),
             Row(children: [
-              _metric("${item.stock}", 'Stock', fg: _stockColor(item.stock)),
+              _metric("${item.intNUMBERAVAILABLE}", 'Stock', fg: _stockColor(item.intNUMBERAVAILABLE)),
               const SizedBox(width: 8),
-              _metric("${item.prixVente} F", 'Prix de vente'),
-              const SizedBox(width: 8),
-              _metric(item.moyenne.toStringAsFixed(2), 'Moy. 3 mois'),
+              _metric(_prix(item), 'Prix de vente'),
             ]),
-            // Réserve + total rayon + réserve (rien si le produit n'est pas géré en réserve).
-            if (item.reserve.geree) ...[
-              const SizedBox(height: 8),
-              StockReserveResume(reserve: item.reserve, rayon: item.stock),
-            ],
           ]),
         ),
       );
@@ -255,14 +266,15 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
                   child: Row(children: const [
                     Expanded(child: Text('PRODUIT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
                     SizedBox(width: 56, child: Text('STOCK', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
-                    SizedBox(width: 72, child: Text('MOY. 3M', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
+                    SizedBox(width: 72, child: Text('PRIX', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.6, color: Color(0xFF4A5A70)))),
                   ]),
                 ),
                 const Divider(height: 1, color: Pal.line),
                 Expanded(
-                  child: _results((items) => ListView.builder(
-                        itemCount: items.length,
+                  child: _results((items, fin) => ListView.builder(
+                        itemCount: items.length + (fin == null ? 0 : 1),
                         itemBuilder: (_, i) {
+                          if (i >= items.length) return fin!;
                           final item = items[i];
                           return InkWell(
                             onTap: () => _showDetailDialog(item),
@@ -272,23 +284,23 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
                               child: Row(children: [
                                 Expanded(
                                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                    Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
-                                    Text("CIP: ${item.codeCip} · ${item.prixVente} F${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
-                                        maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.muted)),
-                                    if (item.reserve.geree)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 2),
-                                        child: StockReserveResume(reserve: item.reserve, rayon: item.stock),
-                                      ),
+                                    Text(item.strNAME, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                                    Text(_cip(item), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.muted)),
                                   ]),
                                 ),
                                 SizedBox(
                                   width: 56,
-                                  child: Text("${item.stock}", textAlign: TextAlign.right, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _stockColor(item.stock))),
+                                  child: Text("${item.intNUMBERAVAILABLE}",
+                                      textAlign: TextAlign.right,
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _stockColor(item.intNUMBERAVAILABLE))),
                                 ),
                                 SizedBox(
                                   width: 72,
-                                  child: Text(item.moyenne.toStringAsFixed(2), textAlign: TextAlign.right, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.centerRight,
+                                    child: Text(_prix(item), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
+                                  ),
                                 ),
                               ]),
                             ),
@@ -325,35 +337,23 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
               child: Column(children: [
                 Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 8), child: _searchField()),
                 Expanded(
-                  child: _results((items) => ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
-                        itemCount: items.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (_, i) {
-                          final item = items[i];
-                          if (i == 0) {
-                            return InkWell(
-                              borderRadius: BorderRadius.circular(16),
-                              onTap: () => _showDetailDialog(item),
-                              child: SoftCard(
+                  child: _results((items, fin) => _liste(items, fin, padding: const EdgeInsets.fromLTRB(16, 6, 16, 24), (i, item) {
+                        if (i == 0) {
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () => _showDetailDialog(item),
+                            child: SoftCard(
                               band: Pal.navy,
                               padding: const EdgeInsets.all(16),
                               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                                Text(item.libelle, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
-                                Text("CIP: ${item.codeCip}${item.emplacement.isNotEmpty ? ' · ${item.emplacement}' : ''}",
-                                    style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                                Text(item.strNAME, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink)),
+                                Text(_cip(item), style: const TextStyle(fontSize: 13, color: Pal.muted)),
                                 const SizedBox(height: 12),
                                 Row(children: [
-                                  _metric("${item.stock}", 'Stock', fg: _stockColor(item.stock)),
+                                  _metric("${item.intNUMBERAVAILABLE}", 'Stock', fg: _stockColor(item.intNUMBERAVAILABLE)),
                                   const SizedBox(width: 8),
-                                  _metric("${item.prixVente} F", 'Prix de vente'),
-                                  const SizedBox(width: 8),
-                                  _metric(item.moyenne.toStringAsFixed(2), 'Moy. 3 mois'),
+                                  _metric(_prix(item), 'Prix de vente'),
                                 ]),
-                                if (item.reserve.geree) ...[
-                                  const SizedBox(height: 8),
-                                  StockReserveResume(reserve: item.reserve, rayon: item.stock),
-                                ],
                                 const SizedBox(height: 12),
                                 SizedBox(
                                   height: 48,
@@ -365,33 +365,26 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
                                   ),
                                 ),
                               ]),
-                              ),
-                            );
-                          }
-                          return SoftCard(
-                            child: Row(children: [
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(item.libelle, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Pal.ink)),
-                                  Text("Stock ${item.stock} · ${item.prixVente} F · Moy. ${item.moyenne.toStringAsFixed(2)}",
-                                      style: const TextStyle(fontSize: 13, color: Pal.muted)),
-                                  if (item.reserve.geree)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 2),
-                                      child: StockReserveResume(reserve: item.reserve, rayon: item.stock),
-                                    ),
-                                ]),
-                              ),
-                              IconButton.filled(
-                                tooltip: 'Analyser ${item.libelle}',
-                                style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
-                                icon: const Icon(Icons.show_chart),
-                                onPressed: () => _showDetailDialog(item),
-                              ),
-                            ]),
+                            ),
                           );
-                        },
-                      )),
+                        }
+                        return SoftCard(
+                          child: Row(children: [
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(item.strNAME, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Pal.ink)),
+                                Text("Stock ${item.intNUMBERAVAILABLE} · ${_prix(item)}", style: const TextStyle(fontSize: 13, color: Pal.muted)),
+                              ]),
+                            ),
+                            IconButton.filled(
+                              tooltip: 'Analyser ${item.strNAME}',
+                              style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
+                              icon: const Icon(Icons.show_chart),
+                              onPressed: () => _showDetailDialog(item),
+                            ),
+                          ]),
+                        );
+                      })),
                 ),
               ]),
             ),
@@ -400,12 +393,71 @@ class _ArticleAnalysisScreenState extends State<ArticleAnalysisScreen> {
       );
 }
 
-class _ArticleDetailDialog extends StatelessWidget {
-  final ArticleAnalysis article;
-  const _ArticleDetailDialog({Key? key, required this.article}) : super(key: key);
+/// « Détails de l'Article » d'un produit CHOISI : nom, CIP, stock et prix de la liste tout de suite, puis
+/// l'analyse (GET /info?search=<CIP exact>) avec un indicateur ; erreur précise + Réessayer ; requête abandonnée
+/// si la fenêtre est fermée avant la réponse.
+class _ArticleDetailDialog extends StatefulWidget {
+  final ProductSearchResult produit;
+  final ArticleAnalysisProvider provider;
+  const _ArticleDetailDialog({required this.produit, required this.provider});
+
+  @override
+  State<_ArticleDetailDialog> createState() => _ArticleDetailDialogState();
+}
+
+class _ArticleDetailDialogState extends State<_ArticleDetailDialog> {
+  ArticleAnalysis? _article;
+  bool _chargement = true;
+  String? _erreur;
+  int _seq = 0;
+
+  ProductSearchResult get _p => widget.produit;
+
+  @override
+  void initState() {
+    super.initState();
+    final connu = widget.provider.detailConnu(_p);
+    if (connu != null) {
+      _article = connu.article;
+      _chargement = false;
+    } else {
+      _charger();
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_chargement) widget.provider.lacherDetail(_p);
+    super.dispose();
+  }
+
+  Future<void> _charger() async {
+    final seq = ++_seq;
+    if (mounted && (!_chargement || _erreur != null)) {
+      setState(() {
+        _chargement = true;
+        _erreur = null;
+      });
+    }
+    ArticleAnalysis? a;
+    String? erreur;
+    try {
+      a = await widget.provider.chargerDetail(_p);
+    } catch (e) {
+      erreur = ApiService.messageErreurInfo(e);
+    }
+    if (!mounted || seq != _seq) return;
+    setState(() {
+      _article = a;
+      _erreur = erreur;
+      _chargement = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final a = _article;
+    final stock = a?.stock ?? _p.intNUMBERAVAILABLE;
     // Informations et graphique bicolore partagés avec la fiche produit (article_analysis_widgets.dart).
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -422,7 +474,7 @@ class _ArticleDetailDialog extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Expanded(child: Text("Détails de l'Article", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary))),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
+                  IconButton(icon: const Icon(Icons.close), tooltip: 'Fermer', onPressed: () => Navigator.pop(context))
                 ],
               ),
               const Divider(),
@@ -431,59 +483,51 @@ class _ArticleDetailDialog extends StatelessWidget {
               Center(
                 child: Column(
                   children: [
-                    Text("Code CIP: ${article.codeCip}", style: const TextStyle(color: Colors.grey)),
+                    Text("Code CIP: ${_p.intCIP}", style: const TextStyle(color: Color(0xFF5B6B82))),
                     const SizedBox(height: 5),
-                    Text(article.libelle, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text(a != null && a.libelle.isNotEmpty ? a.libelle : _p.strNAME,
+                        textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   ],
                 ),
               ),
               const SizedBox(height: 20),
 
-              // Bloc Infos Central
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [for (final (label, value) in articleInfos(article)) _infoRow(label, value)],
-                  ),
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(15),
-                      decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
-                          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: const Offset(2,2))]
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text("Stock", style: TextStyle(color: Colors.white, fontSize: 10)),
-                          Text("${article.stock}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-                        ],
-                      ),
+              if (_chargement)
+                _attente(stock)
+              else if (_erreur != null)
+                _erreurBloc(stock)
+              else if (a == null)
+                _sansAnalyse(stock)
+              else ...[
+                // Bloc Infos Central
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Column(
+                      key: const ValueKey('analyse-detail'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [for (final (label, value) in articleInfos(a)) _infoRow(label, value)],
                     ),
-                  )
-                ],
-              ),
+                    Positioned(right: 0, top: 0, child: _pastilleStock(a.stock)),
+                  ],
+                ),
 
-              // Stock rayon / réserve (« — » si non géré en réserve), seuils, total, alerte.
-              const Divider(),
-              Column(
-                key: const ValueKey('analyse-stock-reserve'),
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final (label, value) in stockReserveInfos(article.stock, article.reserve)) _infoRow(label, value),
-                  PastilleReappro(reserve: article.reserve, rayon: article.stock),
-                ],
-              ),
+                // Stock rayon / réserve (« — » si non géré en réserve), seuils, total, alerte.
+                const Divider(),
+                Column(
+                  key: const ValueKey('analyse-stock-reserve'),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final (label, value) in stockReserveInfos(a.stock, a.reserve)) _infoRow(label, value),
+                    PastilleReappro(reserve: a.reserve, rayon: a.stock),
+                  ],
+                ),
 
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
 
-              // Légende, « Évolution des ventes mensuelles: » et graphique bicolore
-              ArticleVentesChart(article: article),
+                // Légende, « Évolution des ventes mensuelles: » et graphique bicolore
+                ArticleVentesChart(article: a),
+              ],
 
               const SizedBox(height: 10),
               Align(
@@ -497,13 +541,60 @@ class _ArticleDetailDialog extends StatelessWidget {
     );
   }
 
+  /// Stock et prix de la liste, en attendant l'analyse.
+  Widget _resume(int stock) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _infoRow('Stock', '$stock'),
+        _infoRow('Prix de vente', '${_p.intPRICE} FCFA'),
+      ]);
+
+  Widget _attente(int stock) => Column(key: const ValueKey('analyse-detail-chargement'), crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _resume(stock),
+        const SizedBox(height: 8),
+        const Row(children: [
+          SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+          SizedBox(width: 12),
+          Expanded(child: Text('Chargement de l\'analyse (ventes, grossiste, emplacement)…', style: TextStyle(color: Color(0xFF5B6B82)))),
+        ]),
+      ]);
+
+  Widget _erreurBloc(int stock) => Column(key: const ValueKey('analyse-detail-erreur'), crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _resume(stock),
+        const SizedBox(height: 8),
+        Row(children: [
+          const Icon(Icons.cloud_off, color: Color(0xFFB45309)),
+          const SizedBox(width: 10),
+          Expanded(child: Text(_erreur ?? '', style: const TextStyle(color: Pal.ink))),
+        ]),
+        Align(alignment: Alignment.centerRight, child: TextButton(onPressed: _charger, child: const Text('Réessayer'))),
+      ]);
+
+  Widget _sansAnalyse(int stock) => Column(key: const ValueKey('analyse-detail-vide'), crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _resume(stock),
+        const SizedBox(height: 8),
+        const Text("Pas d'analyse sur le serveur pour ce produit (emplacement, grossiste ou ventes non renseignés).",
+            style: TextStyle(color: Color(0xFF5B6B82), fontSize: 13)),
+      ]);
+
+  Widget _pastilleStock(int stock) => Container(
+        padding: const EdgeInsets.all(15),
+        decoration: const BoxDecoration(
+            color: AppColors.primary, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(2, 2))]),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text("Stock", style: TextStyle(color: Colors.white, fontSize: 10)),
+            Text("$stock", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+      );
+
   Widget _infoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
           Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
         ],
       ),

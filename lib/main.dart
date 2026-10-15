@@ -205,7 +205,11 @@ class MyApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (context) => ProformaProvider(Provider.of<ApiService>(context, listen: false))),
         // dans main.dart, liste des providers :
-        ChangeNotifierProvider(create: (ctx) => ArticleAnalysisProvider(ctx.read<ApiService>())),
+        // Analyse article : suit l'ApiService courant (adresse du serveur changée dans les réglages).
+        ChangeNotifierProxyProvider<ApiService, ArticleAnalysisProvider>(
+          create: (ctx) => ArticleAnalysisProvider(ctx.read<ApiService>()),
+          update: (ctx, apiService, previous) => previous!..updateApiService(apiService),
+        ),
       ],
       // Taille de l'écran (réglage) : toute l'interface, fenêtres et calques compris, deux interfaces.
       // Au-dessus de MaterialApp seulement : les providers (session, ventes, file d'envoi) sont gardés

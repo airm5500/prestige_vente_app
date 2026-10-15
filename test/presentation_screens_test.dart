@@ -1,10 +1,14 @@
 // Les trois présentations (A, B, C) des écrans Analyse article et Proformas / Devis :
 // mêmes données et mêmes actions, et aucun débordement sur un petit téléphone (360 px).
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
+import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/proforma_models.dart';
+import 'package:prestige_vente_app/accueil/fiche_produit_screen.dart' show FicheInfoCache;
+import 'package:prestige_vente_app/ventes/core/product_lookup.dart' show ProductPage;
 import 'package:prestige_vente_app/providers/article_analysis_provider.dart';
 import 'package:prestige_vente_app/providers/proforma_provider.dart';
 import 'package:prestige_vente_app/screens/analysis/article_analysis_screen.dart';
@@ -15,8 +19,16 @@ import 'package:provider/provider.dart';
 class _FakeApi extends ApiService {
   _FakeApi() : super(baseUrl: 'http://localhost');
 
+  /// Liste rapide (GET /vente/search) : Analyse article ne demande plus GET /info pendant la frappe (4.1.2).
   @override
-  Future<List<ArticleAnalysis>> fetchArticleAnalysis(String query) async => [
+  Future<ProductPage> searchProductsPageOrFail(String query, int start, int limit) async => ProductPage([
+        ProductSearchResult(lgFAMILLEID: 'p1', strNAME: 'DOLIPRANE 1000MG CP B/8', intCIP: '3595583', intPRICE: 1500, intNUMBERAVAILABLE: 0, strLIBELLEE: '', intPAF: 1100),
+        ProductSearchResult(lgFAMILLEID: 'p2', strNAME: 'DOLIPRANE 500MG CP B/16', intCIP: '3000000', intPRICE: 900, intNUMBERAVAILABLE: 14, strLIBELLEE: '', intPAF: 600),
+      ], 2);
+
+  /// Détail du produit choisi (GET /info?search=<CIP>).
+  @override
+  Future<List<ArticleAnalysis>> fetchArticleAnalysisOrFail(String query, {CancelToken? cancelToken}) async => [
         ArticleAnalysis(
           produitId: 'p1',
           codeCip: '3595583',
@@ -74,7 +86,7 @@ void main() {
       phone(tester);
       final api = _FakeApi();
       await tester.pumpWidget(ChangeNotifierProvider(
-        create: (_) => ArticleAnalysisProvider(api),
+        create: (_) => ArticleAnalysisProvider(api, cache: FicheInfoCache()),
         child: MaterialApp(home: ArticleAnalysisScreen(presentation: style)),
       ));
       expect(find.text('Saisissez le nom ou le code CIP du produit'), findsOneWidget);
@@ -86,6 +98,7 @@ void main() {
       await tester.tap(find.text('DOLIPRANE 1000MG CP B/8'));
       await tester.pumpAndSettle();
       expect(find.text("Détails de l'Article"), findsOneWidget);
+      expect(find.text('RAYON A3'), findsOneWidget, reason: 'détail (GET /info) du produit choisi');
     });
 
     testWidgets('Proformas / Devis — ${style.label}', (tester) async {

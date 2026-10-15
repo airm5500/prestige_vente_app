@@ -9,7 +9,10 @@
 // dernier pointage du jour) peut être corrigé ; son et vibration au résultat. Même badge relu < 2 min (ou doublon du serveur) : rien n'est renvoyé,
 // « Awa, vous avez déjà pointé (ENTRÉE à 08:02) » en orange (information), son et vibration distincts.
 // Hors ligne : pointages gardés en file avec l'heure de lecture, envoyés au retour après confirmation.
-// Mode « borne » plein écran optionnel (barres système masquées, sortie par appui long + confirmation).
+// Mode « borne » plein écran optionnel (barres système masquées). Sortie (4.1.2) : cadenas « Quitter » visible dans
+// l'en-tête, appui long 2 s → confirmation → code administrateur (lib/widgets/sortie_kiosque.dart). Avant : l'appui
+// long était posé autour d'un bouton désactivé portant une infobulle, que l'infobulle captait — le pharmacien ne
+// pouvait pas sortir.
 // CAPTURE UNIQUEMENT : chaque résultat dit où en est l'envoi (« Envoyé à Prestige ✓ », « En attente d'envoi
 // (hors ligne) », « Refusé par Prestige : … »). La gestion des empreintes n'est proposée qu'au gestionnaire
 // (administrateur ou droit RH P_SM_RH), jamais en mode borne.
@@ -33,7 +36,9 @@ import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/services/nfc_service.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
+import 'package:prestige_vente_app/widgets/sortie_kiosque.dart';
 
 class TerminalPointageScreen extends StatefulWidget {
   final PointageRh rh;
@@ -57,6 +62,9 @@ class TerminalPointageScreen extends StatefulWidget {
   /// Gestion des empreintes proposée (administrateur / droit RH) ; par défaut : accès RH autorisé du module.
   final bool? gestion;
 
+  /// Code administrateur demandé pour quitter le mode borne (tests) ; sinon PinCodeDialog.show.
+  final Future<bool> Function(BuildContext)? codeAdmin;
+
   const TerminalPointageScreen({
     super.key,
     required this.rh,
@@ -67,6 +75,7 @@ class TerminalPointageScreen extends StatefulWidget {
     this.delaiResultat = const Duration(seconds: 4),
     this.rafraichirAuDemarrage = true,
     this.gestion,
+    this.codeAdmin,
   });
 
   @override
@@ -445,20 +454,22 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   // Mode borne
   // ---------------------------------------------------------------------------
 
+  bool _sortieEnCours = false;
+
   Future<void> _basculerBorne() async {
     if (_borne) {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Quitter le mode borne ?'),
-          content: const Text('Les barres du système et le bouton Retour seront de nouveau disponibles.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Rester')),
-            ElevatedButton(key: const Key('rh_quitter_borne'), onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Quitter')),
-          ],
-        ),
-      );
-      if (ok != true) return _refocus();
+      if (_sortieEnCours) return;
+      _sortieEnCours = true;
+      bool ok;
+      try {
+        ok = await confirmerSortieKiosque(context,
+            codeAdmin: widget.codeAdmin ?? PinCodeDialog.show,
+            texte: 'Les barres du système et le bouton Retour seront de nouveau disponibles. Le code administrateur va être demandé.');
+      } finally {
+        _sortieEnCours = false;
+      }
+      if (!mounted) return;
+      if (!ok) return _refocus();
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       setState(() => _borne = false);
     } else {
@@ -562,15 +573,22 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
             onPressed: _ouvrirEmpreintes,
             icon: Icon(Icons.fingerprint, color: col),
           ),
-        GestureDetector(
-          onLongPress: _borne ? _basculerBorne : null,
-          child: IconButton(
+        if (_borne)
+          // Cadenas « Quitter » : appui long 2 s (sans infobulle, qui volerait l'appui long), appui court = aide.
+          BoutonSortieKiosque(
             key: const Key('rh_mode_borne'),
-            tooltip: _borne ? 'Mode borne (appui long pour quitter)' : 'Mode borne plein écran',
-            onPressed: _borne ? null : _basculerBorne,
-            icon: Icon(_borne ? Icons.lock : Icons.fullscreen, color: col),
+            couleur: col,
+            texte: 'Quitter',
+            onAppuiCourt: () => montrerAideSortieKiosque(context),
+            onSortie: _basculerBorne,
+          )
+        else
+          IconButton(
+            key: const Key('rh_mode_borne'),
+            tooltip: 'Mode borne plein écran',
+            onPressed: _basculerBorne,
+            icon: Icon(Icons.fullscreen, color: col),
           ),
-        ),
         if (!_borne) PresentationMenuButton(value: style, onChanged: _setStyle, color: col),
       ],
       steps: StepsBar(active: _attente == null ? 0 : 1, steps: const [
@@ -584,7 +602,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _borne) {
           ScaffoldMessenger.maybeOf(context)
-              ?.showSnackBar(const SnackBar(content: Text('Mode borne : appui long sur le cadenas pour quitter.')));
+              ?.showSnackBar(const SnackBar(content: Text(aideSortieKiosque)));
         }
       },
       child: ecran,

@@ -3,6 +3,7 @@
 // Lecture tolérante (ProductInfo, ArticleAnalysis) ; affichage « Stock rayon / Stock réserve / seuils /
 // Total rayon + réserve », « — » sans réserve, pastille « À réapprovisionner » ; menus Analyse article
 // (A, B, C + fenêtre de détails), fiche produit de l'accueil et Recherche Article ; 360 px et tablette.
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -44,8 +45,10 @@ ProductSearchResult _produit(String id, String nom, String cip, int stock) => Pr
 class _FakeApi extends ApiService {
   _FakeApi() : super(baseUrl: 'http://localhost');
 
+  /// GET /info?search=<CIP> (détail du produit choisi dans Analyse article, fiche produit).
   @override
-  Future<List<ArticleAnalysis>> fetchArticleAnalysis(String query) async => [for (final j in _lignesInfo) ArticleAnalysis.fromJson(j)];
+  Future<List<ArticleAnalysis>> fetchArticleAnalysisOrFail(String query, {CancelToken? cancelToken}) async =>
+      [for (final j in _lignesInfo) if ('${j['codeCip']}'.startsWith(query)) ArticleAnalysis.fromJson(j)];
 
   @override
   Future<List<ProductSearchResult>> searchProducts(String query) async => [
@@ -191,16 +194,15 @@ void main() {
         testWidgets('${style.label} (${taille.width.toInt()} px) : liste, détails, « — », alerte', (tester) async {
           _taille(tester, taille);
           await tester.pumpWidget(ChangeNotifierProvider(
-            create: (_) => ArticleAnalysisProvider(_FakeApi()),
+            create: (_) => ArticleAnalysisProvider(_FakeApi(), cache: FicheInfoCache()),
             child: MaterialApp(home: ArticleAnalysisScreen(presentation: style)),
           ));
           await tester.enterText(find.byType(TextField).first, 'doli');
           await tester.pump(const Duration(milliseconds: 600));
           await tester.pumpAndSettle();
-          // Liste : résumé seulement pour le produit géré en réserve.
-          expect(find.text('Réserve : 20 · Total : 23'), findsOneWidget);
-          expect(find.textContaining('Réserve :'), findsOneWidget);
-          expect(find.text('À réapprovisionner'), findsOneWidget, reason: 'rayon 3 ≤ seuil mini 5');
+          // Liste rapide (GET /vente/search, 4.1.2) : nom, CIP, stock, prix — la réserve vient du détail (GET /info).
+          expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
+          expect(find.textContaining('Réserve :'), findsNothing);
           expect(tester.takeException(), isNull);
 
           await tester.tap(find.text('DOLIPRANE 1000MG CP B/8').first);

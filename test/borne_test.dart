@@ -21,6 +21,7 @@ import 'package:prestige_vente_app/borne/borne_kiosque.dart';
 import 'package:prestige_vente_app/borne/borne_launcher.dart';
 import 'package:prestige_vente_app/borne/borne_panier.dart';
 import 'package:prestige_vente_app/borne/borne_produit.dart';
+import 'package:prestige_vente_app/borne/borne_reglages_page.dart';
 import 'package:prestige_vente_app/borne/borne_screen.dart';
 import 'package:prestige_vente_app/borne/borne_service.dart';
 import 'package:prestige_vente_app/borne/borne_ticket.dart';
@@ -644,34 +645,157 @@ void main() {
       await _fin(tester);
     });
 
-    testWidgets('kiosque : retour neutralisé ; sortie par appui long 5 s + code admin', (tester) async {
+    testWidgets('kiosque : retour neutralisé ; sortie par cadenas (appui long 2 s) + confirmation + code admin', (tester) async {
       final env = await _borne(tester);
       // Bouton retour Android : on reste sur la borne.
       await tester.binding.handlePopRoute();
       await tester.pump();
       expect(find.byKey(const ValueKey('borne-accueil-texte')), findsOneWidget);
-      // Appui court : rien.
-      await tester.tap(find.byKey(const ValueKey('borne-sortie')));
-      await tester.pump(const Duration(seconds: 6));
+      final cadenas = find.byKey(const ValueKey('borne-sortie'));
+      expect(cadenas.hitTestable(), findsOneWidget, reason: 'cadenas visible et touchable (4.1.2)');
+      expect(tester.getSize(cadenas).height, greaterThanOrEqualTo(48));
+      // Appui court : aide, rien d'autre.
+      await tester.tap(cadenas);
+      await tester.pump();
+      expect(find.textContaining('Maintenez le cadenas appuyé 2 secondes'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
       expect(env.adminChecks, 0);
-      // Appui long 5 s, code refusé : on reste.
-      env.adminAnswer = false;
-      var g = await tester.startGesture(tester.getCenter(find.byKey(const ValueKey('borne-sortie'))));
-      await tester.pump(const Duration(seconds: 6));
+      // Appui de 1 s : rien.
+      var g = await tester.startGesture(tester.getCenter(cadenas));
+      await tester.pump(const Duration(seconds: 1));
       await g.up();
       await tester.pump();
+      expect(find.byKey(const ValueKey('sortie-kiosque-confirmer')), findsNothing);
+      // Appui long 2 s → confirmation ; « Rester » : rien.
+      g = await tester.startGesture(tester.getCenter(cadenas));
+      await tester.pump(const Duration(milliseconds: 2100));
+      await g.up();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('sortie-kiosque-rester')));
+      await tester.pumpAndSettle();
+      expect(env.adminChecks, 0);
+      // Confirmé, code refusé : on reste.
+      env.adminAnswer = false;
+      g = await tester.startGesture(tester.getCenter(cadenas));
+      await tester.pump(const Duration(milliseconds: 2100));
+      await g.up();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('sortie-kiosque-confirmer')));
+      await tester.pumpAndSettle();
       expect(env.adminChecks, 1);
       expect(env.sorties, 0);
       expect(env.kiosque.arrets, 0);
       env.adminAnswer = true;
-      g = await tester.startGesture(tester.getCenter(find.byKey(const ValueKey('borne-sortie'))));
-      await tester.pump(const Duration(seconds: 6));
+      g = await tester.startGesture(tester.getCenter(cadenas));
+      await tester.pump(const Duration(milliseconds: 2100));
       await g.up();
-      await tester.pump();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('sortie-kiosque-confirmer')));
+      await tester.pumpAndSettle();
       expect(env.adminChecks, 2);
       expect(env.kiosque.arrets, 1);
       expect(env.sorties, 1);
       await _fin(tester);
+    });
+  });
+
+  // 4.1.2 — défauts relevés sur les captures (docs/maquettes/captures_borne/).
+  group('Affichage (captures 4.1.2)', () {
+    testWidgets('Sunmi V2s (360×720) : ticket à l\'écran — compte à rebours et TERMINÉ visibles sans défiler', (tester) async {
+      _journal();
+      final env = await _borne(tester, taille: const Size(360, 720));
+      env.imprimante.ok = false; // numéro + QR à l'écran : la vue la plus haute
+      await _chercher(tester, 'doli');
+      await _tap(tester, find.byKey(const ValueKey('borne-ajouter-P1')));
+      await _tap(tester, find.byKey(const ValueKey('borne-voir-panier')));
+      await _tap(tester, find.byKey(const ValueKey('borne-payer')));
+      expect(find.byKey(const ValueKey('borne-qr')), findsOneWidget);
+      for (final k in ['borne-retour-ticket', 'borne-termine']) {
+        final f = find.byKey(ValueKey(k));
+        expect(f.hitTestable(), findsOneWidget, reason: '$k visible sans défiler');
+        expect(tester.getRect(f).bottom, lessThanOrEqualTo(720), reason: '$k dans l\'écran');
+      }
+      await tester.tap(find.byKey(const ValueKey('borne-termine')));
+      await tester.pump();
+      expect(env.cle.currentState!.vue, BorneVue.accueil);
+      _sansErreur(tester);
+      await _fin(tester);
+    });
+
+    testWidgets('Liste rapide (Sunmi) : noms longs sur 3 lignes, police un peu plus petite', (tester) async {
+      final env = _Env();
+      env.gw.produits['V1'] = _p('V1', 'VITAMINE C UPSA 1000MG CPR EFFV B/20', '3401178', 2300, 18);
+      env.gw.produits['V2'] = _p('V2', 'VITAMINE D3 BON 200000UI/1ML SOL BUV AMP B/1', '3400111', 1900, 7);
+      _taille(tester, const Size(360, 720));
+      await tester.pumpWidget(env.app(const BorneConfig(actif: true, login: 'b', presentation: BornePresentation.listeRapide)));
+      await tester.pump();
+      await _chercher(tester, 'vitamine');
+      for (final id in ['V1', 'V2']) {
+        final nom = nomInsecable(env.gw.produits[id]!.strNAME);
+        final p = tester.renderObject<RenderParagraph>(find.descendant(
+            of: find.descendant(of: find.byKey(ValueKey('borne-produit-$id')), matching: find.text(nom)), matching: find.byType(RichText)));
+        // 3 lignes (avant : 2) et 14 px (avant : 15) ; rendu réel vérifié sur la capture 16 (police de l'appareil).
+        expect(p.maxLines, 3);
+        expect(p.text.style?.fontSize, 14);
+      }
+      _sansErreur(tester);
+      await _fin(tester);
+    });
+
+    test('Vitrine : pas de retour à la ligne juste après « B/ » ou « FL/ »', () {
+      for (final nom in ['DOLIPRANE 2,4% SUSP BUV FL/100ML', 'DOLIRHUME PARACETAMOL CP B/16', 'DOLIPRANE 1000MG CP B/8']) {
+        final i = nom.indexOf('/');
+        // Largeur qui coupait le nom juste après la barre oblique (police de test : 1 caractère = 15 px).
+        double? largeur;
+        for (var w = 60.0; w < 600 && largeur == null; w += 15) {
+          final tp = TextPainter(text: TextSpan(text: nom, style: const TextStyle(fontSize: 15)), textDirection: TextDirection.ltr)
+            ..layout(maxWidth: w);
+          if (tp.getLineBoundary(TextPosition(offset: i)).end == i + 1) largeur = w;
+          tp.dispose();
+        }
+        expect(largeur, isNotNull, reason: '$nom : la coupure après « / » existait');
+        final aff = nomInsecable(nom);
+        final tp = TextPainter(text: TextSpan(text: aff, style: const TextStyle(fontSize: 15)), textDirection: TextDirection.ltr)
+          ..layout(maxWidth: largeur!);
+        expect(tp.getLineBoundary(TextPosition(offset: i)).end, isNot(i + 1), reason: '$nom : plus de coupure après « / »');
+        tp.dispose();
+        expect(aff.replaceAll('⁠', ''), nom, reason: 'seul un gluon invisible est ajouté');
+      }
+    });
+
+    testWidgets('Réglages de la borne à 360 px : phrase « À activer sur l\'appareil… », textes d\'aide entiers', (tester) async {
+      _taille(tester, const Size(360, 720));
+      BorneReglages.courant.value = const BorneConfig(actif: true, login: 'borne.accueil');
+      await tester.pumpWidget(const MaterialApp(home: BornePage()));
+      await tester.pumpAndSettle();
+      expect(find.text('À activer sur l\'appareil qui servira de borne (tablette, borne), pas sur le terminal de caisse.'), findsOneWidget);
+      expect(find.textContaining('maintenir 2 s le cadenas'), findsOneWidget);
+      final liste = find.byType(Scrollable).first;
+      const aides = [
+        'La borne permet au client',
+        'À activer sur l\'appareil',
+        'Utilisateur Prestige de la borne',
+        'Mot de passe chiffré',
+        'Une par ligne : Libellé = mot-clé',
+        'Codes CIP, séparés',
+        'Sans le nom des produits',
+      ];
+      final vus = <String>{};
+      for (var i = 0; i < 12; i++) {
+        // Textes d'aide et explications (plusieurs lignes permises) : jamais coupés. Les libellés d'une ligne
+        // (titres des champs) sont mesurés avec la police de test, plus large que celle de l'appareil : non contrôlés.
+        for (final p in tester.renderObjectList<RenderParagraph>(find.descendant(of: find.byType(BornePage), matching: find.byType(RichText)))) {
+          final t = p.text.toPlainText();
+          if (!aides.any(t.startsWith)) continue;
+          vus.add(aides.firstWhere(t.startsWith));
+          expect(p.didExceedMaxLines, isFalse, reason: 'texte coupé : « $t »');
+        }
+        await tester.drag(liste, const Offset(0, -300));
+        await tester.pumpAndSettle();
+      }
+      expect(vus, aides.toSet(), reason: 'tous les textes d\'aide contrôlés');
+      expect(find.byKey(const ValueKey('borne-tester')), findsOneWidget);
+      _sansErreur(tester);
     });
   });
 
