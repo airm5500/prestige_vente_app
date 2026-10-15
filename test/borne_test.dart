@@ -43,6 +43,7 @@ import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 ProductSearchResult _p(String id, String nom, String cip, int prix, int stock) =>
     ProductSearchResult(lgFAMILLEID: id, strNAME: nom, intCIP: cip, intPRICE: prix, intNUMBERAVAILABLE: stock, strLIBELLEE: '', intPAF: 0);
@@ -604,6 +605,12 @@ void main() {
       expect(find.text(BorneScreen.indisponibleTexte), findsOneWidget);
       expect(env.cle.currentState!.panier.vide, isTrue, reason: 'confidentialité');
       expect(find.byKey(const ValueKey('borne-recherche')), findsNothing);
+      // 4.3.3 : cause pour le personnel : serveur injoignable, ou Prestige en démarrage / redéploiement.
+      expect(find.text(MessagesServeur.injoignable), findsOneWidget);
+      env.monitor.noterPanne(PanneServeur.indisponible);
+      await tester.pump();
+      expect(find.text(MessagesServeur.indisponible), findsOneWidget);
+      expect(find.text(MessagesServeur.injoignable), findsNothing);
       env.monitor.goOnline();
       await tester.pump();
       expect(find.text(BorneScreen.indisponibleTitre), findsNothing);
