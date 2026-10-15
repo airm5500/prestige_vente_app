@@ -27,13 +27,26 @@ class RequeteRecue {
 }
 
 /// Réponse programmée : statut, corps (objet JSON, ou texte brut si String), délai avant réponse,
-/// en-têtes supplémentaires (ex. set-cookie).
+/// en-têtes supplémentaires (ex. set-cookie ; un « content-type » donné remplace celui par défaut).
+/// [coupeeApres] (tests réseau) : la connexion est fermée après ce nombre d'octets du corps (réponse tronquée).
 class ReponseLocale {
   final int statut;
   final Object? corps;
   final Duration delai;
   final Map<String, String> entetes;
-  const ReponseLocale(this.corps, {this.statut = 200, this.delai = Duration.zero, this.entetes = const {}});
+  final int? coupeeApres;
+  const ReponseLocale(this.corps, {this.statut = 200, this.delai = Duration.zero, this.entetes = const {}, this.coupeeApres});
+
+  /// Corps envoyé (texte brut tel quel, sinon JSON).
+  String get texte => corps is String ? corps as String : jsonEncode(corps);
+
+  /// Type de contenu envoyé.
+  String get typeContenu {
+    for (final e in entetes.entries) {
+      if (e.key.toLowerCase() == 'content-type') return e.value;
+    }
+    return corps is String ? 'text/plain; charset=utf-8' : 'application/json; charset=utf-8';
+  }
 }
 
 class ServeurJsonLocal {
@@ -88,14 +101,21 @@ class ServeurJsonLocal {
       if (rep.delai > Duration.zero) await Future<void>.delayed(rep.delai);
       try {
         req.response.statusCode = rep.statut;
-        rep.entetes.forEach((k, v) => req.response.headers.add(k, v));
-        if (rep.corps is String) {
-          req.response.headers.contentType = ContentType.text;
-          req.response.write(rep.corps);
-        } else {
-          req.response.headers.contentType = ContentType.json;
-          req.response.write(jsonEncode(rep.corps));
+        rep.entetes.forEach((k, v) {
+          if (k.toLowerCase() != 'content-type') req.response.headers.add(k, v);
+        });
+        req.response.headers.set('content-type', rep.typeContenu);
+        final octets = utf8.encode(rep.texte);
+        final coupe = rep.coupeeApres;
+        if (coupe != null && coupe < octets.length) {
+          // Réponse tronquée : longueur annoncée complète, connexion fermée au milieu du corps.
+          req.response.contentLength = octets.length;
+          req.response.add(octets.sublist(0, coupe));
+          await req.response.flush();
+          (await req.response.detachSocket(writeHeaders: false)).destroy();
+          return;
         }
+        req.response.add(octets);
         await req.response.close();
       } catch (_) {
         // client parti (délai dépassé)
