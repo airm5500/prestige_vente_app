@@ -1,5 +1,6 @@
 // lib/providers/stock_report_provider.dart
 // 12/11/2025 14:30 (Focus & Logique Filtre Stock)
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/rayon.dart';
@@ -30,6 +31,23 @@ class StockReportProvider with ChangeNotifier {
   // N° de la dernière recherche : une réponse plus ancienne est ignorée.
   int _searchSeq = 0;
   String? _inFlightKey;
+
+  /// Requête GET /fichearticle/comparaison en vol : ANNULÉE par la recherche suivante (4.1.2 ; avant, chaque
+  /// frappe laissait sa requête aller au bout et l'écran attendait la plus lente).
+  CancelToken? _jeton;
+
+  /// Diagnostic (tests) : requêtes envoyées / annulées car remplacées.
+  int requetes = 0;
+  int annulees = 0;
+
+  void _annuler() {
+    final j = _jeton;
+    _jeton = null;
+    if (j != null && !j.isCancelled) {
+      annulees++;
+      j.cancel('Recherche remplacée');
+    }
+  }
 
   bool get isLoading => _isLoading;
   List<StockReportItem> get reportItems => _reportItems;
@@ -72,6 +90,7 @@ class StockReportProvider with ChangeNotifier {
         _selectedGrossisteId.isEmpty &&
         _selectedStockFilter == null) {
       _searchSeq++;
+      _annuler();
       _inFlightKey = null;
       _isLoading = false;
       _loadError = null;
@@ -97,6 +116,8 @@ class StockReportProvider with ChangeNotifier {
     if (_isLoading && key == _inFlightKey) return;
     _inFlightKey = key;
     final seq = ++_searchSeq;
+    _annuler();
+    final jeton = _jeton = CancelToken();
     _loadError = null;
 
     if (isRefresh) {
@@ -105,7 +126,8 @@ class StockReportProvider with ChangeNotifier {
     }
 
     try {
-      final result = await _apiService.getStockReport(
+      requetes++;
+      final result = await ApiService.avecJeton(jeton, () => _apiService.getStockReport(
         query: _searchQuery,
         codeRayon: _selectedRayonId,
         codeGrossiste: _selectedGrossisteId,
@@ -113,7 +135,7 @@ class StockReportProvider with ChangeNotifier {
         stockValue: stockValToSend,
         page: 1,
         limit: 20,
-      );
+      ));
       if (seq != _searchSeq) return;
       final data = result['data'];
       _reportItems = data is List<StockReportItem> ? data : <StockReportItem>[];
@@ -125,6 +147,7 @@ class StockReportProvider with ChangeNotifier {
       _totalItems = 0;
       _loadError = e is ApiLoadException ? e.message : 'Impossible de charger les articles : $e';
     }
+    if (identical(_jeton, jeton)) _jeton = null;
     _inFlightKey = null;
     _setLoading(false);
   }

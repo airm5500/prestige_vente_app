@@ -18,7 +18,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/accueil/recherche_globale_screen.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
-import 'package:prestige_vente_app/api/models/article_analysis_model.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/product_stats.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
@@ -360,11 +359,20 @@ void main() {
       await app.ouvrirMenu(t, ListPresentation.compact, 'analyse_article');
       await _taper(t, app, '3595');
       final provider = Provider.of<ArticleAnalysisProvider>(t.element(find.byType(ArticleAnalysisScreen)), listen: false);
-      expect([for (final ArticleAnalysis a in provider.results) a.libelle], [_doliDecond, _doli, _doli500, _bebe]);
+      // 4.1.2 : liste rapide (GET /vente/search, comme Recherche Article), aucun GET /info pendant la frappe.
+      expect([for (final p in provider.results) p.strNAME], [_doliDecond, _doli, _doli500, _advil, _bebe]);
+      expect(app.serveur.recuesSur('/info'), isEmpty);
       expect(_ordreAffiche(t, _tous).first, _doliDecond);
+      // Choix du DOLIPRANE B/8 : GET /info?search=3595583 renvoie d'abord 3595583D ; le détail est celui du B/8.
+      await t.tap(find.text(_doli).hitTestable());
+      await app.attendre(t, const Duration(seconds: 2));
+      expect([for (final r in app.serveur.recuesSur('/info')) r.query['search']], ['3595583']);
+      expect(find.text('RAYON F-DOLI'), findsOneWidget, reason: 'emplacement du bon produit');
+      await t.tap(find.text('Fermer'));
+      await app.attendre(t, const Duration(seconds: 1));
       // Un nom : ordre du serveur.
       await _taper(t, app, 'DOLIPRANE 1');
-      expect([for (final a in provider.results) a.libelle], [_doliDecond, _doli]);
+      expect([for (final p in provider.results) p.strNAME], [_doliDecond, _doli]);
       expect(t.takeException(), isNull);
       await app.fermer(t);
     });

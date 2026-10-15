@@ -84,11 +84,11 @@ class ApiService {
   Future<List<ProductDetails>> searchProductFiche(String query) async { try { final response = await _dio.get( '/produit-search/fiche', queryParameters: { 'search_value': query, 'page': 1, 'start': 0, 'limit': 20 }, ); if (response.statusCode == 200 && response.data['results'] is List) { return (response.data['results'] as List).map((item) => ProductDetails.fromJson(item)).toList(); } return []; } catch (e) { print("Error in searchProductFiche: $e"); return []; } }
   Future<List<ProductOrderHistory>> getProductOrderHistory(String productId, String dtStart, String dtEnd) async { try { final response = await _dio.get( '/commande/produit/commande/$productId', queryParameters: { 'dtStart': dtStart, 'dtEnd': dtEnd, 'page': 1, 'start': 0, 'limit': 9999 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((item) => ProductOrderHistory.fromJson(item)).toList(); } return []; } catch (e) { print("Error fetching order history: $e"); return []; } }
   Future<bool> updateExpirationDate(String productId, String newDate) async { print('Mise à jour de la date de péremption pour $productId à $newDate'); await Future.delayed(const Duration(seconds: 1)); return true; }
-  Future<ProductInfo?> getProductInfo(String codeCip) async { try { final response = await _dio.get( '/info', queryParameters: {'search': codeCip}); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(ligneInfoDuCip(lignes, codeCip)!); } return null; } catch (e) { print("Error fetching product info: $e"); return null; } }
+  Future<ProductInfo?> getProductInfo(String codeCip) async { try { final response = await _dio.get( '/info', queryParameters: {'search': codeCip}, options: optionsInfo()); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(ligneInfoDuCip(lignes, codeCip)!); } return null; } catch (e) { print("Error fetching product info: $e"); return null; } }
   /// Même requête que [getProductInfo], annulable (fiche produit quittée avant la réponse).
   Future<ProductInfo?> getProductInfoAnnulable(String codeCip, CancelToken cancelToken) async {
     try {
-      final response = await _dio.get('/info', queryParameters: {'search': codeCip}, cancelToken: cancelToken);
+      final response = await _dio.get('/info', queryParameters: {'search': codeCip}, cancelToken: cancelToken, options: optionsInfo());
       final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null;
       if (lignes != null && lignes.isNotEmpty) return ProductInfo.fromJson(ligneInfoDuCip(lignes, codeCip)!);
       return null;
@@ -130,8 +130,8 @@ class ApiService {
   Future<List<Rayon>> getRayons() async { try { final response = await _dio.get( '/common/rayons', queryParameters: { 'query': '', 'page': 1, 'start': 0, 'limit': 9999 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((r) => Rayon.fromJson(r)).toList(); } return []; } catch (e) { print("Error fetching rayons: $e"); return []; } }
   Future<bool> updateLiteInfo(Map<String, dynamic> data) async { try { final response = await _dio.post( '/fichearticle/produit/update-lite-info', data: data, ); if (response.statusCode == 202) { return true; } if (response.statusCode == 200 && response.data['success'] == true) { return true; } return false; } on DioException catch (e) { if (e.response?.statusCode == 202) return true; print("Error in updateLiteInfo: $e"); return false; } catch (e) { print("Error in updateLiteInfo: $e"); return false; } }
   Future<List<PaymentMethodQr>> getPaymentMethodsWithQr() async { try { final response = await _dio.get( '/modereglement/all', queryParameters: { 'page': 1, 'start': 0, 'limit': 20 }, ); if (response.statusCode == 200 && response.data['data'] is List) { final List data = response.data['data']; final List<PaymentMethodQr> methods = []; for (var item in data) { if (item is Map<String, dynamic>) { methods.add(PaymentMethodQr.fromJson(item)); } } return methods; } return []; } catch (e) { print("Error fetching payment methods with QR: $e"); return []; } }
-  Future<ProductInfo?> getProductInfoForStats(String codeCip) async { try { final response = await _dio.get('/info', queryParameters: { 'search': codeCip }); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(ligneInfoDuCip(lignes, codeCip)!); } return null; } catch (e) { print("Error fetching product info for stats: $e"); return null; } }
-  Future<List<ProductInfo>> searchProductInfoForSearch(String query) async { try { final response = await _dio.get( '/info', queryParameters: { 'search': query }, ); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null) { return lignes.map(ProductInfo.fromJson).toList(); } return []; } catch (e) { print("Error in searchProductInfoForSearch: $e"); return []; } }
+  Future<ProductInfo?> getProductInfoForStats(String codeCip) async { try { final response = await _dio.get('/info', queryParameters: { 'search': codeCip }, options: optionsInfo()); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null && lignes.isNotEmpty) { return ProductInfo.fromJson(ligneInfoDuCip(lignes, codeCip)!); } return null; } catch (e) { print("Error fetching product info for stats: $e"); return null; } }
+  Future<List<ProductInfo>> searchProductInfoForSearch(String query) async { try { final response = await _dio.get( '/info', queryParameters: { 'search': query }, options: optionsInfo()); final lignes = response.statusCode == 200 ? lignesInfo(response.data) : null; if (lignes != null) { return lignes.map(ProductInfo.fromJson).toList(); } return []; } catch (e) { print("Error in searchProductInfoForSearch: $e"); return []; } }
   Future<ProductDetails?> getProductDetailsForSearch(String codeCip) async { try { final response = await _dio.get( '/produit-search/fiche', queryParameters: { 'search_value': codeCip, 'page': 1, 'start': 0, 'limit': 1 }, ); if (response.statusCode == 200 && response.data['results'] is List) { final results = response.data['results'] as List; if (results.isNotEmpty) { return ProductDetails.fromJson(results.first); } } return null; } catch (e) { print("Error in getProductDetailsForSearch: $e"); return null; } }
 
   // --- État de Stock : un échec de chargement lève [ApiLoadException] (≠ liste vide) ---
@@ -175,6 +175,11 @@ class ApiService {
           'start': (page - 1) * limit,
           'limit': limit
         },
+        // 4.1.2 : annulable (recherche remplacée par la frappe suivante, ApiService.avecJeton) et délai de
+        // réception de 30 s au lieu des 10 s du client : le serveur relit pour CHAQUE ligne la date du dernier
+        // bon, de la dernière entrée, du dernier inventaire et de la dernière vente (docs/serveur/DEMANDE_PERFORMANCE_INFO.md).
+        cancelToken: jetonDeLaZone(),
+        options: Options(receiveTimeout: delaiInfo),
       ),
       StockReportItem.fromJson,
     );
@@ -941,6 +946,13 @@ class ApiService {
   /// squelette ou une roue sans fin). Remplaçable dans les tests.
   static Duration delaiInfo = const Duration(seconds: 30);
 
+  /// Options des lectures de GET /info : délai de réception [delaiInfo] (30 s) au lieu des 10 s du client
+  /// partagé (DioClient) — le serveur calcule les ventes de 6 mois à chaque appel ; avant la 4.1.2, le client
+  /// abandonnait au bout de 10 s et l'écran affichait « Délai dépassé … en 10 s » alors que [delaiInfo] annonçait
+  /// 30 s. [texte] : corps lu en texte (décodé par [lignesInfo]).
+  static Options optionsInfo({bool texte = false}) =>
+      Options(receiveTimeout: delaiInfo, responseType: texte ? ResponseType.plain : null);
+
   /// Clé de zone du jeton d'annulation des recherches (voir [avecJeton]).
   static const Symbol cleJeton = #prestigeJetonAnnulation;
 
@@ -1010,7 +1022,7 @@ class ApiService {
       // Corps lu en TEXTE puis décodé ici ([lignesInfo]) : un corps qui n'est pas du JSON (« Veuillez vous
       // connecter » d'un 401, page HTML) donne un message précis au lieu d'une erreur de décodage Dio.
       response = await _dio
-          .get('/info', queryParameters: {'search': query}, cancelToken: jeton, options: Options(responseType: ResponseType.plain))
+          .get('/info', queryParameters: {'search': query}, cancelToken: jeton, options: optionsInfo(texte: true))
           .timeout(delai, onTimeout: () {
         jeton.cancel('Délai dépassé (GET /info)');
         throw ApiLoadException('Délai dépassé : pas de réponse du serveur en ${delai.inSeconds} s (GET /info). Réessayez.');

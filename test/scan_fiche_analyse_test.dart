@@ -78,12 +78,16 @@ class _Serveur implements HttpClientAdapter {
 
   int get infos => requetes.where((r) => r.startsWith('/info')).length;
 
+  /// Délai de réception de la dernière requête GET /info (4.1.2 : ApiService.delaiInfo, plus les 10 s du client).
+  Duration? delaiRecu;
+
   @override
   Future<ResponseBody> fetch(RequestOptions options, Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
     final chemin = options.uri.path.replaceFirst(RegExp(r'^.*/api/v1'), '');
     requetes.add('$chemin?${options.uri.query}');
     if (delai > Duration.zero) await Future<void>.delayed(delai);
     if (chemin == '/info') {
+      delaiRecu = options.receiveTimeout;
       if (delaiDepasse) {
         throw DioException(requestOptions: options, type: DioExceptionType.receiveTimeout);
       }
@@ -151,13 +155,15 @@ void main() {
       ));
 
   group('Même chemin de données que le menu Analyse article', () {
-    test('même requête GET /info?search=<CIP> et même lecture que ArticleAnalysisProvider', () async {
+    test('même requête GET /info?search=<CIP> et même lecture que le détail d\'Analyse article', () async {
       brancher();
-      final provider = ArticleAnalysisProvider(api);
+      final provider = ArticleAnalysisProvider(api, cache: FicheInfoCache());
       await provider.searchArticles('8049052');
-      final viaAnalyse = provider.results.single;
+      // 4.1.2 : la liste vient de la recherche rapide (GET /vente/search), le détail de GET /info (CIP exact).
+      expect(serveur.requetes.single, startsWith('/vente/search?'));
+      final viaAnalyse = (await provider.chargerDetail(provider.results.single))!;
       final viaFiche = articleDuProduit(await api.fetchArticleAnalysisOrFail('8049052'), _ibex)!;
-      expect(serveur.requetes, ['/info?search=8049052', '/info?search=8049052']);
+      expect(serveur.requetes.where((r) => r.startsWith('/info')), ['/info?search=8049052', '/info?search=8049052']);
       for (final a in [viaAnalyse, viaFiche]) {
         expect(a.produitId, _ibexId);
         expect(a.emplacement, 'RAYON ANTALGIQUES');
@@ -269,15 +275,20 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('délai dépassé : message avec la durée (10 s) + Réessayer', (tester) async {
+    testWidgets('délai dépassé : message avec la durée réelle (30 s, plus 10 s) + Réessayer', (tester) async {
       phone(tester);
       brancher();
       _Install();
       serveur.delaiDepasse = true;
       await fiche(tester);
       await tester.pumpAndSettle();
+      // 4.1.2 : GET /info attend ApiService.delaiInfo (30 s) ; le message annonce cette durée (avant : « 10 s »,
+      // délai du client partagé, alors que l'appli annonçait 30 s).
+      expect(serveur.delaiRecu, ApiService.delaiInfo);
+      expect(ApiService.delaiInfo, const Duration(seconds: 30));
       expect(find.textContaining('Délai dépassé'), findsOneWidget);
-      expect(find.textContaining('10 s'), findsOneWidget);
+      expect(find.textContaining('en 30 s'), findsOneWidget);
+      expect(find.textContaining('10 s'), findsNothing);
       expect(find.text('Réessayer'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
