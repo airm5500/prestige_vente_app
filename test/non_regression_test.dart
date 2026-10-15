@@ -1,7 +1,9 @@
 // Non-régression :
 //  - garde-fou de la CI : tout fichier test/**/*_test.dart est exécuté par la CI (liste explicite de
-//    .github/workflows/build-apk.yml, étape « Tests ») — un test ajouté mais oublié dans la liste ne passerait jamais ;
+//    .github/workflows/build-apk.yml, étape « Tests ») — un test ajouté mais oublié dans la liste ne passerait jamais —
+//    et classé dans une catégorie du rapport de tests de livraison (test/categories.json) ;
 //  - anomalies corrigées (identifiants dans test/README.md) : elles ne doivent pas revenir.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -76,6 +78,37 @@ void main() {
         expect(_horsCI.containsKey(f), isFalse, reason: '$f est déclaré hors CI');
       }
       expect(liste, contains('test/non_regression_test.dart'));
+    });
+
+    test('tout fichier de la CI est classé dans une catégorie (test/categories.json), aucune catégorie vide', () {
+      final table = json.decode(File('test/categories.json').readAsStringSync()) as Map<String, dynamic>;
+      final categories = Map<String, dynamic>.from(table['categories'] as Map);
+      final fichiers = Map<String, dynamic>.from(table['fichiers'] as Map);
+      // Catégories exigées à chaque livraison (cahier du pharmacien).
+      expect(categories.keys.toSet(), {'unitaires', 'ecrans', 'integration', 'e2e', 'non_regression', 'ergonomie', 'performance', 'reseau'});
+      final liste = _listeCI();
+      final nonClasses = [for (final f in liste) if (!fichiers.containsKey(f)) f];
+      expect(nonClasses, isEmpty, reason: 'fichiers de test sans catégorie (à ajouter à test/categories.json) : ${nonClasses.join(' ')}');
+      final enTrop = [for (final f in fichiers.keys) if (!liste.contains(f)) f];
+      expect(enTrop, isEmpty, reason: 'fichiers classés mais absents de la CI : ${enTrop.join(' ')}');
+      final inconnues = {for (final e in fichiers.entries) if (!categories.containsKey(e.value)) '${e.key} → ${e.value}'};
+      expect(inconnues, isEmpty, reason: 'catégories inconnues');
+      for (final c in categories.keys) {
+        expect(fichiers.values, contains(c), reason: 'catégorie « $c » sans aucun fichier de test');
+      }
+      // Rangement des nouveaux dossiers.
+      for (final e in fichiers.entries) {
+        if (e.key.startsWith('test/performance/')) expect(e.value, 'performance', reason: e.key);
+        if (e.key.startsWith('test/reseau/')) expect(e.value, 'reseau', reason: e.key);
+      }
+    });
+
+    test('rapport de tests de livraison : produit par la CI (format --machine) et publié avec l\'APK', () {
+      final ci = File('.github/workflows/build-apk.yml').readAsStringSync();
+      expect(ci, contains('--file-reporter json:build/rapport_tests/tests.json'), reason: 'résultats JSON (format --machine) de la suite');
+      expect(ci, contains('dart run tool/rapport_tests.dart build/rapport_tests >> "\$GITHUB_STEP_SUMMARY"'));
+      expect(ci, contains('name: rapport-tests'));
+      expect(File('tool/rapport_tests.dart').existsSync(), isTrue);
     });
   });
 
