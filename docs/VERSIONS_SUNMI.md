@@ -11,12 +11,13 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.1.1+13** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.2.0+14** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
 serveur par Internet (4.1.0+12, voir `docs/NOTE_VERSION_4.1.0.md`) + réglage « Afficher les produits sur le ticket de
-prévente » et noms longs sur deux lignes (4.1.1+13, voir `docs/NOTE_VERSION_4.1.1.md`).
+prévente » et noms longs sur deux lignes (4.1.1+13, voir `docs/NOTE_VERSION_4.1.1.md`) + retours d'essais du 15/10 (4.2.0+14, voir
+`docs/NOTE_VERSION_4.2.0.md`).
 
 ## Les 3 règles (permanentes)
 
