@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PrestigePOS : administrateur de l'appareil sans aucune politique (seulement le verrouillage de la borne
+     quand PrestigePOS est propriétaire de l'appareil). -->
+<device-admin>
+    <uses-policies />
+</device-admin>

@@ -23,6 +23,7 @@ import 'package:prestige_vente_app/horsligne/ventes_sync.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:prestige_vente_app/images/produit_images.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
+import 'package:prestige_vente_app/prestigepos/demarrage_auto.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/pos_app.dart';
 import 'package:prestige_vente_app/prestigepos/pos_reglages.dart';
@@ -50,6 +51,8 @@ Future<void> initialiserPrestigePos() async {
   );
   JournalTerminal.instance = JournalTerminal();
   PosApp.installer();
+  // 1.1.0 : démarrage automatique — Android remis d'accord avec le réglage (sans attendre).
+  unawaited(DemarrageAuto.synchroniser());
 }
 
 Future<void> main() async {

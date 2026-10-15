@@ -36,7 +36,7 @@ Future<void> attendreBorne(WidgetTester t, PosE2E app) async {
 Future<void> acheter(WidgetTester t, PosE2E app) async {
   await app.chercher(t, 'doli');
   await app.toucher(t, 'borne-ajouter-F1');
-  // Le message « Ajouté : … » (2 s) recouvre le bas de l'écran : on attend qu'il disparaisse.
+  // Le message « Ajouté : … » (2 s, en haut de l'écran depuis 4.3.0 / 1.1.0) : on attend qu'il disparaisse.
   await app.attendre(t, const Duration(milliseconds: 2600));
   await app.toucher(t, 'borne-voir-panier');
   await app.toucher(t, 'borne-payer');

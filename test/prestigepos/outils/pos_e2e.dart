@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/images/produit_images.dart';
 import 'package:prestige_vente_app/main_pos.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
+import 'package:prestige_vente_app/prestigepos/demarrage_auto.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_pos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/impression/transports.dart';
@@ -109,6 +110,9 @@ class PosE2E {
   final pont = PontSimule();
   final kiosque = KiosqueSimule();
   final code = CodeSimule();
+
+  /// Démarrage automatique (1.1.0) : Android simulé.
+  final demarrage = DemarrageSimule();
   List<Map<String, dynamic>> catalogue;
 
   /// Recherches reçues par le serveur (texte demandé).
@@ -173,6 +177,13 @@ class PosE2E {
     ProduitImages.instance = ProduitImages();
     SessionExpiree.instance = SessionExpiree();
     await DioClient.cookieJar.deleteAll();
+    final demarrageAvant = DemarrageAuto.plateforme;
+    DemarrageAuto.plateforme = demarrage;
+    DemarrageAuto.courant.value = const EtatDemarrage();
+    addTearDown(() {
+      DemarrageAuto.plateforme = demarrageAvant;
+      DemarrageAuto.courant.value = const EtatDemarrage();
+    });
     await initialiserPrestigePos();
     serveur.installerEnMemoire();
     addTearDown(() async {

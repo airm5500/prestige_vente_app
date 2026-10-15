@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Découverte Bluetooth sur Android ≤ 11 : localisation (déjà déclarée par Prestige Mobile, src/main). -->
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <!-- 1.1.0 : démarrage automatique de la borne avec l'appareil (réglage désactivé par défaut). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Imprimante USB (câble OTG) : facultatif. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
@@ -47,5 +49,43 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 1.1.0 : PrestigePOS application d'accueil (HOME), DÉSACTIVÉ par défaut ; activé seulement par le réglage
+             « Démarrer automatiquement avec l'appareil » (Administration), désactivé par « Revenir à Android ». -->
+        <activity-alias
+            android:name="com.dici.prestigepos.AccueilBorne"
+            android:targetActivity="com.dici.prestigepos.PosActivity"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- 1.1.0 : démarrage de l'appareil → borne rouverte si le réglage est actif. -->
+        <receiver
+            android:name="com.dici.prestigepos.DemarrageReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 1.1.0 : administrateur de l'appareil, actif seulement si PrestigePOS est rendu propriétaire de l'appareil
+             par l'installateur (adb) : verrouillage de la borne sans confirmation. -->
+        <receiver
+            android:name="com.dici.prestigepos.PosAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/prestigepos_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

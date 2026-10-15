@@ -20,10 +20,10 @@ borne verticale, panier, ticket, imprimante en panne, terminal Sunmi).
 | Saveur Android | `mobile` (par défaut) | `pos` |
 | Point d'entrée | `lib/main.dart` (inchangé) | `lib/main_pos.dart` |
 | applicationId | `com.dici.prestige_vente_app` | `com.dici.prestigepos` |
-| Version | `pubspec.yaml` (4.2.1+15) | `android/app/prestigepos-version.properties` (1.0.0+1) |
+| Version | `pubspec.yaml` (4.3.0+16) | `android/app/prestigepos-version.properties` (1.1.0+2) |
 | Nom, icône, activité | `android/app/src/main` | `android/app/src/pos` (remplace nom, icône, activité) |
-| Permissions en plus | — | Bluetooth (SPP), USB (OTG) : `src/pos/AndroidManifest.xml` |
-| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.0.0.apk`) |
+| Permissions en plus | — | Bluetooth (SPP), USB (OTG), démarrage de l'appareil (1.1.0) : `src/pos/AndroidManifest.xml` |
+| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.1.0.apk`) |
 
 **Code partagé** : la borne (`lib/borne/`) — recherche, catégories, fiche, panier, vérification prix / stock,
 création de la prévente, ticket, kiosque (épinglage), sortie par code administrateur (`lib/widgets/sortie_kiosque.dart`),
@@ -36,7 +36,8 @@ de ticket ESC/POS (`lib/prestigepos/impression/`) et le pont Android Bluetooth /
 
 `flutter build apk --release` **sans** `--flavor` construit toujours Prestige Mobile (`pubspec.yaml` :
 `flutter › default-flavor: mobile`). La CI vérifie que l'APK de Prestige Mobile garde le même applicationId, le même
-nom, la même version et **exactement les mêmes permissions** que la version 4.2.1+15 (job `prestige-mobile-identique`).
+nom, la même version et **exactement les mêmes permissions** que la version 4.3.0+16 avant sa fusion dans PrestigePOS
+(job `prestige-mobile-identique`, référence : commit `9c16968` de `pres-/tender-thompson-ang0ls`).
 
 ## Ouvrir dans Android Studio
 
@@ -67,7 +68,7 @@ flutter build apk --release --flavor pos -t lib/main_pos.dart
 ```
 
 APK produit : `build/app/outputs/flutter-apk/app-pos-release.apk` (même fichier, nommé
-`PrestigePOS-release-1.0.0.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
+`PrestigePOS-release-1.1.0.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
 **`prestigepos-apk`** à chaque envoi sur la branche `prestigepos`.
 
 Version : modifier `android/app/prestigepos-version.properties` (`nomVersion`, et `codeVersion` **toujours
@@ -76,7 +77,7 @@ augmenté** pour une mise à jour). Le `pubspec.yaml` reste celui de Prestige Mo
 ## Installer
 
 - Copier l'APK sur l'appareil et l'ouvrir (autoriser « Installer des applications inconnues »), ou
-  `adb install -r PrestigePOS-1.0.0.apk`.
+  `adb install -r PrestigePOS-1.1.0.apk`.
 - Android 7 minimum ; testé pour tablettes Android 11+, terminaux Sunmi (V2s, V3) et bornes verticales.
 - Prestige Mobile n'est pas touché : les deux applications ont chacune leurs réglages.
 
@@ -126,14 +127,78 @@ ticket à la caisse », date. Si l'impression échoue, **la cause s'affiche en c
 
 Maintenir **2 secondes** le **cadenas** en haut à droite de la borne (un anneau se remplit), confirmer
 « Quitter », puis saisir le **code administrateur**. On arrive à l'**Administration** : reprendre la borne,
-assistant, imprimante, réglages de la borne, tester la borne, fermer PrestigePOS. Sans action pendant 3 minutes,
+assistant, imprimante, réglages de la borne, tester la borne, démarrage automatique, revenir à Android (1.1.0),
+fermer PrestigePOS. Sans action pendant 3 minutes,
 la borne reprend toute seule.
 
 Épinglage sans confirmation (recommandé pour une borne publique) : PrestigePOS déclare `lockTaskMode="if_whitelisted"` ;
-une solution de gestion d'appareils (MDM, « propriétaire de l'appareil ») qui autorise `com.dici.prestigepos` en mode
-tâche verrouillée l'épingle alors sans question ni sortie possible par les boutons Android. Sans MDM, protéger
+PrestigePOS **propriétaire de l'appareil** (1.1.0, voir « Démarrage automatique » ci-dessous) ou une solution de
+gestion d'appareils (MDM) qui autorise `com.dici.prestigepos` en mode tâche verrouillée l'épingle alors sans
+question ni sortie possible par les boutons Android. Sans MDM, protéger
 l'épinglage par le code de l'appareil (Paramètres › Sécurité › Épinglage d'écran › « Demander le code avant de
 désépingler »).
+
+## Démarrage automatique avec l'appareil (1.1.0)
+
+But : après une **coupure de courant** ou un **redémarrage**, la borne se rouvre **toute seule**, en mode kiosque,
+sans que personne touche l'écran. Réglage **désactivé par défaut**.
+
+**Pourquoi deux étapes.** Depuis Android 10, une application n'a plus le droit d'ouvrir son écran toute seule au
+démarrage (Android bloque les ouvertures « depuis l'arrière-plan »). La méthode fiable sur Android 7 à 14 et sur
+les terminaux Sunmi est que PrestigePOS soit **l'application d'accueil** de l'appareil : au démarrage, c'est Android
+lui-même qui l'ouvre, et la touche Accueil ramène à la borne. Le **verrouillage sans confirmation** demande en plus
+que PrestigePOS soit **propriétaire de l'appareil** (facultatif, étape 3). Sur Android 9 et moins, PrestigePOS
+rouvre aussi la borne par lui-même au démarrage.
+
+### Mise en place sur la borne (pas à pas)
+
+1. **Activer le réglage.** Sortir de la borne (cadenas 2 s, « Quitter », code administrateur) › Administration ›
+   **Démarrage automatique** › activer **« Démarrer automatiquement avec l'appareil »**.
+2. **Choisir PrestigePOS comme application d'accueil.** Toucher **« Choisir PrestigePOS comme accueil »** : Android
+   ouvre « Application d'accueil » (selon le modèle : Paramètres › Applications › Applications par défaut ›
+   Application d'accueil, ou « Écran d'accueil »). Choisir **PrestigePOS**. Si Android propose « Une seule fois /
+   Toujours » (en appuyant sur la touche Accueil), toucher **« Toujours »**. De retour dans PrestigePOS, la ligne
+   « PrestigePOS est l'application d'accueil » doit être cochée.
+3. **(Facultatif, recommandé pour une borne publique) Verrouillage sans confirmation : propriétaire de
+   l'appareil.** Sans cette étape, Android peut demander « Épingler l'application ? » à chaque démarrage (toucher
+   « OK » une fois). Pour le supprimer :
+   - l'appareil doit n'avoir **aucun compte** (Paramètres › Comptes : retirer le compte Google, Sunmi…) ; au besoin,
+     le faire juste après une réinitialisation ;
+   - activer les **options pour les développeurs** et le **débogage USB**, brancher l'appareil à un ordinateur avec
+     `adb`, puis :
+
+     ```bash
+     adb shell dpm set-device-owner com.dici.prestigepos/.PosAdminReceiver
+     ```
+
+     Réponse attendue : « Success: Device owner set to package com.dici.prestigepos ». Dans PrestigePOS, la ligne
+     « Propriétaire de l'appareil » est cochée ; la borne se verrouille désormais sans aucune question.
+   - Les comptes peuvent être rajoutés ensuite ; désactiver le débogage USB.
+4. **Vérifier** : éteindre l'appareil (ou le débrancher), le rallumer : après le démarrage d'Android (et le code
+   de déverrouillage de l'écran s'il y en a un), la borne s'ouvre seule. Sans licence Prestige valide, PrestigePOS
+   s'ouvre sur « Licence Prestige absente » : **la borne ne travaille pas**. Si le serveur n'est pas encore joignable
+   (box qui redémarre), la borne affiche « momentanément indisponible » et reprend seule.
+
+Conseil : ne pas mettre de code de déverrouillage de l'écran sur une borne (sinon Android attend ce code avant
+d'ouvrir l'accueil) ; protéger plutôt l'appareil physiquement et par le code administrateur de PrestigePOS.
+
+### Revenir à Android (sortie fiable)
+
+- Administration › **« Revenir à Android »** (ou Démarrage automatique › « Revenir à Android ») : le réglage est
+  désactivé, le verrouillage est arrêté, PrestigePOS **n'est plus l'application d'accueil** et l'accueil d'Android
+  s'ouvre. Fonctionne même si PrestigePOS était l'accueil (« Fermer PrestigePOS » seul le rouvrirait).
+- Pour remettre la borne : rouvrir PrestigePOS et réactiver le réglage (étapes 1 et 2).
+
+### Annuler le « propriétaire de l'appareil »
+
+- Dans PrestigePOS : Administration › Démarrage automatique › **« Retirer le propriétaire de l'appareil »**
+  (visible seulement si PrestigePOS l'est) : PrestigePOS redevient une application ordinaire (désinstallable).
+- En dernier recours (PrestigePOS inutilisable) : **réinitialisation d'usine** de l'appareil (Paramètres › Système ›
+  Réinitialiser) ; la borne sera à reconfigurer. Un propriétaire de l'appareil ne peut pas être désinstallé
+  directement.
+
+PrestigePOS ne demande **aucune** politique de l'appareil (pas d'effacement à distance, pas de mot de passe imposé) :
+le statut sert seulement à verrouiller la borne sans confirmation.
 
 ## Dépannage
 

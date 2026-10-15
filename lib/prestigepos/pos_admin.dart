@@ -1,7 +1,8 @@
 // lib/prestigepos/pos_admin.dart
 // PrestigePOS — administration, ouverte après la sortie de la borne (cadenas, appui long 2 s, confirmation,
 // code administrateur) : reprendre la borne, assistant, imprimante, réglages de la borne (catégories, produits
-// mis en avant, plafonds, ticket discret), « Tester la borne », fermer l'application.
+// mis en avant, plafonds, ticket discret), « Tester la borne », démarrage automatique et « Revenir à Android »
+// (1.1.0), fermer l'application.
 // Sécurité : sans action pendant 3 minutes, la borne reprend toute seule (une administration oubliée ouverte
 // ne reste pas à la portée des clients).
 import 'dart:async';
@@ -15,7 +16,9 @@ import 'package:prestige_vente_app/borne/borne_reglages_page.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_page.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/pos_app.dart';
+import 'package:prestige_vente_app/prestigepos/demarrage_auto.dart';
 import 'package:prestige_vente_app/prestigepos/pos_assistant.dart';
+import 'package:prestige_vente_app/prestigepos/pos_demarrage_page.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/version_app.dart';
@@ -130,6 +133,14 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
               _entree('pos-admin-borne', Icons.tune, 'Réglages de la borne', 'Catégories, produits mis en avant, plafonds, ticket discret',
                   () => _ouvrir(BornePage(ouvrir: (ctx) => PosApp.ouvrirBorne(ctx)))),
               _entree('pos-admin-tester', Icons.fact_check_outlined, 'Tester la borne', 'Connexion de l\'utilisateur borne et produits', _tester),
+              // 1.1.0 : démarrage automatique avec l'appareil (désactivé par défaut) et sortie vers Android.
+              ValueListenableBuilder<EtatDemarrage>(
+                valueListenable: DemarrageAuto.courant,
+                builder: (_, e, __) => _entree('pos-admin-demarrage', Icons.restart_alt, 'Démarrage automatique',
+                    e.actif ? 'Activé : la borne se rouvre avec l\'appareil' : 'Désactivé', () => _ouvrir(const PosDemarrageAutoPage())),
+              ),
+              _entree('pos-admin-android', Icons.exit_to_app, 'Revenir à Android',
+                  'Désactive le démarrage automatique et ouvre l\'accueil d\'Android', DemarrageAuto.revenirAndroid),
               _entree('pos-admin-fermer', Icons.power_settings_new, 'Fermer PrestigePOS', 'La borne se rouvrira au prochain lancement',
                   () => SystemNavigator.pop()),
               const SizedBox(height: 8),

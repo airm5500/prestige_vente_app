@@ -67,7 +67,7 @@ jobs:
           echo "::notice title=Version de l'APK::$apk"
 
       # Saveurs Android : Flutter nomme l'APK « app-mobile-release.apk » ; l'artefact garde le nom d'origine
-      # « app-release.apk ». Identité et permissions relevées pour la comparaison avec 4.2.1+15 (job suivant).
+      # « app-release.apk ». Identité et permissions relevées pour la comparaison avec 4.3.0+16 (job suivant).
       - name: APK Prestige Mobile (nom d'origine) et permissions
         shell: bash
         run: |
@@ -94,13 +94,13 @@ jobs:
           retention-days: 30
 
   # Non-régression de Prestige Mobile : l'APK construit ici a le MÊME applicationId, le même nom, la même version
-  # et EXACTEMENT les mêmes permissions que celui de la version de référence 4.2.1+15 (avant PrestigePOS).
+  # et EXACTEMENT les mêmes permissions que celui de la version de référence 4.3.0+16 (Prestige Mobile avant sa fusion dans PrestigePOS).
   prestige-mobile-identique:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      REFERENCE_MOBILE: 223eee0103efee86f2afe01f5ba470d1baddd268  # 4.2.1+15, avant PrestigePOS
+      REFERENCE_MOBILE: 9c169680d63797f0940ac6d7592b981c796d6d90  # 4.3.0+16, avant la fusion dans PrestigePOS
     steps:
       - uses: actions/checkout@v4
         with:
@@ -115,7 +115,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: APK de référence (4.2.1+15)
+      - name: APK de référence (4.3.0+16)
         run: flutter build apk --release
       - uses: actions/download-artifact@v4
         with:
@@ -138,7 +138,7 @@ jobs:
           diff -u identite-reference.txt actuel/identite-mobile.txt
           diff -u permissions-reference.txt actuel/permissions-mobile.txt
 
-  # PrestigePOS (saveur `pos`, lib/main_pos.dart) : tests, APK, version 1.0.0+1, résumé des tests.
+  # PrestigePOS (saveur `pos`, lib/main_pos.dart) : tests, APK, version (android/app/prestigepos-version.properties), résumé des tests.
   prestigepos:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -182,6 +182,8 @@ jobs:
           "$aapt2" dump badging "$apk" | grep -q "application-label:'PrestigePOS'" || { echo "::error title=PrestigePOS::nom affiché"; exit 1; }
           "$aapt2" dump permissions "$apk" | sort
           "$aapt2" dump permissions "$apk" | grep -q "BLUETOOTH_CONNECT" || { echo "::error title=PrestigePOS::permission Bluetooth absente"; exit 1; }
+          # 1.1.0 : démarrage automatique de la borne avec l'appareil (récepteur BOOT_COMPLETED, saveur pos seulement).
+          "$aapt2" dump permissions "$apk" | grep -q "RECEIVE_BOOT_COMPLETED" || { echo "::error title=PrestigePOS::permission de démarrage absente"; exit 1; }
           mkdir -p prestigepos-apk
           cp "$apk" "prestigepos-apk/PrestigePOS-$nom.apk"
           {
