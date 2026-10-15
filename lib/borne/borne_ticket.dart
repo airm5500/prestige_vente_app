@@ -78,6 +78,14 @@ abstract class BorneImprimante {
   Future<bool> imprimer(BorneTicket ticket);
 }
 
+/// Imprimante qui sait dire POURQUOI le dernier ticket n'est pas sorti (PrestigePOS : Bluetooth, USB, réseau).
+/// La borne affiche alors ce message clair au-dessus du ticket montré à l'écran (le client peut le photographier).
+/// Facultatif : l'imprimante Sunmi de Prestige Mobile ne l'implémente pas (affichage inchangé).
+abstract class BorneImprimanteDiagnostic {
+  /// Cause du dernier échec d'impression, en clair (null : imprimé, ou pas d'imprimante configurée).
+  String? get dernierEchec;
+}
+
 class SunmiBorneImprimante implements BorneImprimante {
   /// Mode test d'impression (Réglages › Impression) : pas d'impression, affichage plein écran.
   final bool modeTest;

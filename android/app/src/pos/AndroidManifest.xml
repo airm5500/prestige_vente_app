@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PrestigePOS (saveur `pos`) : fusionné avec src/main/AndroidManifest.xml pour CETTE saveur seulement.
+     Prestige Mobile (saveur `mobile`) n'en reçoit rien : ni le nom, ni l'activité, ni les permissions
+     Bluetooth / USB ci-dessous (vérifié par la CI : permissions de l'APK Prestige Mobile comparées à 4.2.0+14). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Imprimante de ticket Bluetooth (SPP) : Android ≤ 11 -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <!-- Android 12+ : « Appareils à proximité » (recherche et connexion), jamais utilisé pour localiser. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Découverte Bluetooth sur Android ≤ 11 : localisation (déjà déclarée par Prestige Mobile, src/main). -->
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <!-- Imprimante USB (câble OTG) : facultatif. -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <application
+        android:label="PrestigePOS"
+        android:icon="@mipmap/launcher_icon"
+        android:roundIcon="@mipmap/launcher_icon_round"
+        tools:replace="android:label,android:icon">
+
+        <!-- Activité de Prestige Mobile remplacée par celle de PrestigePOS (même thème, pont des imprimantes). -->
+        <activity
+            android:name="com.dici.prestige_vente_app.MainActivity"
+            tools:node="remove" />
+
+        <activity
+            android:name="com.dici.prestigepos.PosActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

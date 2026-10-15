@@ -35,6 +35,8 @@ dependencies:
   # Pour l'impression sur les terminaux Sunmi
   sunmi_printer_plus: ^3.0.1
   qr_flutter: ^4.1.0
+  # PrestigePOS : QR « image » des tickets ESC/POS (Dart pur, déjà présent via qr_flutter ; aucun code natif).
+  qr: ^3.0.2
   barcode_widget: ^2.0.4
   # Pour la génération d'UUID uniques (pour les ID de vente)
   uuid: ^4.4.0
@@ -72,6 +74,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Saveurs Android (android/app/build.gradle.kts) : `mobile` = Prestige Mobile (par défaut : « flutter run » et
+  # « flutter build apk » sans --flavor construisent Prestige Mobile, comme avant), `pos` = PrestigePOS
+  # (--flavor pos -t lib/main_pos.dart). Voir docs/prestigepos/README.md.
+  default-flavor: mobile
   assets:
     - assets/icon/icon.png
     - assets/ordonnances/verite_terrain.json

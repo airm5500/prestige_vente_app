@@ -135,6 +135,7 @@ class BorneScreenState extends State<BorneScreen> {
   AttentePaiement? _attente;
   BorneTicket? _ticket;
   bool _imprime = false;
+  String? _echecImpression;
   int _resteTicket = 0;
   Timer? _ticketTimer;
 
@@ -524,6 +525,7 @@ class BorneScreenState extends State<BorneScreen> {
       _ticket = ticket;
       _validation = false;
       _imprime = false;
+      _echecImpression = null;
       vue = BorneVue.ticket;
     });
     var imprime = false;
@@ -532,7 +534,9 @@ class BorneScreenState extends State<BorneScreen> {
     } catch (_) {}
     if (!mounted) return;
     final d = imprime ? widget.delaiTicket : widget.delaiTicketEcran;
+    final imp = widget.imprimante;
     setState(() {
+      _echecImpression = !imprime && imp is BorneImprimanteDiagnostic ? (imp as BorneImprimanteDiagnostic).dernierEchec : null;
       _imprime = imprime;
       _resteTicket = d.inSeconds;
     });
@@ -1395,6 +1399,17 @@ class BorneScreenState extends State<BorneScreen> {
                 const SizedBox(height: 6),
                 Text(_imprime ? 'Votre ticket s\'imprime.' : 'Montrez cet écran à la caisse (ou notez le numéro).',
                     textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, color: Pal.muted)),
+                // Imprimante externe en échec (PrestigePOS) : cause en clair, le ticket reste à l'écran.
+                if (!_imprime && _echecImpression != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    key: const ValueKey('borne-impression-echec'),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: const Color(0xFFFFF4E0), borderRadius: BorderRadius.circular(12)),
+                    child: Text('Ticket non imprimé : $_echecImpression\nPhotographiez cet écran ou notez le numéro.',
+                        textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: Color(0xFF7C2D12))),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 const Text('N° de prévente', style: TextStyle(fontSize: 16, color: Pal.muted)),
                 Text(p.numero,

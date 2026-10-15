@@ -41,9 +41,12 @@ class BorneLauncher {
     return c.actif && c.login.isNotEmpty;
   }
 
+  /// Écran de la borne ouvert par [ouvrir] (PrestigePOS : même borne, imprimante de ticket propre au POS).
+  static Widget Function() hote = () => const BorneHote();
+
   /// Remplace toute la pile par la borne.
   static Future<void> ouvrir(BuildContext context) =>
-      Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const BorneHote()), (_) => false);
+      Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => hote()), (_) => false);
 
   /// Écran affiché après « Quitter le mode borne » (remplaçable dans les tests).
   static Widget Function() apresSortie = () => const LoginScreen();
@@ -79,7 +82,12 @@ String? motifConnexionBorne({required String login, required bool motDePasse, Ec
 
 /// Hôte de la borne : services stables, nom de l'officine suivi (chargé après la connexion).
 class BorneHote extends StatefulWidget {
-  const BorneHote({super.key});
+  /// Imprimante du ticket (null : imprimante intégrée Sunmi, réglage Impression de l'appli — Prestige Mobile).
+  final BorneImprimante? imprimante;
+
+  /// Largeur du papier en mm (null : réglage Impression de l'appli).
+  final int? largeurTicket;
+  const BorneHote({super.key, this.imprimante, this.largeurTicket});
 
   @override
   State<BorneHote> createState() => _BorneHoteState();
@@ -147,7 +155,7 @@ class _BorneHoteState extends State<BorneHote> {
       service: _service,
       config: _config,
       monitor: HorsLigne.instance.monitor,
-      imprimante: SunmiBorneImprimante(modeTest: settings.isTestPrintMode),
+      imprimante: widget.imprimante ?? SunmiBorneImprimante(modeTest: settings.isTestPrintMode),
       kiosque: BorneKiosque.instance,
       adminCheck: PinCodeDialog.show,
       connexion: _connexion,
@@ -160,7 +168,7 @@ class _BorneHoteState extends State<BorneHote> {
       // B3 : mobile money (réglage Paiements mobile money + module serveur) ; sinon « Payer en caisse » seul.
       paiementsMobile: PaiementsMobile.instance,
       codeType: settings.ticketCodeType,
-      largeurTicket: settings.paperWidth,
+      largeurTicket: widget.largeurTicket ?? settings.paperWidth,
       onSortie: (ctx) => BorneLauncher.quitter(ctx, api: _api, auth: _auth),
     );
   }
