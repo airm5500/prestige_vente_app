@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prestige_vente_app/screens/common/guided_capture_screen.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
@@ -62,7 +63,8 @@ void main() {
 
   late _FakeApi api;
 
-  Future<void> pumpScreen(WidgetTester tester, {String? cameraCode, List<String>? labelLines, List<List<String>>? labelSequence}) async {
+  Future<void> pumpScreen(WidgetTester tester,
+      {String? cameraCode, List<String>? labelLines, List<List<String>>? labelSequence, LectureEtiquette? etiquette}) async {
     var shot = 0;
     await tester.pumpWidget(
       ChangeNotifierProvider(
@@ -71,6 +73,7 @@ void main() {
           home: ExpirationUpdateScreen(
             codeScanner: (_) async => cameraCode,
             labelReader: (_) async => labelSequence != null ? labelSequence[shot++] : labelLines,
+            etiquetteReader: etiquette == null ? null : (_) async => etiquette,
           ),
         ),
       ),
@@ -324,6 +327,27 @@ void main() {
     expect(find.textContaining('Attention'), findsNothing);
     expect(hasFocus(tester, 'Quantité'), isTrue);
     expect(api.addLotCalls, isEmpty);
+  });
+
+  // 4.4.0 — DataMatrix dans le cadre de la photo : lu (ML Kit sur la photo pleine définition), lot et date sûrs.
+  testWidgets('Photo étiquette avec le DataMatrix dans le cadre : lot et date repris du code, sans confirmation', (tester) async {
+    await pumpScreen(tester, etiquette: (lignes: const ['texte illisible'], codes: ['3400935955838', '01${gtin}17281002${gs}10LOTPH1']));
+    await selectDoliprane(tester);
+    await tester.tap(find.text('Photo étiquette'));
+    await tester.pumpAndSettle();
+    expect(find.text('Vérifiez avec la boîte'), findsNothing, reason: 'code GS1 : pas de confirmation OCR');
+    expect(text(tester, 'N° de Lot'), 'LOTPH1');
+    expect(text(tester, 'Date de Péremption (JJMMYY)'), '02/10/2028');
+    expect(find.text('DataMatrix lu sur la photo : lot et date repris.'), findsOneWidget);
+    expect(api.addLotCalls, isEmpty);
+  });
+
+  testWidgets('Photo étiquette : seul l\'EAN sur la photo → lecture du texte comme avant', (tester) async {
+    await pumpScreen(tester, etiquette: (lignes: const ['LOT: A1234B', 'EXP: 10/2027'], codes: const ['3400935955838']));
+    await selectDoliprane(tester);
+    await tester.tap(find.text('Photo étiquette'));
+    await tester.pumpAndSettle();
+    expect(find.text('Vérifiez avec la boîte'), findsOneWidget);
   });
 
   testWidgets('Photo étiquette annulée : rien ne change', (tester) async {

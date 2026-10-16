@@ -74,6 +74,17 @@ class Seuils {
 
   /// Génération de 100 tickets de la borne (lignes calculées, 58 et 80 mm).
   static const ticketsBorne100Ms = 100;
+
+  // --- Empreintes partagées (4.4.0, demande 43) ---
+  /// Première synchronisation d'un terminal : 50 employés × 3 gabarits (fictifs, 480 octets) reçus, appliqués et
+  /// écrits dans le coffre (serveur simulé en mémoire : temps de l'application seulement).
+  static const synchroEmpreintes50Ms = 500;
+
+  /// Synchronisation suivante sans changement (incrémentale).
+  static const synchroEmpreintesVideMs = 100;
+
+  /// Préparation de l'identification 1:N (150 modèles des 50 employés actifs) avant l'appel au lecteur.
+  static const identification150Ms = 100;
 }
 
 /// Mesure enregistrée (pour le rapport) et comparée à son seuil.

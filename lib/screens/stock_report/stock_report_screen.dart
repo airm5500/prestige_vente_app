@@ -43,6 +43,7 @@ class _StockReportScreenState extends State<StockReportScreen> with Presentation
   String? _selectedRayonId;
   StockFilterType? _selectedFilterType;
   bool _detailOpen = false;
+  bool _filtresVisibles = true; // panneau des filtres ouvert (4.4.0 : le bouton entonnoir le replie)
 
   static const _filterLabels = {
     StockFilterType.EQUAL: 'Égal à (=)',
@@ -171,6 +172,67 @@ class _StockReportScreenState extends State<StockReportScreen> with Presentation
     ];
   }
 
+  /// Filtres actifs (hors texte recherché) : niveau de stock (avec une valeur), emplacement, grossiste.
+  int _nbFiltresActifs(StockReportProvider p) => [
+        _selectedFilterType != null && cleanStockValue(_stockValueController.text).isNotEmpty,
+        p.selectedRayonId.isNotEmpty,
+        p.selectedGrossisteId.isNotEmpty,
+      ].where((x) => x).length;
+
+  /// Bouton « Filtres » : entonnoir (contour sans filtre, plein sur pastille ambre + nombre quand des filtres sont
+  /// actifs) ; ouvre / replie le panneau des filtres.
+  Widget _boutonFiltres(StockReportProvider p, Color col) {
+    final n = _nbFiltresActifs(p);
+    final actif = n > 0;
+    final icone = Icon(actif ? Icons.filter_alt : Icons.filter_alt_outlined, color: actif ? Pal.ink : col, key: const Key('stock_filtres_icone'));
+    return IconButton(
+      key: const Key('stock_filtres_bouton'),
+      tooltip: '${_filtresVisibles ? 'Masquer' : 'Afficher'} les filtres${actif ? ' ($n actif${n > 1 ? 's' : ''})' : ''}',
+      isSelected: actif,
+      onPressed: () => setState(() => _filtresVisibles = !_filtresVisibles),
+      icon: Badge(
+        isLabelVisible: actif,
+        label: Text('$n', key: const Key('stock_filtres_nombre')),
+        backgroundColor: const Color(0xFFB91C1C),
+        child: actif
+            ? Container(
+                key: const Key('stock_filtres_actifs'),
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(color: Pal.amber, shape: BoxShape.circle),
+                child: icone,
+              )
+            : Padding(padding: const EdgeInsets.all(4), child: icone),
+      ),
+    );
+  }
+
+  /// Résumé des filtres quand le panneau est replié (toucher pour le rouvrir).
+  Widget _resumeFiltres(StockReportProvider p) {
+    final rayon = uniqueRayons(p.rayons).where((r) => r.id == p.selectedRayonId).firstOrNull;
+    final v = cleanStockValue(_stockValueController.text);
+    final morceaux = [
+      if (_selectedFilterType != null && v.isNotEmpty) 'Stock ${_filterLabels[_selectedFilterType]!.split('(').last.replaceAll(')', '')} $v',
+      if (p.selectedRayonId.isNotEmpty) _txt(rayon?.libelle ?? 'Emplacement'),
+      if (p.selectedGrossisteId.isNotEmpty) _txt(p.getGrossisteName(p.selectedGrossisteId)),
+    ];
+    return InkWell(
+      key: const Key('stock_filtres_resume'),
+      onTap: () => setState(() => _filtresVisibles = true),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        child: Row(children: [
+          const Icon(Icons.filter_alt, size: 18, color: Pal.muted),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(morceaux.isEmpty ? 'Aucun filtre — toucher pour filtrer' : morceaux.join(' · '),
+                maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Pal.ink)),
+          ),
+          const Icon(Icons.expand_more, color: Pal.muted),
+        ]),
+      ),
+    );
+  }
+
   bool _hasCriteria(StockReportProvider p) =>
       p.searchQuery.isNotEmpty || p.selectedRayonId.isNotEmpty || p.selectedGrossisteId.isNotEmpty || p.selectedStockFilter != null;
 
@@ -282,11 +344,7 @@ class _StockReportScreenState extends State<StockReportScreen> with Presentation
       subtitle: shown ? '${provider.totalItems} article(s) trouvé(s)' : 'Nom, CIP, emplacement, niveau de stock',
       actions: (col) => [
         PresentationMenuButton(value: style, onChanged: _setStyle, color: col),
-        IconButton(
-          icon: Icon(Icons.cleaning_services, color: col),
-          tooltip: 'Vider les filtres',
-          onPressed: _onClearFilters,
-        ),
+        _boutonFiltres(provider, col),
       ],
       steps: StepsBar(active: items.isEmpty ? 0 : 1, steps: const [
         (title: 'Critères', detail: 'nom, stock, rayon', onTap: null),
@@ -372,7 +430,28 @@ class _StockReportScreenState extends State<StockReportScreen> with Presentation
     final missingValue = _selectedFilterType != null && cleanStockValue(_stockValueController.text).isEmpty;
     final border = OutlineInputBorder(borderRadius: BorderRadius.circular(10));
 
+    final n = _nbFiltresActifs(provider);
     final content = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Icon(n > 0 ? Icons.filter_alt : Icons.filter_alt_outlined, size: 18, color: n > 0 ? const Color(0xFF8A5300) : Pal.muted),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(n > 0 ? 'Filtres ($n actif${n > 1 ? 's' : ''})' : 'Filtres',
+              key: const Key('stock_filtres_titre'), style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
+        ),
+        if (_hasCriteria(provider))
+          Tooltip(
+            message: 'Vider les filtres',
+            child: TextButton.icon(
+              key: const Key('stock_vider_filtres'),
+              onPressed: _onClearFilters,
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+              icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
+              label: const Text('Vider'),
+            ),
+          ),
+      ]),
+      const SizedBox(height: 8),
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Expanded(
           flex: 3,
@@ -452,7 +531,7 @@ class _StockReportScreenState extends State<StockReportScreen> with Presentation
   Widget _body(StockReportProvider provider, bool hasCriteria) {
     final items = provider.reportItems;
     final slivers = <Widget>[
-      SliverToBoxAdapter(child: _filtersPanel(provider)),
+      SliverToBoxAdapter(child: _filtresVisibles ? _filtersPanel(provider) : _resumeFiltres(provider)),
       if (provider.filtersError != null)
         SliverToBoxAdapter(
           child: LoadErrorBanner(

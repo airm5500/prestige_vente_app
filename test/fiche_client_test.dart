@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/fiche_client/fiche_client_models.dart';
 import 'package:prestige_vente_app/fiche_client/fiche_client_validation.dart';
 import 'package:prestige_vente_app/fiche_client/ordonnances_clients_screen.dart';
 import 'package:prestige_vente_app/serveur/client_prestige.dart';
+import 'package:prestige_vente_app/utils/constants.dart';
 
 import 'outils/serveur_json_local.dart';
 
@@ -38,7 +39,12 @@ class _FakeApi extends FicheClientApi {
   Future<DroitsOrdonnances> droits() async => d;
   @override
   Future<List<ClientResume>> clients(String recherche, {int limit = 30}) async =>
-      [const ClientResume(id: 'C1', nom: 'TEST', prenoms: 'Patient Fictif', telephone: '0100000000', type: 'STANDARD')];
+      [const ClientResume(id: 'C1', nom: 'TEST', prenoms: 'Patient Fictif', telephone: '0100000000', type: 'STANDARD', naissance: '1980-01-01', sexe: 'F')];
+  @override
+  Future<List<LigneConsommation>> consommation(String clientId) async => const [
+        LigneConsommation(cip: '0000001', nom: 'PRODUIT FICTIF A 500MG B/16', dernierAchat: '2026-10-01', nbAchats: 4, qteTotale: 6, frequenceJours: 30, montant: 12600, habitude: 'Mensuel', stock: 12),
+        LigneConsommation(cip: '0000002', nom: 'PRODUIT FICTIF B SIROP', dernierAchat: '2026-02-11', nbAchats: 1, qteTotale: 1, montant: 2350, habitude: 'Dormant', stock: 0),
+      ];
   @override
   Future<DossierClient> dossier(String clientId) async => DossierClient.fromJson(_dossier());
   @override
@@ -243,6 +249,114 @@ void main() {
       await t.pumpAndSettle();
       expect(find.textContaining('paraît trop haut'), findsOneWidget);
       expect(t.takeException(), isNull);
+    });
+
+    // 4.4.0 — demande du pharmacien : curseur, « Changer », lignes de résultats, consommation.
+    testWidgets('curseur dans la recherche à l\'ouverture ; « Changer » : curseur revenu, texte présélectionné', (t) async {
+      await _taille(t, const Size(720, 1440));
+      await t.pumpWidget(MaterialApp(home: OrdonnancesClientsScreen(api: _FakeApi(const DroitsOrdonnances(consulter: true, modifier: false)))));
+      await t.pumpAndSettle();
+      EditableText champ() => t.widget<EditableText>(find.descendant(of: find.byKey(const ValueKey('fiche-recherche')), matching: find.byType(EditableText)));
+      expect(champ().focusNode.hasFocus, isTrue, reason: 'curseur automatique à l\'ouverture');
+      // Saisie au clavier (sans toucher le champ) puis choix du client.
+      t.testTextInput.enterText('TEST');
+      await t.pump(const Duration(milliseconds: 500));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('fiche-client-C1')));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('fiche-recherche')), findsNothing);
+      await t.tap(find.byKey(const ValueKey('fiche-changer')));
+      await t.pumpAndSettle();
+      expect(champ().focusNode.hasFocus, isTrue, reason: 'curseur remis dans le champ');
+      expect(champ().controller.text, 'TEST');
+      expect(champ().controller.selection, const TextSelection(baseOffset: 0, extentOffset: 4), reason: 'texte présélectionné');
+      // Une frappe remplace la sélection.
+      t.testTextInput.enterText('AUTRE');
+      await t.pump();
+      expect(champ().controller.text, 'AUTRE');
+      await t.pump(const Duration(milliseconds: 500));
+      await t.pumpAndSettle();
+    });
+
+    for (final (nom, taille, echelle) in [('Sunmi V2s', const Size(720, 1440), 1.0), ('téléphone 360', const Size(720, 1280), 1.3)]) {
+      testWidgets('ligne de résultat ($nom, texte ×$echelle) : initiales, nom, téléphone, type, âge, sexe — sans débordement', (t) async {
+        await _taille(t, taille);
+        t.platformDispatcher.textScaleFactorTestValue = echelle;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        await t.pumpWidget(MaterialApp(home: OrdonnancesClientsScreen(api: _FakeApi(const DroitsOrdonnances(consulter: true, modifier: false)))));
+        await t.pumpAndSettle();
+        await t.enterText(find.byKey(const ValueKey('fiche-recherche')), 'TEST');
+        await t.pump(const Duration(milliseconds: 500));
+        await t.pumpAndSettle();
+        final ligne = find.byKey(const ValueKey('fiche-client-C1'));
+        Finder dans(String s) => find.descendant(of: ligne, matching: find.text(s));
+        expect(dans('TP'), findsOneWidget, reason: 'initiales');
+        expect(dans('TEST Patient Fictif'), findsOneWidget);
+        expect(dans('0100000000'), findsOneWidget);
+        expect(dans('STANDARD'), findsOneWidget);
+        expect(dans('${ageClient('1980-01-01', DateTime.now())} ans'), findsOneWidget);
+        expect(dans('Femme'), findsOneWidget);
+        expect(find.text('1 client trouvé'), findsOneWidget);
+        expect(t.getSize(ligne).height, greaterThanOrEqualTo(48), reason: 'cible tactile');
+        expect(t.takeException(), isNull);
+      });
+
+      testWidgets('consommation ($nom, texte ×$echelle) : synthèse, montants alignés à droite, rythme, dernier achat, habitude, stock', (t) async {
+        await _taille(t, taille);
+        t.platformDispatcher.textScaleFactorTestValue = echelle;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        await ouvrirDossier(t, _FakeApi(const DroitsOrdonnances(consulter: true, modifier: false)));
+        await t.scrollUntilVisible(find.byKey(const ValueKey('fiche-conso')), 200);
+        await t.tap(find.byKey(const ValueKey('fiche-conso')));
+        await t.pumpAndSettle();
+        await t.scrollUntilVisible(find.byKey(const ValueKey('fiche-conso-ligne-1')), 200);
+        final resume = find.byKey(const ValueKey('fiche-conso-resume'));
+        expect(find.descendant(of: resume, matching: find.text('2')), findsOneWidget, reason: '2 produits');
+        expect(find.descendant(of: resume, matching: find.text('5')), findsOneWidget, reason: '5 achats');
+        expect(find.descendant(of: resume, matching: find.text('7')), findsOneWidget, reason: '7 boîtes');
+        expect(find.byKey(const ValueKey('fiche-conso-total')), findsOneWidget);
+        expect(t.widget<Text>(find.byKey(const ValueKey('fiche-conso-total'))).data, contains('14'));
+        final l0 = find.byKey(const ValueKey('fiche-conso-ligne-0')), l1 = find.byKey(const ValueKey('fiche-conso-ligne-1'));
+        expect(find.descendant(of: l0, matching: find.text('4 achats · 6 boîtes')), findsOneWidget);
+        expect(find.descendant(of: l0, matching: find.textContaining('tous les 30 j', findRichText: true)), findsOneWidget);
+        expect(find.descendant(of: l0, matching: find.textContaining('dernier le 01/10/2026', findRichText: true)), findsOneWidget);
+        expect(find.descendant(of: l0, matching: find.text('Mensuel')), findsOneWidget);
+        expect(find.descendant(of: l0, matching: find.text('Stock 12')), findsOneWidget);
+        expect(find.descendant(of: l1, matching: find.text('1 achat · 1 boîte')), findsOneWidget);
+        expect(find.descendant(of: l1, matching: find.textContaining('tous les', findRichText: true)), findsNothing, reason: 'pas de rythme sur un seul achat');
+        // Montants alignés à droite : même bord droit pour les deux lignes.
+        final m0 = find.descendant(of: l0, matching: find.text('${Constants.formatNumber(12600)} F'));
+        final m1 = find.descendant(of: l1, matching: find.text('${Constants.formatNumber(2350)} F'));
+        expect((t.getTopRight(m0).dx - t.getTopRight(m1).dx).abs(), lessThan(1), reason: 'montants alignés');
+        expect(t.getTopRight(m0).dx, closeTo(t.getTopRight(l0).dx, 1));
+        expect(t.takeException(), isNull);
+      });
+    }
+  });
+
+  group('présentation', () {
+    test('âge, date, sexe, initiales, rythme, synthèse', () {
+      final now = DateTime(2026, 10, 16);
+      expect(ageClient('1980-10-16', now), 46);
+      expect(ageClient('1980-10-17', now), 45, reason: 'anniversaire pas encore passé');
+      expect(ageClient('17/10/1980', now), 45);
+      expect(ageClient('', now), isNull);
+      expect(ageClient('n/a', now), isNull);
+      expect(ageClient('2030-01-01', now), isNull, reason: 'date future');
+      expect(ageClient('1980-02-31', now), isNull, reason: 'date impossible');
+      expect(dateClientFr('2026-03-05'), '05/03/2026');
+      expect(dateClientFr('2026-03-05T10:00:00'), '05/03/2026');
+      expect(dateClientFr('hier'), 'hier');
+      expect(sexeLisible('f'), 'Femme');
+      expect(sexeLisible('H'), 'Homme');
+      expect(sexeLisible(''), '');
+      expect(initialesClient(const ClientResume(id: '1', nom: 'TEST', prenoms: 'Patient Fictif')), 'TP');
+      expect(initialesClient(const ClientResume(id: '1', nom: 'éLODIE')), 'É');
+      expect(initialesClient(const ClientResume(id: '1', nom: '')), '?');
+      expect(rythmeAchat(const LigneConsommation(nom: 'X', nbAchats: 3, frequenceJours: 15)), 'tous les 15 j');
+      expect(rythmeAchat(const LigneConsommation(nom: 'X', nbAchats: 1, frequenceJours: 0)), '');
+      final r = resumeConsommation(const [LigneConsommation(nom: 'A', nbAchats: 2, qteTotale: 3, montant: 100), LigneConsommation(nom: 'B', nbAchats: 1, qteTotale: 1, montant: 50)]);
+      expect((r.produits, r.achats, r.boites, r.montant), (2, 3, 4, 150));
     });
   });
 }

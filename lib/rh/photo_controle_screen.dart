@@ -5,6 +5,7 @@
 // - [expliquerEtAutoriserCamera] : explication avant la demande d'autorisation Android ;
 // - [PhotosPointageScreen] : consultation par l'administrateur (photos, pointages « sans photo », conservation).
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/rh/photo_controle.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
@@ -237,13 +238,31 @@ class PhotosPointageScreen extends StatefulWidget {
   State<PhotosPointageScreen> createState() => _PhotosPointageScreenState();
 }
 
+/// 4.4.0 : filtre « Seulement les pointages sans photo » mémorisé sur le terminal (simple préférence d'affichage).
+const String prefFiltreSansPhoto = 'rh_photos_filtre_sans_v1';
+
 class _PhotosPointageScreenState extends State<PhotosPointageScreen> {
   bool _sansPhotoSeulement = false;
   int? _retention;
 
+  Future<void> _lireFiltre() async {
+    try {
+      final v = (await SharedPreferences.getInstance()).getBool(prefFiltreSansPhoto) ?? false;
+      if (mounted && v != _sansPhotoSeulement) setState(() => _sansPhotoSeulement = v);
+    } catch (_) {}
+  }
+
+  Future<void> _filtrer(bool v) async {
+    setState(() => _sansPhotoSeulement = v);
+    try {
+      await (await SharedPreferences.getInstance()).setBool(prefFiltreSansPhoto, v);
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
+    _lireFiltre();
     _retention = widget.retentionJours;
     widget.registre.charger(forcer: true);
     if (_retention == null) {
@@ -299,7 +318,7 @@ class _PhotosPointageScreenState extends State<PhotosPointageScreen> {
                 children: [
                   Text(
                     'Pointages par badge de ce terminal. Photos gardées ${_retention ?? ReglagesPointageTerminal.retentionParDefaut} jours dans le '
-                    'stockage privé de l\'application, puis effacées automatiquement. Prestige ne reçoit pas encore les photos.',
+                    'stockage privé de l\'application, puis effacées automatiquement. Un serveur Prestige à jour les reçoit aussi.',
                     style: const TextStyle(fontSize: 13, color: Pal.muted),
                   ),
                   const SizedBox(height: 8),
@@ -314,7 +333,7 @@ class _PhotosPointageScreenState extends State<PhotosPointageScreen> {
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Seulement les pointages sans photo'),
                     value: _sansPhotoSeulement,
-                    onChanged: (v) => setState(() => _sansPhotoSeulement = v),
+                    onChanged: _filtrer,
                   ),
                   if (liste.isEmpty)
                     const Padding(padding: EdgeInsets.all(32), child: Center(child: Text('Aucun pointage par badge enregistré sur ce terminal.'))),
@@ -332,6 +351,9 @@ class _PhotosPointageScreenState extends State<PhotosPointageScreen> {
                               Text('${DateFormat('dd/MM HH:mm').format(p.lu)} · ${p.moyen}', style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
                               Text(p.etat,
                                   style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: p.avecPhoto ? const Color(0xFF0B6B45) : _rouge)),
+                              // 4.4.0 : motif détaillé (code de la caméra, délai, scanner arrière…).
+                              if (!p.avecPhoto && p.motifDetail.isNotEmpty)
+                                Text('Détail : ${p.motifDetail}', key: Key('photo_motif_${p.id}'), style: const TextStyle(fontSize: 12.5, color: Pal.ink)),
                               Text(libelleEnvoi(p.envoi), style: const TextStyle(fontSize: 12.5, color: Pal.muted)),
                             ]),
                           ),

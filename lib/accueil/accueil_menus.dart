@@ -4,6 +4,8 @@
 // Ordre et menus masqués : SettingsProvider.menuOrder / hiddenMenuIds (mêmes clés que l'origine).
 // Favoris (4 max) : clé propre au nouvel accueil.
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/images/photos_produits_screen.dart';
+import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
@@ -155,6 +157,17 @@ final List<AccueilMenu> menusSousDroits = [
   AccueilMenu(id: 'ordonnances_clients', label: 'Ordonnances des clients', short: 'Fiche client', icon: Icons.assignment_ind, color: Colors.teal.shade800, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.ordonnancesConsulter, screen: () => const OrdonnancesClientsScreen()),
   // Réserve : réappros rayon ↔ réserve (suggestion puis traitement). Administrateur (+ droit dédié quand le serveur l'exposera).
   AccueilMenu(id: 'reserve', label: 'Réserve', short: 'Réserve', icon: Icons.warehouse_outlined, color: Colors.deepPurple.shade600, famille: MenuFamille.stock, autorise: () => DroitsModules.instance.reserve, screen: () => const ReserveScreen()),
+  // 4.4.0 — Photos produits : scanner, photographier, OK → produit suivant. Mêmes droits que l'ajout de photo
+  // de la fiche produit (réglage « photo terminal », ou administrateur avec « photoAdmin » ; droit du serveur).
+  AccueilMenu(
+      id: 'photos_produits',
+      label: 'Photos produits',
+      short: 'Photos',
+      icon: Icons.add_photo_alternate_outlined,
+      color: Colors.indigo.shade500,
+      famille: MenuFamille.stock,
+      autorise: () => menuPhotosProduitsVisible(config: ImagesReglages.courant.value, admin: DroitsModules.instance.adminLocal),
+      screen: () => const PhotosProduitsScreen()),
 ];
 
 final Map<String, AccueilMenu> _tousMenusById = {for (final m in [...accueilMenus, ...menusSousDroits]) m.id: m};

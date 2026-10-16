@@ -22,10 +22,31 @@ class ExpirationUpdateScreen extends StatefulWidget {
   final Future<String?> Function(BuildContext context)? codeScanner;
   final Future<List<String>?> Function(ImageSource source)? labelReader;
 
+  /// Photo étiquette avec lecture des codes (4.4.0) ; remplaçable pour les tests. Prioritaire sur [labelReader].
+  final Future<LectureEtiquette?> Function(BuildContext context)? etiquetteReader;
+
   /// Présentation (A, B, C) ; celle de l'appareil si non précisée.
   final ListPresentation? presentation;
 
-  const ExpirationUpdateScreen({super.key, this.codeScanner, this.labelReader, this.presentation});
+  const ExpirationUpdateScreen({super.key, this.codeScanner, this.labelReader, this.etiquetteReader, this.presentation});
+
+  /// Réglages de la caméra (4.4.0, « le code n'est pas lu même dans le cadre ») : tous les formats des boîtes
+  /// (comme la recherche de l'accueil, où le scan fonctionne : un EAN-13 commençant par 0 est vu comme UPC-A et
+  /// était ignoré), haute définition + zoom automatique (petits DataMatrix illisibles en 640×480).
+  static const scanProduit = (produit: true, hauteDefinition: true, aide: 'Code-barres ou DataMatrix de la boîte\nPlacez le code entièrement dans le cadre');
+  static const scanLotDate = (
+    produit: true,
+    hauteDefinition: true,
+    aide: 'Visez le petit carré (DataMatrix) de la boîte, à 10-15 cm.\nZoom ×2 en haut si le code est petit.',
+  );
+
+  /// Lot / date : un code lu sans lot ni date (EAN de la boîte) n'est plus ignoré en silence : message sur
+  /// l'image, la lecture continue jusqu'au DataMatrix.
+  static String? refusLotDate(String valeur) {
+    final d = DataMatrixParser.parse(valeur);
+    if (d != null && (d.lotCandidates.isNotEmpty || d.expiryCandidates.isNotEmpty || d.invalidExpiry)) return null;
+    return 'Code-barres lu, sans lot ni date. Visez le DataMatrix (petit carré).';
+  }
 
   @override
   State<ExpirationUpdateScreen> createState() => _ExpirationUpdateScreenState();
@@ -221,8 +242,14 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
   // Aide à la saisie : scan DataMatrix par la caméra, ou photo de l'étiquette
   // ---------------------------------------------------------------------------
   Future<String?> _openCamera(String title, {bool dataMatrixOnly = false}) {
+    final o = dataMatrixOnly ? ExpirationUpdateScreen.scanLotDate : ExpirationUpdateScreen.scanProduit;
     final scanner = widget.codeScanner ??
-        (ctx) => CameraScanScreen.open(ctx, title: title, dataMatrixOnly: dataMatrixOnly);
+        (ctx) => CameraScanScreen.open(ctx,
+            title: title,
+            produit: o.produit,
+            hauteDefinition: o.hauteDefinition,
+            aide: o.aide,
+            verifier: dataMatrixOnly ? ExpirationUpdateScreen.refusLotDate : null);
     return scanner(context);
   }
 
@@ -257,11 +284,16 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
     while (true) {
       if (!mounted) return;
       List<String>? lines;
+      var codes = const <String>[];
       setState(() => _readingLabel = true);
       try {
-        lines = await (widget.labelReader != null
-            ? widget.labelReader!(ImageSource.camera)
-            : GuidedCaptureScreen.open(context));
+        if (widget.etiquetteReader != null || widget.labelReader == null) {
+          final r = await (widget.etiquetteReader ?? (ctx) => GuidedCaptureScreen.openEtiquette(ctx))(context);
+          lines = r?.lignes;
+          codes = r?.codes ?? const [];
+        } else {
+          lines = await widget.labelReader!(ImageSource.camera);
+        }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -274,6 +306,14 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
       if (!mounted) return;
       setState(() => _readingLabel = false);
       if (lines == null) return;
+
+      // 4.4.0 : DataMatrix de la boîte présent sur la photo → lot et date GS1, sûrs (comme un scan).
+      final dm = codes.where((c) => ExpirationUpdateScreen.refusLotDate(c) == null).map(DataMatrixParser.parse).whereType<DataMatrixData>().firstOrNull;
+      if (dm != null) {
+        Constants.showSnackBar(context, 'DataMatrix lu sur la photo : lot et date repris.');
+        await _onScan(dm);
+        return;
+      }
 
       final label = LabelTextParser.parse(lines);
       if (label.lotCandidates.isEmpty && label.expiryCandidates.isEmpty) {

@@ -125,6 +125,13 @@
     "test/lenteur_detail_432_test.dart": "performance",
     "test/ergonomie_analyse_432_test.dart": "ergonomie",
     "test/reseau/redeploiement_test.dart": "reseau",
-    "test/reseau/indisponible_replis_test.dart": "reseau"
+    "test/reseau/indisponible_replis_test.dart": "reseau",
+    "test/scan_peremption_test.dart": "unitaires",
+    "test/photos_produits_test.dart": "ecrans",
+    "test/empreintes_partagees_test.dart": "integration",
+    "test/pointage_reglages_e2e_test.dart": "e2e",
+    "test/pointage_compte_lie_e2e_test.dart": "e2e",
+    "test/reseau/empreintes_reseau_test.dart": "reseau",
+    "test/performance/empreintes_test.dart": "performance"
   }
 }

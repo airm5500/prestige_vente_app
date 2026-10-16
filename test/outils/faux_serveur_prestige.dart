@@ -274,6 +274,71 @@ class FauxServeurPrestige extends ServeurJsonLocal {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // 4.4.0 : pointage par téléphone (v1/mobile, jeton Bearer) — comptes et employés FICTIFS
+  // ---------------------------------------------------------------------------
+
+  /// Employé rattaché à chaque compte (identifiant → nom affiché) pour v1/mobile.
+  final Map<String, String> employesMobile = {};
+
+  /// Jetons délivrés (jeton → identifiant du compte).
+  final Map<String, String> jetonsMobile = {};
+
+  /// Pointages reçus par v1/mobile : compte du JETON (jamais celui que l'appli prétendrait) et sens.
+  final List<({String login, String sens})> pointagesMobile = [];
+
+  /// Connexions v1/mobile reçues (identifiants demandés).
+  final List<String> connexionsMobile = [];
+
+  Map<String, dynamic> _moiMobile(String login) => {
+        'success': true,
+        'utilisateur': {'id': 'U-$login', 'login': login, 'nom': employesMobile[login] ?? login},
+        'employe': employesMobile.containsKey(login) ? {'id': 'E-$login', 'matricule': 'M-$login', 'nom': employesMobile[login]} : null,
+        'droits': {'pointage': true, 'photos': false},
+        'pointage': {'qr': false, 'gps': false},
+      };
+
+  /// Active v1/mobile (connexion, moi, pointages) pour [employes] (identifiant → nom fictif).
+  void activerPointageMobile(Map<String, String> employes) {
+    employesMobile.addAll(employes);
+    var n = 0;
+    String? compteDuJeton(RequeteRecue r) => r.jeton == null ? null : jetonsMobile[r.jeton];
+    routesParDefaut.addAll({
+      'POST /mobile/connexion': (r) {
+        final j = _jsonOuVide(r.corps);
+        final login = '${j['login'] ?? ''}';
+        if (login.isEmpty) return refus('Identifiant et mot de passe obligatoires.');
+        connexionsMobile.add(login);
+        if (comptes[login] != '${j['motDePasse'] ?? ''}') return refus('Identifiant ou mot de passe incorrect.');
+        final jeton = 'JETON-FICTIF-${++n}';
+        jetonsMobile[jeton] = login;
+        return ReponseLocale({..._moiMobile(login), 'jeton': jeton, 'expiration': '2099-12-31T23:59:00Z'});
+      },
+      'GET /mobile/moi': (r) {
+        final login = compteDuJeton(r);
+        return login == null ? const ReponseLocale({'success': false, 'expire': true, 'message': 'Session expirée.'}, statut: 401) : ReponseLocale(_moiMobile(login));
+      },
+      'GET /mobile/pointages': (r) {
+        final login = compteDuJeton(r);
+        if (login == null) return const ReponseLocale({'success': false, 'expire': true}, statut: 401);
+        return ReponseLocale({
+          'success': true,
+          'data': [
+            for (final p in pointagesMobile)
+              if (p.login == login) {'heure': '08:0${pointagesMobile.indexOf(p) % 10}', 'sens': p.sens, 'source': 'MOBILE'}
+          ]
+        });
+      },
+      'POST /mobile/pointages': (r) {
+        final login = compteDuJeton(r);
+        if (login == null) return const ReponseLocale({'success': false, 'expire': true}, statut: 401);
+        final sens = '${_jsonOuVide(r.corps)['sens'] ?? 'ENTREE'}';
+        pointagesMobile.add((login: login, sens: sens));
+        return ReponseLocale({'success': true, 'sens': sens, 'heure': '08:02', 'message': '${sens == 'SORTIE' ? 'Sortie' : 'Entrée'} enregistrée à 08:02.'});
+      },
+    });
+  }
+
   bool _sessionValide(RequeteRecue r) => r.jsessionid != null && sessions.contains(r.jsessionid);
 
   @override
@@ -594,7 +659,8 @@ class _FauxRequete implements HttpClientRequest {
 
   Future<void> _envoyer() async {
     try {
-      final r = RequeteRecue(method, uri.path, uri.queryParameters, utf8.decode(_corps.takeBytes(), allowMalformed: true), headers.value('cookie') ?? '');
+      final r = RequeteRecue(method, uri.path, uri.queryParameters, utf8.decode(_corps.takeBytes(), allowMalformed: true), headers.value('cookie') ?? '',
+          autorisation: headers.value('authorization') ?? '', clientRef: headers.value('x-client-ref') ?? '');
       final rep = await serveur._traiterMemoire(r);
       if (rep.delai > Duration.zero) await Future<void>.delayed(rep.delai);
       if (serveur.coupe) throw const SocketException('Connection reset by peer');

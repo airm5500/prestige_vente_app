@@ -17,7 +17,7 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10)
 3. Prestige Pharmacien : réponses et demande 45
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
@@ -116,6 +116,76 @@ produit(s) demandé(s) (pas d'agrégat des ventes de tout le catalogue), index a
 doit pas vider toute la réponse.
 
 **Vérification.** `GET v1/info?search=<CIP exact>` < 1 s ; `GET v1/info?search=doli` < 3 s.
+
+### Pointage présence — décisions du pharmacien du 16/10/2026 (Prestige Mobile 4.4.0)
+
+Constat sur le terrain (captures du pharmacien) : un téléphone gardait le jeton `v1/mobile` du compte « NEMA »
+alors que l'application était ouverte par « EMMANUEL » : le pointage partait au nom de NEMA (un bandeau le
+signalait seulement). Décisions, déjà appliquées dans l'application 4.4.0 :
+- **a) jeton `v1/mobile` lié au compte de l'application** : jeton d'un autre compte effacé à l'ouverture ;
+  connexion `v1/mobile` automatique si le mot de passe de CE compte est mémorisé (« Rester connecté »), sinon
+  mot de passe seul, identifiant pré-rempli non modifiable ; aucune connexion acceptée pour un autre identifiant ;
+  chaque appel revérifie le lien. Aucun changement serveur nécessaire pour a).
+- Photo du badge : caméra avant ouverte dès l'arrivée sur le terminal et gardée prête, délai 10 s, attente de la
+  libération du scanner arrière, motif détaillé dans l'écran Photos (application seulement).
+- Présences, Photos de contrôle et Empreintes (enrôlement) : réservés à l'administrateur de l'application
+  (compte « admin » ou `GET v1/roles/est-admin` → `authorize`). Terminal toujours ouvert aux comptes `P_SM_RH`.
+- Intervalle entre deux pointages : **2 minutes, inchangé**.
+
+Deux demandes en découlent.
+
+### Demande 51 — Pointer avec la session de l'application (P2)
+
+**Pourquoi.** La voie `v1/mobile` exige une seconde connexion (jeton Bearer de 12 h par téléphone) alors que
+l'employé est déjà connecté à l'application : c'est la source de la confusion NEMA / EMMANUEL. Avec la session
+de l'application, le pointage va **toujours** au compte connecté, sans second mot de passe.
+
+**Quoi** (mêmes contrôles que `v1/mobile`, mais sur la session habituelle — cookie — **sans `P_SM_RH`**) :
+- `GET v1/rh/moi` → même corps que `GET v1/mobile/moi` : `{success, utilisateur:{id, login, nom},
+  employe:{id, matricule, nom}|null, droits:{pointage, photos}, pointage:{qr, gps}}` pour l'utilisateur DE LA
+  SESSION (jamais un `id` reçu en paramètre).
+- `POST v1/rh/moi/pointages` `{sens?, code?, latitude?, longitude?, precision?}` (+ `X-Client-Ref`) → même
+  réponse que `POST v1/mobile/pointages` `{success, sens, heure, message}` ; source `MOBILE` (ou `APPLI`),
+  appareil = nom du terminal si connu. **Mêmes contrôles** : QR du moment (`KEY_MOBILE_QR`), position
+  (`KEY_MOBILE_GPS`, rayon), refus « moins de 2 minutes », sens automatique (inverse du dernier pointage sur
+  16 h), heure du serveur, employé actif rattaché au compte, module activé (`KEY_MOBILE_ACTIF`).
+- `GET v1/rh/moi/pointages` → mes pointages des 16 dernières heures (comme `GET v1/mobile/pointages`).
+- 401 sans session ; `{success:false, message}` pour un refus métier ; 403 `{interdit:true, msg}` si le
+  pointage par téléphone est refusé à ce compte.
+
+**Côté application** (version suivant la livraison de la route) : « Mon pointage » utilisera la session, sans
+jeton ni seconde connexion ; route absente (404 Payara vérifié par `/officine`) → voie `v1/mobile` liée au
+compte (a), comme en 4.4.0.
+
+**Sécurité / vérification.**
+- Le compte pointé est TOUJOURS celui de la session : aucun paramètre ne permet de pointer pour un autre
+  employé (test : envoyer `employeId` ou `login` d'un autre compte dans le corps → ignoré, pointage au nom de la
+  session).
+- Deux sessions (NEMA puis EMMANUEL) sur le même appareil → chaque pointage au nom de sa session.
+- Refus < 2 min identique à `v1/mobile` ; QR expiré refusé ; position hors rayon refusée si exigée.
+
+### Demande 52 — Droit distinct « P_RH_POINTER » pour le terminal de pointage (P2)
+
+**Pourquoi.** Aujourd'hui, tout le terminal (`v1/rh/...`) exige `P_SM_RH`, qui ouvre aussi la gestion RH
+(planning, absences, tableaux, import, suppression de pointages). Le pharmacien veut qu'un compte « terminal »
+puisse seulement pointer.
+
+**Quoi.**
+- Nouveau privilège `P_RH_POINTER` (libellé « Pointer au terminal de pointage »), attribuable à un rôle.
+- Routes accessibles avec `P_RH_POINTER` **ou** `P_SM_RH` : `GET v1/rh/droits`, `GET v1/rh/employes` (lecture
+  seule : id, matricule, nom, prénoms, badge, statut — rien d'autre), `POST v1/rh/pointages` (saisie terminal,
+  mêmes contrôles), `POST v1/rh/pointages/{id}/photo`, `GET v1/rh/empreintes` (demande 43, si le partage est
+  activé). Toutes les autres routes `v1/rh` restent réservées à `P_SM_RH`.
+- `GET v1/rh/droits` → `{success:true, pointer:true, gerer:<P_SM_RH>, valider, photoRetentionJours}` ;
+  sans aucun des deux droits : `{success:false, message}` comme aujourd'hui.
+
+**Côté application** (4.4.0, déjà prêt) : `success:true` ouvre le terminal, avec ou sans `pointer`/`gerer`
+(un serveur sans `P_RH_POINTER` répond comme avant : repli `P_SM_RH`) ; le message de refus cite les deux droits.
+Présences, photos et empreintes restent à l'administrateur de l'application, quel que soit `gerer`.
+
+**Vérification.** Compte avec seulement `P_RH_POINTER` : `GET v1/rh/employes` et `POST v1/rh/pointages` → OK ;
+`GET v1/rh/presence`, `GET v1/rh/tableau`, `POST v1/rh/planning`, `DELETE v1/rh/pointages/{id}` → 403.
+Compte sans aucun des deux : `GET v1/rh/droits` → `success:false`.
 
 ---
 
@@ -309,5 +379,7 @@ Toujours attendu : `auteurId`, `auteurLogin`, `auteurNom` dans les 7 routes `ws/
 | 48 | `lignes/retenue` : droit, 409, 401 | Inventaire | P1 (sécurité) |
 | 49 | Versement : GTIN-14 et EAN-13 `34009…` | Inventaire | P3 |
 | 50 | Auteur des saisies en lecture (rappel 27) | Inventaire | P2 |
+| 51 | Pointer avec la session de l'application (`GET v1/rh/moi`, `POST v1/rh/moi/pointages`, sans `P_SM_RH`) | Mobile | P2 |
+| 52 | Droit distinct `P_RH_POINTER` (terminal : lecture des employés + pointage) | Mobile | P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.

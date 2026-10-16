@@ -12,6 +12,28 @@ class CameraScanScreen extends StatefulWidget {
   /// Texte d'aide sous le cadre (par défaut : « Placez le code entièrement dans le cadre »).
   final String? aide;
 
+  /// Haute définition (4.4.0) : analyse en 1280×720 au lieu de 640×480 (défaut Android de mobile_scanner),
+  /// zoom automatique de ML Kit et bouton « Zoom ×2 ». Indispensable pour les petits DataMatrix des boîtes
+  /// (lot / péremption) : en 640×480, un DataMatrix de 8 à 10 mm n'a que 2 à 3 pixels par module et n'est lu
+  /// qu'à 5-6 cm, en deçà de la distance de mise au point de la plupart des téléphones.
+  final bool hauteDefinition;
+
+  /// Contrôle d'un code lu : null = accepté (l'écran se ferme et le rend) ; sinon message affiché sur l'image
+  /// et la lecture continue (ex. « code-barres sans lot ni date : visez le DataMatrix »).
+  final String? Function(String valeur)? verifier;
+
+  /// Résolution d'analyse demandée en haute définition.
+  static const Size resolutionHauteDefinition = Size(1280, 720);
+
+  /// Contrôleur de la caméra (exposé pour les tests : formats, résolution, zoom automatique).
+  static MobileScannerController controleur({required List<BarcodeFormat> formats, bool hauteDefinition = false}) => MobileScannerController(
+        formats: formats,
+        detectionSpeed: DetectionSpeed.noDuplicates,
+        cameraResolution: hauteDefinition ? resolutionHauteDefinition : null,
+        autoZoom: hauteDefinition,
+        autoStart: true,
+      );
+
   /// Codes des boîtes de médicaments : DataMatrix et tous les codes-barres classiques
   /// (EAN-13/8, UPC-A/E — un EAN-13 commençant par 0 est lu comme UPC-A —, Code 128/39/93, ITF).
   static const List<BarcodeFormat> formatsProduit = [
@@ -30,6 +52,8 @@ class CameraScanScreen extends StatefulWidget {
   const CameraScanScreen({
     super.key,
     this.aide,
+    this.hauteDefinition = false,
+    this.verifier,
     this.title = 'Scanner avec l\'appareil photo',
     this.formats = const [
       BarcodeFormat.dataMatrix,
@@ -43,12 +67,16 @@ class CameraScanScreen extends StatefulWidget {
   /// Ouvre le scanner et renvoie le contenu du premier code lu (ou `null` si annulé).
   /// [dataMatrixOnly] : ne lit que les DataMatrix (évite de capter l'EAN de la boîte).
   /// [produit] : tous les formats des boîtes ([formatsProduit]) ; [aide] : texte sous le cadre.
-  static Future<String?> open(BuildContext context, {String? title, bool dataMatrixOnly = false, bool produit = false, String? aide}) {
+  /// [hauteDefinition] : voir le champ ; [verifier] : refus d'un code lu, avec un message, sans fermer.
+  static Future<String?> open(BuildContext context,
+      {String? title, bool dataMatrixOnly = false, bool produit = false, String? aide, bool hauteDefinition = false, String? Function(String)? verifier}) {
     return Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => CameraScanScreen(
           title: title ?? 'Scanner avec l\'appareil photo',
           aide: aide,
+          hauteDefinition: hauteDefinition,
+          verifier: verifier,
           formats: dataMatrixOnly
               ? const [BarcodeFormat.dataMatrix]
               : produit
@@ -87,11 +115,10 @@ class CameraScanScreen extends StatefulWidget {
 }
 
 class _CameraScanScreenState extends State<CameraScanScreen> {
-  late final MobileScannerController _controller = MobileScannerController(
-    formats: widget.formats,
-    detectionSpeed: DetectionSpeed.noDuplicates,
-  );
+  late final MobileScannerController _controller = CameraScanScreen.controleur(formats: widget.formats, hauteDefinition: widget.hauteDefinition);
   bool _done = false;
+  bool _zoom = false;
+  String? _refus; // dernier code refusé par [CameraScanScreen.verifier]
   bool _startTimedOut = false;
   Timer? _startTimer;
 
@@ -119,6 +146,11 @@ class _CameraScanScreenState extends State<CameraScanScreen> {
     for (final barcode in capture.barcodes) {
       final value = CameraScanScreen.valueOf(barcode);
       if (value != null && value.isNotEmpty) {
+        final refus = widget.verifier?.call(value);
+        if (refus != null) {
+          if (refus != _refus) setState(() => _refus = refus);
+          continue; // un autre code de la même image (le DataMatrix à côté de l'EAN) peut convenir
+        }
         _done = true;
         Navigator.of(context).pop(value);
         return;
@@ -133,6 +165,16 @@ class _CameraScanScreenState extends State<CameraScanScreen> {
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
+          if (widget.hauteDefinition)
+            IconButton(
+              key: const Key('scan_zoom'),
+              icon: Icon(_zoom ? Icons.zoom_out : Icons.zoom_in),
+              tooltip: _zoom ? 'Zoom normal' : 'Zoom ×2 (petits codes)',
+              onPressed: () {
+                setState(() => _zoom = !_zoom);
+                _controller.setZoomScale(_zoom ? 0.5 : 0.0);
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.flash_on),
             tooltip: 'Lampe',
@@ -172,11 +214,21 @@ class _CameraScanScreenState extends State<CameraScanScreen> {
             left: 16,
             right: 16,
             bottom: 32,
-            child: Text(
-              widget.aide ?? 'Placez le code entièrement dans le cadre',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-            ),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              if (_refus != null)
+                Container(
+                  key: const Key('scan_refus'),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(color: const Color(0xE6B45309), borderRadius: BorderRadius.circular(10)),
+                  child: Text(_refus!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                ),
+              Text(
+                widget.aide ?? 'Placez le code entièrement dans le cadre',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ]),
           ),
         ],
       ),

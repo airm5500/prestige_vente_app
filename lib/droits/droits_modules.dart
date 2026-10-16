@@ -74,6 +74,9 @@ class DroitsModules extends ChangeNotifier {
   bool get ordonnancesModifier => saisieFicheClientAutorisee(_ordonnances);
   bool? get adminServeur => _adminServeur;
 
+  /// Compte « admin » de l'application (AuthProvider.isAdmin), tel que transmis à [actualiser].
+  bool get adminLocal => _adminLocal;
+
   /// Menu Analyse posologie (demande 5) : voir [menuPososVisible].
   bool get posos => menuPososVisible(connu: connu, analyser: _pososAnalyser);
 

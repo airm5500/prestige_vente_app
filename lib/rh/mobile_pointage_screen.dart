@@ -10,8 +10,11 @@
 //    historique des 16 dernières heures. Refus du serveur affiché tel quel. Code saisi à la main en secours.
 //    Rien n'est journalisé (ni QR, ni position, ni réponse du serveur).
 // Hors ligne : « Disponible en ligne uniquement » (l'heure du serveur et le QR l'imposent).
-// Sous le résultat, l'état de l'envoi : « Envoyé à Prestige ✓ » ou « Refusé par Prestige ». Si le téléphone est
-// connecté avec un AUTRE compte que celui de l'application, un bandeau le dit (le pointage irait à cet autre employé).
+// Sous le résultat, l'état de l'envoi : « Envoyé à Prestige ✓ » ou « Refusé par Prestige ».
+// 4.4.0 (décision du pharmacien, proposition a) : le téléphone pointe TOUJOURS pour le compte connecté à
+// l'application. Jeton d'un autre compte → effacé automatiquement (information affichée) ; pas de jeton → connexion
+// v1/mobile automatique si le mot de passe de CE compte est mémorisé (« Rester connecté »), sinon mot de passe
+// seul, identifiant pré-rempli NON modifiable.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/rh/localisation.dart';
@@ -32,6 +35,9 @@ class MobilePointageScreen extends StatefulWidget {
   final Future<String?> Function(BuildContext context)? scanner;
   final Localisateur localisateur;
 
+  /// Mot de passe mémorisé de [login] (« Rester connecté »), ou null : connexion automatique (4.4.0).
+  final Future<String?> Function()? motDePasseMemorise;
+
   const MobilePointageScreen({
     super.key,
     required this.rh,
@@ -39,6 +45,7 @@ class MobilePointageScreen extends StatefulWidget {
     this.presentation,
     this.scanner,
     this.localisateur = const GeoLocalisateur(),
+    this.motDePasseMemorise,
   });
 
   @override
@@ -103,13 +110,47 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
       setState(() => _chargement = false);
       return;
     }
-    final s = await api.reprendre();
+    // Lien au compte de l'application : un jeton d'un autre compte est effacé tout de suite.
+    final efface = await api.lier(widget.login);
+    var s = await api.reprendre();
+    if (!mounted) return;
+    if (efface) {
+      _dire('Ce téléphone était connecté au compte « ${api.jetonEfface} » : déconnecté. Il pointe désormais pour « ${_loginApp!} ».', info: true);
+    }
+    if (s == null && _loginApp != null && !_horsLigne) s = await _connexionAutomatique();
     if (!mounted) return;
     setState(() {
       _session = s;
       _chargement = false;
     });
     if (s != null) await _actualiser();
+  }
+
+  /// Compte de l'application (null : pas de compte connu, identifiant saisi librement comme avant).
+  String? get _loginApp {
+    final l = (widget.login ?? '').trim();
+    return l.isEmpty ? null : l;
+  }
+
+  /// Connexion v1/mobile sans geste si le mot de passe de CE compte est mémorisé ; sinon null (formulaire).
+  Future<SessionMobile?> _connexionAutomatique() async {
+    final api = _api, login = _loginApp;
+    if (api == null || login == null) return null;
+    String? mdp;
+    try {
+      mdp = await widget.motDePasseMemorise?.call();
+    } catch (_) {}
+    if (mdp == null || mdp.isEmpty) return null;
+    try {
+      final r = await api.connexion(login, mdp);
+      if (r.ok) return r.valeur;
+      _dire(r.refus);
+    } on MobileHorsLigne catch (e) {
+      _dire(e.texte);
+    } on MobileIndisponible {
+      _dire(MobileIndisponible.message);
+    }
+    return null;
   }
 
   /// Droits et réglages relus (`moi`), puis historique.
@@ -158,8 +199,9 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
   Future<void> _connecter() async {
     final api = _api;
     if (api == null || _occupe) return;
+    if (_loginApp != null) _login.text = _loginApp!; // jamais un autre compte que celui de l'application
     if (_login.text.trim().isEmpty || _mdp.text.isEmpty) {
-      _dire('Identifiant et mot de passe obligatoires.');
+      _dire(_loginApp != null ? 'Mot de passe obligatoire.' : 'Identifiant et mot de passe obligatoires.');
       return;
     }
     if (_horsLigne) {
@@ -413,8 +455,17 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
             TextField(
               key: const Key('rh_mobile_login'),
               controller: _login,
+              // 4.4.0 : le compte de l'application, non modifiable (le téléphone pointe pour lui seul).
+              readOnly: _loginApp != null,
+              enableInteractiveSelection: _loginApp == null,
               autofillHints: const [AutofillHints.username],
-              decoration: const InputDecoration(labelText: 'Identifiant', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person_outline)),
+              decoration: InputDecoration(
+                labelText: 'Identifiant',
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.person_outline),
+                suffixIcon: _loginApp != null ? const Tooltip(message: 'Compte connecté à l\'application', child: Icon(Icons.lock_outline)) : null,
+                helperText: _loginApp != null ? 'Compte connecté à l\'application' : null,
+              ),
             ),
             const SizedBox(height: 10),
             TextField(
@@ -451,24 +502,7 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
         ),
       );
 
-  /// Le téléphone est connecté avec un autre compte que celui de l'application : le pointage irait à cet employé-là.
-  bool _autreCompte(SessionMobile s) {
-    final app = (widget.login ?? '').trim().toLowerCase();
-    return app.isNotEmpty && s.login.trim().isNotEmpty && s.login.trim().toLowerCase() != app;
-  }
-
-  List<Widget> _pointage(SessionMobile s) {
-    final autre = _autreCompte(s)
-        ? KeyedSubtree(
-            key: const Key('rh_mobile_autre_compte'),
-            child: _bandeau(
-                'Ce téléphone est connecté au compte « ${s.login} »${s.aEmploye ? ' (${s.employeNom})' : ''}, pas à « ${widget.login!.trim()} » '
-                'connecté à l\'application : les pointages iront à ce compte. Déconnectez ce téléphone (icône en haut) pour changer.',
-                false),
-          )
-        : null;
-    return [if (autre != null) autre, ..._pointageCompte(s)];
-  }
+  List<Widget> _pointage(SessionMobile s) => _pointageCompte(s);
 
   List<Widget> _pointageCompte(SessionMobile s) {
     if (!s.aEmploye) {
