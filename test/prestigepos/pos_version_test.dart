@@ -1,5 +1,5 @@
 // PrestigePOS — construction : deux applications dans le même projet (saveurs Android), sans toucher Prestige Mobile.
-//  - version de PrestigePOS 1.1.3+5 (android/app/prestigepos-version.properties), pubspec.yaml inchangé ;
+//  - version de PrestigePOS 1.2.0+6 (android/app/prestigepos-version.properties), pubspec.yaml inchangé ;
 //  - saveurs `mobile` (par défaut, sans applicationId propre) et `pos` (com.dici.prestigepos) ;
 //  - permissions Bluetooth / USB et activité PrestigePOS dans le manifeste de la saveur pos SEULEMENT ;
 //  - icônes PrestigePOS (toutes densités, adaptative, ronde) ; configurations Android Studio versionnées ;
@@ -18,10 +18,10 @@ String lire(String f) => File(f).readAsStringSync();
 }
 
 void main() {
-  test('version de PrestigePOS : 1.1.3+5, propre à la saveur pos', () {
+  test('version de PrestigePOS : 1.2.0+6, propre à la saveur pos', () {
     final p = lire('android/app/prestigepos-version.properties');
-    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.1.3');
-    expect(RegExp(r'^codeVersion=(\d+)$', multiLine: true).firstMatch(p)!.group(1), '5');
+    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.2.0');
+    expect(RegExp(r'^codeVersion=(\d+)$', multiLine: true).firstMatch(p)!.group(1), '6');
     final g = lire('android/app/build.gradle.kts');
     expect(g, contains('getProperty("nomVersion")'));
     expect(g, contains('getProperty("codeVersion")'));
