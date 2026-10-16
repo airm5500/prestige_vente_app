@@ -37,6 +37,7 @@ import 'package:prestige_vente_app/screens/ajustement/ajustement_screen.dart';
 import 'package:prestige_vente_app/screens/prescription/prescription_check_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/pointage_home_screen.dart';
 import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
+import 'package:prestige_vente_app/widgets/bouton_deconnexion.dart';
 
 class MenuItem {
   final String id;
@@ -322,13 +323,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               tooltip: 'Configuration'
           ),
 
-          IconButton(
-            icon: const Icon(Icons.logout),
+          // 4.4.0 : même bouton que l'en-tête de Prestige web (rond rouge, icône « power off »).
+          BoutonDeconnexion(
+            key: const Key('ancien_accueil_deconnexion'),
+            tooltip: 'Déconnexion',
             onPressed: () {
               authProvider.logout();
               Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
             },
-            tooltip: 'Déconnexion',
           ),
         ],
       ),

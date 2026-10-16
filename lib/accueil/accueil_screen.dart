@@ -44,6 +44,7 @@ import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/widgets/bouton_deconnexion.dart';
 
 enum EtatServeur { verification, connecte, horsLigne }
 
@@ -731,16 +732,14 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
             PopupMenuItem(value: 'actualiser', child: ListTile(leading: Icon(Icons.refresh), title: Text('Actualiser'), contentPadding: EdgeInsets.zero)),
             PopupMenuItem(value: 'organiser', child: ListTile(leading: Icon(Icons.dashboard_customize), title: Text('Organiser l\'accueil'), contentPadding: EdgeInsets.zero)),
             PopupMenuItem(value: 'signaler', child: ListTile(leading: Icon(Icons.report_problem_outlined), title: Text('Signaler un problème'), contentPadding: EdgeInsets.zero)),
-            PopupMenuItem(value: 'deconnexion', child: ListTile(leading: Icon(Icons.logout), title: Text('Se déconnecter'), contentPadding: EdgeInsets.zero)),
+            PopupMenuItem(
+                value: 'deconnexion',
+                child: ListTile(leading: PastilleDeconnexion(taille: 28), title: Text('Se déconnecter'), contentPadding: EdgeInsets.zero)),
           ],
         ),
         // Déconnexion visible à droite de l'en-tête (même logique que l'entrée du menu ⋮).
-        IconButton(
-          key: const Key('accueil_deconnexion'),
-          tooltip: 'Se déconnecter',
-          icon: Icon(Icons.logout, color: c),
-          onPressed: _deconnexion,
-        ),
+        // 4.4.0 : même bouton que l'en-tête de Prestige web (rond rouge, icône « power off »).
+        BoutonDeconnexion(key: const Key('accueil_deconnexion'), onPressed: _deconnexion),
       ];
 
   /// État affiché : la surveillance globale (injoignable / hors ligne) prime sur la vérification de l'accueil.

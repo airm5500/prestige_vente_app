@@ -7,6 +7,11 @@
 //   jamais en clair, jamais dans les journaux ; le mot de passe n'est JAMAIS conservé ;
 // - 401 {"expire": true} : jeton effacé, retour à la connexion (pas de rafraîchissement : 12 h par défaut).
 // Pas de pointage hors ligne : l'heure est celle du serveur et le QR change chaque minute.
+//
+// 4.4.0 (décision du pharmacien, proposition a) : le jeton du téléphone est LIÉ AU COMPTE CONNECTÉ À L'APPLICATION
+// ([lier]). Un jeton d'un autre compte (ex. NEMA alors que l'appli est ouverte par EMMANUEL) est effacé tout de
+// suite, aucune connexion v1/mobile n'est acceptée pour un autre identifiant, et chaque appel revérifie le lien :
+// jamais de pointage au nom d'un autre compte.
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -211,6 +216,37 @@ class MobileApi extends ChangeNotifier {
   SessionMobile? _session;
   bool _charge = false;
 
+  /// Compte de l'application auquel le téléphone est lié (4.4.0) ; null : pas de lien (tests, ancien appel).
+  String? _compte;
+  String? get compte => _compte;
+
+  /// Identifiant du compte dont le jeton vient d'être effacé par [lier] (affiché une fois), sinon null.
+  String? jetonEfface;
+
+  static String _norme(String s) => s.trim().toLowerCase();
+
+  /// Le jeton appartient-il à un autre compte que [compte] ?
+  bool _autreCompte(SessionMobile s) {
+    final c = _compte;
+    return c != null && c.trim().isNotEmpty && _norme(s.login) != _norme(c);
+  }
+
+  /// Lie le téléphone au compte de l'application [login] : un jeton gardé pour un AUTRE compte est effacé
+  /// (renvoie true). Login vide : pas de lien.
+  Future<bool> lier(String? login) async {
+    final l = (login ?? '').trim();
+    _compte = l.isEmpty ? null : l;
+    jetonEfface = null;
+    await reprendre();
+    final s = _session;
+    if (s != null && _autreCompte(s)) {
+      jetonEfface = s.login.trim().isEmpty ? '?' : s.login.trim();
+      await deconnecter();
+      return true;
+    }
+    return false;
+  }
+
   /// Session en cours (null : connexion demandée).
   SessionMobile? get session => _session;
 
@@ -237,8 +273,16 @@ class MobileApi extends ChangeNotifier {
 
   SessionMobile? _valide(SessionMobile? s) => s == null || s.jeton.isEmpty || s.expireA(_clock()) ? null : s;
 
+  /// Message quand un autre identifiant que le compte de l'application est demandé (rien n'est envoyé).
+  static String messageAutreCompte(String compte) =>
+      'Ce téléphone pointe pour le compte connecté à l\'application (« $compte ») : pour pointer avec un autre compte, '
+      'connectez l\'application avec ce compte.';
+
   /// POST connexion. Le mot de passe n'est utilisé que pour cet appel, jamais conservé.
+  /// Téléphone lié ([lier]) : seul le compte de l'application peut se connecter.
   Future<ResultatMobile<SessionMobile>> connexion(String login, String motDePasse) async {
+    final c = _compte;
+    if (c != null && _norme(login) != _norme(c)) return ResultatMobile.refus(messageAutreCompte(c));
     final app = appareil().trim();
     final r = await transport.envoyer('POST', 'connexion', corps: {
       'login': login.trim(),
@@ -255,6 +299,8 @@ class MobileApi extends ChangeNotifier {
     }
     final s = SessionMobile.fromJson(b);
     if (s.jeton.isEmpty) return const ResultatMobile.refus('Le serveur n\'a pas délivré de jeton.');
+    // Le serveur a rendu la session d'un autre compte : jamais gardée.
+    if (c != null && s.login.trim().isNotEmpty && _autreCompte(s)) return ResultatMobile.refus(messageAutreCompte(c));
     _session = s;
     _charge = true;
     await coffre.ecrire(jsonEncode(s.toJson()));
@@ -282,6 +328,10 @@ class MobileApi extends ChangeNotifier {
     final b = await _appel('GET', 'moi', s);
     if (b['success'] != true) throw MobileSessionExpiree(_message(b, 'Session du téléphone refusée.'));
     final n = s.avec(SessionMobile.fromJson(b, jeton: s.jeton, expiration: s.expiration));
+    if (n.login.trim().isNotEmpty && _autreCompte(n)) {
+      await deconnecter();
+      throw MobileSessionExpiree('Le téléphone était connecté au compte « ${n.login} » : jeton effacé. Reconnectez-vous.');
+    }
     _session = n;
     await coffre.ecrire(jsonEncode(n.toJson()));
     notifyListeners();
@@ -332,6 +382,11 @@ class MobileApi extends ChangeNotifier {
   Future<SessionMobile> _exiger() async {
     final s = await reprendre();
     if (s == null) throw const MobileSessionExpiree('Connectez-vous pour pointer.');
+    // Défense en profondeur : aucun appel avec le jeton d'un autre compte que celui de l'application.
+    if (_autreCompte(s)) {
+      await deconnecter();
+      throw MobileSessionExpiree('Le téléphone était connecté au compte « ${s.login} » : jeton effacé. Reconnectez-vous.');
+    }
     return s;
   }
 

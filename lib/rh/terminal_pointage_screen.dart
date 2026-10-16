@@ -28,6 +28,7 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/rh/empreintes_screen.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
+import 'package:prestige_vente_app/rh/empreintes_partagees.dart';
 import 'package:prestige_vente_app/rh/photo_controle.dart';
 import 'package:prestige_vente_app/rh/photo_controle_screen.dart';
 import 'package:prestige_vente_app/rh/pointage_rh.dart';
@@ -142,7 +143,8 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   CapturePhotoControle? _capture;
   bool _permissionAExpliquer = false;
   bool get _photoActive => _photo != null && _reglages.photoBadge;
-  bool get _gestion => widget.gestion ?? _rh.acces == AccesRh.autorise;
+  // 4.4.0 : gestion (empreintes, autorisation de la caméra) = administrateur de l'application, pas le droit RH seul.
+  bool get _gestion => widget.gestion ?? adminAppliRh(context);
 
   @override
   void initState() {
@@ -168,7 +170,16 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         _permissionAExpliquer = !expliquee;
       });
       if (r.photoBadge) unawaited(p.registre.charger());
+      _preparerCamera();
     } catch (_) {}
+  }
+
+  /// 4.4.0 : caméra frontale ouverte dès l'arrivée et gardée prête (photo sans attente d'ouverture). Pas avant
+  /// l'explication de l'autorisation (Android la demanderait sans contexte).
+  void _preparerCamera() {
+    final p = _photo;
+    if (p == null || !_photoActive || _permissionAExpliquer || !mounted) return;
+    unawaited(p.preparer());
   }
 
   Future<void> _autoriserCamera() async {
@@ -176,6 +187,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     if (p == null) return;
     await expliquerEtAutoriserCamera(context, p);
     if (mounted) setState(() => _permissionAExpliquer = false);
+    _preparerCamera();
     _refocus();
   }
 
@@ -191,7 +203,26 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       _capacites = c;
       _enroles = n;
     });
+    // 4.4.0 (demande 43) : terminal à empreinte → modèles partagés recopiés à l'ouverture puis toutes les 15 min.
+    if (c.empreinte) {
+      unawaited(_synchroniserEmpreintes());
+      _synchroEmpreintes?.cancel();
+      _synchroEmpreintes = Timer.periodic(EmpreintesPartagees.intervalle, (_) => _synchroniserEmpreintes());
+    }
     await _initNfc();
+  }
+
+  Timer? _synchroEmpreintes;
+
+  /// Synchronisation des empreintes partagées (sans effet ni message si le serveur ne les partage pas).
+  Future<void> _synchroniserEmpreintes() async {
+    final s = _rh.serveur;
+    if (s == null || _rh.horsLigne()) return;
+    try {
+      await EmpreintesPartagees.pour(s, _id.coffre, horsLigne: _rh.horsLigne).synchroniser();
+      final n = (await _id.enroles()).length;
+      if (mounted && n != _enroles) setState(() => _enroles = n);
+    } catch (_) {}
   }
 
   bool get _empreintePossible => _capacites.empreinte && _enroles > 0;
@@ -231,8 +262,10 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     _resultatTimer?.cancel();
     _signalTimer?.cancel();
     _nfcSub?.cancel();
+    _synchroEmpreintes?.cancel();
     _nfc.stop();
     _capture?.dispose();
+    unawaited(_photo?.liberer());
     if (_borne) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _champ.dispose();
     _focus.dispose();
@@ -241,7 +274,11 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (_capture == null) unawaited(_photo?.liberer()); // caméra rendue en arrière-plan
+    }
     if (state == AppLifecycleState.resumed) {
+      if (_capture == null) _preparerCamera();
       if (_nfcEtat != NfcAvailability.ready) _initNfc();
       if (_borne) SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       _refocus();
@@ -296,8 +333,14 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   }
 
   Future<void> _camera() async {
+    // La caméra arrière lit le badge : la frontale (gardée prête) est rendue d'abord, puis reprise après.
+    await _photo?.liberer();
+    if (!mounted) return;
     final v = await (widget.camera ?? (ctx) => CameraScanScreen.open(ctx, title: 'Scannez votre badge'))(context);
-    if (v != null && mounted) _lu(v);
+    if (v != null && mounted) {
+      await _lu(v);
+    }
+    if (_capture == null) _preparerCamera();
     _refocus();
   }
 
@@ -368,6 +411,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     _capture?.dispose();
     _capture = null;
     setState(() => _attente = null);
+    _preparerCamera();
     _refocus();
   }
 
@@ -388,6 +432,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     if (identical(_capture, cap)) _capture = null;
     cap?.dispose();
     if (!mounted) return;
+    _preparerCamera(); // prête pour le badge suivant
     setState(() {
       _attente = null;
       _enregistrement = false;
@@ -566,7 +611,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
               child: Icon(Icons.cloud_upload_outlined, color: col),
             ),
           ),
-        if (_capacites.empreinte && !_borne && (widget.gestion ?? _rh.acces == AccesRh.autorise))
+        if (_capacites.empreinte && !_borne && _gestion)
           IconButton(
             key: const Key('rh_gerer_empreintes'),
             tooltip: 'Empreintes des employés',

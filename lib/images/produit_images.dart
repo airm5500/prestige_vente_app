@@ -44,6 +44,20 @@ class ImagesListe {
   ImageProduitInfo? get principale => images.where((i) => i.principale).firstOrNull ?? images.firstOrNull;
 }
 
+/// État de la photo d'un produit (menu « Photos produits »).
+class EtatPhotoProduit {
+  final bool aPhoto;
+  final bool modifiable;
+  final String? erreur;
+  final bool serveurSansImages;
+  const EtatPhotoProduit({required this.aPhoto, required this.modifiable})
+      : erreur = null,
+        serveurSansImages = false;
+  const EtatPhotoProduit.erreur(String this.erreur, {this.serveurSansImages = false})
+      : aPhoto = false,
+        modifiable = false;
+}
+
 /// Accès serveur (remplaçable dans les tests).
 abstract class ProduitImagesApi {
   /// Liste des images ; VenteOk(null) : route absente (serveur sans l'API images).
@@ -510,6 +524,25 @@ class ProduitImages extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   // Ajout depuis le terminal (bouton caché derrière un réglage admin)
   // ---------------------------------------------------------------------------
+
+  /// 4.4.0 (menu « Photos produits ») : le produit a-t-il déjà une photo, et l'utilisateur peut-il la changer ?
+  /// Une seule requête (liste des images) ; rien n'est téléchargé.
+  Future<EtatPhotoProduit> etatPhoto(String familleId) async {
+    if (api == null || horsLigne()) return const EtatPhotoProduit.erreur('Serveur injoignable : état de la photo inconnu.');
+    final r = await api!.lister(familleId);
+    switch (r) {
+      case VenteOk(value: null):
+        _capacite = CapaciteImages.non;
+        _capaciteAt = clock();
+        return const EtatPhotoProduit.erreur('Ce serveur ne gère pas les images des produits.', serveurSansImages: true);
+      case VenteOk(value: final ImagesListe l):
+        _capacite = CapaciteImages.oui;
+        _modifiable[familleId] = l.modifiable;
+        return EtatPhotoProduit(aPhoto: l.images.isNotEmpty, modifiable: l.modifiable);
+      default:
+        return EtatPhotoProduit.erreur(r.message ?? 'État de la photo inconnu.');
+    }
+  }
 
   /// Envoie la photo (image principale) ; refusée sans le droit « modifiable ».
   /// [admin] : compte administrateur (bouton « Ajouter une photo » visible directement, réglage photoAdmin).

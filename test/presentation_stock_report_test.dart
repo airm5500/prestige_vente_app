@@ -236,6 +236,58 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // 4.4.0 — « le bouton du filtre ne montre pas un filtre » : entonnoir, état actif visible, panneau repliable.
+  for (final style in ListPresentation.values) {
+    testWidgets('Bouton Filtres (${style.name}) : entonnoir, actif = pastille + nombre ; replie / rouvre le panneau', (tester) async {
+      phone(tester);
+      final api = _FakeApi();
+      await open(tester, api, style);
+      final bouton = find.byKey(const Key('stock_filtres_bouton'));
+      expect(bouton, findsOneWidget);
+      Icon icone() => tester.widget<Icon>(find.byKey(const Key('stock_filtres_icone')));
+      expect(icone().icon, Icons.filter_alt_outlined, reason: 'entonnoir (contour) sans filtre');
+      expect(find.byKey(const Key('stock_filtres_actifs')), findsNothing);
+      expect(find.byKey(const Key('stock_filtres_nombre')), findsNothing);
+      expect(find.byIcon(Icons.cleaning_services), findsNothing, reason: 'plus de balai');
+
+      // Emplacement + niveau de stock : 2 filtres actifs.
+      await tester.tap(find.byKey(const Key('stock_rayon')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('RÉSERVE').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('stock_filter_type')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Inférieur à (<)').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('stock_value')), '5');
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pumpAndSettle();
+      expect(icone().icon, Icons.filter_alt, reason: 'entonnoir plein');
+      expect(find.byKey(const Key('stock_filtres_actifs')), findsOneWidget, reason: 'pastille ambre');
+      expect(tester.widget<Text>(find.byKey(const Key('stock_filtres_nombre'))).data, '2');
+      expect(tester.widget<Text>(find.byKey(const Key('stock_filtres_titre'))).data, 'Filtres (2 actifs)');
+      expect(find.byTooltip('Masquer les filtres (2 actifs)'), findsOneWidget);
+
+      // Replier : résumé lisible, liste conservée ; rouvrir.
+      await tester.tap(bouton);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('stock_filter_type')), findsNothing);
+      expect(find.byKey(const Key('stock_filtres_resume')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const Key('stock_filtres_resume')), matching: find.text('Stock < 5 · RÉSERVE')), findsOneWidget);
+      expect(api.calls.last, {'query': '', 'codeRayon': 'r2', 'filtreStock': 'LESS', 'stock': '5'}, reason: 'filtres toujours appliqués');
+      await tester.tap(find.byKey(const Key('stock_filtres_resume')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('stock_filter_type')), findsOneWidget);
+
+      // Vider : entonnoir de nouveau au repos.
+      await tester.tap(find.byKey(const Key('stock_vider_filtres')));
+      await tester.pumpAndSettle();
+      expect(icone().icon, Icons.filter_alt_outlined);
+      expect(find.byKey(const Key('stock_filtres_nombre')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   test('Lecture défensive des articles du serveur', () {
     final i = StockReportItem.fromJson({'id': 7, 'stock': '12', 'prixVente': 1500.0, 'libelle': null, 'seuiRappro': 'x'});
     expect(i.id, '7');

@@ -14,6 +14,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:prestige_vente_app/accueil/accueil_menus.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
@@ -1052,7 +1053,8 @@ void main() {
       tailleTablette(t);
       final e = Env();
       e.transport.routes['POST connexion'] = (_) => (status: 200, body: {'success': false, 'message': 'Identifiant, mot de passe et appareil obligatoires.'});
-      await pump(t, RhPointageScreen(rh: e.pr, presentation: ListPresentation.guided));
+      // Administrateur de l'application (4.4.0 : seul à voir les présences).
+      await pump(t, RhPointageScreen(rh: e.pr, presentation: ListPresentation.guided, gestion: true));
       await t.pumpAndSettle();
       expect(t.widget<InkWell>(find.byKey(const Key('rh_voie_a'))).onTap, isNotNull);
       expect(t.widget<InkWell>(find.byKey(const Key('rh_voie_b'))).onTap, isNotNull);
@@ -1357,12 +1359,12 @@ void main() {
       return e;
     }
 
-    test('gestionnaire = administrateur de l\'application OU droit RH (P_SM_RH) ; sinon capture seule', () {
-      expect(estGestionnaireRh(admin: true, acces: AccesRh.refuse), isTrue);
-      expect(estGestionnaireRh(admin: false, acces: AccesRh.autorise), isTrue);
-      expect(estGestionnaireRh(admin: false, acces: AccesRh.refuse), isFalse);
-      expect(estGestionnaireRh(admin: false, acces: AccesRh.absent), isFalse);
-      expect(estGestionnaireRh(admin: false, acces: AccesRh.inconnu), isFalse);
+    test('4.4.0 : gestionnaire = administrateur de l\'application (compte admin ou profil admin du serveur) ; le droit RH seul ne suffit plus', () {
+      expect(estGestionnaireRh(adminLocal: true), isTrue);
+      expect(estGestionnaireRh(adminLocal: false, adminServeur: true), isTrue);
+      expect(estGestionnaireRh(adminLocal: false, adminServeur: false), isFalse);
+      expect(estGestionnaireRh(adminLocal: false), isFalse, reason: 'profil serveur inconnu');
+      expect(droitPointerRh, 'P_RH_POINTER');
     });
 
     testWidgets('employé (non gestionnaire) : « Mon pointage » et « Terminal » seulement, aucun écran d\'analyse', (t) async {
@@ -1378,10 +1380,46 @@ void main() {
       expect(find.byKey(const Key('rh_note_envoi')), findsOneWidget);
       expect(t.takeException(), isNull);
 
-      // gestionnaire (droit RH) : le suivi est proposé
+      // 4.4.0 : droit RH (P_SM_RH) SANS être administrateur de l'application → terminal oui, suivi non.
+      DroitsModules.instance.oublier();
+      await pump(t, RhPointageScreen(rh: e.pr, presentation: ListPresentation.guided));
+      await t.pumpAndSettle();
+      expect(e.pr.acces, AccesRh.autorise);
+      expect(find.byKey(const Key('rh_voie_b')), findsOneWidget);
+      expect(find.byKey(const Key('rh_presences')), findsNothing);
+      expect(find.byKey(const Key('rh_photos')), findsNothing);
+      // Administrateur de l'application (profil administrateur du serveur) : le suivi est proposé.
+      DroitsModules.instance.fixer(adminServeur: true);
+      addTearDown(DroitsModules.instance.oublier);
       await pump(t, RhPointageScreen(rh: e.pr, presentation: ListPresentation.guided));
       await t.pumpAndSettle();
       expect(t.widget<InkWell>(find.byKey(const Key('rh_presences'))).onTap, isNotNull);
+      await t.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('4.4.0 : droit « P_RH_POINTER » (serveur à jour) → terminal ouvert ; présences, photos, empreintes : non', (t) async {
+      tailleTelephone(t);
+      DroitsModules.instance.oublier();
+      final e = Env();
+      e.rh.droits = {'success': true, 'pointer': true, 'gerer': false};
+      e.empreinte.present = true;
+      await pump(t, RhPointageScreen(rh: e.pr, presentation: ListPresentation.dashboard));
+      await t.pumpAndSettle();
+      expect(e.pr.acces, AccesRh.autorise);
+      expect(t.widget<InkWell>(find.byKey(const Key('rh_voie_b'))).onTap, isNotNull);
+      expect(find.byKey(const Key('rh_presences')), findsNothing);
+      expect(find.byKey(const Key('rh_photos')), findsNothing);
+      await t.tap(find.byKey(const Key('rh_voie_b')));
+      await t.pumpAndSettle();
+      expect(find.byType(TerminalPointageScreen), findsOneWidget);
+      expect(find.byKey(const Key('rh_gerer_empreintes')), findsNothing, reason: 'enrôlement : administrateur seulement');
+      // Refus du serveur : message citant le nouveau droit et le repli.
+      final e2 = Env();
+      e2.rh.droits = {'success': false, 'message': 'Accès refusé.'};
+      await t.pumpWidget(const SizedBox());
+      await pump(t, RhPointageScreen(rh: e2.pr, presentation: ListPresentation.dashboard));
+      await t.pumpAndSettle();
+      expect(find.textContaining('« P_RH_POINTER » (pointer) ou « P_SM_RH »'), findsOneWidget);
       await t.pumpWidget(const SizedBox());
     });
 
@@ -1510,14 +1548,18 @@ void main() {
       expect(t.takeException(), isNull);
     });
 
-    testWidgets('mon pointage : téléphone connecté avec un AUTRE compte que l\'application → bandeau explicite', (t) async {
+    testWidgets('4.4.0 : téléphone connecté avec un AUTRE compte que l\'application → jeton effacé, plus de pointage pour cet autre compte', (t) async {
       tailleTelephone(t);
       final e = connecte(login: 'caissiere');
       await pump(t, MobilePointageScreen(rh: e.pr, login: 'admin', presentation: ListPresentation.dashboard, localisateur: sansPosition()));
       await t.pumpAndSettle();
-      expect(find.byKey(const Key('rh_mobile_autre_compte')), findsOneWidget);
-      expect(find.textContaining('connecté au compte « caissiere » (KOUASSI Awa), pas à « admin »'), findsOneWidget);
-      expect(find.byKey(const Key('rh_arrivee')), findsOneWidget, reason: 'information seulement : le pointage reste possible');
+      expect(find.byKey(const Key('rh_mobile_autre_compte')), findsNothing);
+      expect(find.textContaining('était connecté au compte « caissiere » : déconnecté'), findsOneWidget);
+      expect(e.coffre.valeur, isNull, reason: 'jeton de « caissiere » effacé');
+      expect(find.byKey(const Key('rh_arrivee')), findsNothing, reason: 'plus aucun pointage possible au nom de « caissiere »');
+      expect(t.widget<TextField>(find.byKey(const Key('rh_mobile_login'))).controller!.text, 'admin');
+      expect(t.widget<TextField>(find.byKey(const Key('rh_mobile_login'))).readOnly, isTrue);
+      expect(e.transport.appels.where((a) => a.jeton == 'J1'), isEmpty, reason: 'jeton de l\'autre compte jamais envoyé');
       expect(t.takeException(), isNull);
     });
   });

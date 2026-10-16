@@ -270,3 +270,64 @@ String formaterParametre(ParametreSuivi p) {
       : formaterValeur(p.valeur, p.decimales);
   return p.unite.isEmpty ? v : '$v ${p.unite}';
 }
+
+// ------------------------------------------------------------------------------------------- présentation (4.4.0)
+
+/// Lit une date « AAAA-MM-JJ[...] » ou « JJ/MM/AAAA » ; null si illisible.
+DateTime? lireDateClient(String s) {
+  final t = s.trim();
+  final iso = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(t);
+  final fr = RegExp(r'^(\d{2})/(\d{2})/(\d{4})').firstMatch(t);
+  final (a, m, j) = iso != null
+      ? (int.parse(iso[1]!), int.parse(iso[2]!), int.parse(iso[3]!))
+      : fr != null
+          ? (int.parse(fr[3]!), int.parse(fr[2]!), int.parse(fr[1]!))
+          : (0, 0, 0);
+  if (a < 1900 || m < 1 || m > 12 || j < 1 || j > 31) return null;
+  final d = DateTime(a, m, j);
+  return d.month == m ? d : null;
+}
+
+/// « 05/03/2026 » pour une date du serveur ; le texte d'origine s'il est illisible.
+String dateClientFr(String s) {
+  final d = lireDateClient(s);
+  if (d == null) return s.trim();
+  String deux(int v) => v.toString().padLeft(2, '0');
+  return '${deux(d.day)}/${deux(d.month)}/${d.year}';
+}
+
+/// Âge en années révolues à [maintenant] ; null si la date est absente, illisible ou improbable.
+int? ageClient(String naissance, DateTime maintenant) {
+  final d = lireDateClient(naissance);
+  if (d == null) return null;
+  var a = maintenant.year - d.year;
+  if (maintenant.month < d.month || (maintenant.month == d.month && maintenant.day < d.day)) a--;
+  return a < 0 || a > 130 ? null : a;
+}
+
+/// « Femme » / « Homme » / texte d'origine.
+String sexeLisible(String s) => switch (s.trim().toUpperCase()) {
+      'F' || 'FEMME' => 'Femme',
+      'M' || 'H' || 'HOMME' => 'Homme',
+      _ => s.trim(),
+    };
+
+/// Deux initiales pour l'avatar (« TP » pour TEST Patient) ; « ? » sans nom.
+String initialesClient(ClientResume c) {
+  final mots = c.nomComplet.split(RegExp(r'\s+')).where((m) => m.isNotEmpty).toList();
+  if (mots.isEmpty) return '?';
+  final p = String.fromCharCode(mots.first.runes.first);
+  final d = mots.length > 1 ? String.fromCharCode(mots[1].runes.first) : '';
+  return '$p$d'.toUpperCase();
+}
+
+/// Rythme lisible : « tous les 30 j » (si au moins 2 achats et une fréquence connue), sinon vide.
+String rythmeAchat(LigneConsommation l) => l.nbAchats > 1 && (l.frequenceJours ?? 0) > 0 ? 'tous les ${l.frequenceJours} j' : '';
+
+/// Résumé de la consommation : produits, achats, boîtes, montant.
+({int produits, int achats, int boites, int montant}) resumeConsommation(List<LigneConsommation> l) => (
+      produits: l.length,
+      achats: l.fold(0, (s, x) => s + x.nbAchats),
+      boites: l.fold(0, (s, x) => s + x.qteTotale),
+      montant: l.fold(0, (s, x) => s + x.montant),
+    );

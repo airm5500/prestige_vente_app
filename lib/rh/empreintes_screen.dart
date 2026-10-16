@@ -2,14 +2,18 @@
 // Enrôlement des empreintes des employés sur le terminal de pointage (SUNMI V3H avec lecteur d'empreinte).
 // Accès : code administrateur de l'appli (PinCodeDialog) ET compte connecté avec le droit RH (P_SM_RH).
 // Parcours : choisir l'employé → CONSENTEMENT explicite de l'employé (donnée biométrique) → 3 captures →
-// test de reconnaissance → enregistrement des modèles sur CE terminal uniquement (stockage sécurisé).
+// test de reconnaissance → enregistrement des modèles (stockage sécurisé du terminal).
+// 4.4.0 (demande 43) : partage actif sur le serveur → modèles AUSSI conservés chiffrés sur le serveur de la
+// pharmacie et reconnus sur tous ses terminaux (texte du consentement adapté) ; suppression → supprimés du serveur.
+// Serveur sans partage : comme avant, sur ce terminal seulement. Accès : administrateur de l'application.
 // Suppression des empreintes d'un employé à tout moment (et automatiquement s'il devient inactif).
-// Rien n'est envoyé au serveur ; le journal ne garde que « empreintes enregistrées / supprimées ».
+// Le journal ne garde que « empreintes enregistrées / envoyées / supprimées » (jamais de modèle).
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
+import 'package:prestige_vente_app/rh/empreintes_partagees.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
 import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
@@ -17,11 +21,18 @@ import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 
-/// Texte du consentement (affiché et gardé avec la date dans le coffre du terminal).
+/// Texte du consentement quand le serveur NE partage PAS les empreintes (affiché et gardé avec la date).
 const String texteConsentementEmpreinte =
     'J\'accepte que mon empreinte digitale soit enregistrée sur ce terminal de pointage de l\'officine, '
     'uniquement pour enregistrer mes entrées et sorties. Le modèle d\'empreinte reste sur ce terminal (jamais '
     'envoyé au serveur), chiffré, et est supprimé à ma demande ou à mon départ. Je peux utiliser mon badge à la place.';
+
+/// 4.4.0 : texte du consentement quand le partage est actif (demande 43).
+const String texteConsentementEmpreintePartagee =
+    'J\'accepte que mon empreinte digitale soit enregistrée pour le pointage de l\'officine, uniquement pour '
+    'enregistrer mes entrées et sorties. Le modèle d\'empreinte est conservé chiffré sur le serveur de la pharmacie '
+    'et reconnu sur tous ses terminaux de pointage ; il est supprimé à ma demande ou à mon départ. Je peux utiliser '
+    'mon badge à la place.';
 
 /// Rappel réglementaire (Côte d'Ivoire) affiché à l'enrôlement.
 const String rappelArtci =
@@ -53,6 +64,14 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
 
   IdentificationEmploye get _id => widget.identification;
 
+  /// Partage des empreintes (null : pas de serveur RH).
+  EmpreintesPartagees? get _partage {
+    final s = widget.rh.serveur;
+    return s == null ? null : EmpreintesPartagees.pour(s, _id.coffre, horsLigne: widget.rh.horsLigne);
+  }
+
+  StatutPartageEmpreintes _statut = const StatutPartageEmpreintes();
+
   @override
   void initState() {
     super.initState();
@@ -74,9 +93,21 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
     if (rh) await _charger();
   }
 
-  Future<void> _charger() async {
+  Future<void> _charger({bool synchroniser = true}) async {
+    final p = _partage;
+    if (p != null && synchroniser) {
+      try {
+        await p.synchroniser();
+      } catch (_) {}
+    }
     final e = await _id.enroles();
-    if (mounted) setState(() => _enroles = e);
+    final st = p == null ? const StatutPartageEmpreintes() : await p.statut();
+    if (mounted) {
+      setState(() {
+        _enroles = e;
+        _statut = st;
+      });
+    }
   }
 
   Future<bool> _consentement(EmployeRh e) async {
@@ -90,7 +121,8 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
           scrollable: true,
           title: Text('Consentement de ${e.nomComplet}'),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const Text(texteConsentementEmpreinte, style: TextStyle(fontSize: 14)),
+            Text(_statut.actif ? texteConsentementEmpreintePartagee : texteConsentementEmpreinte,
+                key: const Key('rh_consentement_texte'), style: const TextStyle(fontSize: 14)),
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(10),
@@ -139,13 +171,37 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
         _dire('Test échoué : empreinte non reconnue. Rien n\'a été enregistré, recommencez.');
         return;
       }
-      await _id.enregistrer(EmpreintesEmploye(
+      final partage = _statut.actif;
+      final avant = _enroles[e.id];
+      final nouveau = EmpreintesEmploye(
         employeId: e.id,
         employeNom: e.nomComplet,
         modeles: modeles,
         consentementLe: widget.rh.now,
         recueilliPar: JournalTerminal.instance.utilisateur,
-      ));
+        consentementPartage: partage,
+      );
+      await _id.enregistrer(nouveau);
+      final p = _partage;
+      if (p != null && partage) {
+        // Refaire : les anciens modèles sont d'abord retirés du serveur (les autres terminaux les retirent aussi).
+        if (avant != null && (avant.partage || avant.envoiEnAttente)) await p.supprimer(e.id);
+        final etat = await p.envoyer(nouveau);
+        final enAttente = (await _id.enroles())[e.id]?.envoiEnAttente == true;
+        _dire(
+            enAttente
+                ? 'Empreintes de ${e.nomComplet} enregistrées et reconnues. Serveur injoignable : envoi au serveur à la prochaine synchronisation.'
+                : etat == EtatPartageEmpreintes.actif
+                    ? 'Empreintes de ${e.nomComplet} enregistrées, reconnues et partagées avec les autres terminaux.'
+                    : 'Empreintes de ${e.nomComplet} enregistrées et reconnues sur ce terminal (partage indisponible).',
+            ok: true);
+        widget.rh.journal().noter(
+            type: TypeJournal.pointageRh,
+            action: 'Empreintes enregistrées — ${e.nomComplet} (${modeles.length} capture(s), consentement « partage » recueilli)',
+            resultat: ResultatJournal.info);
+        await _charger(synchroniser: false);
+        return;
+      }
       widget.rh.journal().noter(
           type: TypeJournal.pointageRh,
           action: 'Empreintes enregistrées sur le terminal — ${e.nomComplet} (${modeles.length} capture(s), consentement recueilli)',
@@ -166,7 +222,9 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Supprimer les empreintes ?'),
-        content: Text('Les empreintes de ${e.nomComplet} seront effacées de ce terminal. Il / elle pointera avec son badge.'),
+        content: Text(_statut.actif
+            ? 'Les empreintes de ${e.nomComplet} seront effacées du serveur et de tous les terminaux. Il / elle pointera avec son badge.'
+            : 'Les empreintes de ${e.nomComplet} seront effacées de ce terminal. Il / elle pointera avec son badge.'),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Annuler')),
           ElevatedButton(key: const Key('rh_supprimer_ok'), onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Supprimer')),
@@ -174,7 +232,10 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
       ),
     );
     if (ok != true) return;
+    final avant = _enroles[e.id];
     await _id.supprimer(e.id);
+    // 4.4.0 : aussi sur le serveur (refait plus tard si le réseau est coupé).
+    if (avant != null && (avant.partage || avant.consentementPartage)) await _partage?.supprimer(e.id);
     widget.rh.journal().noter(type: TypeJournal.pointageRh, action: 'Empreintes supprimées du terminal — ${e.nomComplet}', resultat: ResultatJournal.info);
     _dire('Empreintes de ${e.nomComplet} supprimées.', ok: true);
     await _charger();
@@ -212,6 +273,16 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
                     padding: const EdgeInsets.all(12),
                     children: [
                       const Text(rappelArtci, style: TextStyle(fontSize: 12.5, color: Color(0xFF8A5300))),
+                      const SizedBox(height: 8),
+                      // 4.4.0 : état du partage entre terminaux.
+                      Row(children: [
+                        Icon(_statut.actif ? Icons.cloud_done_outlined : Icons.phonelink_lock_outlined, size: 18, color: _statut.actif ? Pal.green : Pal.muted),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(texteStatutEmpreintes(_statut, _enroles.values.where((x) => x.modeles.isNotEmpty).length),
+                              key: const Key('rh_empreintes_statut'), style: const TextStyle(fontSize: 12.5, color: Pal.ink)),
+                        ),
+                      ]),
                       const SizedBox(height: 8),
                       if (_etat != null)
                         Container(

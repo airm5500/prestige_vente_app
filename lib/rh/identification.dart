@@ -13,9 +13,12 @@
 // existant SunmiFingerprintBridge (canal `prestige/fingerprint` : enroll → modèle, identify(modèles) → index).
 // Service absent (terminal sans lecteur, autre marque) : « indisponible » proprement → repli badge / NFC.
 //
-// Les MODÈLES d'empreinte restent UNIQUEMENT sur le terminal : stockage sécurisé (Keystore, exclu des
-// sauvegardes Android), associés à l'employeId, jamais envoyés au serveur (qui n'a pas de stockage
-// d'empreintes). Ceux d'un employé devenu INACTIF sont supprimés à la mise à jour de la liste des employés.
+// Les MODÈLES d'empreinte sont gardés sur le terminal : stockage sécurisé (Keystore, exclu des sauvegardes
+// Android), associés à l'employeId. 4.4.0 (demande 43) : si le serveur partage les empreintes
+// (KEY_EMPREINTES_PARTAGEES = 1), ils sont AUSSI conservés chiffrés sur le serveur de la pharmacie et recopiés sur
+// chaque terminal V3H (voir empreintes_partagees.dart) ; sinon, comme avant, ils restent sur ce terminal seulement.
+// Ceux d'un employé devenu INACTIF sont supprimés à la mise à jour de la liste des employés.
+// Jamais de modèle dans un journal, un message ou une trace.
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -148,13 +151,50 @@ class EmpreintesEmploye {
 
   /// Qui a recueilli le consentement (compte connecté), pour la trace.
   final String recueilliPar;
+
+  /// 4.4.0 (empreintes partagées) : identifiant du serveur de chaque modèle (même ordre que [modeles] ; null :
+  /// modèle seulement sur ce terminal).
+  final List<String?> idsServeur;
+
+  /// Consentement donné avec le texte du PARTAGE (conservé sur le serveur, reconnu sur tous les terminaux) :
+  /// seuls ces modèles peuvent être envoyés au serveur.
+  final bool consentementPartage;
+
+  /// Envoi au serveur à refaire (réseau coupé à l'enrôlement) ; [refEnvoi] : X-Client-Ref gardé pour que le
+  /// nouvel essai ne crée pas de doublon.
+  final bool envoiEnAttente;
+  final String refEnvoi;
+
   const EmpreintesEmploye({
     required this.employeId,
     this.employeNom = '',
     required this.modeles,
     required this.consentementLe,
     this.recueilliPar = '',
+    this.idsServeur = const [],
+    this.consentementPartage = false,
+    this.envoiEnAttente = false,
+    this.refEnvoi = '',
   });
+
+  /// Identifiant serveur du modèle [i] (null : local).
+  String? idServeur(int i) => i < idsServeur.length ? idsServeur[i] : null;
+
+  /// Modèles reçus du serveur ou envoyés (au moins un identifiant serveur).
+  bool get partage => idsServeur.any((x) => x != null && x.isNotEmpty);
+
+  EmpreintesEmploye copie({List<Uint8List>? modeles, List<String?>? idsServeur, bool? envoiEnAttente, String? refEnvoi, String? employeNom}) =>
+      EmpreintesEmploye(
+        employeId: employeId,
+        employeNom: employeNom ?? this.employeNom,
+        modeles: modeles ?? this.modeles,
+        consentementLe: consentementLe,
+        recueilliPar: recueilliPar,
+        idsServeur: idsServeur ?? this.idsServeur,
+        consentementPartage: consentementPartage,
+        envoiEnAttente: envoiEnAttente ?? this.envoiEnAttente,
+        refEnvoi: refEnvoi ?? this.refEnvoi,
+      );
 
   Map<String, dynamic> toJson() => {
         'employeId': employeId,
@@ -162,6 +202,10 @@ class EmpreintesEmploye {
         'modeles': [for (final m in modeles) base64Encode(m)],
         'consentementLe': consentementLe.toIso8601String(),
         'recueilliPar': recueilliPar,
+        if (idsServeur.isNotEmpty) 'idsServeur': idsServeur,
+        if (consentementPartage) 'consentementPartage': true,
+        if (envoiEnAttente) 'envoiEnAttente': true,
+        if (refEnvoi.isNotEmpty) 'refEnvoi': refEnvoi,
       };
 
   factory EmpreintesEmploye.fromJson(Map<String, dynamic> j) => EmpreintesEmploye(
@@ -170,6 +214,10 @@ class EmpreintesEmploye {
         modeles: [for (final m in (j['modeles'] as List? ?? const [])) base64Decode('$m')],
         consentementLe: DateTime.tryParse('${j['consentementLe']}') ?? DateTime.fromMillisecondsSinceEpoch(0),
         recueilliPar: '${j['recueilliPar'] ?? ''}',
+        idsServeur: [for (final x in (j['idsServeur'] as List? ?? const [])) x == null ? null : '$x'],
+        consentementPartage: j['consentementPartage'] == true,
+        envoiEnAttente: j['envoiEnAttente'] == true,
+        refEnvoi: '${j['refEnvoi'] ?? ''}',
       );
 }
 

@@ -27,7 +27,10 @@ import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
+import 'package:prestige_vente_app/rh/empreintes_partagees.dart';
+import 'package:prestige_vente_app/rh/identification.dart';
 import 'package:prestige_vente_app/rh/photo_controle.dart';
+import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/rh/photo_controle_screen.dart';
 import 'package:prestige_vente_app/screens/auth/qr_code_preview_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/employees_screen.dart';
@@ -696,7 +699,10 @@ class EquipePage extends StatefulWidget {
 
   /// Photo de contrôle (tests) ; par défaut le service de l'application.
   final PhotoControle? photo;
-  const EquipePage({super.key, required this.repository, this.photo});
+
+  /// Coffre des empreintes (tests) ; par défaut celui du terminal de pointage.
+  final CoffreEmpreintes? coffreEmpreintes;
+  const EquipePage({super.key, required this.repository, this.photo, this.coffreEmpreintes});
 
   @override
   State<EquipePage> createState() => _EquipePageState();
@@ -708,6 +714,16 @@ class _EquipePageState extends State<EquipePage> {
   ReglagesPointageTerminal _terminal = const ReglagesPointageTerminal();
 
   late final PhotoControle _photo = widget.photo ?? PhotoControle.instance ?? PhotoControle();
+
+  /// État du partage des empreintes et nombre d'employés enrôlés sur ce terminal (4.4.0).
+  late final Future<(StatutPartageEmpreintes, int)> _etatEmpreintes = () async {
+    final coffre = widget.coffreEmpreintes ?? PointageRh.instance.identification?.coffre ?? const CoffreEmpreintesSecurise();
+    var n = 0;
+    try {
+      n = (await coffre.lire()).values.where((e) => e.modeles.isNotEmpty).length;
+    } catch (_) {}
+    return (await EmpreintesPartagees.lireStatut(), n);
+  }();
 
   @override
   void initState() {
@@ -876,6 +892,26 @@ class _EquipePageState extends State<EquipePage> {
                     : '${_photo.registre.photos.length} pointage(s) par badge gardé(s) sur ce terminal',
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => PhotosPointageScreen(registre: _photo.registre, retentionJours: _terminal.retentionJours))),
+              );
+            },
+          ),
+          // 4.4.0 (demande 43) : état des empreintes partagées entre terminaux.
+          FutureBuilder<(StatutPartageEmpreintes, int)>(
+            future: _etatEmpreintes,
+            builder: (context, snap) {
+              final d = snap.data;
+              return SettingCard(
+                key: const Key('rh_reglage_empreintes'),
+                child: Row(children: [
+                  Icon(d?.$1.actif == true ? Icons.cloud_done_outlined : Icons.fingerprint, color: Pal.navy),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SettingText(
+                      'Empreintes des employés',
+                      subtitle: d == null ? 'Lecture…' : texteStatutEmpreintes(d.$1, d.$2),
+                    ),
+                  ),
+                ]),
               );
             },
           ),

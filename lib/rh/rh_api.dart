@@ -9,6 +9,8 @@
 //   POST rh/pointages {id, …, controle?} → {success, id, message} ; même id renvoyé → {success, id, deja:true}
 //   POST rh/pointages/{id}/photo (multipart : photo = JPEG, prise = date et heure ISO de la prise) → {success}
 //     ancien serveur : 404 / 405 → la photo reste sur le terminal (comme avant).
+// 4.4.0 (demande 43, serveur du 16/10) — empreintes partagées, voir empreintes_partagees.dart :
+//   POST rh/employes/{id}/empreintes, GET rh/empreintes?depuis&format, DELETE rh/employes/{id}/empreintes.
 // Pas de journal des réponses (LogInterceptor) : seules les erreurs utiles remontent. Jamais la photo dans un journal.
 import 'dart:convert';
 import 'dart:typed_data';
@@ -42,8 +44,17 @@ abstract class RhPhotos {
   Future<ReponseRh> envoyerPhoto(String pointageId, Uint8List jpeg, DateTime prise);
 }
 
+/// 4.4.0 — Empreintes partagées (demande 43) ; facultatif pour un [RhServeur] (sans : empreintes locales seulement).
+abstract class RhEmpreintes {
+  /// POST v1/rh/employes/{id}/empreintes avec l'en-tête X-Client-Ref (même référence = même réponse).
+  Future<ReponseRh> envoyerEmpreintes(String employeId, Map<String, dynamic> corps, String clientRef);
+
+  /// DELETE v1/rh/employes/{id}/empreintes.
+  Future<ReponseRh> supprimerEmpreintes(String employeId);
+}
+
 /// Même session (cookies) et même adresse que l'appli.
-class DioRhServeur implements RhServeur, RhPhotos {
+class DioRhServeur implements RhServeur, RhPhotos, RhEmpreintes {
   final String Function() baseUrl;
   Dio? _dio;
   DioRhServeur(this.baseUrl);
@@ -87,6 +98,17 @@ class DioRhServeur implements RhServeur, RhPhotos {
   @override
   Future<ReponseRh> post(String chemin, Map<String, dynamic> corps) => _envoyer(
       (d) => d.post<String>(chemin, data: jsonEncode(corps), options: Options(headers: {'Content-Type': 'application/json'})));
+
+  // Jamais de journal de ces requêtes : le corps contient des gabarits d'empreinte.
+  @override
+  Future<ReponseRh> envoyerEmpreintes(String employeId, Map<String, dynamic> corps, String clientRef) => _envoyer((d) => d.post<String>(
+      '/rh/employes/${Uri.encodeComponent(employeId)}/empreintes',
+      data: jsonEncode(corps),
+      options: Options(headers: {'Content-Type': 'application/json', 'X-Client-Ref': clientRef})));
+
+  @override
+  Future<ReponseRh> supprimerEmpreintes(String employeId) =>
+      _envoyer((d) => d.delete<String>('/rh/employes/${Uri.encodeComponent(employeId)}/empreintes'));
 
   @override
   Future<ReponseRh> envoyerPhoto(String pointageId, Uint8List jpeg, DateTime prise) => _envoyer((d) => d.post<String>(

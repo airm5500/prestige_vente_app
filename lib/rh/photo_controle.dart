@@ -110,6 +110,9 @@ extension MotifSansPhotoInfo on MotifSansPhoto {
       };
 }
 
+/// 4.4.0 : délai d'ouverture de la caméra frontale (6 s auparavant ; décision du pharmacien : 10 s).
+const Duration delaiOuvertureCamera = Duration(seconds: 10);
+
 /// « sans photo (autorisation de la caméra refusée) ».
 String libelleSansPhoto(MotifSansPhoto m) => 'sans photo (${m.label})';
 
@@ -126,7 +129,11 @@ class PhotoPrise extends ResultatPhoto {
 /// Pas de photo : le pointage continue, marqué « sans photo (motif) ».
 class PhotoAbsente extends ResultatPhoto {
   final MotifSansPhoto motif;
-  const PhotoAbsente(this.motif);
+
+  /// 4.4.0 : précision technique pour l'administrateur (écran Photos de contrôle) : code de la caméra, délai,
+  /// scanner arrière qui ne libérait pas la caméra… Jamais d'image ni de chemin.
+  final String detail;
+  const PhotoAbsente(this.motif, [this.detail = '']);
 }
 
 /// La caméra ne peut pas servir (motif pour le marquage « sans photo »).
@@ -176,23 +183,29 @@ class CameraFrontalePlateforme implements CameraControle {
     return MotifSansPhoto.erreurCamera;
   }
 
+  /// 4.4.0 : attente de la libération de la caméra par le scanner arrière (badge lu à la caméra, scanner Sunmi
+  /// intégré) : nouvel essai toutes les [pasAttente], pendant [attenteLiberation] au plus.
+  static const attenteLiberation = Duration(seconds: 8);
+  static const pasAttente = Duration(milliseconds: 500);
+
   @override
   Future<SessionCamera> ouvrir() async {
-    try {
-      return await _ouvrir();
-    } on CameraIndisponible {
-      rethrow;
-    } catch (e) {
-      final m = motifDe(e);
-      if (m == MotifSansPhoto.permissionRefusee) throw CameraIndisponible(m);
-      // Le scanner du badge (caméra arrière) peut tenir encore la caméra un court instant : un nouvel essai.
-      await Future<void>.delayed(const Duration(milliseconds: 600));
+    final debut = DateTime.now();
+    var essais = 0;
+    while (true) {
+      essais++;
       try {
         return await _ouvrir();
       } on CameraIndisponible {
         rethrow;
-      } catch (e2) {
-        throw CameraIndisponible(motifDe(e2), e2 is CameraException ? e2.code : e2.runtimeType.toString());
+      } catch (e) {
+        final m = motifDe(e);
+        final code = e is CameraException ? e.code : e.runtimeType.toString();
+        if (m == MotifSansPhoto.permissionRefusee || m == MotifSansPhoto.cameraAbsente) throw CameraIndisponible(m, code);
+        if (DateTime.now().difference(debut) + pasAttente > attenteLiberation) {
+          throw CameraIndisponible(m, 'caméra occupée (scanner arrière ?) après $essais essai(s) : $code');
+        }
+        await Future<void>.delayed(pasAttente);
       }
     }
   }
@@ -316,9 +329,14 @@ class CapturePhotoControle extends ChangeNotifier {
     required this.camera,
     this.compresser = compresserPhotoIsolat,
     this.delaiApercu = const Duration(seconds: 2),
-    this.delaiOuverture = const Duration(seconds: 6),
+    this.delaiOuverture = delaiOuvertureCamera,
     this.delaiCapture = const Duration(seconds: 6),
+    this.sessionPrete,
   });
+
+  /// 4.4.0 : caméra frontale déjà ouverte (gardée prête par [PhotoControle.preparer]) : pas d'ouverture à attendre.
+  final SessionCamera? sessionPrete;
+  bool _depuisPrete = false;
 
   EtatCapture _etat = EtatCapture.ouverture;
   EtatCapture get etat => _etat;
@@ -352,9 +370,12 @@ class CapturePhotoControle extends ChangeNotifier {
     if (_lance) return;
     _lance = true;
     _garde = Timer(delaiOuverture, () {
-      if (_etat == EtatCapture.ouverture) _terminer(const PhotoAbsente(MotifSansPhoto.delaiDepasse));
+      if (_etat == EtatCapture.ouverture) {
+        _terminer(PhotoAbsente(MotifSansPhoto.delaiDepasse, 'caméra frontale non ouverte en ${delaiOuverture.inSeconds} s'));
+      }
     });
-    camera.ouvrir().then((s) {
+    _depuisPrete = sessionPrete != null;
+    (sessionPrete != null ? Future.value(sessionPrete!) : camera.ouvrir()).then((s) {
       if (terminee || _annulee) {
         s.fermer();
         return;
@@ -374,9 +395,13 @@ class CapturePhotoControle extends ChangeNotifier {
       });
       _declencheur = Timer(delai, capturerMaintenant);
     }, onError: (Object e) {
-      _terminer(PhotoAbsente(e is CameraIndisponible ? e.motif : CameraFrontalePlateforme.motifDe(e)));
+      _terminer(_absente(e));
     });
   }
+
+  static PhotoAbsente _absente(Object e) => e is CameraIndisponible
+      ? PhotoAbsente(e.motif, e.detail)
+      : PhotoAbsente(CameraFrontalePlateforme.motifDe(e), e is CameraException ? e.code : e.runtimeType.toString());
 
   /// Photo tout de suite (l'employé a appuyé sur « Valider ») si l'aperçu est affiché.
   Future<void> capturerMaintenant() async {
@@ -389,20 +414,37 @@ class CapturePhotoControle extends ChangeNotifier {
     _restant = 0;
     _notifier();
     try {
-      final brut = await s.capturer().timeout(delaiCapture);
+      Uint8List brut;
+      try {
+        brut = await s.capturer().timeout(delaiCapture);
+      } catch (e) {
+        // Caméra gardée prête mais reprise entre-temps (scanner arrière) : réouverture, une fois.
+        if (!_depuisPrete || e is TimeoutException || terminee) rethrow;
+        _depuisPrete = false;
+        try {
+          await s.fermer();
+        } catch (_) {}
+        final n = await camera.ouvrir().timeout(delaiOuverture);
+        if (terminee) {
+          await n.fermer();
+          return;
+        }
+        _session = n;
+        brut = await n.capturer().timeout(delaiCapture);
+      }
       if (terminee) return;
       Uint8List jpeg;
       try {
         jpeg = await compresser(brut);
       } catch (_) {
-        _terminer(const PhotoAbsente(MotifSansPhoto.photoIllisible));
+        _terminer(const PhotoAbsente(MotifSansPhoto.photoIllisible, 'image du capteur non décodable'));
         return;
       }
       _terminer(PhotoPrise(jpeg));
     } on TimeoutException {
-      _terminer(const PhotoAbsente(MotifSansPhoto.delaiDepasse));
+      _terminer(PhotoAbsente(MotifSansPhoto.delaiDepasse, 'photo non prise en ${delaiCapture.inSeconds} s'));
     } catch (e) {
-      _terminer(PhotoAbsente(e is CameraIndisponible ? e.motif : CameraFrontalePlateforme.motifDe(e)));
+      _terminer(_absente(e));
     }
   }
 
@@ -428,7 +470,7 @@ class CapturePhotoControle extends ChangeNotifier {
     final s = _session;
     _session = null;
     s?.fermer();
-    if (!_fini.isCompleted) _fini.complete(const PhotoAbsente(MotifSansPhoto.erreurCamera));
+    if (!_fini.isCompleted) _fini.complete(const PhotoAbsente(MotifSansPhoto.erreurCamera, 'lecture annulée'));
   }
 
   @override
@@ -461,6 +503,9 @@ class PhotoPointage {
   final String moyen;
   final bool avecPhoto;
   final MotifSansPhoto? motif;
+
+  /// 4.4.0 : précision du motif (voir [PhotoAbsente.detail]).
+  final String motifDetail;
   final int taille;
 
   /// État de l'envoi à Prestige (StatutPointageBadge.name) ; vide pour le pointage local.
@@ -483,6 +528,7 @@ class PhotoPointage {
     this.moyen = '',
     required this.avecPhoto,
     this.motif,
+    this.motifDetail = '',
     this.taille = 0,
     this.envoi = '',
     this.traitee = false,
@@ -501,6 +547,7 @@ class PhotoPointage {
         moyen: moyen,
         avecPhoto: avecPhoto,
         motif: motif,
+        motifDetail: motifDetail,
         taille: taille,
         envoi: envoi ?? this.envoi,
         traitee: traitee ?? this.traitee,
@@ -517,6 +564,7 @@ class PhotoPointage {
         'moyen': moyen,
         'avecPhoto': avecPhoto,
         'motif': motif?.name,
+        if (motifDetail.isNotEmpty) 'motifDetail': motifDetail,
         'taille': taille,
         'envoi': envoi,
         'traitee': traitee,
@@ -533,6 +581,7 @@ class PhotoPointage {
         moyen: '${j['moyen'] ?? ''}',
         avecPhoto: j['avecPhoto'] == true,
         motif: MotifSansPhoto.values.asNameMap()['${j['motif']}'],
+        motifDetail: '${j['motifDetail'] ?? ''}',
         taille: j['taille'] is num ? (j['taille'] as num).toInt() : 0,
         envoi: '${j['envoi'] ?? ''}',
         traitee: j['traitee'] == true,
@@ -746,6 +795,7 @@ class RegistrePhotosPointage extends ChangeNotifier implements AnomalieSourceLis
       moyen: moyen,
       avecPhoto: jpeg != null,
       motif: resultat is PhotoAbsente ? resultat.motif : null,
+      motifDetail: resultat is PhotoAbsente ? _borneDetail(resultat.detail) : '',
       taille: jpeg?.length ?? 0,
       envoi: envoi,
     );
@@ -756,7 +806,7 @@ class RegistrePhotosPointage extends ChangeNotifier implements AnomalieSourceLis
         // Photo non écrite (stockage plein…) : le pointage est gardé, marqué sans photo.
         p = PhotoPointage(
             id: id, source: source, employeId: employeId, employeNom: employeNom, lu: lu, sens: sens, moyen: moyen, avecPhoto: false,
-            motif: MotifSansPhoto.photoIllisible, envoi: envoi);
+            motif: MotifSansPhoto.photoIllisible, motifDetail: 'photo non écrite sur le terminal (stockage plein ?)', envoi: envoi);
         try {
           await stockage.ecrire(p);
         } catch (_) {}
@@ -773,6 +823,8 @@ class RegistrePhotosPointage extends ChangeNotifier implements AnomalieSourceLis
     notifyListeners();
     return p;
   }
+
+  static String _borneDetail(String d) => d.length > 160 ? d.substring(0, 160) : d;
 
   /// État de l'envoi du pointage à Prestige (après l'envoi de la file hors ligne).
   Future<void> majEnvoi(String id, String envoi) async {
@@ -883,7 +935,7 @@ class PhotoControle {
     Future<ReglagesPointageTerminal> Function()? reglages,
     this.compresser = compresserPhotoIsolat,
     this.delaiApercu = const Duration(seconds: 2),
-    this.delaiOuverture = const Duration(seconds: 6),
+    this.delaiOuverture = delaiOuvertureCamera,
     this.delaiCapture = const Duration(seconds: 6),
   })  : camera = camera ?? const CameraFrontalePlateforme(),
         registre = registre ?? RegistrePhotosPointage.instance,
@@ -892,13 +944,55 @@ class PhotoControle {
   /// Service de l'application (branché par PointageRh.bind) ; null dans les tests qui ne l'installent pas.
   static PhotoControle? instance;
 
-  CapturePhotoControle demarrer() => CapturePhotoControle(
-        camera: camera,
-        compresser: compresser,
-        delaiApercu: delaiApercu,
-        delaiOuverture: delaiOuverture,
-        delaiCapture: delaiCapture,
-      )..lancer();
+  // 4.4.0 (décision du pharmacien) : caméra frontale ouverte dès l'arrivée sur le terminal et GARDÉE PRÊTE ; elle
+  // est rendue avant le scan du badge à la caméra arrière, puis reprise (attente de sa libération).
+  SessionCamera? _prete;
+  Future<void>? _preparation;
+  int _generation = 0;
+
+  /// Caméra frontale ouverte et prête pour la prochaine photo.
+  bool get cameraPrete => _prete != null;
+
+  /// Ouvre la caméra frontale et la garde prête (sans effet si elle l'est déjà). Jamais d'erreur : la photo
+  /// suivante ouvrira la caméra normalement.
+  Future<void> preparer() {
+    if (_prete != null) return Future.value();
+    return _preparation ??= _ouvrirPrete().whenComplete(() => _preparation = null);
+  }
+
+  Future<void> _ouvrirPrete() async {
+    final g = _generation;
+    try {
+      final s = await camera.ouvrir().timeout(delaiOuverture);
+      if (g != _generation || _prete != null) {
+        await s.fermer(); // libérée entre-temps (scan du badge à la caméra arrière, sortie de l'écran)
+        return;
+      }
+      _prete = s;
+    } catch (_) {}
+  }
+
+  /// Rend la caméra frontale (avant le scanner arrière, mise en arrière-plan, sortie du terminal).
+  Future<void> liberer() async {
+    _generation++;
+    final s = _prete;
+    _prete = null;
+    await s?.fermer();
+  }
+
+  /// Photo de contrôle d'un pointage : utilise la caméra gardée prête s'il y en a une (elle passe à la capture).
+  CapturePhotoControle demarrer() {
+    final s = _prete;
+    _prete = null;
+    return CapturePhotoControle(
+      camera: camera,
+      compresser: compresser,
+      delaiApercu: delaiApercu,
+      delaiOuverture: delaiOuverture,
+      delaiCapture: delaiCapture,
+      sessionPrete: s,
+    )..lancer();
+  }
 
   static const prefPermissionExpliquee = 'rh_photo_permission_expliquee_v1';
 

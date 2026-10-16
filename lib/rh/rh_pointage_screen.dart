@@ -14,6 +14,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/rapports_hl_screen.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
+import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/rh/droits_rh.dart';
 import 'package:prestige_vente_app/rh/mobile_api.dart';
 import 'package:prestige_vente_app/rh/mobile_pointage_screen.dart';
 import 'package:prestige_vente_app/rh/photo_controle.dart';
@@ -22,10 +24,13 @@ import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/rh/presences_screen.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/rh/terminal_pointage_screen.dart';
+import 'package:prestige_vente_app/services/identifiants_securises.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
+
+export 'package:prestige_vente_app/rh/droits_rh.dart' show estGestionnaireRh, adminAppliRh, droitPointerRh, droitGestionRh;
 
 class RhPointageScreen extends StatefulWidget {
   /// Module (tests) ; sinon [PointageRh.instance].
@@ -128,16 +133,9 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
     }
   }
 
-  bool get _adminAppli {
-    try {
-      return Provider.of<AuthProvider>(context, listen: false).isAdmin;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Suivi et analyse réservés au gestionnaire : administrateur de l'application ou droit RH (P_SM_RH).
-  bool get _gestionnaire => widget.gestion ?? estGestionnaireRh(admin: _adminAppli, acces: _rh.acces);
+  /// 4.4.0 : présences, photos de contrôle et empreintes réservées à l'administrateur de l'application
+  /// (pharmacien / super administrateur) ; le droit RH seul ouvre le terminal (voir droits_rh.dart).
+  bool get _gestionnaire => widget.gestion ?? adminAppliRh(context);
 
   String? get _loginConnecte {
     try {
@@ -145,6 +143,19 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
     } catch (_) {
       return null;
     }
+  }
+
+  /// 4.4.0 : mot de passe mémorisé (« Rester connecté ») du compte connecté seulement — jamais celui d'un autre compte.
+  Future<String?> _motDePasseMemorise() async {
+    final login = _loginConnecte;
+    if (login == null || login.trim().isEmpty) return null;
+    try {
+      final st = Provider.of<SettingsProvider>(context, listen: false);
+      if (!st.stayConnected || st.savedLogin.trim().toLowerCase() != login.trim().toLowerCase()) return null;
+    } catch (_) {
+      return null;
+    }
+    return IdentifiantsSecurises.instance.lire();
   }
 
   String get _voieAExplication => switch (_voieA) {
@@ -159,7 +170,7 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
         AccesRh.autorise => _rh.accesMessage.isNotEmpty
             ? _rh.accesMessage
             : 'Badge (lecteur, caméra), NFC ou empreinte sur un appareil commun. ${_rh.employes.length} employé(s) copiés.',
-        AccesRh.refuse => '${_rh.accesMessage} Droit « P_SM_RH » nécessaire sur le compte connecté.',
+        AccesRh.refuse => '${_rh.accesMessage} Droit « $droitPointerRh » (pointer) ou « $droitGestionRh » nécessaire sur le compte connecté.',
         AccesRh.absent => _rh.accesMessage,
         AccesRh.inconnu => _verifie ? (_rh.accesMessage.isEmpty ? 'Accès RH non vérifié.' : _rh.accesMessage) : 'Vérification du droit RH…',
       };
@@ -181,7 +192,7 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
         titre: 'Mon pointage',
         detail: _reglages.simpleBouton ? _voieAExplication : messageSimpleBoutonDesactive,
         actif: _voieA == EtatVoieA.disponible && _reglages.simpleBouton,
-        onTap: () => _ouvrir(MobilePointageScreen(rh: _rh, login: _loginConnecte, presentation: style)),
+        onTap: () => _ouvrir(MobilePointageScreen(rh: _rh, login: _loginConnecte, presentation: style, motDePasseMemorise: _motDePasseMemorise)),
       ),
       _tuile(
         key: const Key('rh_voie_b'),
@@ -201,7 +212,7 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
               ? 'Suivi (pharmacien) : entrées, sorties, retards et anomalies de l\'équipe.'
               : voieB
                   ? 'Disponible en ligne uniquement.'
-                  : 'Réservé aux comptes ayant le droit RH (P_SM_RH).',
+                  : 'Réservé à l\'administrateur de l\'application, avec l\'accès RH du serveur.',
           actif: presences,
           onTap: () => _ouvrir(PresencesScreen(rh: _rh, presentation: style)),
         ),
@@ -326,7 +337,7 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
 
 /// Suivi et analyse (présences, empreintes) : administrateur de l'application, ou compte ayant le droit RH
 /// (P_SM_RH, vérifié par `GET rh/droits`). Les autres comptes ne font que pointer.
-bool estGestionnaireRh({required bool admin, required AccesRh acces}) => admin || acces == AccesRh.autorise;
+
 
 // -----------------------------------------------------------------------------
 // File des pointages du terminal (hors ligne) et confirmation d'envoi

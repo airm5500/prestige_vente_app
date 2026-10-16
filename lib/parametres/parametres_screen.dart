@@ -34,6 +34,7 @@ import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/widgets/bouton_deconnexion.dart';
 
 class ParametresScreen extends StatefulWidget {
   /// Remplaçables pour les tests.
@@ -379,15 +380,10 @@ class _ParametresScreenState extends State<ParametresScreen> {
                   child: Container(
                     constraints: const BoxConstraints(minHeight: 60),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    child: Row(children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(color: const Color(0xFFFDECEC), borderRadius: BorderRadius.circular(11)),
-                        child: const Icon(Icons.power_settings_new, color: Color(0xFFDC2626), size: 22),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
+                    child: const Row(children: [
+                      PastilleDeconnexion(taille: 40),
+                      SizedBox(width: 12),
+                      Expanded(
                         child: Text('Se déconnecter',
                             style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: Color(0xFFDC2626))),
                       ),

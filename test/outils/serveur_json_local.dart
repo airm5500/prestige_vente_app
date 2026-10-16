@@ -15,7 +15,16 @@ class RequeteRecue {
   final Map<String, String> query;
   final String corps;
   final String cookie;
-  RequeteRecue(this.methode, this.chemin, this.query, this.corps, this.cookie);
+
+  /// En-tête Authorization (jeton Bearer de v1/mobile) ; vide sinon.
+  final String autorisation;
+
+  /// En-tête X-Client-Ref (anti-doublon) ; vide sinon.
+  final String clientRef;
+  RequeteRecue(this.methode, this.chemin, this.query, this.corps, this.cookie, {this.autorisation = '', this.clientRef = ''});
+
+  /// Jeton Bearer envoyé, ou null.
+  String? get jeton => autorisation.startsWith('Bearer ') ? autorisation.substring(7) : null;
 
   Map<String, dynamic> get json => corps.isEmpty ? <String, dynamic>{} : Map<String, dynamic>.from(jsonDecode(corps) as Map);
 
@@ -95,7 +104,8 @@ class ServeurJsonLocal {
     _port = s.port;
     s.listen((req) async {
       final corps = await utf8.decoder.bind(req).join();
-      final r = RequeteRecue(req.method, req.uri.path, req.uri.queryParameters, corps, req.headers.value('cookie') ?? '');
+      final r = RequeteRecue(req.method, req.uri.path, req.uri.queryParameters, corps, req.headers.value('cookie') ?? '',
+          autorisation: req.headers.value('authorization') ?? '', clientRef: req.headers.value('x-client-ref') ?? '');
       recues.add(r);
       final rep = await repondre(r);
       if (rep.delai > Duration.zero) await Future<void>.delayed(rep.delai);

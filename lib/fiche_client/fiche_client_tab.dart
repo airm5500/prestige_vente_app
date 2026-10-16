@@ -30,6 +30,7 @@ class _FicheClientTabState extends State<FicheClientTab> {
 
   // Recherche
   final _recherche = TextEditingController();
+  final _focusRecherche = FocusNode(debugLabel: 'fiche-recherche');
   Timer? _attente;
   List<ClientResume>? _resultats;
   Object? _erreurRecherche;
@@ -54,6 +55,7 @@ class _FicheClientTabState extends State<FicheClientTab> {
   void dispose() {
     _attente?.cancel();
     _recherche.dispose();
+    _focusRecherche.dispose();
     super.dispose();
   }
 
@@ -107,13 +109,21 @@ class _FicheClientTabState extends State<FicheClientTab> {
     if (_terrains == null || _parametres == null) _chargerReferentiels();
   }
 
-  void _changerClient() => setState(() {
-        _client = null;
-        _dossier = null;
-        _erreurDossier = null;
-        _conso = null;
-        _erreurConso = null;
-      });
+  /// Retour à la recherche : curseur dans le champ, texte précédent présélectionné (une frappe le remplace).
+  void _changerClient() {
+    setState(() {
+      _client = null;
+      _dossier = null;
+      _erreurDossier = null;
+      _conso = null;
+      _erreurConso = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _client != null) return;
+      _focusRecherche.requestFocus();
+      _recherche.selection = TextSelection(baseOffset: 0, extentOffset: _recherche.text.length);
+    });
+  }
 
   // ------------------------------------------------------------------------------------------------- dossier
 
@@ -252,6 +262,8 @@ class _FicheClientTabState extends State<FicheClientTab> {
         child: TextField(
           key: const ValueKey('fiche-recherche'),
           controller: _recherche,
+          focusNode: _focusRecherche,
+          autofocus: true, // curseur prêt dès l'ouverture (4.4.0)
           onChanged: _saisie,
           onSubmitted: (_) => _chercher(),
           textInputAction: TextInputAction.search,
@@ -273,19 +285,16 @@ class _FicheClientTabState extends State<FicheClientTab> {
                 ? const Padding(padding: EdgeInsets.all(24), child: Text('Aucun client trouvé.', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted)))
                 : ListView.separated(
                     padding: EdgeInsets.fromLTRB(16 + inset, 4, 16 + inset, 24),
-                    itemCount: r.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (_, i) {
-                      final c = r[i];
-                      return ListTile(
-                        key: ValueKey('fiche-client-${c.id}'),
-                        leading: const CircleAvatar(backgroundColor: Color(0xFFE3ECF7), child: Icon(Icons.person, color: Pal.navy)),
-                        title: Text(c.nomComplet.isEmpty ? 'Client sans nom' : c.nomComplet),
-                        subtitle: Text([c.telephone, c.type].where((x) => x.isNotEmpty).join(' · ')),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _choisir(c),
-                      );
-                    },
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    itemCount: r.length + 1,
+                    separatorBuilder: (_, i) => i == 0 ? const SizedBox(height: 2) : const SizedBox(height: 8),
+                    itemBuilder: (_, i) => i == 0
+                        ? Padding(
+                            padding: const EdgeInsets.only(left: 4, bottom: 2),
+                            child: Text(r.length == 1 ? '1 client trouvé' : '${r.length} clients trouvés',
+                                key: const ValueKey('fiche-nb-resultats'), style: const TextStyle(color: Pal.muted, fontSize: 12)),
+                          )
+                        : LigneResultatClient(client: r[i - 1], onTap: () => _choisir(r[i - 1])),
                   ),
       ),
     ]);
@@ -436,6 +445,7 @@ class _FicheClientTabState extends State<FicheClientTab> {
 
   Widget _carteConso() {
     final l = _conso;
+    final visibles = l == null ? const <LigneConsommation>[] : l.take(50).toList();
     return SoftCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _titre('Consommation (12 mois)'),
@@ -446,24 +456,176 @@ class _FicheClientTabState extends State<FicheClientTab> {
         if (_chargeConso) const LinearProgressIndicator(minHeight: 2),
         if (_erreurConso != null) BandeauErreur(erreur: _erreurConso!, onReessayer: _chargerConso),
         if (l != null && l.isEmpty) const Text('Aucun achat sur la période.', style: TextStyle(color: Pal.muted)),
-        if (l != null)
-          for (final x in l.take(50))
-            ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: Text(x.nom, maxLines: 2, overflow: TextOverflow.ellipsis),
-              subtitle: Text([
-                '${x.nbAchats} achat(s), ${x.qteTotale} boîte(s)',
-                if (x.dernierAchat.isNotEmpty) 'dernier le ${x.dernierAchat}',
-                if (x.habitude.isNotEmpty) x.habitude,
-              ].join(' · ')),
-              trailing: x.stock == null ? null : Text('Stock ${x.stock}', style: const TextStyle(fontSize: 12, color: Pal.muted)),
+        if (l != null && l.isNotEmpty) ...[
+          ResumeConsommation(lignes: l),
+          const SizedBox(height: 10),
+          for (var i = 0; i < visibles.length; i++) ...[
+            if (i > 0) const Divider(height: 14),
+            LigneConsommationVue(key: ValueKey('fiche-conso-ligne-$i'), ligne: visibles[i]),
+          ],
+          if (l.length > 50)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('… et ${l.length - 50} autre(s) produit(s).', style: const TextStyle(color: Pal.muted, fontSize: 12)),
             ),
-        if (l != null && l.length > 50) Text('… et ${l.length - 50} autre(s) produit(s).', style: const TextStyle(color: Pal.muted, fontSize: 12)),
-        if (l != null && l.isNotEmpty)
-          Text('Montant total : ${Constants.formatNumber(l.fold<int>(0, (s, x) => s + x.montant))} F', style: const TextStyle(fontSize: 12, color: Pal.muted)),
+        ],
       ]),
     );
+  }
+}
+
+// ------------------------------------------------------------------------------------------- présentation (4.4.0)
+
+const _chiffres = [FontFeature.tabularFigures()];
+
+/// Une ligne de résultat de la recherche : initiales, nom, téléphone, puis type, âge et sexe en pastilles.
+class LigneResultatClient extends StatelessWidget {
+  final ClientResume client;
+  final VoidCallback onTap;
+  final DateTime? maintenant; // pour les tests (âge stable)
+  const LigneResultatClient({super.key, required this.client, required this.onTap, this.maintenant});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = client;
+    final age = ageClient(c.naissance, maintenant ?? DateTime.now());
+    final sexe = sexeLisible(c.sexe);
+    final femme = sexe == 'Femme';
+    final pastilles = [
+      if (c.type.isNotEmpty) _Pastille(c.type, fg: const Color(0xFF1F4F8F), bg: const Color(0xFFE3ECF7)),
+      if (age != null) _Pastille('$age ans', fg: Pal.ink, bg: const Color(0xFFF1F3F6)),
+      if (sexe.isNotEmpty) _Pastille(sexe, fg: Pal.ink, bg: const Color(0xFFF1F3F6)),
+    ];
+    return Material(
+      key: ValueKey('fiche-client-${c.id}'),
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: Color(0xFFE3E8EF))),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+          child: Row(children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: femme ? const Color(0xFFFCE7F0) : const Color(0xFFE3ECF7),
+              child: Text(initialesClient(c), style: TextStyle(fontWeight: FontWeight.w700, color: femme ? const Color(0xFF9D174D) : Pal.navy)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(c.nomComplet.isEmpty ? 'Client sans nom' : c.nomComplet,
+                    maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Pal.ink)),
+                const SizedBox(height: 2),
+                Row(children: [
+                  const Icon(Icons.phone_outlined, size: 14, color: Pal.muted),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(c.telephone.isEmpty ? 'Pas de téléphone' : c.telephone,
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Pal.muted, fontSize: 13, fontFeatures: _chiffres)),
+                  ),
+                ]),
+                if (pastilles.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 6, runSpacing: 4, children: pastilles),
+                ],
+              ]),
+            ),
+            const Icon(Icons.chevron_right, color: Pal.muted),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _Pastille extends StatelessWidget {
+  final String texte;
+  final Color fg, bg;
+  const _Pastille(this.texte, {required this.fg, required this.bg});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+        child: Text(texte, style: TextStyle(fontSize: 12, color: fg, fontWeight: FontWeight.w600)),
+      );
+}
+
+/// Bandeau de synthèse : produits, achats, boîtes et montant total de la période.
+class ResumeConsommation extends StatelessWidget {
+  final List<LigneConsommation> lignes;
+  const ResumeConsommation({super.key, required this.lignes});
+
+  @override
+  Widget build(BuildContext context) {
+    final r = resumeConsommation(lignes);
+    Widget chiffre(String valeur, String libelle, {Key? key}) => Expanded(
+          child: Column(children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(valeur, key: key, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Pal.navy, fontFeatures: _chiffres)),
+            ),
+            Text(libelle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Pal.muted)),
+          ]),
+        );
+    return Container(
+      key: const ValueKey('fiche-conso-resume'),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      decoration: BoxDecoration(color: const Color(0xFFF4F7FB), borderRadius: BorderRadius.circular(10)),
+      child: Row(children: [
+        chiffre('${r.produits}', r.produits > 1 ? 'produits' : 'produit'),
+        chiffre('${r.achats}', r.achats > 1 ? 'achats' : 'achat'),
+        chiffre('${r.boites}', r.boites > 1 ? 'boîtes' : 'boîte'),
+        chiffre('${Constants.formatNumber(r.montant)} F', 'montant total', key: const ValueKey('fiche-conso-total')),
+      ]),
+    );
+  }
+}
+
+/// Une ligne de consommation : nom et montant alignés à droite, puis achats, rythme, dernier achat, habitude, stock.
+class LigneConsommationVue extends StatelessWidget {
+  final LigneConsommation ligne;
+  const LigneConsommationVue({super.key, required this.ligne});
+
+  static (Color, Color) couleursHabitude(String h) => switch (h.trim().toLowerCase()) {
+        'mensuel' || 'bimensuel' => (const Color(0xFF166534), const Color(0xFFE7F6EC)),
+        'dormant' => (const Color(0xFF9A3412), const Color(0xFFFDEEE3)),
+        _ => (const Color(0xFF475569), const Color(0xFFF1F3F6)),
+      };
+
+  /// Icône + texte qui passe à la ligne au besoin (jamais de débordement, même texte ×1,3 sur 360 dp).
+  static Widget _avecIcone(IconData icone, String texte, TextStyle style) => Text.rich(
+        TextSpan(children: [
+          WidgetSpan(alignment: PlaceholderAlignment.middle, child: Padding(padding: const EdgeInsets.only(right: 3), child: Icon(icone, size: 13, color: Pal.muted))),
+          TextSpan(text: texte),
+        ]),
+        style: style,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final x = ligne;
+    final rythme = rythmeAchat(x);
+    final (fg, bg) = couleursHabitude(x.habitude);
+    const petit = TextStyle(fontSize: 12, color: Pal.muted, fontFeatures: _chiffres);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Text(x.nom, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Pal.ink))),
+        const SizedBox(width: 8),
+        Text('${Constants.formatNumber(x.montant)} F',
+            textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Pal.ink, fontFeatures: _chiffres)),
+      ]),
+      const SizedBox(height: 4),
+      Wrap(spacing: 10, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        Text('${x.nbAchats} achat${x.nbAchats > 1 ? 's' : ''} · ${x.qteTotale} boîte${x.qteTotale > 1 ? 's' : ''}', style: petit),
+        if (rythme.isNotEmpty) _avecIcone(Icons.autorenew, rythme, petit),
+        if (x.dernierAchat.isNotEmpty) _avecIcone(Icons.event_outlined, 'dernier le ${dateClientFr(x.dernierAchat)}', petit),
+        if (x.habitude.isNotEmpty) _Pastille(x.habitude, fg: fg, bg: bg),
+        if (x.stock != null)
+          Text('Stock ${x.stock}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: x.stock! > 0 ? Pal.green : const Color(0xFFB91C1C))),
+      ]),
+    ]);
   }
 }
 

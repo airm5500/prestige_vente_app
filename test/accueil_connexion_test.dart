@@ -3,6 +3,7 @@
 // fiche produit et recherche globale hors ligne (copie locale en mémoire).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prestige_vente_app/widgets/bouton_deconnexion.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:prestige_vente_app/accueil/accueil_screen.dart' show AccueilScreen;
 import 'package:prestige_vente_app/accueil/fiche_produit_screen.dart';
@@ -252,6 +253,17 @@ void main() {
         expect(find.byTooltip('Se déconnecter'), findsOneWidget);
         expect(tester.getTopRight(b).dx, greaterThan(300));
         expect(tester.getSize(b).height, greaterThanOrEqualTo(44));
+        // 4.4.0 : même bouton que l'en-tête de Prestige (web) : pastille ROUGE, icône « marche / arrêt » blanche.
+        final pastille = find.descendant(of: b, matching: find.byKey(const Key('pastille_deconnexion')));
+        expect(pastille, findsOneWidget);
+        final deco = tester.widget<Container>(pastille).decoration! as BoxDecoration;
+        expect(deco.color, rougeDeconnexion);
+        expect(rougeDeconnexion, const Color(0xFFE74C3C), reason: '#e74c3c de .hdr-logout (header.css)');
+        expect(deco.shape, BoxShape.circle);
+        final icone = tester.widget<Icon>(find.descendant(of: b, matching: find.byType(Icon)));
+        expect(icone.icon, Icons.power_settings_new);
+        expect(icone.color, Colors.white);
+        expect(find.descendant(of: b, matching: find.byIcon(Icons.logout)), findsNothing);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
       });

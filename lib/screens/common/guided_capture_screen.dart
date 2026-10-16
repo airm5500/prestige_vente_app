@@ -15,7 +15,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:prestige_vente_app/services/capture/capture_geometry.dart';
 import 'package:prestige_vente_app/services/capture/frame_quality.dart';
 import 'package:prestige_vente_app/services/capture/image_crop.dart';
+import 'package:prestige_vente_app/services/code_photo.dart';
 import 'package:prestige_vente_app/services/ocr_service.dart';
+
+/// Lecture d'une étiquette : lignes de texte, et codes (DataMatrix…) trouvés sur la même photo (4.4.0).
+typedef LectureEtiquette = ({List<String> lignes, List<String> codes});
 
 class GuidedCaptureScreen extends StatefulWidget {
   final String title;
@@ -24,11 +28,15 @@ class GuidedCaptureScreen extends StatefulWidget {
   /// Mode page (ordonnance) : cadre A5/A4 et retour du chemin de la photo recadrée.
   final bool page;
 
+  /// Lit aussi les codes (DataMatrix, EAN) de la photo pleine définition ([openEtiquette]).
+  final bool lireCodes;
+
   const GuidedCaptureScreen({
     super.key,
     this.title = 'Photo étiquette',
     this.hint = 'Placez LOT et EXP dans le cadre',
     this.page = false,
+    this.lireCodes = false,
   });
 
   /// Capture guidée d'une page d'ordonnance : chemin de la photo recadrée sur la page, null si annulé.
@@ -43,11 +51,16 @@ class GuidedCaptureScreen extends StatefulWidget {
     ));
   }
 
-  static Future<List<String>?> open(BuildContext context, {String? title, String? hint}) {
-    return Navigator.of(context).push<List<String>>(MaterialPageRoute(
+  static Future<List<String>?> open(BuildContext context, {String? title, String? hint}) async =>
+      (await openEtiquette(context, title: title, hint: hint, lireCodes: false))?.lignes;
+
+  /// Comme [open], avec en plus les codes lus sur la photo (DataMatrix GS1 : lot et date sûrs).
+  static Future<LectureEtiquette?> openEtiquette(BuildContext context, {String? title, String? hint, bool lireCodes = true}) {
+    return Navigator.of(context).push<LectureEtiquette>(MaterialPageRoute(
       builder: (_) => GuidedCaptureScreen(
         title: title ?? 'Photo étiquette',
         hint: hint ?? 'Placez LOT et EXP dans le cadre',
+        lireCodes: lireCodes,
       ),
     ));
   }
@@ -246,7 +259,10 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> with WidgetsB
       }
       temp.add(cropped);
       final lines = await OcrService.readImageFile(cropped);
-      if (mounted) Navigator.of(context).pop(lines);
+      // Codes sur la photo entière (pleine définition : les petits DataMatrix y sont lisibles).
+      final codes = widget.lireCodes ? await CodePhoto.lire(photo.path) : const <String>[];
+      final LectureEtiquette r = (lignes: lines, codes: codes);
+      if (mounted) Navigator.of(context).pop(r);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -278,7 +294,8 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> with WidgetsB
     }
     try {
       final lines = await OcrService.captureAndRead(ImageSource.camera);
-      if (mounted && lines != null) Navigator.of(context).pop(lines);
+      final LectureEtiquette? r = lines == null ? null : (lignes: lines, codes: const <String>[]);
+      if (mounted && r != null) Navigator.of(context).pop(r);
     } catch (e) {
       if (mounted) setState(() => _error = OcrService.friendlyError(e));
     }

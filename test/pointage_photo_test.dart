@@ -93,6 +93,21 @@ class _FausseSession implements SessionCamera {
   Future<void> fermer() async => c.fermetures++;
 }
 
+/// Caméra dont la session gardée prête a été reprise (scanner arrière) : sa première capture échoue.
+class _CameraReprise extends FausseCamera {
+  @override
+  Future<SessionCamera> ouvrir() async {
+    ouvertures++;
+    return ouvertures == 1 ? _SessionPerdue(this) : _FausseSession(this);
+  }
+}
+
+class _SessionPerdue extends _FausseSession {
+  _SessionPerdue(super.c);
+  @override
+  Future<Uint8List> capturer() async => throw CameraException('CameraDisconnected', 'reprise');
+}
+
 class FauxRh implements RhServeur {
   bool offline = false;
   final posts = <Map<String, dynamic>>[];
@@ -454,6 +469,93 @@ void main() {
   });
 
   // =========================================================================
+  // 4.4.0 (décision du pharmacien) : caméra frontale gardée prête, 10 s, motif détaillé
+  // =========================================================================
+  group('4.4.0 caméra frontale gardée prête', () {
+    PhotoControle service(FausseCamera cam, {RegistrePhotosPointage? reg}) => PhotoControle(
+        camera: cam,
+        registre: reg ?? RegistrePhotosPointage(stockage: StockagePhotosMemoire()),
+        compresser: (b) async => compresserPhoto(b),
+        delaiApercu: const Duration(milliseconds: 40));
+
+    test('délai d\'ouverture : 10 s (6 s auparavant)', () {
+      expect(delaiOuvertureCamera, const Duration(seconds: 10));
+      expect(CapturePhotoControle(camera: FausseCamera()).delaiOuverture, const Duration(seconds: 10));
+      expect(PhotoControle(camera: FausseCamera(), registre: RegistrePhotosPointage(stockage: StockagePhotosMemoire())).delaiOuverture,
+          const Duration(seconds: 10));
+      expect(CameraFrontalePlateforme.attenteLiberation, lessThan(delaiOuvertureCamera), reason: 'attente du scanner arrière dans le délai');
+    });
+
+    test('préparée à l\'arrivée : la photo du badge ne rouvre pas la caméra', () async {
+      final cam = FausseCamera();
+      final p = service(cam);
+      await p.preparer();
+      await p.preparer(); // sans effet
+      expect([cam.ouvertures, p.cameraPrete], [1, true]);
+      final c = p.demarrer();
+      expect(p.cameraPrete, isFalse, reason: 'la session passe à la capture');
+      expect(c.etat, EtatCapture.ouverture);
+      final r = await c.resultat;
+      expect(r, isA<PhotoPrise>());
+      expect([cam.ouvertures, cam.captures, cam.fermetures], [1, 1, 1]);
+      c.dispose();
+    });
+
+    test('libérée pour le scanner arrière (même pendant l\'ouverture) : rien n\'est gardé', () async {
+      final cam = FausseCamera()..delaiOuverture = const Duration(milliseconds: 50);
+      final p = service(cam);
+      final prep = p.preparer();
+      await p.liberer();
+      await prep;
+      expect(p.cameraPrete, isFalse);
+      expect(cam.fermetures, 1, reason: 'ouverte après la libération : refermée aussitôt');
+      await p.preparer();
+      expect(p.cameraPrete, isTrue);
+      await p.liberer();
+      expect(cam.fermetures, 2);
+    });
+
+    test('caméra prête reprise entre-temps : réouverture une fois, photo prise', () async {
+      final cam = _CameraReprise();
+      final p = service(cam);
+      await p.preparer();
+      final c = p.demarrer();
+      final r = await c.resultat;
+      expect(r, isA<PhotoPrise>());
+      expect(cam.ouvertures, 2);
+      c.dispose();
+    });
+
+    test('préparation impossible (caméra absente) : aucune erreur, la photo suivante dit pourquoi', () async {
+      final cam = FausseCamera()..echec = MotifSansPhoto.cameraAbsente;
+      final p = service(cam);
+      await p.preparer();
+      expect(p.cameraPrete, isFalse);
+      final r = await p.demarrer().resultat;
+      expect((r as PhotoAbsente).motif, MotifSansPhoto.cameraAbsente);
+    });
+
+    test('motif détaillé : délai, code de la caméra ; gardé avec la fiche (JSON) et affiché', () async {
+      final lente = FausseCamera()..delaiOuverture = const Duration(milliseconds: 200);
+      final c = CapturePhotoControle(camera: lente, delaiOuverture: const Duration(milliseconds: 30))..lancer();
+      final r = await c.resultat as PhotoAbsente;
+      expect(r.motif, MotifSansPhoto.delaiDepasse);
+      expect(r.detail, contains('non ouverte'));
+      c.dispose();
+      final brute = FausseCamera()..erreurBrute = CameraException('CameraDisconnected', 'pris par une autre application');
+      final c2 = CapturePhotoControle(camera: brute)..lancer();
+      final r2 = await c2.resultat as PhotoAbsente;
+      expect(r2.detail, 'CameraDisconnected');
+      c2.dispose();
+      final reg = RegistrePhotosPointage(stockage: StockagePhotosMemoire());
+      final f = await reg.ajouter(id: 'P1', employeId: 'E1', lu: h0802, resultat: const PhotoAbsente(MotifSansPhoto.erreurCamera, 'caméra occupée (scanner arrière ?) après 16 essai(s) : CameraInUse'));
+      expect(f.motifDetail, contains('scanner arrière'));
+      expect(PhotoPointage.fromJson(f.toJson()).motifDetail, f.motifDetail);
+      expect(PhotoPointage.fromJson(const {'id': 'X', 'avecPhoto': false}).motifDetail, '', reason: 'anciennes fiches');
+    });
+  });
+
+  // =========================================================================
   // Écrans
   // =========================================================================
   group('Terminal : photo de contrôle', () {
@@ -500,6 +602,59 @@ void main() {
       expect(p.envoi, StatutPointageBadge.envoye.name);
       expect(e.camera.fermetures, 1);
       expect(t.takeException(), isNull);
+      await fin(t);
+    });
+
+    testWidgets('4.4.0 : caméra ouverte dès l\'arrivée, photo du badge sans attente d\'ouverture, reprise pour le suivant', (t) async {
+      taille(t, const Size(720, 1440), 2);
+      SharedPreferences.setMockInitialValues({PhotoControle.prefPermissionExpliquee: true});
+      final e = await Env().pret();
+      await pump(t, terminal(e));
+      await t.pump();
+      expect(e.photo.cameraPrete, isTrue, reason: 'ouverte à l\'arrivée');
+      expect(e.camera.ouvertures, 1);
+      await lireBadge(t, 'PV12AB34');
+      expect(find.byKey(const Key('fausse_camera_apercu')), findsOneWidget, reason: 'aperçu immédiat');
+      expect(e.camera.ouvertures, 1, reason: 'pas de nouvelle ouverture');
+      await t.pump(const Duration(seconds: 2));
+      await t.pump();
+      await t.pump(const Duration(seconds: 1));
+      await t.pump();
+      expect(e.registre.photos.single.avecPhoto, isTrue);
+      expect(e.camera.ouvertures, 2, reason: 'rouverte pour le badge suivant');
+      expect(e.photo.cameraPrete, isTrue);
+      await fin(t);
+      expect(e.photo.cameraPrete, isFalse, reason: 'rendue en quittant le terminal');
+    });
+
+    testWidgets('4.4.0 : badge lu à la caméra arrière → frontale rendue avant, reprise après', (t) async {
+      taille(t, const Size(720, 1440), 2);
+      SharedPreferences.setMockInitialValues({PhotoControle.prefPermissionExpliquee: true});
+      final e = await Env().pret();
+      bool? preteAuScan;
+      await pump(
+          t,
+          TerminalPointageScreen(
+              rh: e.pr,
+              presentation: ListPresentation.dashboard,
+              identification: e.identification,
+              rafraichirAuDemarrage: false,
+              camera: (_) async {
+                preteAuScan = e.photo.cameraPrete;
+                return 'PV12AB34';
+              }));
+      await t.pump();
+      expect(e.photo.cameraPrete, isTrue);
+      await t.tap(find.byKey(const Key('rh_badge_camera')));
+      await t.pump();
+      await t.pump();
+      expect(preteAuScan, isFalse, reason: 'caméra frontale rendue pendant le scan arrière');
+      expect(find.byKey(const Key('fausse_camera_apercu')), findsOneWidget);
+      await t.pump(const Duration(seconds: 3));
+      await t.pump();
+      await t.pump(const Duration(seconds: 1));
+      await t.pump();
+      expect(e.registre.photos.single.avecPhoto, isTrue);
       await fin(t);
     });
 
@@ -603,7 +758,8 @@ void main() {
     testWidgets('autorisation de la caméra : bandeau pour le gestionnaire, explication puis demande, bandeau retiré', (t) async {
       taille(t, const Size(720, 1440), 2);
       final e = await Env().pret();
-      await pump(t, terminal(e));
+      // 4.4.0 : gestionnaire = administrateur de l'application.
+      await pump(t, TerminalPointageScreen(rh: e.pr, presentation: ListPresentation.dashboard, identification: e.identification, rafraichirAuDemarrage: false, gestion: true));
       expect(find.byKey(const Key('rh_photo_bandeau')), findsOneWidget);
       await t.tap(find.byKey(const Key('rh_photo_autoriser')));
       await t.pumpAndSettle();
@@ -612,8 +768,10 @@ void main() {
       await t.tap(find.byKey(const Key('photo_autoriser')));
       await t.pump();
       await t.pump();
-      expect(e.camera.ouvertures, 1);
+      // Demande d'autorisation (ouverture + fermeture), puis 4.4.0 : caméra rouverte et gardée prête.
+      expect(e.camera.ouvertures, 2);
       expect(e.camera.fermetures, 1);
+      expect(e.photo.cameraPrete, isTrue);
       expect(find.byKey(const Key('rh_photo_bandeau')), findsNothing);
       expect(await PhotoControle.permissionExpliquee(), isTrue);
       await fin(t);
@@ -633,7 +791,7 @@ void main() {
         final e = await Env().pret();
         for (final style in ListPresentation.values) {
           SharedPreferences.setMockInitialValues({});
-          await pump(t, TerminalPointageScreen(rh: e.pr, presentation: style, identification: e.identification, rafraichirAuDemarrage: false));
+          await pump(t, TerminalPointageScreen(rh: e.pr, presentation: style, identification: e.identification, rafraichirAuDemarrage: false, gestion: true));
           expect(t.takeException(), isNull, reason: '$nom $style : écran badge');
           bouton48(t, const Key('rh_badge_camera'));
           bouton48(t, const Key('rh_photo_autoriser'));
@@ -770,7 +928,7 @@ void main() {
       expect(t.widget<SwitchCard>(find.byKey(const Key('rh_reglage_simple_bouton'))).value, isTrue);
       await voir(const Key('rh_reglage_retention'));
       expect(find.text('30 jours'), findsOneWidget);
-      await voir(const Key('rh_reglage_simple_bouton'));
+      await voir(const Key('rh_reglage_simple_bouton'), haut: true); // plus haut (4.4.0 : carte des empreintes en dessous)
       await t.tap(find.descendant(of: find.byKey(const Key('rh_reglage_simple_bouton')), matching: find.byType(Switch)));
       await t.pumpAndSettle();
       await voir(const Key('rh_reglage_retention'));
