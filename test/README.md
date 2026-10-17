@@ -90,7 +90,6 @@ catégorie **principale**, celle de `test/categories.json`.
 | Pointage — photo du badge (4.4.0) : caméra avant ouverte dès l'arrivée et gardée prête, rendue pour le scanner arrière puis reprise, délai 10 s, réouverture si la caméra prête a été reprise | `pointage_photo` |
 | Pointage — droits (4.4.0) : présences, photos, empreintes = administrateur de l'application ; terminal = P_SM_RH ou « P_RH_POINTER » (demande 52, accepté dès qu'il existe) | `rh_pointage` |
 | Empreintes partagées (4.4.0, demande 43) : enrôlement → envoi (X-Client-Ref), autre terminal → synchronisation incrémentale et reconnaissance, suppression partout, partage désactivé / serveur sans routes → local, consentement adapté, statut dans les réglages, jamais de gabarit dans les journaux ; coupures pendant envoi / lecture / suppression et reprise sans doublon ; 50 employés × 3 gabarits | `empreintes_partagees`, `reseau/empreintes_reseau`, `performance/empreintes` |
-| iPhone / iPad (4.5.0) : capacités de la plateforme (empreinte, NFC, kiosque, imprimante Sunmi : aucun appel natif sur iOS, inchangés sur Android ; menus Borne / Empreinte et réglages masqués sur iOS) ; projet `ios/` (Info.plist en français, ATS `NSAllowsLocalNetworking` sans `NSAllowsArbitraryLoads`, orientations, bundle ID en xcconfig, cible 15.5, icônes opaques, workflow sans secret) ; ergonomie iPhone 375×667 / 430×932 et iPad 768×1024 / 1024×1366 (portrait et paysage) ; HTTP local sous iOS, coupure et reprise ; démarrage et accueil | `ios/capacites_ios`, `ios/projet_ios`, `ios/ergonomie_ios`, `ios/reseau_ios`, `ios/performance_ios` |
 | Borne : « Ajouté : NOM » en haut de l'écran, ne recouvre ni la recherche ni le panier, 2 s | `borne_test` |
 | Configuration d'origine (appareil non configuré, interface d'origine) | `configuration_origine`, `non_regression` (ANO-08) |
 | Menus principaux ouverts puis retour (touche retour Android) : Vente, Recherche article, Analyse article, Fiche produit (par code), Analyse posologie, Ordonnances des clients / Fiche client (selon droits), Réserve (administrateur seulement), Pointage présence, Réglages | e2e (`Accueil : chaque menu principal…`, droits) |
@@ -244,8 +243,6 @@ plafond = fonctionnement voulu, **sans marge**. Un seuil ne se relève qu'avec u
 | Empreintes : 1re synchronisation, 50 employés × 3 gabarits (4.4.0), meilleur de 3 | 500 ms | 3 – 10 ms |
 | Empreintes : synchronisation sans changement (1 requête) | 100 ms | 0 – 2 ms |
 | Empreintes : identification 1:N sur 150 modèles (lecteur simulé) | 100 ms | 0 – 2 ms |
-| iOS (4.5.0) : démarrage → connexion, iPad Pro / iPhone SE | 6 000 ms | 0,7 – 1,0 s |
-| iOS (4.5.0) : connexion → accueil, iPad Pro / iPhone SE | 3 500 ms | 0,17 – 0,32 s |
 
 ## Ajouter les tests de performance et réseau d'un nouvel écran
 

@@ -1,7 +1,6 @@
 // lib/services/fingerprint_service.dart
 // Accès au lecteur d'empreinte Sunmi (service com.sunmi.fingerprintservice) via le pont natif
 // SunmiFingerprintBridge. Les gabarits d'empreinte sont conservés par l'application.
-import 'package:prestige_vente_app/plateforme/capacites.dart';
 import 'package:flutter/services.dart';
 
 class FingerprintException implements Exception {
@@ -28,15 +27,9 @@ class FingerprintService {
   static const _events = EventChannel('prestige/fingerprint/events');
 
   /// Consignes du capteur : "press" (posez le doigt), "raise" (retirez le doigt), "disconnected".
-  static Stream<String> get hints =>
-      CapacitesPlateforme.courant.empreinte ? _events.receiveBroadcastStream().map((e) => e.toString()) : const Stream<String>.empty();
-
-  /// 4.5.0 : sur iPhone / iPad, aucun appel natif : « indisponible » (le service Sunmi n'existe pas).
-  static const FingerprintException indisponibleIos =
-      FingerprintException('PLATEFORME', 'Lecteur d\'empreinte indisponible sur iPhone / iPad : utilisez le badge.');
+  static Stream<String> get hints => _events.receiveBroadcastStream().map((e) => e.toString());
 
   static Future<T?> _call<T>(String method, [Map<String, Object?>? args]) async {
-    if (!CapacitesPlateforme.courant.empreinte) throw indisponibleIos;
     try {
       return await _methods.invokeMethod<T>(method, args);
     } on MissingPluginException {
@@ -56,8 +49,6 @@ class FingerprintService {
 
   /// Informations sur le lecteur du terminal (système Android et services Sunmi).
   static Future<Map<String, Object?>> hardwareInfo() async {
-    // iPhone / iPad : pas de pont natif ; identité générique (nom du terminal dans le journal).
-    if (!CapacitesPlateforme.courant.pontsAndroid) return const {'manufacturer': 'Apple', 'model': 'iPhone / iPad'};
     final m = await _call<Map<Object?, Object?>>('hardwareInfo') ?? const {};
     return {for (final e in m.entries) '${e.key}': e.value};
   }

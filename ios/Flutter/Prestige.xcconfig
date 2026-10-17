@@ -1,6 +1,0 @@
-// Prestige Mobile — réglages iOS propres à l'application (4.5.0).
-// Identifiant de l'application (bundle ID) : valeur PROPOSÉE en attendant la confirmation du pharmacien
-// (« _ » interdit sur iOS). S'il a déjà créé l'app dans App Store Connect, remplacer ici par son bundle ID exact :
-// c'est le seul endroit à modifier pour l'application (la cible de tests RunnerTests, jamais publiée, garde com.dici.prestigeventeapp.RunnerTests).
-PRESTIGE_BUNDLE_ID = com.dici.prestigeventeapp
-// Équipe Apple (Team ID) : jamais en dur ici ; fournie par la CI (secret APPLE_TEAM_ID) au moment de signer.

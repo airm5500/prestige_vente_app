@@ -4,7 +4,6 @@
 // Ordre et menus masqués : SettingsProvider.menuOrder / hiddenMenuIds (mêmes clés que l'origine).
 // Favoris (4 max) : clé propre au nouvel accueil.
 import 'package:flutter/material.dart';
-import 'package:prestige_vente_app/plateforme/capacites.dart';
 import 'package:prestige_vente_app/images/photos_produits_screen.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -120,15 +119,12 @@ final List<AccueilMenu> accueilMenus = [
   // Équipe
   // Pointage LOCAL (empreinte / PIN, lib/pointage) : rien n'est envoyé à Prestige. Libellé explicite et menu masqué
   // par défaut (SettingsProvider.menusMasques ; réaffichable par un administrateur : Paramètres › Équipe).
-  // 4.5.0 : absent sur iPhone / iPad (empreinte et NFC du terminal : ponts Android).
-  AccueilMenu(id: 'empreinte', label: 'Pointage local (non envoyé à Prestige)', short: 'Pointage local', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, famille: MenuFamille.equipe, autorise: _pointageLocalPossible, screen: () => const PointageHomeScreen()),
+  AccueilMenu(id: 'empreinte', label: 'Pointage local (non envoyé à Prestige)', short: 'Pointage local', icon: Icons.fingerprint, color: Colors.deepPurple.shade400, famille: MenuFamille.equipe, screen: () => const PointageHomeScreen()),
   // Pointage présence sur le serveur Prestige (« Mon pointage » au téléphone, « Terminal de pointage » :
   // badge, NFC, empreinte ; présences) : voies proposées selon les routes du serveur et le droit RH du compte
   // (désactivées et expliquées sinon). Identifiant `pointage_rh` conservé (favoris, ordre, menus masqués).
   AccueilMenu(id: 'pointage_rh', label: 'Pointage présence', short: 'Pointage présence', icon: Icons.how_to_reg, color: Colors.indigo.shade500, famille: MenuFamille.equipe, screen: () => const RhPointageScreen()),
 ];
-
-bool _pointageLocalPossible() => CapacitesPlateforme.courant.pointageLocal;
 
 final Map<String, AccueilMenu> accueilMenuById = {for (final m in accueilMenus) m.id: m};
 
@@ -149,8 +145,7 @@ final AccueilMenu menuBorneAdmin = AccueilMenu(
 
 /// Familles affichées : [menuBorneAdmin] ajouté en fin du groupe Ventes pour l'administrateur.
 Map<MenuFamille, List<AccueilMenu>> avecMenusAdmin(Map<MenuFamille, List<AccueilMenu>> familles, {required bool admin}) {
-  // 4.5.0 : pas de borne sur iPhone / iPad (épinglage Android, ticket sur l'imprimante Sunmi).
-  if (!admin || !CapacitesPlateforme.courant.borne) return familles;
+  if (!admin) return familles;
   return {for (final e in familles.entries) e.key: e.key == MenuFamille.ventes ? [...e.value, menuBorneAdmin] : e.value};
 }
 /// Menus soumis à un droit, ajoutés après les 23 menus d'origine (catalogue d'origine inchangé). Ils ne figurent

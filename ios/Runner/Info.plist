@@ -3,13 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>fr</string>
-	<key>CFBundleLocalizations</key>
-	<array>
-		<string>fr</string>
-	</array>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Prestige Mobile</string>
+	<string>Prestige Vente App</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -17,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Prestige Mobile</string>
+	<string>prestige_vente_app</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -47,28 +43,13 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>La position du téléphone est vérifiée par l'officine lors du pointage de présence.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>L'appareil photo sert à scanner les codes DataMatrix et à photographier les ordonnances.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choisir la photo d'une ordonnance.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<key>NSCameraUsageDescription</key>
-	<string>L'appareil photo sert à scanner les codes-barres et DataMatrix des boîtes et les badges, à photographier les ordonnances, les étiquettes et les produits, et à prendre la photo de contrôle au pointage par badge.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Prestige Mobile n'enregistre jamais de son : le micro n'est pas utilisé, même pendant l'utilisation de l'appareil photo.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Choisir dans vos photos l'image d'une ordonnance ou d'une étiquette à lire.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Enregistrer dans vos photos un document que vous avez choisi d'exporter.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>La position de l'appareil est vérifiée par l'officine au moment du pointage de présence, seulement si elle l'exige.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Prestige Mobile n'utilise la position que pendant le pointage de présence, jamais en arrière-plan.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Prestige Mobile se connecte au serveur Prestige de la pharmacie sur le réseau local (adresse saisie dans les réglages).</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 </dict>
 </plist>
