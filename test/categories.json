@@ -132,6 +132,7 @@
     "test/pointage_reglages_e2e_test.dart": "e2e",
     "test/pointage_compte_lie_e2e_test.dart": "e2e",
     "test/reseau/empreintes_reseau_test.dart": "reseau",
-    "test/performance/empreintes_test.dart": "performance"
+    "test/performance/empreintes_test.dart": "performance",
+    "test/android_play_test.dart": "non_regression"
   }
 }

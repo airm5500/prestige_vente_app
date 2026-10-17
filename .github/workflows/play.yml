@@ -1,0 +1,357 @@
+# Google Play (piste « Test interne ») — Prestige Mobile 4.5.0 et PrestigePOS 1.3.0. Mode d'emploi pour le pharmacien :
+# docs/android/README.md. Conventions communes aux 4 applications Prestige (mêmes noms de secrets, même fichier
+# déclencheur android/DEMANDE_PLAY).
+#
+# Deux applications dans ce dépôt, chacune sur SA branche (ce fichier est le même sur les deux) :
+#   pres-/tender-thompson-ang0ls → Prestige Mobile : com.dici.prestige_vente_app, version = pubspec.yaml,
+#                                   artefact « prestige-mobile-aab »
+#   prestigepos                  → PrestigePOS : com.dici.prestigepos (--flavor pos -t lib/main_pos.dart),
+#                                   version = android/app/prestigepos-version.properties, artefact « prestigepos-aab »
+#
+# 1. controle (à chaque envoi, sans secret) : construit la version Play (propriété Gradle playStore=true :
+#    targetSdk / compileSdk 36 pour ce bundle seulement ; APK Sunmi et APK de build-apk.yml inchangés, targetSdk 35)
+#    et vérifie : identifiant, targetSdk 36, versions, bibliothèques natives compatibles pages de 16 Ko.
+# 2. aab : SI les quatre secrets de la clé d'envoi existent (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+#    ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD), App Bundle signé avec cette clé, publié en artefact (le PREMIER envoi
+#    d'une nouvelle application se fait à la main dans la Play Console avec cet artefact). Sans ces secrets : rien.
+# 3. envoi : SEULEMENT quand android/DEMANDE_PLAY est modifié (1re ligne = version de l'application de la branche,
+#    ex. 4.5.0+23 ou 1.3.0+9) et que le secret PLAY_SERVICE_ACCOUNT_JSON existe : envoi sur la piste « internal »
+#    (action r0adkll/upload-google-play épinglée par SHA), statut « completed » ; application encore en brouillon côté
+#    Play (« draft app ») : nouvel essai en « draft ». Sur prestigepos, une demande de Prestige Mobile arrivée par
+#    fusion (version de pubspec.yaml) est ignorée avec un message.
+# Secrets : jamais écrits dans le dépôt ni affichés ; keystore et compte de service écrits dans $RUNNER_TEMP
+# (droits 600) puis supprimés, même en cas d'échec.
+name: Google Play (test interne)
+
+on:
+  push:
+    branches:
+      - 'pres-/tender-thompson-ang0ls'
+      - 'prestigepos'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Application de la branche ; secrets présents (sans les afficher : un « if » de job ne peut pas les lire) ; envoi
+  # demandé ou non.
+  verifier:
+    runs-on: ubuntu-latest
+    outputs:
+      cle: ${{ steps.secrets.outputs.cle }}
+      envoi: ${{ steps.demande.outputs.envoi }}
+      paquet: ${{ steps.appli.outputs.paquet }}
+      nom: ${{ steps.appli.outputs.nom }}
+      artefact: ${{ steps.appli.outputs.artefact }}
+      fichier: ${{ steps.appli.outputs.fichier }}
+      options: ${{ steps.appli.outputs.options }}
+      sortie: ${{ steps.appli.outputs.sortie }}
+      apk: ${{ steps.appli.outputs.apk }}
+      version: ${{ steps.appli.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: appli
+        run: |
+          mobile=$(sed -n 's/^version: *//p' pubspec.yaml | tr -d '[:space:]')
+          if [ "$GITHUB_REF_NAME" = prestigepos ]; then
+            p=android/app/prestigepos-version.properties
+            version="$(sed -n 's/^nomVersion=//p' "$p" | tr -d '[:space:]')+$(sed -n 's/^codeVersion=//p' "$p" | tr -d '[:space:]')"
+            {
+              echo "paquet=com.dici.prestigepos"
+              echo "nom=PrestigePOS"
+              echo "artefact=prestigepos-aab"
+              echo "fichier=prestigepos"
+              echo "options=--flavor pos -t lib/main_pos.dart"
+              echo "sortie=build/app/outputs/bundle/posRelease/app-pos-release.aab"
+              echo "apk=build/app/outputs/flutter-apk/app-pos-release.apk"
+            } >> "$GITHUB_OUTPUT"
+          else
+            version="$mobile"
+            {
+              echo "paquet=com.dici.prestige_vente_app"
+              echo "nom=Prestige Mobile"
+              echo "artefact=prestige-mobile-aab"
+              echo "fichier=prestige-mobile"
+              echo "options="
+              echo "sortie=build/app/outputs/bundle/release/app-release.aab"
+              echo "apk=build/app/outputs/flutter-apk/app-release.apk"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "mobile=$mobile" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Application de la branche::$GITHUB_REF_NAME → $version"
+
+      - id: secrets
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KA: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -n "$KS" ] && [ -n "$KSP" ] && [ -n "$KA" ] && [ -n "$KP" ]; then
+            echo "cle=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cle=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Google Play::clé d'envoi absente (4 secrets ANDROID_KEY*) : aucun App Bundle signé (docs/android/README.md)."
+          fi
+          if [ -n "$SA" ]; then echo "compte=true" >> "$GITHUB_OUTPUT"; else echo "compte=false" >> "$GITHUB_OUTPUT"; fi
+
+      # Envoi demandé : ce push modifie android/DEMANDE_PLAY, dont la 1re ligne est la version de l'application.
+      - id: demande
+        env:
+          AVANT: ${{ github.event.before }}
+          COMPTE: ${{ steps.secrets.outputs.compte }}
+          CLE: ${{ steps.secrets.outputs.cle }}
+          VERSION: ${{ steps.appli.outputs.version }}
+          MOBILE: ${{ steps.appli.outputs.mobile }}
+        run: |
+          envoi=false
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ -f android/DEMANDE_PLAY ]; then
+            if [ -z "$AVANT" ] || [ "$AVANT" = 0000000000000000000000000000000000000000 ] \
+               || git diff --name-only "$AVANT" "$GITHUB_SHA" -- android/DEMANDE_PLAY | grep -q .; then
+              demande=$(head -n 1 android/DEMANDE_PLAY | tr -d '[:space:]')
+              if [ "$demande" != "$VERSION" ]; then
+                if [ "$GITHUB_REF_NAME" = prestigepos ] && [ "$demande" = "$MOBILE" ]; then
+                  echo "::notice title=Demande Google Play::$demande est la version de Prestige Mobile (arrivée par fusion) : rien n'est envoyé pour PrestigePOS ($VERSION)."
+                  echo "envoi=false" >> "$GITHUB_OUTPUT"; exit 0
+                fi
+                echo "::error title=Demande Google Play::android/DEMANDE_PLAY ($demande) ne correspond pas à la version de l'application de cette branche ($VERSION)"
+                exit 1
+              fi
+              if [ "$CLE" != true ]; then
+                echo "::warning title=Google Play::envoi demandé mais clé d'envoi absente (4 secrets ANDROID_KEY*) : rien n'est construit ni envoyé."
+              elif [ "$COMPTE" != true ]; then
+                echo "::warning title=Google Play::envoi demandé mais secret PLAY_SERVICE_ACCOUNT_JSON absent : AAB construit, rien d'envoyé."
+              else
+                envoi=true
+                echo "::notice title=Demande Google Play::$demande : envoi en test interne"
+              fi
+            fi
+          fi
+          echo "envoi=$envoi" >> "$GITHUB_OUTPUT"
+
+  # Version Play construite à chaque envoi, SANS secret (repli sur la clé debug) : rien n'est publié.
+  controle:
+    needs: verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.8'
+          channel: stable
+          cache: true
+
+      - name: Dépendances
+        run: flutter pub get
+
+      - name: Version Play (App Bundle et APK, targetSdk 36)
+        env:
+          OPTIONS: ${{ needs.verifier.outputs.options }}
+        run: |
+          # shellcheck disable=SC2086
+          flutter build appbundle --release $OPTIONS --android-project-arg=playStore=true
+          # shellcheck disable=SC2086
+          flutter build apk --release $OPTIONS --android-project-arg=playStore=true
+
+      - name: Contrôle (identifiant, targetSdk 36, versions, pages de 16 Ko)
+        env:
+          PAQUET: ${{ needs.verifier.outputs.paquet }}
+          VERSION: ${{ needs.verifier.outputs.version }}
+          SORTIE: ${{ needs.verifier.outputs.sortie }}
+          APK: ${{ needs.verifier.outputs.apk }}
+        run: |
+          [ -s "$SORTIE" ] || { echo "::error title=AAB::$SORTIE absent"; exit 1; }
+          aapt2=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)/aapt2
+          badge=$("$aapt2" dump badging "$APK")
+          printf '%s\n' "$badge" | grep -E "^(package|sdkVersion|targetSdkVersion|application-label):"
+          printf '%s\n' "$badge" | grep -q "^package: name='$PAQUET' versionCode='${VERSION#*+}' versionName='${VERSION%+*}'" \
+            || { echo "::error title=Version Play::identifiant ou version inattendus (attendu $PAQUET $VERSION)"; exit 1; }
+          printf '%s\n' "$badge" | grep -q "^targetSdkVersion:'36'" \
+            || { echo "::error title=Version Play::targetSdk n'est pas 36 (exigé par Google Play)"; exit 1; }
+          # Pages de 16 Ko (exigence Google Play pour targetSdk 35 et plus) : segments LOAD des .so 64 bits alignés
+          # sur 16 Ko au moins.
+          mkdir -p "$RUNNER_TEMP/so"
+          if ! unzip -q -o "$APK" 'lib/arm64-v8a/*' 'lib/x86_64/*' -d "$RUNNER_TEMP/so"; then
+            echo "bibliothèques 64 bits : extraction partielle (une architecture absente)"
+          fi
+          mauvais=0
+          while IFS= read -r so; do
+            for a in $(readelf -lW "$so" | awk '$1 == "LOAD" { print $NF }'); do
+              if [ $((a)) -lt 16384 ]; then echo "::error title=Pages de 16 Ko::${so#"$RUNNER_TEMP"/so/} aligné sur $a"; mauvais=1; fi
+            done
+          done < <(find "$RUNNER_TEMP/so" -name '*.so')
+          [ "$mauvais" = 0 ] || exit 1
+          echo "::notice title=Version Play::$PAQUET $VERSION, targetSdk 36, $(find "$RUNNER_TEMP/so" -name '*.so' | wc -l) bibliothèques natives 64 bits compatibles 16 Ko."
+          {
+            echo "## Version Play : $PAQUET $VERSION"
+            echo '```'
+            printf '%s\n' "$badge" | grep -E "^(package|sdkVersion|targetSdkVersion|application-label):" | sed -E "s/ platformBuildVersion.*//"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  aab:
+    needs: [verifier, controle]
+    if: needs.verifier.outputs.cle == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.8'
+          channel: stable
+          cache: true
+
+      - name: Dépendances
+        run: flutter pub get
+
+      # Contrôle de FORME des secrets (rien n'est affiché) puis keystore écrit dans le dossier temporaire du runner.
+      - name: Clé d'envoi (forme des secrets, fichier temporaire)
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          umask 077
+          dossier="$RUNNER_TEMP/cle_android"
+          mkdir -p "$dossier"
+          fichier="$dossier/envoi.jks"
+          # Base64 collé depuis Windows : espaces et retours à la ligne retirés.
+          if ! printf '%s' "$KS" | tr -d '[:space:]' | base64 -d > "$fichier" 2>/dev/null || [ ! -s "$fichier" ]; then
+            echo "::error title=ANDROID_KEYSTORE_BASE64::n'est pas du base64 valide : recopiez la sortie complète de la commande PowerShell du guide."; exit 1
+          fi
+          alias=$(printf '%s' "$ANDROID_KEY_ALIAS" | tr -d '\r\n')
+          if ! keytool -list -keystore "$fichier" -storepass:env ANDROID_KEYSTORE_PASSWORD > /dev/null 2>&1; then
+            echo "::error title=ANDROID_KEYSTORE_PASSWORD::le fichier n'a pas pu être ouvert : mot de passe du fichier incorrect, ou ce n'est pas un fichier .jks / .keystore."; exit 1
+          fi
+          if ! keytool -list -keystore "$fichier" -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$alias" > /dev/null 2>&1; then
+            echo "::error title=ANDROID_KEY_ALIAS::aucune clé de ce nom dans le fichier (alias disponibles : $(keytool -list -keystore "$fichier" -storepass:env ANDROID_KEYSTORE_PASSWORD 2>/dev/null | grep -c PrivateKeyEntry) clé(s))."; exit 1
+          fi
+          if keytool -list -v -keystore "$fichier" -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$alias" 2>/dev/null | grep -q "CN=Android Debug"; then
+            echo "::error title=Clé d'envoi::c'est la clé DEBUG d'Android Studio : Google Play la refuse. Créez une clé d'envoi (docs/android/README.md)."; exit 1
+          fi
+          { echo "ANDROID_KEYSTORE_PATH=$fichier"; echo "ANDROID_KEY_ALIAS=$alias"; } >> "$GITHUB_ENV"
+          echo "::notice title=Clé d'envoi::fichier lisible, alias trouvé."
+
+      - name: App Bundle signé (.aab, targetSdk 36)
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          OPTIONS: ${{ needs.verifier.outputs.options }}
+        run: |
+          # shellcheck disable=SC2086
+          flutter build appbundle --release $OPTIONS --android-project-arg=playStore=true
+
+      - name: Contrôle du bundle (signé par la clé d'envoi)
+        env:
+          SORTIE: ${{ needs.verifier.outputs.sortie }}
+          FICHIER: ${{ needs.verifier.outputs.fichier }}
+          VERSION: ${{ needs.verifier.outputs.version }}
+        run: |
+          [ -s "$SORTIE" ] || { echo "::error title=AAB::fichier absent"; exit 1; }
+          certificat=$(keytool -printcert -jarfile "$SORTIE")
+          if printf '%s' "$certificat" | grep -q "CN=Android Debug"; then
+            echo "::error title=AAB::signé avec la clé debug : refusé par Google Play."; exit 1
+          fi
+          # Empreinte SHA-256 du certificat d'envoi (information publique, utile dans la Play Console).
+          empreinte=$(printf '%s' "$certificat" | sed -n 's/.*SHA256: *//p' | head -1)
+          nom="${FICHIER}-${VERSION/+/-}.aab"
+          cp "$SORTIE" "$RUNNER_TEMP/$nom"
+          echo "AAB=$RUNNER_TEMP/$nom" >> "$GITHUB_ENV"
+          echo "::notice title=App Bundle::$nom · certificat d'envoi SHA-256 $empreinte"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.verifier.outputs.artefact }}
+          path: ${{ env.AAB }}
+          retention-days: 30
+
+      - name: Compte de service Google Play (forme, fichier temporaire)
+        if: needs.verifier.outputs.envoi == 'true'
+        env:
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          NOM: ${{ needs.verifier.outputs.nom }}
+          VERSION: ${{ needs.verifier.outputs.version }}
+        run: |
+          umask 077
+          f="$RUNNER_TEMP/cle_android/compte_service.json"
+          printf '%s' "$SA" > "$f"
+          if ! jq -e '.type == "service_account" and (.client_email | type == "string") and (.private_key | startswith("-----BEGIN PRIVATE KEY-----"))' "$f" > /dev/null 2>&1; then
+            echo "::error title=PLAY_SERVICE_ACCOUNT_JSON::doit être le fichier .json COMPLET de la clé du compte de service Google Cloud (type « service_account »)."; exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/notes"
+          printf '%s %s : version de test interne. Signalez tout écran mal affiché ou toute erreur.\n' "$NOM" "$VERSION" > "$RUNNER_TEMP/notes/whatsnew-fr-FR"
+          echo "NOTES_DIR=$RUNNER_TEMP/notes" >> "$GITHUB_ENV"
+          echo "VERSION_APP=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Envoi en test interne (statut « completed »)
+        id: envoi
+        if: needs.verifier.outputs.envoi == 'true'
+        continue-on-error: true
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJson: ${{ runner.temp }}/cle_android/compte_service.json
+          packageName: ${{ needs.verifier.outputs.paquet }}
+          releaseFiles: ${{ env.AAB }}
+          releaseName: ${{ env.VERSION_APP }}
+          tracks: internal
+          status: completed
+          whatsNewDirectory: ${{ env.NOTES_DIR }}
+
+      # Application encore « brouillon » dans la Play Console (fiche non terminée) : Google n'accepte que des versions
+      # en brouillon. Nouvel essai en « draft » : la version apparaît dans Test interne, à publier à la main.
+      - name: Envoi en brouillon (application encore en brouillon côté Play)
+        id: brouillon
+        if: needs.verifier.outputs.envoi == 'true' && steps.envoi.outcome == 'failure'
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJson: ${{ runner.temp }}/cle_android/compte_service.json
+          packageName: ${{ needs.verifier.outputs.paquet }}
+          releaseFiles: ${{ env.AAB }}
+          releaseName: ${{ env.VERSION_APP }}
+          tracks: internal
+          status: draft
+          whatsNewDirectory: ${{ env.NOTES_DIR }}
+
+      - name: Résultat de l'envoi
+        if: needs.verifier.outputs.envoi == 'true' && always()
+        env:
+          ENVOI: ${{ steps.envoi.outcome }}
+          BROUILLON: ${{ steps.brouillon.outcome }}
+          PAQUET: ${{ needs.verifier.outputs.paquet }}
+        run: |
+          if [ "$ENVOI" = success ]; then
+            echo "::notice title=Google Play::$PAQUET $VERSION_APP envoyée en Test interne (disponible pour les testeurs après traitement par Google)."
+          elif [ "$BROUILLON" = success ]; then
+            echo "::warning title=Google Play::$PAQUET $VERSION_APP envoyée en BROUILLON : l'application est encore en brouillon dans la Play Console. Terminez sa configuration (tableau de bord de l'application), puis Test interne › Modifier la version › Publier. Les envois suivants seront publiés directement."
+          else
+            echo "::error title=Google Play::envoi refusé. Causes fréquentes : premier AAB pas encore envoyé à la main dans la Play Console (obligatoire pour une nouvelle application) ; compte de service non invité dans Utilisateurs et autorisations ; numéro de version déjà utilisé (augmenter le +N). Voir docs/android/README.md."
+            exit 1
+          fi
+
+      - name: Nettoyage de la clé et du compte de service
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/cle_android" "$RUNNER_TEMP/notes" || true

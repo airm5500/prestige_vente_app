@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.4.1+22** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.5.0+23** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -29,7 +29,8 @@ injoignable » / « Serveur indisponible » partout, replis « serveur ancien »
 filtre de l'État de Stock, scan de la péremption, menu « Photos produits », pointage (« Mon pointage » lié au
 compte, photo du badge prête, droits, réglages mémorisés), empreintes partagées entre terminaux (4.4.0+20, voir
 `docs/NOTE_VERSION_4.4.0.md`) ; 4.4.1+22 : contenu identique à la 4.4.0, iOS retiré (versionCode 21 déjà utilisé
-par la 4.5.0 retirée, voir `docs/NOTE_VERSION_4.4.1.md`).
+par la 4.5.0 retirée, voir `docs/NOTE_VERSION_4.4.1.md`) + Google Play, piste « Test interne » (4.5.0+23, voir
+`docs/NOTE_VERSION_4.5.0.md` ; APK Sunmi inchangé : même signature, targetSdk 35).
 
 ## Les 3 règles (permanentes)
 

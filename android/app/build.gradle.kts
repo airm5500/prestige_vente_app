@@ -1,4 +1,5 @@
 
+import java.io.FileInputStream
 import java.util.Properties
 
 plugins {
@@ -15,10 +16,41 @@ plugins {
 // celui de Prestige Mobile et ses garde-fous de version Sunmi sont inchangés). Voir docs/prestigepos/README.md.
 val versionPos = Properties().apply { file("prestigepos-version.properties").inputStream().use { load(it) } }
 
+// 4.5.0 — CLÉ D'ENVOI (Google Play). Lue, dans cet ordre, dans les variables d'environnement (CI : secrets GitHub,
+// voir .github/workflows/play.yml) puis dans android/key.properties (poste du développeur ; fichier JAMAIS commité,
+// ignoré par android/.gitignore) :
+//   ANDROID_KEYSTORE_PATH     / storeFile      chemin du fichier .jks (relatif à android/app ou absolu)
+//   ANDROID_KEYSTORE_PASSWORD / storePassword  mot de passe du fichier
+//   ANDROID_KEY_ALIAS         / keyAlias       alias de la clé
+//   ANDROID_KEY_PASSWORD      / keyPassword    mot de passe de la clé
+// Si l'un manque (ou si le fichier n'existe pas) : signature avec la clé DEBUG, comme avant la 4.5.0 (APK des
+// terminaux Sunmi construits sur le PC du pharmacien, APK de la CI), avec un avertissement dans le journal ; Google
+// Play refuse un tel paquet.
+val proprietesCle = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) FileInputStream(f).use { load(it) }
+}
+
+fun reglageCle(variable: String, propriete: String): String? =
+    System.getenv(variable)?.takeIf { it.isNotBlank() } ?: proprietesCle.getProperty(propriete)?.takeIf { it.isNotBlank() }
+
+val cheminCle = reglageCle("ANDROID_KEYSTORE_PATH", "storeFile")
+val motDePasseFichierCle = reglageCle("ANDROID_KEYSTORE_PASSWORD", "storePassword")
+val aliasCle = reglageCle("ANDROID_KEY_ALIAS", "keyAlias")
+val motDePasseCle = reglageCle("ANDROID_KEY_PASSWORD", "keyPassword")
+
+// 4.5.0 — VERSION GOOGLE PLAY : propriété Gradle « playStore », passée SEULEMENT par .github/workflows/play.yml
+// (flutter build appbundle --android-project-arg=playStore=true). Google Play exige targetSdk 36 (Android 16) depuis
+// le 31/08/2026 ; Android 16 change, pour une application qui le cible, l'orientation et le redimensionnement sur
+// grand écran, le retour prédictif, etc. (docs/android/README.md, « Android 16 et terminaux Sunmi »). Pour ne rien
+// changer aux terminaux Sunmi (kiosque, borne, scanner, impression, empreinte, caméra), les builds locaux et l'APK
+// de la CI gardent les valeurs de Flutter (compileSdk / targetSdk 35) ; seul le bundle Play cible 36.
+val versionPlay = (findProperty("playStore") as String?)?.trim()?.toBoolean() == true
+
 
 android {
     namespace = "com.dici.prestige_vente_app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = if (versionPlay) 36 else flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
     ndkVersion = "27.0.12077973"
 
@@ -34,7 +66,7 @@ android {
     defaultConfig {
         applicationId = "com.dici.prestige_vente_app"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = if (versionPlay) 36 else flutter.targetSdkVersion
 
         // Version unique : celle de pubspec.yaml (« version: 4.0.0+8 » → versionName 4.0.0, versionCode 8).
         // Aucun numéro en dur ici (vérifié par test/version_sunmi_test.dart, voir docs/VERSIONS_SUNMI.md).
@@ -42,9 +74,32 @@ android {
         versionName = flutter.versionName
     }
 
+    val fichierCle = cheminCle?.let { file(it) }
+    val cleEnvoiComplete = fichierCle != null && fichierCle.exists() &&
+        motDePasseFichierCle != null && aliasCle != null && motDePasseCle != null
+
+    signingConfigs {
+        if (cleEnvoiComplete) {
+            create("release") {
+                storeFile = fichierCle
+                storePassword = motDePasseFichierCle
+                keyAlias = aliasCle
+                keyPassword = motDePasseCle
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (cleEnvoiComplete) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "Prestige Mobile : clé d'envoi absente ou incomplète (ANDROID_KEYSTORE_* / android/key.properties) " +
+                        "— paquet release signé avec la clé DEBUG (comme avant : APK Sunmi ; refusé par Google Play)."
+                )
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
