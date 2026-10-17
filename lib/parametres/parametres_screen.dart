@@ -34,7 +34,6 @@ import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
-import 'package:prestige_vente_app/plateforme/capacites.dart';
 import 'package:prestige_vente_app/widgets/bouton_deconnexion.dart';
 
 class ParametresScreen extends StatefulWidget {
@@ -276,8 +275,6 @@ class _ParametresScreenState extends State<ParametresScreen> {
     final split = Responsive.isExpanded(context);
     final rows = <Widget>[];
     for (final r in Rubrique.values) {
-      // 4.5.0 : iPhone / iPad : pas de borne (épinglage Android, ticket Sunmi) — rubrique masquée.
-      if (r == Rubrique.borne && !CapacitesPlateforme.courant.borne) continue;
       final summary = _summary(r, settings, licence);
       if (!rubriqueMatches(r, summary, query)) continue;
       rows.add(_row(r, summary, _unavailable(r, auth), selected: split && r == _selected));

@@ -65,14 +65,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.10.10+3"
-  camera_avfoundation:
-    dependency: "direct main"
-    description:
-      name: camera_avfoundation
-      sha256: "951ef122d01ebba68b7a54bfe294e8b25585635a90465c311b2f875ae72c412f"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.21+2"
   camera_platform_interface:
     dependency: "direct main"
     description:
