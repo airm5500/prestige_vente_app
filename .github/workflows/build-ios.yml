@@ -1,0 +1,208 @@
+# Prestige Mobile sur iPhone / iPad (4.5.0) — voir docs/ios/README.md.
+#
+# 1. ios-build (toujours) : tests Flutter propres à iOS sur macOS, puis `flutter build ios --release --no-codesign`
+#    (aucune signature, aucun secret) et contrôle de l'Info.plist produit (version = pubspec.yaml, bundle ID, textes
+#    d'autorisation, ATS).
+# 2. testflight (seulement si les 4 secrets existent) : archive signée automatiquement avec la clé API App Store
+#    Connect (xcodebuild -allowProvisioningUpdates -authenticationKey…), export de l'IPA, envoi à TestFlight avec
+#    l'outil open source « asc » (rorkai/App-Store-Connect-CLI, licence MIT, version figée + somme de contrôle).
+#    Secrets (déposés par le pharmacien, jamais dans le dépôt ni les journaux) : APP_STORE_CONNECT_KEY_ID,
+#    APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_PRIVATE_KEY (contenu du .p8), APPLE_TEAM_ID.
+#    Variables facultatives (Settings › Secrets and variables › Actions › Variables) : ASC_APP_ID (identifiant
+#    Apple de l'app, sinon retrouvé par le bundle ID), TESTFLIGHT_GROUP (groupe de testeurs).
+# Les jobs Android (build-apk.yml) ne sont pas touchés.
+name: Build iOS (TestFlight)
+
+on:
+  push:
+    branches:
+      - 'pres-/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.32.8'
+  ASC_VERSION: '5.14.3'
+
+jobs:
+  ios-build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      testflight: ${{ steps.secrets.outputs.presents }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Dépendances
+        run: flutter pub get
+
+      # Tests ciblés iOS (capacités masquées, Info.plist / ATS, projet Xcode, ergonomie iPhone / iPad) : la suite
+      # complète tourne déjà sur Linux (build-apk.yml) ; ici on vérifie sur macOS ce qui concerne iOS.
+      - name: Tests iOS (macOS)
+        run: flutter test test/ios
+
+      - name: Build iOS (sans signature)
+        run: flutter build ios --release --no-codesign
+
+      - name: Contrôle de l'application produite (Info.plist)
+        shell: bash
+        run: |
+          plist=build/ios/iphoneos/Runner.app/Info.plist
+          lire() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist"; }
+          attendu=$(sed -n 's/^version: *//p' pubspec.yaml | tr -d '[:space:]')
+          version="$(lire CFBundleShortVersionString)+$(lire CFBundleVersion)"
+          echo "pubspec.yaml : $attendu · application : $version · bundle : $(lire CFBundleIdentifier) · iOS min : $(lire MinimumOSVersion)"
+          [ "$attendu" = "$version" ] || { echo "::error title=Version iOS::$version ≠ pubspec.yaml $attendu"; exit 1; }
+          [ "$(lire CFBundleIdentifier)" = "$(sed -n 's/^PRESTIGE_BUNDLE_ID *= *//p' ios/Flutter/Prestige.xcconfig)" ] || { echo "::error title=Bundle ID::différent de ios/Flutter/Prestige.xcconfig"; exit 1; }
+          for k in NSCameraUsageDescription NSMicrophoneUsageDescription NSPhotoLibraryUsageDescription NSPhotoLibraryAddUsageDescription NSLocationWhenInUseUsageDescription NSLocalNetworkUsageDescription; do
+            lire "$k" > /dev/null || { echo "::error title=Info.plist::$k absent"; exit 1; }
+          done
+          [ "$(lire NSAppTransportSecurity:NSAllowsLocalNetworking)" = "true" ] || { echo "::error title=ATS::NSAllowsLocalNetworking absent"; exit 1; }
+          if lire NSAppTransportSecurity:NSAllowsArbitraryLoads > /dev/null 2>&1; then echo "::error title=ATS::NSAllowsArbitraryLoads ne doit pas être présent"; exit 1; fi
+          echo "::notice title=Application iOS::$version · $(lire CFBundleIdentifier)"
+
+      # Le job TestFlight n'est lancé que si les 4 secrets ont été déposés (aucune valeur n'est affichée).
+      - name: Secrets TestFlight présents ?
+        id: secrets
+        shell: bash
+        env:
+          K: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          I: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          P: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          T: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$K" ] && [ -n "$I" ] && [ -n "$P" ] && [ -n "$T" ]; then
+            echo "presents=true" >> "$GITHUB_OUTPUT"; echo "::notice title=TestFlight::secrets présents, envoi à TestFlight"
+          else
+            echo "presents=false" >> "$GITHUB_OUTPUT"; echo "::notice title=TestFlight::secrets absents, envoi désactivé (docs/ios/README.md)"
+          fi
+
+  testflight:
+    needs: ios-build
+    if: needs.ios-build.outputs.testflight == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      ASC_TELEMETRY_DISABLED: '1'
+      DO_NOT_TRACK: '1'
+      ASC_BYPASS_KEYCHAIN: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Dépendances
+        run: flutter pub get
+
+      # Clé .p8 écrite dans un fichier temporaire du runner (droits 600), jamais affichée ; effacée à la fin.
+      - name: Clé API App Store Connect
+        shell: bash
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$PRIVATE_KEY" > "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" >> "$GITHUB_ENV"
+
+      # Numéro de build unique pour TestFlight : <N de pubspec>.<numéro du run> (ex. 21.57), version = pubspec.
+      - name: Version
+        shell: bash
+        run: |
+          v=$(sed -n 's/^version: *//p' pubspec.yaml | tr -d '[:space:]')
+          echo "BUILD_NAME=${v%%+*}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${v##*+}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
+      - name: Préparation Flutter (sans signature)
+        run: flutter build ios --release --config-only --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+
+      # Signature automatique gérée par Apple (certificat et profil créés au besoin avec la clé API, rôle Admin).
+      - name: Archive signée
+        shell: bash
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/ios/Prestige.xcarchive archive \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID" \
+            | tail -n 40
+
+      - name: Export de l'IPA
+        shell: bash
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          sed "s/__TEAM_ID__/$TEAM_ID/" ios/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath build/ios/Prestige.xcarchive -exportPath build/ios/ipa \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID" \
+            | tail -n 20
+          ls -la build/ios/ipa
+
+      # Outil asc : binaire de la version figée, vérifié par la somme de contrôle publiée avec la version.
+      - name: Outil asc (App-Store-Connect-CLI ${{ env.ASC_VERSION }})
+        shell: bash
+        run: |
+          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
+          f="asc_${ASC_VERSION}_macOS_arm64"
+          curl -fsSL -o "$RUNNER_TEMP/$f" "$base/$f"
+          curl -fsSL -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
+          (cd "$RUNNER_TEMP" && grep " $f\$" asc_checksums.txt | shasum -a 256 -c -)
+          install -m 755 "$RUNNER_TEMP/$f" /usr/local/bin/asc
+          asc --version || true
+
+      - name: Envoi à TestFlight
+        shell: bash
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_APP_ID: ${{ vars.ASC_APP_ID }}
+        run: |
+          asc auth login --bypass-keychain --name prestige-ci --key-id "$KEY_ID" --issuer-id "$ISSUER_ID" --private-key "$ASC_KEY_PATH" > /dev/null
+          bundle=$(sed -n 's/^PRESTIGE_BUNDLE_ID *= *//p' ios/Flutter/Prestige.xcconfig)
+          app="$ASC_APP_ID"
+          if [ -z "$app" ]; then
+            app=$(asc apps list --output json | jq -r --arg b "$bundle" '.data[]? | select(.attributes.bundleId == $b) | .id' | head -1)
+          fi
+          [ -n "$app" ] || { echo "::error title=TestFlight::aucune app « $bundle » dans App Store Connect (créer l'app, voir docs/ios/README.md)"; exit 1; }
+          ipa=$(ls build/ios/ipa/*.ipa | head -1)
+          asc builds upload --app "$app" --ipa "$ipa" --wait --output json > "$RUNNER_TEMP/upload.json"
+          echo "ASC_APP=$app" >> "$GITHUB_ENV"
+          echo "::notice title=TestFlight::build $BUILD_NAME ($BUILD_NUMBER) envoyé pour $bundle"
+
+      # Groupe de testeurs (variable TESTFLIGHT_GROUP) et notes « À tester » : facultatif, n'échoue pas la livraison.
+      - name: Groupe de testeurs et notes de test
+        if: ${{ vars.TESTFLIGHT_GROUP != '' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GROUPE: ${{ vars.TESTFLIGHT_GROUP }}
+        run: |
+          asc builds add-groups --app "$ASC_APP" --version "$BUILD_NAME" --build-number "$BUILD_NUMBER" --platform IOS --group "$GROUPE"
+          notes=$(sed -n '/^## À tester/,/^## /p' docs/NOTE_VERSION_${BUILD_NAME}.md | sed '1d;$d' | head -c 3900)
+          id=$(jq -r '.. | .buildId? // .build_id? // .id? // empty' "$RUNNER_TEMP/upload.json" | head -1)
+          [ -z "$id" ] || [ -z "$notes" ] || asc builds test-notes create --build-id "$id" --locale fr-FR --whats-new "$notes"
+
+      - name: Nettoyage de la clé
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/asc" "$HOME/.asc" || true
