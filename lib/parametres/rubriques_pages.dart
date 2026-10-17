@@ -27,6 +27,7 @@ import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
+import 'package:prestige_vente_app/plateforme/capacites.dart';
 import 'package:prestige_vente_app/rh/empreintes_partagees.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
 import 'package:prestige_vente_app/rh/photo_controle.dart';
@@ -56,7 +57,8 @@ Future<void> imprimerTicketEssai(BuildContext context) async {
   final settings = context.read<SettingsProvider>();
   final auth = context.read<AuthProvider>();
   final messenger = ScaffoldMessenger.of(context);
-  if (!settings.isTestPrintMode) {
+  // 4.5.0 : iPhone / iPad (pas d'imprimante Sunmi) : aperçu à l'écran, aucun appel au plugin.
+  if (!settings.isTestPrintMode && CapacitesPlateforme.courant.imprimanteSunmi) {
     bool connected = false;
     try {
       connected = await SunmiPrinter.bindingPrinter() == true;
@@ -135,11 +137,19 @@ class _ImpressionPageState extends State<ImpressionPage> {
             style: navyButton,
             onPressed: _printing ? null : _print,
             icon: const Icon(Icons.print),
-            label: const FittedBox(child: Text('IMPRIMER UN TICKET D\'ESSAI')),
+            label: FittedBox(child: Text(CapacitesPlateforme.courant.imprimanteSunmi ? 'IMPRIMER UN TICKET D\'ESSAI' : 'APERÇU D\'UN TICKET')),
           ),
         ),
       ]),
       children: [
+        if (!CapacitesPlateforme.courant.imprimanteSunmi)
+          const Padding(
+            key: Key('impression_ios'),
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text('iPhone / iPad : pas d\'imprimante de tickets Sunmi. Les tickets s\'affichent à l\'écran ; '
+                'les documents PDF s\'impriment par AirPrint ou se partagent.',
+                style: TextStyle(fontSize: 13, color: Pal.muted)),
+          ),
         const SectionLabel('Largeur du ticket'),
         Segmented<int>(options: const [(58, '58 mm'), (80, '80 mm')], value: s.paperWidth, onChanged: s.setPaperWidth),
         const SectionLabel('Type de code sur le ticket'),
@@ -812,6 +822,8 @@ class _EquipePageState extends State<EquipePage> {
         children: [
           // Le pointage présence (Prestige) se fait par Accueil › Équipe › Pointage présence. Ce qui suit concerne le
           // pointage LOCAL : rien n'est envoyé à Prestige ; ses données restent sur l'appareil (rapport, export).
+          // 4.5.0 : iPhone / iPad : pas de pointage local (empreinte, NFC du terminal) — section masquée.
+          if (CapacitesPlateforme.courant.pointageLocal) ...[
           const SectionLabel('Pointage local (non envoyé à Prestige)'),
           const InfoBanner.warning(
               'Le pointage local (empreinte / PIN) garde les pointages sur cet appareil : ils n\'apparaissent pas dans '
@@ -843,6 +855,7 @@ class _EquipePageState extends State<EquipePage> {
             subtitle: 'Vérifier le lecteur de cet appareil',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FingerprintDiagnosticScreen())),
           ),
+          ],
           // Anti-fraude (pointage pour un collègue) : Pointage présence ET pointage local de CE terminal.
           const SectionLabel('Pointage sur ce terminal (contrôle)'),
           SwitchCard(

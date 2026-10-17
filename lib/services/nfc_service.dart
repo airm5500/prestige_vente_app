@@ -1,5 +1,6 @@
 // lib/services/nfc_service.dart
 // Lecture des badges NFC (cartes sans contact) : identifiant de la carte (UID) en hexadécimal.
+import 'package:prestige_vente_app/plateforme/capacites.dart';
 import 'package:flutter/services.dart';
 
 enum NfcAvailability {
@@ -31,8 +32,12 @@ class DeviceNfcReader implements NfcReader {
 
   const DeviceNfcReader();
 
+  // 4.5.0 : sans pont NFC (iPhone / iPad) : absent, aucun appel natif.
+  static bool get _pont => CapacitesPlateforme.courant.nfc;
+
   @override
   Future<NfcAvailability> availability() async {
+    if (!_pont) return NfcAvailability.absent;
     try {
       final m = await _methods.invokeMapMethod<String, dynamic>('status');
       if (m?['supported'] != true) return NfcAvailability.absent;
@@ -45,10 +50,11 @@ class DeviceNfcReader implements NfcReader {
   }
 
   @override
-  Stream<String> get tags => _tags;
+  Stream<String> get tags => _pont ? _tags : const Stream<String>.empty();
 
   @override
   Future<bool> start() async {
+    if (!_pont) return false;
     try {
       return await _methods.invokeMethod<bool>('start') ?? false;
     } on MissingPluginException {
@@ -60,6 +66,7 @@ class DeviceNfcReader implements NfcReader {
 
   @override
   Future<void> stop() async {
+    if (!_pont) return;
     try {
       await _methods.invokeMethod('stop');
     } on MissingPluginException {
@@ -71,6 +78,7 @@ class DeviceNfcReader implements NfcReader {
 
   @override
   Future<void> openSettings() async {
+    if (!_pont) return;
     try {
       await _methods.invokeMethod('openSettings');
     } on MissingPluginException {

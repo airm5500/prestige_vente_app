@@ -2,7 +2,7 @@ name: prestige_vente_app
 description: "Application de point de vente Prestige Vente"
 publish_to: 'none'
 
-version: 4.4.0+20
+version: 4.5.0+21
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -51,6 +51,9 @@ dependencies:
   # Capture guidée (cadre, netteté, luminosité, lampe, capture auto) : implémentation Camera2,
   # version figée sans CameraX pour ne pas toucher au scanner (mobile_scanner / CameraX 1.4).
   camera_android: 0.10.10+3
+  # 4.5.0 (iPhone / iPad) : implémentation iOS de la caméra (capture guidée, photo de contrôle). Version figée,
+  # compatible camera_platform_interface 2.12 ; sans effet sur Android (plugin iOS seulement).
+  camera_avfoundation: 0.9.21+2
   camera_platform_interface: ^2.9.0
   # Recadrage de la photo sur le cadre avant la lecture du texte.
   image: ^4.5.4

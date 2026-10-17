@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
+import 'package:prestige_vente_app/plateforme/capacites.dart';
 import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:sunmi_printer_plus/enums.dart';
@@ -35,6 +36,9 @@ String provisoireTitre(String numero) => 'PROVISOIRE — $numero';
 const String provisoireNote = 'Vente hors ligne : envoi au retour du serveur';
 
 class ReceiptService {
+  /// 4.5.0 : sans imprimante Sunmi (iPhone / iPad), le ticket s'affiche à l'écran comme en « mode test » ;
+  /// aucun appel au plugin sunmi_printer_plus (sur iOS ce n'est qu'une coquille vide).
+  static bool get _ecranSeulement => !CapacitesPlateforme.courant.imprimanteSunmi;
 
   // ==========================================
   // 1. POINTS D'ENTRÉE PUBLICS
@@ -51,7 +55,7 @@ class ReceiptService {
     // Optionnel (hors ligne) : numéro provisoire « HL-0007 » ; null = comportement d'origine.
     String? provisoire,
   }) async {
-    if (isTestMode) {
+    if (isTestMode || _ecranSeulement) {
       final ticketWidget = _buildSaleTicketWidget(context, officine, saleSummary, items, paymentMethod, currentUser, paperWidth, showQrCode, ticketCodeType, montantVerse: montantVerse, monnaie: monnaie, reglements: reglements, provisoire: provisoire);
       await _showTestTicketDialog(context, ticketWidget, paperWidth);
     } else {
@@ -70,7 +74,7 @@ class ReceiptService {
     bool afficherProduits = false,
   }) async {
     final produits = afficherProduits ? TicketPrevente.imprimables(items) : const <SaleItemDetail>[];
-    if (isTestMode) {
+    if (isTestMode || _ecranSeulement) {
       final ticketWidget = _buildPreventeTicketWidget(context, officine, saleSummary, currentUser, paperWidth, ticketCodeType, provisoire: provisoire, produits: produits);
       await _showTestTicketDialog(context, ticketWidget, paperWidth);
     } else {
@@ -101,7 +105,7 @@ class ReceiptService {
         if (rePrint != true) break;
       }
 
-      if (isTestMode) {
+      if (isTestMode || _ecranSeulement) {
         // APPEL DU WIDGET DÉTAILLÉ
         final ticketWidget = _buildAssuranceSaleTicketWidget(context, officine, saleSummary, items, client, ayantDroit, paymentMethod, currentUser, paperWidth, ticketCodeType, showQrCode, montantVerse: montantVerse, monnaie: monnaie, reference: ref, title: title, reglements: reglements);
         await _showTestTicketDialog(context, ticketWidget, paperWidth);
@@ -138,7 +142,7 @@ class ReceiptService {
         );
         if (rePrint != true) break;
       }
-      if (isTestMode) {
+      if (isTestMode || _ecranSeulement) {
         // APPEL DU WIDGET MINIMALISTE
         final ticketWidget = _buildAssurancePreventeTicketWidget(context, officine, saleSummary, items, client, ayantDroit, currentUser, paperWidth, ticketCodeType, reference: ref, title: title, provisoire: provisoire, produits: produits);
         await _showTestTicketDialog(context, ticketWidget, paperWidth);
@@ -156,7 +160,7 @@ class ReceiptService {
   }) async {
     final cols = paperWidth == 58 ? 32 : 48;
     final sep = List.filled(cols, '-').join();
-    if (isTestMode) {
+    if (isTestMode || _ecranSeulement) {
       const textStyle = TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.black);
       final ticket = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (officine != null) Text(officine.nomComplet.toUpperCase(), style: textStyle.copyWith(fontWeight: FontWeight.bold, fontSize: 14)),
@@ -193,6 +197,7 @@ class ReceiptService {
     required List<String> lignes, required List<String> pied, required String codeType,
     String titre = 'PRE-VENTE BORNE',
   }) async {
+    if (_ecranSeulement) return false; // la borne affiche alors le ticket à l'écran
     try {
       final bool? ok = await SunmiPrinter.bindingPrinter();
       if (ok != true) return false;
@@ -230,6 +235,7 @@ class ReceiptService {
   // ==========================================
 
   Future<bool> _initializePrinter(BuildContext context) async {
+    if (_ecranSeulement) return false;
     try {
       final bool? isConnected = await SunmiPrinter.bindingPrinter();
       if (isConnected != true) { Constants.showSnackBar(context, "Imprimante non connectée.", isError: true); return false; }
