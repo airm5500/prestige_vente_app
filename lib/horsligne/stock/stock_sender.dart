@@ -32,7 +32,7 @@ import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart' show champsSerie, codeSerieDejaConsommee, messageBoiteDejaScannee;
 import 'package:prestige_vente_app/droits/droits_vente.dart';
-import 'package:prestige_vente_app/retour/retour_gateway.dart' show avisAjoutRetour;
+import 'package:prestige_vente_app/retour/retour_gateway.dart' show avisAjoutRetour, corpsNouveauRetour;
 
 /// Réponse brute du serveur (code HTTP + corps).
 class StockHttp {
@@ -407,15 +407,16 @@ class StockSender {
       final h4 = await clientRefSupporte();
       op.meta['clientRef'] = h4;
       await _set(op, first, StockLineEtat.sending);
-      final StockHttp r;
+      StockHttp r;
       try {
-        r = await _call('POST', '/retourfournisseur/new',
-            data: {
-              'lgBONLIVRAISONID': op.meta['blRef'],
-              'strCOMMENTAIRE': op.meta['comment'] ?? marker,
-              'items': [item(first)],
-            },
-            headers: h4 ? {enteteClientRef: op.id} : null);
+        // 4.6.1 (D8) : `blId` (identifiant du BL, op.refId) vise le BL exact sur un serveur à jour ; ignoré sinon.
+        final corps = corpsNouveauRetour(
+            blRef: '${op.meta['blRef']}', comment: '${op.meta['comment'] ?? marker}', item: item(first), blId: op.refId);
+        r = await _call('POST', '/retourfournisseur/new', data: corps, headers: h4 ? {enteteClientRef: op.id} : null);
+        if (r.status == 400 && corps.containsKey('blId')) {
+          // Serveur qui refuserait le champ inconnu (400 avant toute écriture) : même retour, sans blId.
+          r = await _call('POST', '/retourfournisseur/new', data: Map.of(corps)..remove('blId'), headers: h4 ? {enteteClientRef: op.id} : null);
+        }
       } on StockStopException {
         // H4 : réponse perdue → relecture immédiate par la clé (sinon : relue au prochain envoi).
         var repris = false;

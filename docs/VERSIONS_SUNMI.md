@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.6.0+25** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.6.1+26** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -34,7 +34,9 @@ par la 4.5.0 retirée, voir `docs/NOTE_VERSION_4.4.1.md`) + Google Play, piste �
 vente lus à chaque connexion, boutons de clôture masqués sans le droit, 403 sans déconnexion, un compte par session,
 en-tête X-Prestige-Utilisateur, borne (4.5.1+24, voir `docs/NOTE_VERSION_4.5.1.md`) + réponse du serveur du 19/10 :
 BL refusé avec la liste des produits, droit de scan des BL, motif différent du retour, « Mon pointage » sous la
-session, terminal avec P_RH_POINTER (4.6.0+25, voir `docs/NOTE_VERSION_4.6.0.md`).
+session, terminal avec P_RH_POINTER (4.6.0+25, voir `docs/NOTE_VERSION_4.6.0.md`) + suite du serveur du 19/10 : mesure
+de la fiche client sans doublon (X-Client-Ref), retour fournisseur sur le bon BL (blId) (4.6.1+26, voir
+`docs/NOTE_VERSION_4.6.1.md`).
 
 ## Les 3 règles (permanentes)
 

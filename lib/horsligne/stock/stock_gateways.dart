@@ -200,11 +200,14 @@ class OfflineRetourGateway implements RetourGateway {
     required String motifId,
     required int quantity,
     String comment = '',
+    String blId = '',
   }) async {
-    if (!_off) return online.create(blRef: blRef, produitId: produitId, motifId: motifId, quantity: quantity, comment: comment);
-    final bl = (await stock.rows(StockRef.blsClotures)).where((r) => '${r['str_REF_LIVRAISON']}' == blRef).firstOrNull ?? const {};
+    if (!_off) return online.create(blRef: blRef, produitId: produitId, motifId: motifId, quantity: quantity, comment: comment, blId: blId);
+    final rows = (await stock.rows(StockRef.blsClotures)).where((r) => '${r['str_REF_LIVRAISON']}' == blRef);
+    // 4.6.1 (D8) : le BL choisi par son identifiant quand il est connu (deux grossistes, même numéro).
+    final bl = (blId.isEmpty ? null : rows.where((r) => '${r['lg_BON_LIVRAISON_ID']}' == blId).firstOrNull) ?? rows.firstOrNull ?? const {};
     final op = await stock.queue.createRetour(
-        blId: '${bl['lg_BON_LIVRAISON_ID'] ?? blRef}', blRef: blRef, grossiste: '${bl['str_GROSSISTE_LIBELLE'] ?? ''}', comment: comment);
+        blId: blId.isNotEmpty ? blId : '${bl['lg_BON_LIVRAISON_ID'] ?? blRef}', blRef: blRef, grossiste: '${bl['str_GROSSISTE_LIBELLE'] ?? ''}', comment: comment);
     await stock.queue.addRetourLine(op,
         produitId: produitId, produit: await _produit(produitId, blRef), motifId: motifId, motif: await _motifLabel(motifId), qty: quantity);
     return (

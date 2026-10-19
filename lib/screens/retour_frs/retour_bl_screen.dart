@@ -207,6 +207,7 @@ class _RetourBlScreenState extends State<RetourBlScreen> with PresentationAware 
     if (_retour == null) {
       final r = await widget.gateway.create(
         blRef: widget.bl.ref,
+        blId: widget.bl.id,
         produitId: line.produitId,
         motifId: motifId,
         quantity: qty,
