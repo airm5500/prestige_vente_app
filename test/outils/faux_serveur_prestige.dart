@@ -163,6 +163,29 @@ class FauxServeurPrestige extends ServeurJsonLocal {
 
   static const messageDeconnecte = 'Veuillez vous connecter';
 
+  /// 4.5.1 : refus de droit du serveur (403 `{success:false, interdit:true, msg}`), rien n'est enregistré.
+  static ReponseLocale interdit([String msg = 'Droit manquant : vous ne pouvez pas terminer cette vente.']) =>
+      ReponseLocale({'success': false, 'interdit': true, 'msg': msg}, statut: 403);
+
+  /// 4.5.1 : droits de chaque compte (GET v1/user/droits) ; compte absent de la table : [droitsComplets] (serveur à
+  /// jour, comptes de démonstration autorisés) ; null = route absente (serveur ancien : 404 de Payara).
+  Map<String, List<String>>? droitsComptes = {};
+
+  /// Droits d'un compte non listé dans [droitsComptes].
+  static const droitsComplets = ['P_SM_VENTE', 'P_SM_CLOTURER_CAISSE', 'P_SM_VENTEDEPOT', 'P_BT_ANNULER_VENTE'];
+
+  /// 4.5.1 : compte de chaque session (JSESSIONID → login) ; [basculerSession] simule un autre compte connecté sur
+  /// la même session (filtre UtilisateurOngletFilter : 409 sessionChangee si l'en-tête ne correspond plus).
+  final Map<String, String> compteSession = {};
+
+  /// Requêtes refusées en 409 sessionChangee.
+  int refus409 = 0;
+
+  void basculerSession(String login) {
+    final id = derniereSession;
+    if (id != null) compteSession[id] = login;
+  }
+
   // ---------------------------------------------------------------------------
   // État pilotable
   // ---------------------------------------------------------------------------
@@ -370,6 +393,16 @@ class FauxServeurPrestige extends ServeurJsonLocal {
       refusSession++;
       return refusEn403 ? nonConnecte403 : nonConnecte401;
     }
+    // 4.5.1 : filtre UtilisateurOngletFilter du serveur (en-tête X-Prestige-Utilisateur ≠ compte de la session).
+    final compte = r.jsessionid == null ? null : compteSession[r.jsessionid];
+    if (r.utilisateur.isNotEmpty && compte != null && r.utilisateur != 'U-$compte' && !r.chemin.endsWith('/user/logout')) {
+      refus409++;
+      return ReponseLocale({
+        'success': false,
+        'sessionChangee': true,
+        'msg': 'Un autre compte ($compte) s\'est connecté sur ce navigateur. Rien n\'a été enregistré : la page se recharge au nom de ce compte.'
+      }, statut: 409);
+    }
     final scriptee = routePour(r);
     if (scriptee != null) return await scriptee(r);
     for (final e in routesParDefaut.entries) {
@@ -391,6 +424,7 @@ class FauxServeurPrestige extends ServeurJsonLocal {
       final id = 'FAUX${_prochaineSession++}';
       sessions.add(id);
       derniereSession = id;
+      compteSession[id] = login;
       connexions++;
       return ReponseLocale(DonneesFictives.utilisateur(login), entetes: {'set-cookie': 'JSESSIONID=$id; Path=/prestige; HttpOnly'});
     }
@@ -399,6 +433,21 @@ class FauxServeurPrestige extends ServeurJsonLocal {
       return const ReponseLocale({'success': true});
     }
     if (r.methode == 'GET' && c.endsWith('/officine')) return ReponseLocale(DonneesFictives.officines());
+    if (r.methode == 'GET' && c.endsWith('/user/droits')) {
+      final d = droitsComptes;
+      final login = r.jsessionid == null ? null : compteSession[r.jsessionid];
+      if (d == null) return payara404;
+      return ReponseLocale({'success': true, 'profil': 'mainmenumanager', 'droits': d[login] ?? droitsComplets});
+    }
+    if (r.methode == 'GET' && c.endsWith('/user/account')) {
+      final login = r.jsessionid == null ? null : compteSession[r.jsessionid];
+      if (login == null) return const ReponseLocale({'accountInfo': {}});
+      final u = DonneesFictives.utilisateur(login);
+      return ReponseLocale({
+        // Noms JSON de l'AccountInfoDTO du serveur (@JSONPropertyName).
+        'accountInfo': {'lg_USER_ID': u['str_USER_ID'], 'str_LOGIN': login, 'str_FIRST_NAME': u['str_FIRST_NAME'], 'str_LAST_NAME': u['str_LAST_NAME']}
+      });
+    }
     if (c.endsWith('/ventestats/preventes')) return const ReponseLocale({'data': [], 'total': 0});
     if (c.endsWith('/commande/list-bons')) return const ReponseLocale({'data': [], 'total': 0});
     if (c.endsWith('/modereglement/all') || c.endsWith('/common/reglement')) return const ReponseLocale({'data': []});
@@ -660,7 +709,8 @@ class _FauxRequete implements HttpClientRequest {
   Future<void> _envoyer() async {
     try {
       final r = RequeteRecue(method, uri.path, uri.queryParameters, utf8.decode(_corps.takeBytes(), allowMalformed: true), headers.value('cookie') ?? '',
-          autorisation: headers.value('authorization') ?? '', clientRef: headers.value('x-client-ref') ?? '');
+          autorisation: headers.value('authorization') ?? '', clientRef: headers.value('x-client-ref') ?? '',
+          utilisateur: headers.value('x-prestige-utilisateur') ?? '');
       final rep = await serveur._traiterMemoire(r);
       if (rep.delai > Duration.zero) await Future<void>.delayed(rep.delai);
       if (serveur.coupe) throw const SocketException('Connection reset by peer');

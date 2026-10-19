@@ -23,6 +23,7 @@ import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
 /// Image d'un produit dans la liste du serveur.
 class ImageProduitInfo {
@@ -132,7 +133,8 @@ class DioProduitImagesApi implements ProduitImagesApi {
   /// Client dédié (pas de journal des réponses binaires), même session que l'appli.
   Dio get dio {
     final d = _dio ??= (Dio(BaseOptions(connectTimeout: const Duration(seconds: 8), receiveTimeout: const Duration(seconds: 20)))
-      ..interceptors.add(CookieManager(DioClient.cookieJar)));
+      ..interceptors.add(CookieManager(DioClient.cookieJar))
+      ..interceptors.add(IntercepteurUtilisateur()));
     avecDeploiement(d);
     d.options.baseUrl = serveur();
     return d;

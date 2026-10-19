@@ -1,8 +1,11 @@
 // lib/ventes/core/pending_sale_store.dart
 // Mémorise la vente en cours de chaque menu (identifiant, référence, total) pour proposer
 // « Reprendre la vente ? » après une fermeture de l'appli ou une perte de session.
+// 4.5.1 : chaque vente mémorisée porte le compte qui l'a commencée (`utilisateur` = str_USER_ID) ; un AUTRE compte
+// ne se la voit jamais proposer (elle est effacée) : le panier d'un compte ne passe pas sous la session d'un autre.
 import 'dart:convert';
 
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum VenteMenu { prevente, assurance, carnet }
@@ -60,7 +63,14 @@ class PendingSaleStore {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_key(m));
       if (raw == null) return null;
-      return PendingSale.fromJson(jsonDecode(raw));
+      final j = jsonDecode(raw);
+      final proprietaire = j is Map ? '${j['utilisateur'] ?? ''}' : '';
+      final courant = UtilisateurSession.id ?? '';
+      if (proprietaire.isNotEmpty && courant.isNotEmpty && proprietaire != courant) {
+        await prefs.remove(_key(m));
+        return null;
+      }
+      return PendingSale.fromJson(j);
     } catch (_) {
       return null;
     }
@@ -69,8 +79,16 @@ class PendingSaleStore {
   static Future<void> save(VenteMenu m, PendingSale sale) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_key(m), jsonEncode(sale.toJson()));
+      final id = UtilisateurSession.id;
+      await prefs.setString(_key(m), jsonEncode({...sale.toJson(), if (id != null && id.isNotEmpty) 'utilisateur': id}));
     } catch (_) {}
+  }
+
+  /// Déconnexion / changement de compte : plus aucune vente à reprendre.
+  static Future<void> toutEffacer() async {
+    for (final m in VenteMenu.values) {
+      await clear(m);
+    }
   }
 
   static Future<void> clear(VenteMenu m) async {

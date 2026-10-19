@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 //import 'package:prestige_vente_app/api/models/product_search_result.dart';
@@ -41,6 +42,7 @@ class _VenteTabState extends State<VenteTab> {
   @override
   void initState() {
     super.initState();
+    DroitsVente.instance.addListener(_droits);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestSearchFocus();
       Provider.of<SaleProvider>(context, listen: false).fetchPaymentMethodsWithQr();
@@ -53,8 +55,13 @@ class _VenteTabState extends State<VenteTab> {
     }
   }
 
+  void _droits() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    DroitsVente.instance.removeListener(_droits);
     _searchController.dispose();
     _searchFocusNode.dispose();
     _keyboardFocusNode.dispose();
@@ -394,7 +401,9 @@ class _VenteTabState extends State<VenteTab> {
                     if (apiResult['success'] == true) {
                       _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser, montantVerse: montantRecu, monnaie: montantRemis);
                     } else {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(saleProvider.errorMessage ?? "La validation a échoué"), backgroundColor: Colors.red));
+                      // 4.5.1 : refus de droit (403) ou session changée (409) : message du serveur, vente gardée.
+                      final refus = apiResult['interdit'] == true || apiResult['sessionChangee'] == true ? '${apiResult['msg']}' : null;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(refus ?? saleProvider.errorMessage ?? "La validation a échoué"), backgroundColor: Colors.red));
                     }
                   },
                   icon: const Icon(Icons.check_circle, color: Colors.white, size: 18),
@@ -562,7 +571,14 @@ class _VenteTabState extends State<VenteTab> {
               Text('Total: ${Constants.formatNumber(summary.montant)}'),
               Text('Net: ${Constants.formatNumber(summary.montantNet)}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
             ]),
-            saleProvider.isLoading ? const CircularProgressIndicator() : ElevatedButton(
+            // 4.5.1 : onglet VENTE d'un compte sans droit de terminer une vente (profil prévente) : pas de bouton
+            // d'encaissement, seulement l'invitation à terminer en prévente.
+            if (!widget.isPrevente && !DroitsVente.instance.terminerVente)
+              const Flexible(
+                child: Text(DroitsVente.messageReserve,
+                    key: Key('encaissement_reserve'), textAlign: TextAlign.end, style: TextStyle(color: Colors.black54)),
+              )
+            else saleProvider.isLoading ? const CircularProgressIndicator() : ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: widget.isPrevente ? Colors.orange : Colors.green, shape: const CircleBorder(), padding: const EdgeInsets.all(15)),
               child: Icon(widget.isPrevente ? Icons.save : Icons.check_circle, color: Colors.white),
               onPressed: saleProvider.cartItems.isEmpty ? null : () async {

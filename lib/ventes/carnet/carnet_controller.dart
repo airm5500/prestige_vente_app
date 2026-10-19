@@ -30,6 +30,7 @@ import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 enum CarnetStep { clientSearch, bonAndAyantDroit, productSearch }
 
@@ -708,6 +709,8 @@ class CarnetController extends ChangeNotifier {
   /// « Valider » : clôture carnet, comme l'original (espèces id '1', montant reçu = net, sans dialogue de paiement).
   Future<VenteResult<CarnetClotureOk>> valider({required int expectedChanges}) => _run(() async {
         if (_hl != null) return const VenteRefused(_venteLocale);
+        // 4.5.1 : compte sans droit de terminer une vente (le serveur refuserait aussi, 403 interdit).
+        if (!DroitsVente.instance.terminerVente) return const VenteRefused(DroitsVente.messageReserve, code: VenteRefused.codeInterdit);
         final id = _venteId, c = _client, ad = _ayantDroit, s = _summary;
         if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
         if (c == null || ad == null) return const VenteRefused('Client ou ayant droit manquant.');

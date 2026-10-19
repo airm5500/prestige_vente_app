@@ -4,6 +4,7 @@ import 'package:prestige_vente_app/api/models/depot_model.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/services/product_finder.dart';
+import 'package:prestige_vente_app/connexion/changement_utilisateur.dart';
 
 class DepotSaleProvider with ChangeNotifier, PagedProductSearchHost {
   final ApiService _apiService;
@@ -55,7 +56,16 @@ class DepotSaleProvider with ChangeNotifier, PagedProductSearchHost {
   // Les ajouts sont faits l'un après l'autre (scan rapide) : jamais deux créations de vente.
   Future<void> _addQueue = Future.value();
 
-  DepotSaleProvider(this._apiService);
+  // 4.5.1 : changement de compte / déconnexion → vente en dépôt en cours effacée.
+  DepotSaleProvider(this._apiService) {
+    EtatLocalVente.inscrire(resetSale);
+  }
+
+  @override
+  void dispose() {
+    EtatLocalVente.desinscrire(resetSale);
+    super.dispose();
+  }
 
   void toggleQuickScanMode() {
     _isQuickScanMode = !_isQuickScanMode;
@@ -257,7 +267,10 @@ class DepotSaleProvider with ChangeNotifier, PagedProductSearchHost {
       if (success) {
         resetSale();
       } else {
-        _errorMessage = "Vente NON clôturée : le serveur n'a pas confirmé (réseau ou serveur indisponible). Elle reste en cours.";
+        final refus = _apiService.dernierRefusSecurite;
+        _errorMessage = refus != null
+            ? "Vente NON clôturée : $refus Elle reste en cours."
+            : "Vente NON clôturée : le serveur n'a pas confirmé (réseau ou serveur indisponible). Elle reste en cours.";
       }
     } catch (e) {
       success = false;

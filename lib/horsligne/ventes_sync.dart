@@ -29,6 +29,7 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
 /// Le serveur n'a pas répondu : l'envoi s'arrête, la vente reprendra à la même étape.
 class _Panne implements Exception {
@@ -82,6 +83,19 @@ class FileVentesHL extends ChangeNotifier {
   DateTime? get dernierEnvoi => _dernierEnvoi;
 
   int get enAttente => _ventes.where((v) => v.aFaire).length;
+
+  /// 4.5.1 : compte de la session (str_USER_ID) ; null : inconnu (tests, avant connexion).
+  String? Function() compteCourant = () => UtilisateurSession.id;
+
+  /// 4.5.1 : une vente hors ligne n'est envoyée que sous la session du compte qui l'a saisie (sa clôture serait sinon
+  /// enregistrée au nom d'un autre). Vente sans compte (anciennes versions) ou compte de session inconnu : comme avant.
+  bool duCompteCourant(VenteHorsLigne v) {
+    final c = compteCourant();
+    return v.userId.isEmpty || c == null || c.isEmpty || v.userId == c;
+  }
+
+  /// Ventes en attente saisies par un AUTRE compte : envoyées à la prochaine connexion de ce compte.
+  int get enAttenteAutreCompte => _ventes.where((v) => v.aFaire && !duCompteCourant(v)).length;
   int get aVerifier => _ventes.where((v) => v.statut == StatutVenteHL.aVerifier).length;
 
   VenteHorsLigne? byId(String id) => _ventes.where((v) => v.id == id).firstOrNull;
@@ -257,7 +271,7 @@ class FileVentesHL extends ChangeNotifier {
   Future<void> demanderConfirmation() async {
     if (gateway == null) return;
     await ensureLoaded();
-    if (enAttente == 0 || _running || _confirmation) return;
+    if (enAttente - enAttenteAutreCompte == 0 || _running || _confirmation) return;
     _confirmation = true;
     _notify();
   }
@@ -294,12 +308,12 @@ class FileVentesHL extends ChangeNotifier {
       do {
         _again = false;
         final sel = _selection;
-        final todo = _ventes.where((v) => v.aFaire && (sel == null || sel.contains(v.id))).map((v) => v.id).toList();
+        final todo = _ventes.where((v) => v.aFaire && duCompteCourant(v) && (sel == null || sel.contains(v.id))).map((v) => v.id).toList();
         _total = todo.length;
         _index = 0;
         for (final id in todo) {
           final v = byId(id);
-          if (v == null || !v.aFaire) continue;
+          if (v == null || !v.aFaire || !duCompteCourant(v)) continue;
           _index++;
           _notify();
           try {

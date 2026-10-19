@@ -6,6 +6,7 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
 class DioClient {
   // On crée une seule instance de CookieJar
@@ -26,6 +27,8 @@ class DioClient {
 
     // On attache le CookieJar unique
     dio.interceptors.add(CookieManager(_cookieJar));
+    // 4.5.1 : en-tête X-Prestige-Utilisateur et 409 « session changée » (lib/api/utilisateur_session.dart).
+    IntercepteurUtilisateur.brancher(dio);
     // 4.3.3 : 404 de Payara pendant un redéploiement → 503 « Prestige indisponible » (lib/serveur/panne_serveur.dart).
     avecDeploiement(dio);
     // Session expirée (401 « Veuillez vous connecter ») : reconnexion silencieuse et requête rejouée, sinon

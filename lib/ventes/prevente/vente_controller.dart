@@ -22,6 +22,7 @@ import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 /// Résultat de l'encaissement : [dejaCloturee] = le serveur indique une vente déjà clôturée.
 typedef ClotureOk = ({bool dejaCloturee});
@@ -138,6 +139,9 @@ class VenteController extends ChangeNotifier {
         final hl = _hl;
         if (hl == null) return const VenteRefused('Vente en ligne : utilisez Prévente ou Encaisser.');
         if (_finished) return const VenteRefused('Vente déjà terminée.');
+        // 4.5.1 : vente terminée hors ligne par un compte sans le droit : bloquée à la source (droits en mémoire de la
+        // dernière lecture) ; la prévente hors ligne reste possible.
+        if (fin == FinVenteHL.especes && !DroitsVente.instance.terminerVente) return const VenteRefused(DroitsVente.messageHorsLigne);
         if (hl.isEmpty) return const VenteRefused('Le panier est vide.');
         final file = HorsLigne.instance.ventes;
         final now = file.now;
@@ -512,6 +516,8 @@ class VenteController extends ChangeNotifier {
   }) =>
       _run(() async {
         if (_hl != null) return const VenteRefused(_venteLocale);
+        // 4.5.1 : compte sans droit de terminer une vente (le serveur refuserait aussi, 403 interdit).
+        if (!DroitsVente.instance.terminerVente) return const VenteRefused(DroitsVente.messageReserve, code: VenteRefused.codeInterdit);
         final id = _venteId;
         if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
         if (_finished) return const VenteOk((dejaCloturee: true));

@@ -29,6 +29,7 @@ import 'package:prestige_vente_app/ordonnances/o4/apprentissage_o4.dart';
 import 'package:prestige_vente_app/ordonnances/o4/segment_medicament.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
 /// Une validation à partager.
 class CorrectionO4 {
@@ -89,7 +90,8 @@ class DioServeurCorrections implements ServeurCorrections {
       receiveTimeout: const Duration(seconds: 30),
       validateStatus: (_) => true,
     ))
-      ..interceptors.add(CookieManager(DioClient.cookieJar));
+      ..interceptors.add(CookieManager(DioClient.cookieJar))
+      ..interceptors.add(IntercepteurUtilisateur());
     avecDeploiement(d);
     d.options.baseUrl = adresse;
     return d;

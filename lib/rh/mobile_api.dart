@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
 // ---------------------------------------------------------------------------
 // Stockage du jeton
@@ -97,6 +98,7 @@ class DioTransportMobile implements TransportMobile {
       responseType: ResponseType.plain,
     ));
     avecDeploiement(d);
+    IntercepteurUtilisateur.brancher(d);
     d.options.baseUrl = '${baseUrl().replaceAll(RegExp(r'/+$'), '')}/mobile/';
     return d;
   }

@@ -74,6 +74,8 @@ Future<void> aucuneTraceEnClair() async {
 }
 
 void main() {
+  // 4.5.1 : faux ApiService (aucun serveur) : pas de lecture des droits de vente (GET v1/user/droits) à la connexion.
+  setUp(() => AuthProvider.lireDroitsVente = (_, __) async {});
   late JournalTerminal journal;
   late List<String> console;
   DebugPrintCallback? ancienPrint;

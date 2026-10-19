@@ -37,6 +37,12 @@ class VenteRefused<T> extends VenteResult<T> {
   final String? code;
   const VenteRefused(this.message, {this.code});
 
+  /// 4.5.1 : code d'un refus de DROIT (HTTP 403 `interdit`) : rien n'a été enregistré, ne pas réessayer.
+  static const codeInterdit = 'interdit';
+
+  /// Droit manquant (le compte n'a pas le droit de cette action).
+  bool get interdit => code == codeInterdit;
+
   /// Caisse fermée (message du serveur Prestige).
   bool get caisseFermee => message.toLowerCase().contains('caisse est ferm');
 

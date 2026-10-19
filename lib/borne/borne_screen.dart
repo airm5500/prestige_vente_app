@@ -19,6 +19,7 @@ import 'package:prestige_vente_app/borne/borne_widgets.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/paiements/attente_paiement_screen.dart';
 import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
@@ -100,6 +101,9 @@ class BorneScreen extends StatefulWidget {
   });
 
   static const indisponibleTitre = 'Borne momentanément indisponible';
+
+  /// 4.5.1 : paiement mobile money refusé faute de droit de clôture (403 interdit) : le client va à la caisse.
+  static const avisMobileIndisponible = 'Paiement mobile indisponible, rendez-vous à la caisse avec votre ticket.';
   static const indisponibleTexte = 'Adressez-vous au comptoir';
   static const toujoursLa = 'Êtes-vous toujours là ?';
 
@@ -132,6 +136,14 @@ class BorneScreenState extends State<BorneScreen> {
 
   // B3 : mobile money.
   List<String> _opsMobile = const [];
+
+  /// 4.5.1 : opérateurs PROPOSÉS au client. Le paiement mobile money de la borne clôture la vente (`cloturer:true`) :
+  /// sans droit de terminer une vente pour l'utilisateur borne (GET v1/user/droits), il n'est pas proposé (seul le
+  /// ticket pour la caisse reste). Droits inconnus (serveur ancien) : comme avant.
+  List<String> get _opsProposes => DroitsVente.instance.cloturerPaiementMobile ? _opsMobile : const [];
+
+  /// 4.5.1 : message affiché avec le ticket (paiement mobile refusé faute de droit).
+  String? _avisTicket;
   String? _opChoisi;
   AttentePaiement? _attente;
   BorneTicket? _ticket;
@@ -157,6 +169,7 @@ class BorneScreenState extends State<BorneScreen> {
     super.initState();
     HorsLigneScope.masquer.value = true;
     _m.addListener(_onMonitor);
+    DroitsVente.instance.addListener(_onDroits);
     widget.kiosque?.demarrer();
     if (widget.connexion != null) {
       _connecte = false;
@@ -170,6 +183,7 @@ class BorneScreenState extends State<BorneScreen> {
   void dispose() {
     HorsLigneScope.masquer.value = false;
     _m.removeListener(_onMonitor);
+    DroitsVente.instance.removeListener(_onDroits);
     for (final t in [_debounce, _ticketTimer, _inactif, _avertTimer, _reconnexion, _ajouteTimer]) {
       t?.cancel();
     }
@@ -290,7 +304,15 @@ class BorneScreenState extends State<BorneScreen> {
   }
 
   /// Retour à l'accueil : panier vidé, recherche effacée (confidentialité).
+  /// 4.5.1 : droits de l'utilisateur borne relus (connexion, reconnexion, retour au premier plan).
+  void _onDroits() {
+    if (!mounted) return;
+    if (vue == BorneVue.operateur && _opsProposes.isEmpty) vue = BorneVue.panier;
+    setState(() {});
+  }
+
   void _accueil() {
+    _avisTicket = null;
     _inactif?.cancel();
     _avertTimer?.cancel();
     _ticketTimer?.cancel();
@@ -528,14 +550,14 @@ class BorneScreenState extends State<BorneScreen> {
     }
     final p = r.value;
     final op = _opChoisi;
-    if (op != null && _opsMobile.contains(op) && widget.paiementsMobile?.api != null) {
+    if (op != null && _opsProposes.contains(op) && widget.paiementsMobile?.api != null) {
       _lancerMobile(p, op);
       return;
     }
     await _imprimerTicket(p);
   }
 
-  Future<void> _imprimerTicket(BornePrevente p, {String? payePar}) async {
+  Future<void> _imprimerTicket(BornePrevente p, {String? payePar, String? avis}) async {
     final ticket = BorneTicket(
         officine: widget.officine,
         prevente: p,
@@ -550,6 +572,7 @@ class BorneScreenState extends State<BorneScreen> {
       _ticket = ticket;
       _validation = false;
       _imprime = false;
+      _avisTicket = avis;
       vue = BorneVue.ticket;
     });
     var imprime = false;
@@ -597,6 +620,15 @@ class BorneScreenState extends State<BorneScreen> {
   void _onAttente(BornePrevente p, String op) {
     final a = _attente;
     if (!mounted || a == null) return;
+    // 4.5.1 : refus de droit (403 interdit) : aucun paiement créé ; ticket de prévente imprimé pour la caisse, vente
+    // gardée, pas de nouvelle tentative, la borne reste connectée.
+    if (a.interdit && vue == BorneVue.mobile) {
+      _attente = null;
+      // Libérée après la notification en cours (jamais pendant son propre appel).
+      Future.microtask(a.dispose);
+      _imprimerTicket(p, avis: BorneScreen.avisMobileIndisponible);
+      return;
+    }
     if (a.statut == StatutPM.paye && vue == BorneVue.mobile) {
       _imprimerTicket(
           BornePrevente(venteId: p.venteId, reference: p.reference, total: a.paiement!.montant, lignes: p.lignes, at: p.at),
@@ -1279,7 +1311,7 @@ class BorneScreenState extends State<BorneScreen> {
                   occupe: _validation && _opChoisi == null,
                   onPressed: panier.vide || _validation ? null : payer),
             ),
-            if (_opsMobile.isNotEmpty) ...[
+            if (_opsProposes.isNotEmpty) ...[
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
@@ -1363,7 +1395,7 @@ class BorneScreenState extends State<BorneScreen> {
             Text('Total : ${prixF(panier.total)} (montant vérifié par la pharmacie)',
                 style: const TextStyle(fontSize: 16, color: Pal.muted)),
             const SizedBox(height: 14),
-            for (final op in _opsMobile)
+            for (final op in _opsProposes)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: SizedBox(
@@ -1439,6 +1471,13 @@ class BorneScreenState extends State<BorneScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text('Merci !', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Pal.ink)),
+                if (_avisTicket != null) ...[
+                  const SizedBox(height: 6),
+                  Text(_avisTicket!,
+                      key: const ValueKey('borne-avis-ticket'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFFB45309))),
+                ],
                 const SizedBox(height: 6),
                 Text(_imprime ? 'Votre ticket s\'imprime.' : 'Montrez cet écran à la caisse (ou notez le numéro).',
                     textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, color: Pal.muted)),

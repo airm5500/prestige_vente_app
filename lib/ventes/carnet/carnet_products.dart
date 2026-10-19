@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/ventes/common/vente_product_search.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 /// Ajout refusé faute de réponse (panne) : affiché en ambre jusqu'à « Réessayer » ou « Retirer ».
 /// [baseQty] = quantité du produit déjà au panier au moment de l'échec (pour ne jamais l'ajouter deux fois).
@@ -515,7 +516,10 @@ class _CarnetFooter extends StatelessWidget {
   const _CarnetFooter({required this.frame, required this.onPrevente, required this.onValider, required this.paying, required this.unsaved});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(listenable: DroitsVente.instance, builder: (context, _) => _pied(context));
+
+  Widget _pied(BuildContext context) {
+    final peutTerminer = DroitsVente.instance.terminerVente;
     final c = context.watch<CarnetController>();
     final s = c.summary;
     final upToDate = c.hasCart && c.netUpToDate && s != null;
@@ -593,6 +597,8 @@ class _CarnetFooter extends StatelessWidget {
               ),
             ),
           ),
+          // 4.5.1 : « VALIDER » (clôture carnet) seulement avec le droit de terminer une vente.
+          if (peutTerminer) ...[
           const SizedBox(width: 8),
           Expanded(
             child: Tooltip(
@@ -609,7 +615,13 @@ class _CarnetFooter extends StatelessWidget {
               ),
             ),
           ),
+          ],
         ]),
+        if (!hl && !peutTerminer)
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text(DroitsVente.messageReserve, key: ValueKey('carnet-encaissement-reserve'), style: TextStyle(fontSize: 12, color: Pal.muted)),
+          ),
       ]),
     );
   }

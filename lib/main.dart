@@ -54,6 +54,7 @@ import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/support/support_file.dart';
 import 'package:prestige_vente_app/ui/taille_ecran.dart';
 import 'package:prestige_vente_app/version_app.dart';
+import 'package:prestige_vente_app/connexion/changement_utilisateur.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -111,6 +112,8 @@ class MyApp extends StatelessWidget {
           create: (context) {
             final auth = AuthProvider(Provider.of<ApiService>(context, listen: false));
             brancherSessionExpiree(auth);
+            // 4.5.1 : 409 « session changée », droits relus au retour au premier plan.
+            brancherChangementUtilisateur(auth);
             return auth;
           },
           update: (context, apiService, previousProvider) => previousProvider!..updateApiService(apiService),

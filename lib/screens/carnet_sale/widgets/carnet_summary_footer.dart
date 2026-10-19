@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:provider/provider.dart';
 
 class CarnetSummaryFooter extends StatelessWidget {
@@ -160,8 +161,12 @@ class CarnetSummaryFooter extends StatelessWidget {
     }
   }
 
+  // 4.5.1 : « Vente » masqué pour un compte sans droit de terminer une vente (profil prévente).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(listenable: DroitsVente.instance, builder: (context, _) => _construire(context));
+
+  Widget _construire(BuildContext context) {
+    final peutTerminer = DroitsVente.instance.terminerVente;
     final provider = Provider.of<CarnetSaleProvider>(context);
     final summary = provider.saleSummary;
     final client = provider.selectedClient;
@@ -225,6 +230,7 @@ class CarnetSummaryFooter extends StatelessWidget {
                     child: const Text('Prévente'),
                   ),
                 ),
+                if (peutTerminer) ...[
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton(
@@ -237,8 +243,14 @@ class CarnetSummaryFooter extends StatelessWidget {
                     child: const Text('Vente'),
                   ),
                 ),
+                ],
               ],
             ),
+            if (!peutTerminer)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(DroitsVente.messageReserve, key: Key('encaissement_reserve'), style: TextStyle(color: Colors.black54)),
+              ),
           ],
         ),
       ),

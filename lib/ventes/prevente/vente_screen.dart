@@ -9,6 +9,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
@@ -88,14 +89,30 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
     super.initState();
     loadPresentation();
     _monitor.addListener(_onMonitor);
+    DroitsVente.instance.addListener(_onDroits);
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
   }
 
   @override
   void dispose() {
     _monitor.removeListener(_onMonitor);
+    DroitsVente.instance.removeListener(_onDroits);
     super.dispose();
   }
+
+  /// 4.5.1 : « ENCAISSER » (en ligne et espèces hors ligne) seulement pour un compte qui a le droit de terminer une
+  /// vente (GET v1/user/droits) ; un profil prévente ne voit que « PRÉVENTE ».
+  bool get _peutEncaisser => DroitsVente.instance.terminerVente;
+
+  void _onDroits() {
+    if (mounted) setState(() {});
+  }
+
+  Widget _encaissementReserve() => const Padding(
+        padding: EdgeInsets.only(top: 6),
+        child: Text(DroitsVente.messageReserve,
+            key: ValueKey('vente-encaissement-reserve'), style: TextStyle(fontSize: 12, color: Pal.muted)),
+      );
 
   void _onMonitor() {
     if (mounted) setState(() {});
@@ -315,6 +332,10 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
   /// « Encaisser » : page d'encaissement (modes de règlement puis clôture, comme avant).
   Future<void> _encaisser() async {
     if (_paying) return;
+    if (!_peutEncaisser) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text(DroitsVente.messageReserve)));
+      return;
+    }
     setState(() => _paying = true);
     try {
       final user = await _readyToFinish();
@@ -656,6 +677,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
             onPressed: enabled ? _savePrevente : null,
             child: Text(hl ? 'PRÉVENTE\n(PROV.)' : 'PRÉVENTE', textAlign: TextAlign.center),
           ),
+          if (_peutEncaisser) ...[
           const SizedBox(width: 6),
           ElevatedButton(
             key: ValueKey(hl ? 'vente-hl-especes' : 'vente-encaisser'),
@@ -663,6 +685,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
             onPressed: enabled ? _encaisser : null,
             child: Text(hl ? 'ESPÈCES\n(PROV.)' : 'ENCAISSER', textAlign: TextAlign.center),
           ),
+          ],
         ]),
       ),
     );
@@ -713,6 +736,8 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
                 label: const FittedBox(fit: BoxFit.scaleDown, child: Text('ENREGISTRER (PRÉVENTE PROVISOIRE)')),
               ),
             ),
+            if (!_peutEncaisser) _encaissementReserve(),
+            if (_peutEncaisser) ...[
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
@@ -724,6 +749,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
                 label: const FittedBox(fit: BoxFit.scaleDown, child: Text('ENCAISSER EN ESPÈCES (PROVISOIRE)')),
               ),
             ),
+            ],
           ]),
         ),
       ),
@@ -797,6 +823,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
                   ),
                 ),
               ),
+              if (_peutEncaisser) ...[
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton.icon(
@@ -810,7 +837,9 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
                   label: const FittedBox(fit: BoxFit.scaleDown, child: Text('ENCAISSER')),
                 ),
               ),
+              ],
             ]),
+            if (!_peutEncaisser) _encaissementReserve(),
           ]),
         ),
       ),

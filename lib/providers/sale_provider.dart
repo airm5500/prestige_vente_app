@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
+import 'package:prestige_vente_app/connexion/changement_utilisateur.dart';
 
 class SaleProvider with ChangeNotifier {
   ApiService _apiService;
@@ -17,6 +18,14 @@ class SaleProvider with ChangeNotifier {
 
   SaleProvider(this._apiService) {
     _loadScanSettings();
+    // 4.5.1 : changement de compte / déconnexion → panier de l'ancienne interface effacé.
+    EtatLocalVente.inscrire(startNewSale);
+  }
+
+  @override
+  void dispose() {
+    EtatLocalVente.desinscrire(startNewSale);
+    super.dispose();
   }
 
   void updateApiService(ApiService newApiService) {

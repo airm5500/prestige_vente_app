@@ -1,9 +1,14 @@
 // lib/providers/auth_provider.dart
 // Mise à jour: Gestion du rôle Admin via str_LOGIN
 
+import 'package:dio/dio.dart' show Options;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
+import 'package:prestige_vente_app/connexion/changement_utilisateur.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart';
@@ -57,6 +62,7 @@ class AuthProvider with ChangeNotifier {
       final user = await _apiService.login(login, password);
 
       if (user != null) {
+        await _ouvrirSession(user);
         _user = user;
         // AJOUT : On stocke le login qui a réussi
         _userLogin = login;
@@ -107,6 +113,7 @@ class AuthProvider with ChangeNotifier {
       final user = await _apiService.login(savedLogin, savedPassword);
 
       if (user != null) {
+        await _ouvrirSession(user);
         _user = user;
         // AJOUT : On restaure aussi le login
         _userLogin = savedLogin;
@@ -141,6 +148,7 @@ class AuthProvider with ChangeNotifier {
       if (motDePasse == null || motDePasse.isEmpty) return false;
       final user = await _apiService.login(savedLogin, motDePasse);
       if (user == null) return false;
+      await _ouvrirSession(user);
       _user = user;
       _userLogin = savedLogin;
       _status = AuthStatus.Authenticated;
@@ -154,11 +162,99 @@ class AuthProvider with ChangeNotifier {
   /// Session expirée sans reconnexion possible : déconnexion LOCALE (pas d'appel au serveur, « Rester
   /// connecté » et files hors ligne conservés) avant le retour à l'écran de connexion.
   void sessionExpiree() {
+    // 4.5.1 : droits oubliés ; le panier est effacé seulement si un AUTRE compte se connecte ensuite.
+    UtilisateurSession.id = null;
+    DroitsVente.instance.oublier();
     _user = null;
     _officine = null;
     _officineDeLaConnexion = false;
     _userLogin = null;
     _status = AuthStatus.Unauthenticated;
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4.5.1 — Droits de vente et compte de la session (demande du serveur du 19/10/2026)
+  // ---------------------------------------------------------------------------
+
+  /// Dernier compte connecté sur cet appareil (mémoire) : un AUTRE compte efface le panier du précédent.
+  String? _dernierUtilisateur;
+
+  /// Délai maximal de la lecture des droits à la connexion (la connexion n'attend pas davantage).
+  static Duration delaiDroits = const Duration(seconds: 8);
+
+  /// Lecture des droits de vente (GET v1/user/droits) ; remplaçable dans les tests à faux ApiService.
+  static Future<void> Function(ApiService api, String utilisateur) lireDroitsVente =
+      (api, utilisateur) => DroitsVente.instance.actualiser(api.dio, utilisateur: utilisateur);
+
+  /// Connexion acceptée (mot de passe, connexion automatique, reconnexion silencieuse, borne) : en-tête
+  /// X-Prestige-Utilisateur, panier du compte précédent effacé si le compte change, droits lus.
+  /// Augmente à chaque session ouverte (une déconnexion lente n'efface jamais la session suivante).
+  int _generationSession = 0;
+
+  Future<void> _ouvrirSession(User u) async {
+    _generationSession++;
+    if (_dernierUtilisateur != null && _dernierUtilisateur != u.userId) {
+      UtilisateurSession.id = null;
+      await EtatLocalVente.effacer();
+    }
+    _dernierUtilisateur = u.userId;
+    UtilisateurSession.id = u.userId.isEmpty ? null : u.userId;
+    try {
+      await lireDroitsVente(_apiService, u.userId).timeout(delaiDroits);
+    } catch (_) {}
+  }
+
+  /// Retour de l'application au premier plan : droits relus (jamais d'exception).
+  Future<void> relireDroits() async {
+    final u = _user;
+    if (u == null || _status != AuthStatus.Authenticated) return;
+    try {
+      await lireDroitsVente(_apiService, u.userId);
+    } catch (_) {}
+  }
+
+  /// 409 `sessionChangee` : la session du serveur est maintenant celle d'un autre compte. Compte relu
+  /// (GET v1/user/account) et droits relus ; si le compte a changé, le panier du précédent est effacé (files hors
+  /// ligne gardées). Compte illisible : déconnexion locale (écran de connexion).
+  Future<void> relireSessionChangee() async {
+    User? lu;
+    // L'en-tête de l'ancien compte serait refusé (409) : la lecture du compte de la session part sans lui.
+    UtilisateurSession.id = null;
+    try {
+      final r = await _apiService.dio.get<dynamic>('/user/account', options: Options(validateStatus: (_) => true));
+      final info = r.data is Map ? (r.data as Map)['accountInfo'] : null;
+      // AccountInfoDTO du serveur : lg_USER_ID, str_LOGIN, str_FIRST_NAME, str_LAST_NAME (noms JSON du DTO).
+      String champ(Map m, String json, String java) => '${m[json] ?? m[java] ?? ''}';
+      if ((r.statusCode ?? 0) == 200 && info is Map && champ(info, 'lg_USER_ID', 'lgUSERID').isNotEmpty) {
+        lu = User(
+          userId: champ(info, 'lg_USER_ID', 'lgUSERID'),
+          login: champ(info, 'str_LOGIN', 'strLOGIN'),
+          firstName: champ(info, 'str_FIRST_NAME', 'strFIRSTNAME'),
+          lastName: champ(info, 'str_LAST_NAME', 'strLASTNAME'),
+          officineName: _user?.officineName ?? '',
+        );
+      }
+    } catch (_) {}
+    if (lu == null) {
+      UtilisateurSession.id = null;
+      _dernierUtilisateur = null;
+      await EtatLocalVente.effacer();
+      sessionExpiree();
+      return;
+    }
+    if (_user?.userId != lu.userId) {
+      UtilisateurSession.id = null;
+      await EtatLocalVente.effacer();
+      _userLogin = lu.login;
+    }
+    _dernierUtilisateur = lu.userId;
+    UtilisateurSession.id = lu.userId;
+    _user = lu;
+    _status = AuthStatus.Authenticated;
+    try {
+      await lireDroitsVente(_apiService, lu.userId).timeout(delaiDroits);
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -188,11 +284,25 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> logout() async {
+    final generation = _generationSession;
     try {
       await _apiService.logout();
     } catch (e) {
       print("Erreur logout API: $e");
     }
+    // 4.5.1 : une connexion a eu lieu pendant la fermeture de session (écran de connexion déjà affiché) : la nouvelle
+    // session, son panier et ses droits ne sont jamais effacés par cette déconnexion (la connexion d'un autre compte a
+    // déjà effacé l'état du précédent).
+    if (generation != _generationSession) return;
+    // 4.5.1 (changement d'utilisateur sur un téléphone partagé) : session fermée sur le serveur (POST v1/user/logout
+    // ci-dessus), cookies vidés, panier / vente à reprendre / vendeur choisi / droits effacés avant la connexion
+    // suivante. Les files hors ligne restent (chaque vente garde son compte).
+    try {
+      await DioClient.cookieJar.deleteAll();
+    } catch (_) {}
+    UtilisateurSession.id = null;
+    _dernierUtilisateur = null;
+    await EtatLocalVente.effacer();
 
     _user = null;
     _officine = null;

@@ -13,6 +13,7 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:prestige_vente_app/ventes/common/product_list_modal.dart' show showProductListModal;
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 /// Bornes de saisie de la vente dépôt.
 class DepotSaleLimits {
@@ -63,6 +64,7 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> with PresentationAwar
   @override
   void initState() {
     super.initState();
+    DroitsVente.instance.addListener(_onDroitsVente);
     loadPresentation();
     _loadDepots();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -82,8 +84,13 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> with PresentationAwar
     }
   }
 
+  void _onDroitsVente() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    DroitsVente.instance.removeListener(_onDroitsVente);
     _searchController.dispose();
     _searchFocusNode.dispose();
     _depotFocusNode.dispose();
@@ -828,6 +835,13 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> with PresentationAwar
               ),
             ),
             const SizedBox(width: 10),
+            // 4.5.1 : clôture d'une vente en dépôt réservée aux comptes qui en ont le droit (GET v1/user/droits).
+            if (!DroitsVente.instance.venteDepot)
+              const Expanded(
+                flex: 5,
+                child: Text(DroitsVente.messageDepotReserve, key: Key('depot-cloture-reservee'), style: TextStyle(color: Colors.black54)),
+              )
+            else
             Expanded(
               flex: 5,
               child: SizedBox(
