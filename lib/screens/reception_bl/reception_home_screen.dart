@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 class ReceptionHomeScreen extends StatefulWidget {
   /// Remplaçables pour les tests.
@@ -71,14 +72,23 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
   @override
   void initState() {
     super.initState();
+    DroitsVente.instance.addListener(_onDroits);
     _init();
   }
 
   @override
   void dispose() {
+    DroitsVente.instance.removeListener(_onDroits);
     _tabs.dispose();
     super.dispose();
   }
+
+  void _onDroits() {
+    if (mounted) setState(() {});
+  }
+
+  /// 4.6.0 (décision 12) : création de BL et saisie des lots (droit P_BL_MOBILE_SCANNER, voir DroitsVente.scannerBl).
+  bool get _peutScanner => DroitsVente.instance.scannerBl;
 
   Future<void> _init() async {
     _settings = widget.settings ?? await ReceptionSettings.load();
@@ -338,6 +348,15 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
 
   Widget _status() => Column(children: [
         if (_loading) const LinearProgressIndicator(minHeight: 2),
+        if (!_peutScanner)
+          Container(
+            key: const Key('reception_scan_reserve'),
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: const Color(0xFFFFF4E0), borderRadius: BorderRadius.circular(10)),
+            child: const Text(DroitsVente.messageScannerBl, style: TextStyle(color: Color(0xFF7C2D12))),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.all(16),
@@ -441,7 +460,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
           const SizedBox(height: 12),
           SizedBox(
             height: 44,
-            child: ElevatedButton(style: navyButton, onPressed: () => _createBl(o), child: const Text('Créer le BL')),
+            child: ElevatedButton(style: navyButton, onPressed: _peutScanner ? () => _createBl(o) : null, child: const Text('Créer le BL')),
           ),
         ]),
       );
@@ -611,7 +630,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                onPressed: () => _createBl(o),
+                onPressed: _peutScanner ? () => _createBl(o) : null,
                 child: const Text('Créer BL'),
               ),
             ]),
@@ -751,7 +770,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
               style: amberButton,
               icon: const Icon(Icons.arrow_forward),
               label: const Text('Recevoir cette livraison', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              onPressed: () => _createBl(o),
+              onPressed: _peutScanner ? () => _createBl(o) : null,
             ),
           ),
         ]),
@@ -770,7 +789,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
             tooltip: 'Recevoir la livraison ${o.grossiste}',
             style: IconButton.styleFrom(backgroundColor: Pal.navy, foregroundColor: Colors.white, minimumSize: const Size(44, 44)),
             icon: const Icon(Icons.arrow_forward),
-            onPressed: () => _createBl(o),
+            onPressed: _peutScanner ? () => _createBl(o) : null,
           ),
         ]),
       );

@@ -362,6 +362,92 @@ class FauxServeurPrestige extends ServeurJsonLocal {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // 4.6.0 : « Mon pointage » sous la session (demande 51) et terminal avec P_RH_POINTER (demande 52)
+  // ---------------------------------------------------------------------------
+
+  /// Pointages reçus par POST v1/rh/moi/pointages : compte de la SESSION et clé client.
+  final List<({String login, String sens, String cle})> pointagesSession = [];
+
+  /// Active GET v1/rh/moi, GET / POST v1/rh/moi/pointages (session, X-Client-Ref) pour [employes].
+  void activerPointageSession(Map<String, String> employes) {
+    employesMobile.addAll(employes);
+    String? compte(RequeteRecue r) => r.jsessionid == null ? null : compteSession[r.jsessionid];
+    final dejaVus = <String, Map<String, dynamic>>{};
+    routesParDefaut.addAll({
+      'GET /rh/moi': (r) {
+        final login = compte(r);
+        return login == null ? nonConnecte401 : ReponseLocale(_moiMobile(login));
+      },
+      'GET /rh/moi/pointages': (r) {
+        final login = compte(r);
+        if (login == null) return nonConnecte401;
+        return ReponseLocale({
+          'success': true,
+          'data': [
+            for (final p in pointagesSession)
+              if (p.login == login) {'heure': '08:0${pointagesSession.indexOf(p) % 10}', 'sens': p.sens, 'source': 'MOBILE'}
+          ]
+        });
+      },
+      'POST /rh/moi/pointages': (r) {
+        final login = compte(r);
+        if (login == null) return nonConnecte401;
+        final deja = dejaVus[r.clientRef];
+        if (r.clientRef.isNotEmpty && deja != null) return ReponseLocale(deja);
+        // Comme le serveur : employeId / login du corps ignorés, le pointage va au compte de la session.
+        final sens = '${_jsonOuVide(r.corps)['sens'] ?? 'ENTREE'}';
+        pointagesSession.add((login: login, sens: sens, cle: r.clientRef));
+        final rep = {'success': true, 'sens': sens, 'heure': '08:02', 'message': '${sens == 'SORTIE' ? 'Sortie' : 'Entrée'} enregistrée à 08:02.'};
+        if (r.clientRef.isNotEmpty) dejaVus[r.clientRef] = rep;
+        return ReponseLocale(rep);
+      },
+    });
+  }
+
+  /// Droits RH de chaque compte (GET v1/rh/droits) : `{pointer, gerer}` ; compte absent : refus comme le serveur.
+  final Map<String, ({bool pointer, bool gerer})> droitsRh = {};
+
+  /// Employés fictifs du terminal (GET v1/rh/employes) ; sans `gerer`, seulement les champs réduits du serveur.
+  List<Map<String, dynamic>> employesRh = [
+    {'id': 'E1', 'matricule': '01', 'nom': 'KOUASSI', 'prenoms': 'Awa', 'badge': 'B001', 'statut': 'ACTIF', 'poste': 'Vendeuse', 'telephone': '0000'},
+    {'id': 'E2', 'matricule': '02', 'nom': 'TRAORE', 'prenoms': 'Ali', 'badge': 'B002', 'statut': 'ACTIF', 'poste': 'Caissier', 'telephone': '0000'},
+  ];
+
+  /// Pointages reçus par POST v1/rh/pointages (terminal).
+  final List<Map<String, dynamic>> pointagesTerminal = [];
+
+  /// Active les routes du terminal (droits, employés, pointages) selon [droitsRh].
+  void activerTerminalRh() {
+    String? compte(RequeteRecue r) => r.jsessionid == null ? null : compteSession[r.jsessionid];
+    ({bool pointer, bool gerer})? d(RequeteRecue r) => droitsRh[compte(r)];
+    const interditRh = ReponseLocale({'success': false, 'interdit': true, 'msg': 'Droit manquant : gestion RH (P_SM_RH).'}, statut: 403);
+    routesParDefaut.addAll({
+      'GET /rh/droits': (r) {
+        final x = d(r);
+        if (x == null) return const ReponseLocale({'success': false, 'msg': 'Vous n\'avez pas accès aux ressources humaines.'});
+        return ReponseLocale({'success': true, 'pointer': true, 'gerer': x.gerer, 'valider': x.gerer, 'photoRetentionJours': 30});
+      },
+      'GET /rh/employes': (r) {
+        final x = d(r);
+        if (x == null) return interditRh;
+        const reduits = ['id', 'matricule', 'nom', 'prenoms', 'badge', 'statut'];
+        return ReponseLocale({
+          'success': true,
+          'data': [for (final e in employesRh) x.gerer ? e : {for (final k in reduits) k: e[k]}],
+        });
+      },
+      'POST /rh/pointages': (r) {
+        if (d(r) == null) return interditRh;
+        final j = _jsonOuVide(r.corps);
+        pointagesTerminal.add(j);
+        return ReponseLocale({'success': true, 'id': 'P${pointagesTerminal.length}', 'sens': 'ENTREE', 'heure': '08:05', 'controle': false});
+      },
+      'GET /rh/presence': (r) => d(r)?.gerer == true ? const ReponseLocale({'success': true, 'data': []}) : interditRh,
+      'GET /rh/tableau': (r) => d(r)?.gerer == true ? const ReponseLocale({'success': true, 'data': []}) : interditRh,
+    });
+  }
+
   bool _sessionValide(RequeteRecue r) => r.jsessionid != null && sessions.contains(r.jsessionid);
 
   @override

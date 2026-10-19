@@ -146,9 +146,9 @@ de l'application, le pointage va **toujours** au compte connecté, sans second m
   SESSION (jamais un `id` reçu en paramètre).
 - `POST v1/rh/moi/pointages` `{sens?, code?, latitude?, longitude?, precision?}` (+ `X-Client-Ref`) → même
   réponse que `POST v1/mobile/pointages` `{success, sens, heure, message}` ; source `MOBILE` (ou `APPLI`),
-  appareil = nom du terminal si connu. **Mêmes contrôles** : QR du moment (`KEY_MOBILE_QR`), position
-  (`KEY_MOBILE_GPS`, rayon), refus « moins de 2 minutes », sens automatique (inverse du dernier pointage sur
-  16 h), heure du serveur, employé actif rattaché au compte, module activé (`KEY_MOBILE_ACTIF`).
+  appareil = nom du terminal si connu. **Mêmes contrôles** : QR du moment (`KEY_RH_MOBILE_QR`), position
+  (`KEY_RH_MOBILE_GPS`, rayon), refus « moins de 2 minutes », sens automatique (inverse du dernier pointage sur
+  16 h), heure du serveur, employé actif rattaché au compte, module activé (`KEY_RH_MOBILE_POINTAGE` ; `KEY_MOBILE_ACTIF` = connexion des téléphones à jeton).
 - `GET v1/rh/moi/pointages` → mes pointages des 16 dernières heures (comme `GET v1/mobile/pointages`).
 - 401 sans session ; `{success:false, message}` pour un refus métier ; 403 `{interdit:true, msg}` si le
   pointage par téléphone est refusé à ce compte.
@@ -228,6 +228,21 @@ Demande reçue : `docs/serveur/DEMANDE_SERVEUR_DROITS_VENTE_2026-10-19.md` (sect
     `str_LAST_NAME`) : merci de ne pas les changer.
 - **Réglage d'officine à prévoir** : un utilisateur borne qui doit accepter le mobile money a besoin de
   `P_SM_CLOTURER_CAISSE`, `P_SM_DEPOT_EXTENSION` ou `P_BT_MODIFICATION_DE_VENTE`.
+
+### Suite de la réponse du serveur du 19/10/2026 (Prestige Mobile 4.6.0+25, PrestigePOS 1.4.0+11)
+
+Réponse reçue : `docs/serveur/REPONSE_SERVEUR_2026-10-19.md`. Les points 12, 17 D7, 51 et 52 sont intégrés dans
+l'application, avec repli sur un serveur ancien. Le point 38 ne concerne pas Prestige Mobile, qui n'a ni le suivi des
+ajustements ni les rappels. Noms des réglages corrigés ci-dessus (`KEY_RH_MOBILE_*`).
+
+**Une question reste : annoncer le contrôle de `P_BL_MOBILE_SCANNER` (P3).** Sur un serveur sans la migration
+7.2.3, ce droit n'est dans la liste de personne. L'application ne peut donc pas distinguer :
+- « serveur ancien » ;
+- « droit retiré au profil ».
+
+Aujourd'hui, elle ne masque le scan des BL qu'après un premier 403 `interdit` sur `add-lot` / `creerbl`. Proposition
+rétrocompatible : ajouter à `GET v1/app-vente/capacites` le champ `"droitScannerBl": true` quand le droit est
+contrôlé. L'application le lit déjà : le scan serait alors masqué d'emblée pour un compte sans le droit.
 
 ---
 

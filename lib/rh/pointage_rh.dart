@@ -232,6 +232,8 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     unawaited(reg.charger().catchError((_) {}));
     mobile ??= MobileApi(
       transport: DioTransportMobile(() => _baseUrl),
+      // 4.6.0 (demande 51) : « Mon pointage » sous la session de l'application quand le serveur a v1/rh/moi.
+      transportSession: TransportSessionRh(() => serveur is RhRequete ? serveur as RhRequete : null),
       appareil: appareilMobile,
       nomAppareil: () => JournalTerminal.instance.terminalNom.trim().isEmpty ? 'Prestige Mobile' : JournalTerminal.instance.terminalNom.trim(),
     );
@@ -267,6 +269,10 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
   // ---------------------------------------------------------------------------
 
   AccesRh _acces = AccesRh.inconnu;
+
+  /// 4.6.0 (demande 52) : `gerer` de GET v1/rh/droits (droit P_SM_RH) ; null : serveur qui ne l'envoie pas.
+  bool? _gerer;
+  bool? get gerer => _gerer;
   String _accesMessage = '';
   AccesRh get acces => _acces;
   String get accesMessage => _accesMessage;
@@ -284,6 +290,9 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
       } else if (r.status == 401) {
         _poser(AccesRh.refuse, 'Session expirée : reconnectez-vous à l\'application.');
       } else if (r.body?['success'] == true) {
+        // 4.6.0 (demande 52) : P_RH_POINTER ou P_SM_RH ouvrent le terminal ; « gerer » (P_SM_RH) pour la gestion.
+        final g = r.body!['gerer'];
+        _gerer = g is bool ? g : null;
         _poser(AccesRh.autorise, '');
         _memoriserAutorise(true);
       } else {

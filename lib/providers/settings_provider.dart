@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/services/identifiants_securises.dart';
 import 'package:prestige_vente_app/services/pin_securise.dart';
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 class SettingsProvider with ChangeNotifier {
   static const String _localIpKey = 'local_ip';
@@ -356,6 +357,8 @@ class SettingsProvider with ChangeNotifier {
     _remoteIp = remoteIp;
     _appName = appName;
     _port = port;
+    // 4.6.0 : contrôles de droits constatés sur l'ancien serveur oubliés (ils appartiennent au serveur).
+    DroitsVente.instance.oublierControles();
 
     _setLoading(false);
     return true;

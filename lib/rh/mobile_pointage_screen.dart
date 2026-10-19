@@ -15,6 +15,8 @@
 // l'application. Jeton d'un autre compte → effacé automatiquement (information affichée) ; pas de jeton → connexion
 // v1/mobile automatique si le mot de passe de CE compte est mémorisé (« Rester connecté »), sinon mot de passe
 // seul, identifiant pré-rempli NON modifiable.
+// 4.6.0 (demande 51) : serveur avec `v1/rh/moi` → la session de l'application suffit (aucune connexion, aucun jeton,
+// pas de bouton « Déconnecter ce téléphone ») ; sinon voie v1/mobile ci-dessus.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/rh/localisation.dart';
@@ -374,7 +376,8 @@ class _MobilePointageScreenState extends State<MobilePointageScreen> with Presen
       title: 'Mon pointage',
       subtitle: s?.aEmploye == true ? '${s!.employeNom}${s.employeMatricule.isEmpty ? '' : ' · ${s.employeMatricule}'}' : 'Pointage avec mon téléphone',
       actions: (col) => [
-        if (s != null)
+        // 4.6.0 : sous la session de l'application, rien à déconnecter (aucun jeton du téléphone).
+        if (s != null && !(_api?.voieSession ?? false))
           IconButton(key: const Key('rh_mobile_deconnexion'), tooltip: 'Déconnecter ce téléphone', onPressed: _deconnecter, icon: Icon(Icons.logout, color: col)),
         PresentationMenuButton(value: style, onChanged: _setStyle, color: col),
       ],

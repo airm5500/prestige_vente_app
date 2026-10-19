@@ -54,8 +54,13 @@ abstract class RhEmpreintes {
   Future<ReponseRh> supprimerEmpreintes(String employeId);
 }
 
+/// 4.6.0 (demande 51) : requête quelconque sous la session, avec `X-Client-Ref` (routes `v1/rh/moi…`).
+abstract class RhRequete {
+  Future<ReponseRh> requete(String methode, String chemin, {Map<String, dynamic>? corps, String? clientRef});
+}
+
 /// Même session (cookies) et même adresse que l'appli.
-class DioRhServeur implements RhServeur, RhPhotos, RhEmpreintes {
+class DioRhServeur implements RhServeur, RhPhotos, RhEmpreintes, RhRequete {
   final String Function() baseUrl;
   Dio? _dio;
   DioRhServeur(this.baseUrl);
@@ -100,6 +105,15 @@ class DioRhServeur implements RhServeur, RhPhotos, RhEmpreintes {
   @override
   Future<ReponseRh> post(String chemin, Map<String, dynamic> corps) => _envoyer(
       (d) => d.post<String>(chemin, data: jsonEncode(corps), options: Options(headers: {'Content-Type': 'application/json'})));
+
+  @override
+  Future<ReponseRh> requete(String methode, String chemin, {Map<String, dynamic>? corps, String? clientRef}) =>
+      _envoyer((d) => d.request<String>(chemin,
+          data: corps == null ? null : jsonEncode(corps),
+          options: Options(method: methode, headers: {
+            if (corps != null) 'Content-Type': 'application/json',
+            if (clientRef != null) 'X-Client-Ref': clientRef,
+          })));
 
   // Jamais de journal de ces requêtes : le corps contient des gabarits d'empreinte.
   @override

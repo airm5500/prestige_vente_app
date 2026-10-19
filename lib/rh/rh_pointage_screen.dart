@@ -135,7 +135,7 @@ class _RhPointageScreenState extends State<RhPointageScreen> with PresentationAw
 
   /// 4.4.0 : présences, photos de contrôle et empreintes réservées à l'administrateur de l'application
   /// (pharmacien / super administrateur) ; le droit RH seul ouvre le terminal (voir droits_rh.dart).
-  bool get _gestionnaire => widget.gestion ?? adminAppliRh(context);
+  bool get _gestionnaire => widget.gestion ?? adminAppliRh(context, gerer: _rh.gerer);
 
   String? get _loginConnecte {
     try {

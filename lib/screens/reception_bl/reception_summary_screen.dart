@@ -77,6 +77,12 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
     final r = await widget.gateway.validate(widget.bl.id);
     if (!mounted) return;
     setState(() => _validating = false);
+    // 4.6.0 (décision 12) : entrée en stock refusée, produits non saisis nommés par le serveur.
+    final manquants = produitsNonSaisis(r);
+    if (manquants != null) {
+      await afficherProduitsNonSaisis(context, manquants);
+      return;
+    }
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -266,3 +272,48 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
         ),
       );
 }
+
+/// 4.6.0 (décision 12) : refus `PRODUITS_NON_SAISIS` de l'entrée en stock — liste des produits à saisir, lisible et
+/// défilable (petits écrans : hauteur bornée, une ligne par produit, texte qui passe à la ligne).
+Future<void> afficherProduitsNonSaisis(BuildContext context, List<String> produits) => showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        final hauteur = MediaQuery.sizeOf(ctx).height;
+        return AlertDialog(
+          key: const Key('bl_produits_non_saisis'),
+          icon: const Icon(Icons.error, color: Colors.red, size: 36),
+          title: const Text('Entrée en stock refusée'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${produits.length} produit${produits.length > 1 ? 's' : ''} non saisi${produits.length > 1 ? 's' : ''} : '
+                  'saisissez leurs lots puis validez à nouveau.'),
+              const SizedBox(height: 8),
+              // Flexible : sur un petit écran, la liste prend la place restante et défile (jamais de débordement).
+              Flexible(
+                child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: hauteur * 0.45),
+                child: Scrollbar(
+                  thumbVisibility: produits.length > 6,
+                  child: ListView.separated(
+                    key: const Key('bl_produits_non_saisis_liste'),
+                    shrinkWrap: true,
+                    itemCount: produits.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Padding(padding: EdgeInsets.only(top: 2, right: 6), child: Icon(Icons.inventory_2_outlined, size: 18)),
+                        Expanded(child: Text(produits[i], style: const TextStyle(fontSize: 14))),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+              ),
+            ]),
+          ),
+          actions: [ElevatedButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+        );
+      },
+    );
