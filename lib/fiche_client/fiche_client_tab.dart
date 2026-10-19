@@ -4,6 +4,7 @@
 // Saisie (allergies / terrains, nouvelle mesure) seulement si [modifier] (P_ORDONNANCE_CLIENT_MAJ).
 // Données de santé : en mémoire seulement (jamais journalisées ni écrites sur le disque).
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -763,6 +764,10 @@ class _SaisieMesureSheetState extends State<_SaisieMesureSheet> {
   final _commentaire = TextEditingController();
   bool _envoi = false;
   List<String> _erreurs = const [];
+  // 4.6.1 (demande 19) : clé X-Client-Ref de la saisie, gardée tant que la saisie envoyée est la même (un renvoi
+  // après une réponse perdue ne crée pas de doublon sur un serveur à jour) ; saisie modifiée = nouvelle clé.
+  String? _cle;
+  String? _cleCorps;
 
   @override
   void dispose() {
@@ -800,10 +805,16 @@ class _SaisieMesureSheetState extends State<_SaisieMesureSheet> {
     if (e.isNotEmpty) return;
     setState(() => _envoi = true);
     try {
-      final m = await widget.api.ajouterMesure(widget.clientId, s);
+      final corps = jsonEncode(s.toJson());
+      if (_cle == null || _cleCorps != corps) {
+        _cle = FicheClientApi.nouvelleCle();
+        _cleCorps = corps;
+      }
+      final m = await widget.api.ajouterMesure(widget.clientId, s, cle: _cle);
       if (mounted) Navigator.of(context).pop(m);
     } catch (err) {
-      // Pas de nouvel envoi automatique : POST mesures n'est pas idempotent (doublon possible).
+      // Pas de nouvel envoi automatique : POST mesures n'est pas idempotent sur un serveur ancien (doublon possible).
+      // Un refus du serveur ne garde pas la clé côté serveur : la garder ici est sans effet.
       if (mounted) {
         setState(() => _erreurs = [
               messageErreur(err),

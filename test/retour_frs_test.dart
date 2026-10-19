@@ -62,8 +62,9 @@ class FakeRetourServer implements RetourGateway {
     required String motifId,
     required int quantity,
     String comment = '',
+    String blId = '',
   }) async {
-    created.add({'bl': blRef, 'produit': produitId, 'motif': motifId, 'qty': quantity, 'comment': comment});
+    created.add({'bl': blRef, 'blId': blId, 'produit': produitId, 'motif': motifId, 'qty': quantity, 'comment': comment});
     final r = _put(produitId, motifId, quantity);
     return (success: r.success, message: r.message, retour: r.success ? const RetourCreated('ret1', 'K7Q2M9XA') : null);
   }
@@ -161,7 +162,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Ajouter au retour'));
       await tester.pumpAndSettle();
-      expect(server.created.single, {'bl': 'BL-778', 'produit': 'p1', 'motif': '02', 'qty': 2, 'comment': 'Cartons abîmés'});
+      expect(server.created.single, {'bl': 'BL-778', 'blId': 'bl1', 'produit': 'p1', 'motif': '02', 'qty': 2, 'comment': 'Cartons abîmés'});
       expect(find.text('Retour K7Q2M9XA — BL BL-778'), findsOneWidget);
 
       // Produit suivant : le motif précédent est déjà choisi.

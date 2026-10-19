@@ -197,6 +197,64 @@ void main() {
     });
   });
 
+  // 4.6.1 — commits du serveur postérieurs à la réponse du 19/10 (ce2c6c4c, D8).
+  group('17 D6 — Création de BL (refus lisibles du serveur)', () {
+    test('référence, date : message du serveur affiché tel quel, aucun nouvel essai ; montants toujours envoyés', () async {
+      await avecVraiHttp(() async {
+        final s = ServeurJsonLocal();
+        await s.demarrer();
+        addTearDown(s.arreter);
+        s.routes['POST /commande/creerbl'] = (_) => const ReponseLocale({'success': false, 'msg': 'Date du BL illisible (attendu AAAA-MM-JJ).'});
+        final gw = DioReceptionGateway(Dio(BaseOptions(baseUrl: s.base)));
+        final r = await gw.createBl(orderId: 'C1', ref: 'BL-778', date: DateTime(2026, 10, 19), amountHt: 0, tva: 0);
+        expect((r.success, r.message), (false, 'Date du BL illisible (attendu AAAA-MM-JJ).'));
+        final corps = s.recuesSur('/commande/creerbl').single.json;
+        expect(corps['dtStart'], '2026-10-19');
+        expect(corps.containsKey('value') && corps.containsKey('valueTwo'), isTrue);
+      });
+    });
+  });
+
+  group('17 D8 — Retour sur le bon BL (blId)', () {
+    test('corps : blId envoyé avec le numéro ; vide ou égal au numéro : absent (comme avant)', () {
+      final item = {'produitId': 'P1', 'lgMOTIFRETOUR': 'M1', 'intNUMBERRETURN': 1};
+      expect(corpsNouveauRetour(blRef: '0308', comment: 'c', item: item, blId: 'BL-ID-1'),
+          {'lgBONLIVRAISONID': '0308', 'blId': 'BL-ID-1', 'strCOMMENTAIRE': 'c', 'items': [item]});
+      expect(corpsNouveauRetour(blRef: '0308', comment: 'c', item: item).containsKey('blId'), isFalse);
+      expect(corpsNouveauRetour(blRef: '0308', comment: 'c', item: item, blId: '0308').containsKey('blId'), isFalse);
+      expect(corpsNouveauRetour(blRef: '0308', comment: 'c', item: item, blId: ' ').containsKey('blId'), isFalse);
+    });
+
+    test('en ligne : blId envoyé ; 400 (champ refusé) → renvoyé une fois sans blId ; refus lisible du serveur affiché', () async {
+      await avecVraiHttp(() async {
+        final s = ServeurJsonLocal();
+        await s.demarrer();
+        addTearDown(s.arreter);
+        var refuser = false;
+        s.routes['POST /retourfournisseur/new'] = (r) {
+          if (refuser && r.json.containsKey('blId')) return const ReponseLocale({'msg': 'Unrecognized field'}, statut: 400);
+          return const ReponseLocale({'success': true, 'data': {'lgRETOURFRSID': 'R1', 'strREFRETOURFRS': 'RF1'}});
+        };
+        final gw = DioRetourGateway(Dio(BaseOptions(baseUrl: s.base)));
+        var r = await gw.create(blRef: '0308', blId: 'BL-ID-1', produitId: 'P1', motifId: 'M1', quantity: 1);
+        expect(r.success, isTrue);
+        expect(s.recuesSur('/retourfournisseur/new').single.json['blId'], 'BL-ID-1');
+        expect(s.recuesSur('/retourfournisseur/new').single.json['lgBONLIVRAISONID'], '0308');
+        refuser = true;
+        r = await gw.create(blRef: '0308', blId: 'BL-ID-1', produitId: 'P1', motifId: 'M1', quantity: 1);
+        expect(r.success, isTrue);
+        final envois = s.recuesSur('/retourfournisseur/new');
+        expect(envois, hasLength(3));
+        expect(envois.last.json.containsKey('blId'), isFalse);
+        // Refus du serveur à jour (BL introuvable) : message affiché tel quel, pas de nouvel essai.
+        s.routes['POST /retourfournisseur/new'] = (_) => const ReponseLocale({'success': false, 'msg': 'BL introuvable.'});
+        r = await gw.create(blRef: '0308', blId: 'BL-SUPPRIME', produitId: 'P1', motifId: 'M1', quantity: 1);
+        expect((r.success, r.message), (false, 'BL introuvable.'));
+        expect(s.recuesSur('/retourfournisseur/new'), hasLength(4));
+      });
+    });
+  });
+
   group('51 — Mon pointage sous la session', () {
     test('routes v1/rh/moi présentes : aucune connexion v1/mobile, jeton effacé, pointage avec X-Client-Ref unique', () async {
       final session = _Session(), jeton = _Jeton();

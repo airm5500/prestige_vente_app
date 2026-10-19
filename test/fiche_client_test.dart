@@ -30,6 +30,18 @@ Map<String, dynamic> _dossier() => {
       'nbOrdonnances': 3,
     };
 
+/// 4.6.1 : note les clés X-Client-Ref des mesures ; le premier envoi se perd (résultat incertain).
+class _FakeApiCles extends _FakeApi {
+  _FakeApiCles() : super(const DroitsOrdonnances(consulter: true, modifier: true));
+  final List<(String?, double?)> cles = [];
+  @override
+  Future<String> ajouterMesure(String clientId, SaisieMesure saisie, {String? cle}) async {
+    cles.add((cle, saisie.toJson()['valeur'] as double?));
+    if (cles.length == 1) throw const ServeurInjoignable(delai: true, resultatIncertain: true);
+    return 'Mesure enregistrée.';
+  }
+}
+
 class _FakeApi extends FicheClientApi {
   _FakeApi(this.d) : super(ClientPrestige(() => 'http://127.0.0.1:1/prestige/api/v1'));
   final DroitsOrdonnances d;
@@ -193,6 +205,18 @@ void main() {
               throwsA(isA<ServeurInjoignable>().having((e) => e.resultatIncertain, 'incertain', isTrue)));
           expect(srv.recuesSur('/mesures'), hasLength(1));
         }));
+
+    // 4.6.1 (demande 19, serveur aa4e2390) : X-Client-Ref sur POST mesures.
+    test('X-Client-Ref envoyé avec la clé de la saisie ; sans clé : aucun en-tête (comme avant)', () => avecVraiHttp(() async {
+          srv.routes['POST /client/C1/mesures'] = (_) => const ReponseLocale({'success': true, 'message': 'Mesure enregistrée.'});
+          await api.ajouterMesure('C1', SaisieMesure(parametre: _poids, date: DateTime(2026, 10, 1, 8), valeur: '70'), cle: 'FM-essai-1');
+          expect(srv.recuesSur('/mesures').last.clientRef, 'FM-essai-1');
+          await api.ajouterMesure('C1', SaisieMesure(parametre: _poids, date: DateTime(2026, 10, 1, 8), valeur: '70'));
+          expect(srv.recuesSur('/mesures').last.clientRef, isEmpty);
+          expect(FicheClientApi.nouvelleCle(), startsWith('FM-'));
+          expect(FicheClientApi.nouvelleCle().length, lessThanOrEqualTo(64));
+          expect(FicheClientApi.nouvelleCle(), isNot(FicheClientApi.nouvelleCle()));
+        }));
   });
 
   group('écran', () {
@@ -248,6 +272,32 @@ void main() {
       await t.tap(find.byKey(const ValueKey('fiche-enregistrer-mesure')));
       await t.pumpAndSettle();
       expect(find.textContaining('paraît trop haut'), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('4.6.1 : réponse perdue puis renvoi de la même saisie = même clé ; saisie modifiée = nouvelle clé', (t) async {
+      await _taille(t, const Size(2048, 1536));
+      final api = _FakeApiCles();
+      await ouvrirDossier(t, api);
+      await t.tap(find.byKey(const ValueKey('fiche-ajouter-mesure')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('fiche-valeur')), '70');
+      await t.tap(find.byKey(const ValueKey('fiche-enregistrer-mesure')));
+      await t.pumpAndSettle();
+      expect(find.textContaining('a peut-être été enregistrée'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('fiche-enregistrer-mesure')));
+      await t.pumpAndSettle();
+      expect(api.cles, hasLength(2));
+      expect(api.cles[0].$1, startsWith('FM-'));
+      expect(api.cles[1].$1, api.cles[0].$1, reason: 'même saisie renvoyée : même clé (pas de doublon sur un serveur à jour)');
+      // Nouvelle fiche : la saisie suivante (autre valeur) a sa propre clé.
+      await t.tap(find.byKey(const ValueKey('fiche-ajouter-mesure')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('fiche-valeur')), '71');
+      await t.tap(find.byKey(const ValueKey('fiche-enregistrer-mesure')));
+      await t.pumpAndSettle();
+      expect(api.cles, hasLength(3));
+      expect(api.cles[2].$1, isNot(api.cles[0].$1));
       expect(t.takeException(), isNull);
     });
 

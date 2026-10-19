@@ -158,9 +158,15 @@ class ClientPrestige {
   }
 
   /// [idempotent] : faux pour une création (un délai dépassé après l'envoi rend le résultat incertain).
-  Future<Map<String, dynamic>> post(String chemin, Object? corps, {bool idempotent = false, Map<String, dynamic> query = const {}}) async =>
+  /// [clientRef] (4.6.1) : en-tête `X-Client-Ref` (même clé = même réponse sur un serveur qui la gère ; un serveur
+  /// plus ancien ignore l'en-tête).
+  Future<Map<String, dynamic>> post(String chemin, Object? corps,
+          {bool idempotent = false, Map<String, dynamic> query = const {}, String? clientRef}) async =>
       _objet(await _envoyer(
-          (d) => d.post<String>(chemin, data: jsonEncode(corps ?? const {}), queryParameters: query, options: _json),
+          (d) => d.post<String>(chemin,
+              data: jsonEncode(corps ?? const {}),
+              queryParameters: query,
+              options: clientRef == null ? _json : Options(headers: {'Content-Type': 'application/json', 'X-Client-Ref': clientRef})),
           idempotent: idempotent));
 
   Future<Map<String, dynamic>> put(String chemin, [Object? corps, bool idempotent = true]) async => _objet(await _envoyer(

@@ -8,7 +8,8 @@
 //   POST client/{id}/dossier {allergies, terrains}   (terrains REMPLACÉS entièrement ; idempotent)
 //   GET  terrains / parametres                   référentiels (actifs)
 //   GET  client/{id}/mesures?parametreId=        historique d'un paramètre
-//   POST client/{id}/mesures {parametreId, date, valeur | gauche/droite, commentaire}   (NON idempotent)
+//   POST client/{id}/mesures {parametreId, date, valeur | gauche/droite, commentaire}   (NON idempotent ; 4.6.1 :
+//        en-tête X-Client-Ref = une seule mesure par clé sur un serveur à jour, ignoré par un serveur ancien)
 //   GET  client/{id}/consommation?dtStart=&dtEnd=   consommation (12 mois par défaut)
 // Aucune réponse n'est journalisée ni conservée sur le disque.
 import 'package:prestige_vente_app/droits/droits_modules.dart';
@@ -16,6 +17,7 @@ import 'package:prestige_vente_app/fiche_client/fiche_client_models.dart';
 import 'package:prestige_vente_app/fiche_client/fiche_client_validation.dart';
 import 'package:prestige_vente_app/serveur/client_prestige.dart';
 import 'package:prestige_vente_app/serveur/json_tolerant.dart';
+import 'package:uuid/uuid.dart';
 
 class FicheClientApi {
   final ClientPrestige client;
@@ -58,13 +60,18 @@ class FicheClientApi {
     return [for (final o in objets(j['data'])) Mesure.fromJson(o)];
   }
 
-  /// Ajoute une mesure (NON idempotent côté serveur : un seul envoi par saisie).
-  Future<String> ajouterMesure(String clientId, SaisieMesure saisie) async {
+  /// Ajoute une mesure (NON idempotent sur un serveur ancien : un seul envoi par saisie).
+  /// [cle] (4.6.1, demande 19) : `X-Client-Ref` de la saisie ; un serveur à jour n'enregistre qu'une mesure pour une
+  /// même clé et renvoie la même réponse (un renvoi après une réponse perdue ne crée pas de doublon).
+  Future<String> ajouterMesure(String clientId, SaisieMesure saisie, {String? cle}) async {
     final erreurs = saisie.erreurs();
     if (erreurs.isNotEmpty) throw RefusMetier(erreurs.first);
-    final j = await client.post('$_base/client/${_id(clientId)}/mesures', saisie.toJson(), idempotent: false);
+    final j = await client.post('$_base/client/${_id(clientId)}/mesures', saisie.toJson(), idempotent: false, clientRef: cle);
     return txtOuNull(j['message']) ?? 'Mesure enregistrée.';
   }
+
+  /// Clé d'une saisie de mesure (X-Client-Ref, 64 caractères au plus côté serveur).
+  static String nouvelleCle() => 'FM-${const Uuid().v4()}';
 
   Future<List<LigneConsommation>> consommation(String clientId) async {
     final j = await client.get('$_base/client/${_id(clientId)}/consommation');

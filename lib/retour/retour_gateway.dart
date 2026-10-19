@@ -17,12 +17,15 @@ abstract class RetourGateway {
   Future<List<MotifRetour>> motifs();
 
   /// Crée le retour avec sa première ligne. [blRef] : n° du BL (pas son identifiant).
+  /// 4.6.1 (décision 17 D8) : [blId] (identifiant du BL) désigne le BL exact quand deux grossistes ont le même
+  /// numéro ; vide = comme avant (numéro seul, le BL le plus récent).
   Future<({bool success, String message, RetourCreated? retour})> create({
     required String blRef,
     required String produitId,
     required String motifId,
     required int quantity,
     String comment = '',
+    String blId = '',
   });
 
   /// Ajoute un produit (si déjà présent, Prestige cumule la quantité).
@@ -94,15 +97,22 @@ class DioRetourGateway implements RetourGateway {
     required String motifId,
     required int quantity,
     String comment = '',
+    String blId = '',
   }) async {
     try {
-      final r = await dio.post('/retourfournisseur/new', data: {
-        'lgBONLIVRAISONID': blRef,
-        'strCOMMENTAIRE': comment.length > 50 ? comment.substring(0, 50) : comment,
-        'items': [
-          {'produitId': produitId, 'lgMOTIFRETOUR': motifId, 'intNUMBERRETURN': quantity},
-        ],
-      });
+      final corps = corpsNouveauRetour(
+          blRef: blRef,
+          comment: comment.length > 50 ? comment.substring(0, 50) : comment,
+          item: {'produitId': produitId, 'lgMOTIFRETOUR': motifId, 'intNUMBERRETURN': quantity},
+          blId: blId);
+      Response r;
+      try {
+        r = await dio.post('/retourfournisseur/new', data: corps);
+      } on DioException catch (e) {
+        // Serveur qui refuserait le champ inconnu `blId` (400 avant toute écriture) : même retour, sans blId.
+        if (e.response?.statusCode != 400 || !corps.containsKey('blId')) rethrow;
+        r = await dio.post('/retourfournisseur/new', data: Map.of(corps)..remove('blId'));
+      }
       final m = r.data is Map ? Map<String, dynamic>.from(r.data as Map) : <String, dynamic>{};
       final d = m['data'];
       if (m['success'] == true && d is Map) {
@@ -195,4 +205,23 @@ String? avisAjoutRetour(Object? corps) {
   final d = corps['data'];
   final m = d is Map ? '${d['message'] ?? ''}'.trim() : '';
   return m.isEmpty ? null : m;
+}
+
+/// 4.6.1 (décision 17 D8) : corps de `retourfournisseur/new`. `blId` (identifiant du BL) vise le BL exact sur un
+/// serveur à jour ; un serveur ancien ignore ce champ inconnu (JSON-B) et prend le numéro seul, le BL le plus récent
+/// (comme avant). Pas de `lgGROSSISTEID` : l'identifiant suffit. Un identifiant vide ou égal au numéro (BL non
+/// retrouvé hors ligne) n'est pas envoyé.
+Map<String, dynamic> corpsNouveauRetour({
+  required String blRef,
+  required String comment,
+  required Map<String, dynamic> item,
+  String blId = '',
+}) {
+  final id = blId.trim();
+  return {
+    'lgBONLIVRAISONID': blRef,
+    if (id.isNotEmpty && id != blRef) 'blId': id,
+    'strCOMMENTAIRE': comment,
+    'items': [item],
+  };
 }

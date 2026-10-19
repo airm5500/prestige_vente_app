@@ -204,6 +204,11 @@ class _RetourSrv implements StockServer {
   /// La prochaine création est faite puis sa réponse perdue.
   bool perdreReponse = false;
 
+  /// 4.6.1 (D8) : corps reçus sur retourfournisseur/new ; [refuserBlId] : serveur qui refuserait le champ inconnu
+  /// `blId` (400 avant toute écriture).
+  final List<Map<String, dynamic>> corpsNew = [];
+  bool refuserBlId = false;
+
   @override
   Future<StockHttp> call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers}) async {
     calls.add('$method $path');
@@ -218,8 +223,10 @@ class _RetourSrv implements StockServer {
       return StockHttp(200, {'success': true, 'type': 'RETOUR_FRS', 'id': id, 'reference': 'REF-$id', 'statut': 'is_Process'});
     }
     if (path == '/retourfournisseur/new') {
+      corpsNew.add(d);
       final cle = headers?[enteteClientRef];
       clesRecues.add(cle);
+      if (refuserBlId && d.containsKey('blId')) return const StockHttp(400, 'Unrecognized field "blId"');
       var id = h4 && cle != null ? parCle[cle] : null;
       if (id == null) {
         id = 'R${retours.length + 1}';
@@ -407,6 +414,31 @@ void main() {
   });
 
   group('Retours fournisseurs', () {
+    // 4.6.1 (décision 17 D8) : le BL exact (identifiant) est envoyé ; serveur ancien : champ ignoré.
+    test('D8 : blId (identifiant du BL de l\'opération) envoyé avec le numéro ; BL non retrouvé hors ligne : numéro seul', () async {
+      final srv = _RetourSrv(h4: true);
+      await _sender(srv).apply(_retour(lignes: 1));
+      expect(srv.corpsNew.single['blId'], 'BL1');
+      expect(srv.corpsNew.single['lgBONLIVRAISONID'], '0308');
+      expect(srv.corpsNew.single.containsKey('lgGROSSISTEID'), isFalse);
+      final sansId = _RetourSrv(h4: true);
+      final op = _retour(id: 'HL3-20261010090000-cd34', lignes: 1);
+      final inconnu = StockOp(id: op.id, type: op.type, createdAt: op.createdAt, refId: '0308', reference: op.reference, meta: op.meta, lines: op.lines);
+      await _sender(sansId).apply(inconnu);
+      expect(sansId.corpsNew.single.containsKey('blId'), isFalse, reason: 'refId = numéro (BL non retrouvé) : pas de blId');
+    });
+
+    test('D8 : serveur qui refuserait blId (400) → même retour renvoyé une fois sans blId, un seul retour créé', () async {
+      final srv = _RetourSrv(h4: true)..refuserBlId = true;
+      final op = _retour(lignes: 1);
+      await _sender(srv).apply(op);
+      expect(srv.corpsNew, hasLength(2));
+      expect(srv.corpsNew.last.containsKey('blId'), isFalse);
+      expect(srv.retours, hasLength(1));
+      expect(srv.clesRecues, ['HL3-20261010090000-ab12', 'HL3-20261010090000-ab12'], reason: 'même clé X-Client-Ref');
+      expect(op.lines.single.etat, StockLineEtat.applied);
+    });
+
     test('H4 : réponse perdue à la création → relue immédiatement, produits suivants envoyés, un seul retour', () async {
       final srv = _RetourSrv(h4: true)..perdreReponse = true;
       final op = _retour();
