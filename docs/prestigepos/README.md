@@ -20,10 +20,10 @@ borne verticale, panier, ticket, imprimante en panne, terminal Sunmi).
 | Saveur Android | `mobile` (par défaut) | `pos` |
 | Point d'entrée | `lib/main.dart` (inchangé) | `lib/main_pos.dart` |
 | applicationId | `com.dici.prestige_vente_app` | `com.dici.prestigepos` |
-| Version | `pubspec.yaml` (4.5.0+23) | `android/app/prestigepos-version.properties` (1.3.0+9) |
+| Version | `pubspec.yaml` (4.5.1+24) | `android/app/prestigepos-version.properties` (1.3.1+10) |
 | Nom, icône, activité | `android/app/src/main` | `android/app/src/pos` (remplace nom, icône, activité) |
 | Permissions en plus | — | Bluetooth (SPP), USB (OTG), démarrage de l'appareil (1.1.0) : `src/pos/AndroidManifest.xml` |
-| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.3.0.apk`) |
+| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.3.1.apk`) |
 
 **Code partagé** : la borne (`lib/borne/`) — recherche, catégories, fiche, panier, vérification prix / stock,
 création de la prévente, ticket, kiosque (épinglage), sortie par code administrateur (`lib/widgets/sortie_kiosque.dart`),
@@ -36,8 +36,8 @@ de ticket ESC/POS (`lib/prestigepos/impression/`) et le pont Android Bluetooth /
 
 `flutter build apk --release` **sans** `--flavor` construit toujours Prestige Mobile (`pubspec.yaml` :
 `flutter › default-flavor: mobile`). La CI vérifie que l'APK de Prestige Mobile garde le même applicationId, le même
-nom, la même version et **exactement les mêmes permissions** que la version 4.5.0+23 avant sa fusion dans PrestigePOS
-(job `prestige-mobile-identique`, référence : commit `872770e` de `pres-/tender-thompson-ang0ls`).
+nom, la même version et **exactement les mêmes permissions** que la version 4.5.1+24 avant sa fusion dans PrestigePOS
+(job `prestige-mobile-identique`, référence : commit `d10d67f` de `pres-/tender-thompson-ang0ls`).
 
 ## Ouvrir dans Android Studio
 
@@ -68,7 +68,7 @@ flutter build apk --release --flavor pos -t lib/main_pos.dart
 ```
 
 APK produit : `build/app/outputs/flutter-apk/app-pos-release.apk` (même fichier, nommé
-`PrestigePOS-release-1.3.0.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
+`PrestigePOS-release-1.3.1.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
 **`prestigepos-apk`** à chaque envoi sur la branche `prestigepos`.
 
 Version : modifier `android/app/prestigepos-version.properties` (`nomVersion`, et `codeVersion` **toujours
@@ -210,7 +210,7 @@ tâche verrouillée, HOME, le démarrage automatique, le Bluetooth et l'USB).
 - Workflow `.github/workflows/play.yml`, branche `prestigepos` : version Play construite avec
   `--flavor pos -t lib/main_pos.dart` et `--android-project-arg=playStore=true` (targetSdk 36), contrôlée à chaque
   envoi ; App Bundle signé en artefact **`prestigepos-aab`** dès que la clé d'envoi est déposée ; envoi en Test
-  interne quand `android/DEMANDE_PLAY` de cette branche contient la version de PrestigePOS (ex. `1.3.0+9`).
+  interne quand `android/DEMANDE_PLAY` de cette branche contient la version de PrestigePOS (ex. `1.3.1+10`).
 - **L'APK des bornes Sunmi ne change pas** : construit sans `playStore` (targetSdk 35) et signé comme avant avec la
   clé debug du PC. Une borne installée depuis Play n'est pas propriétaire de l'appareil (pas d'`adb`) : le
   verrouillage passe alors par l'épinglage standard d'Android. Pour les bornes, garder l'APK du PC.
@@ -248,6 +248,8 @@ flutter test test/prestigepos        # tests PrestigePOS (job CI « prestigepos 
   et ×1,3 : rendu, cibles ≥ 48 dp, contraste ;
 - `pos_performance_test.dart` : démarrage, vitrine de 500 produits, recherche tapée vite ;
 - `pos_reseau_test.dart` : serveur lent (2–8 s), coupure puis reprise ;
+- `pos_droits_test.dart` (1.3.1) : droits de l'utilisateur borne (lus avec son en-tête), mobile money masqué sans droit
+  de clôture, 403 pendant le paiement mobile → message et ticket de prévente, 409 branché ;
 - `pos_play_test.dart` (1.3.0) : saveur pos dans le workflow Google Play, targetSdk 36 pour la version Play seulement
   (APK des bornes sans `playStore`), règles Play (administrateur sans politique, HOME désactivé par défaut, tâche
   verrouillée, démarrage, Bluetooth, USB) ;

@@ -187,6 +187,48 @@ Présences, photos et empreintes restent à l'administrateur de l'application, q
 `GET v1/rh/presence`, `GET v1/rh/tableau`, `POST v1/rh/planning`, `DELETE v1/rh/pointages/{id}` → 403.
 Compte sans aucun des deux : `GET v1/rh/droits` → `success:false`.
 
+### Réponse à la demande du 19/10/2026 — sécurité des ventes (Prestige Mobile 4.5.1+24, PrestigePOS 1.3.1+10)
+
+Demande reçue : `docs/serveur/DEMANDE_SERVEUR_DROITS_VENTE_2026-10-19.md` (section 0 de `REPONSE_DEMANDES_MOBILES.md`).
+**Tout est fait côté application, sans nouvelle demande.**
+
+- **Lecture des droits.** `GET v1/user/droits` est lu après chaque connexion : mot de passe, connexion automatique,
+  reconnexion silencieuse et connexion de l'utilisateur borne. Il est relu à chaque retour au premier plan et gardé
+  en mémoire seulement.
+  - Serveur sans la route (404 / 405) : comportement d'avant.
+  - Prestige Mobile n'utilise pas `v1/user/auth-badge` : le badge y sert au pointage, pas à la session.
+- **Boutons masqués** (nouvelle et ancienne interface) : « Encaisser » / « Valider » des ventes comptant, assurance
+  et carnet, encaissement des préventes, encaissement espèces hors ligne, clôture des ventes en dépôt.
+  - Un profil prévente ne voit que « Prévente ».
+  - Aucun écran de l'application n'annule une vente : `P_BT_ANNULER_VENTE` est lu mais rien n'est à masquer.
+  - Hors ligne, une clôture sans le droit est bloquée à la source (dernière lecture des droits). À l'envoi, un 403
+    `interdit` laisse la vente « à vérifier » avec le message du serveur, sans relance automatique.
+- **403 `interdit`** sur `cloturer/vno`, `cloturer/assurance`, `clotureVenteDepot` et `paiements-mobile` :
+  - le message du serveur est affiché et la vente est gardée ;
+  - aucun nouvel essai ni déconnexion : seul 401 = session absente.
+- **Borne** (correction du pharmacien : elle termine une vente par mobile money, `cloturer:true`). Sans droit de
+  clôture pour l'utilisateur borne, le mobile money n'est pas proposé : seul le ticket pour la caisse reste.
+  - Un 403 pendant la demande de paiement affiche « Paiement mobile indisponible, rendez-vous à la caisse avec
+    votre ticket » et imprime le ticket de prévente.
+  - Vérifié dans `PaiementsMobileRessource.creer` : le droit est contrôlé **avant** `service.creer`. Aucun paiement
+    n'est donc initié ni débité en cas de refus.
+  - La clôture à la confirmation (`PaiementsMobileService.cloturer`) ne revérifie pas le droit : c'est voulu, la
+    demande acceptée valait accord.
+  - « Tester la borne » signale « Utilisateur borne sans droit de clôture : paiement mobile désactivé ».
+- **Changement d'utilisateur.**
+  - Séquence : `POST v1/user/logout`, cookies vidés, puis effacement du panier, de la vente à reprendre, du vendeur
+    choisi et des droits.
+  - La vente à reprendre porte le compte qui l'a commencée, et une vente hors ligne n'est envoyée que sous la
+    session de son compte.
+- **`X-Prestige-Utilisateur`** = `str_USER_ID` est envoyé sur toutes les requêtes de la session (aussi la borne et
+  « Tester la borne »), mais pas sur `user/auth`.
+  - Sur 409 `sessionChangee` : message affiché, `v1/user/account` relu **sans l'en-tête** (sinon le filtre refuse
+    aussi cette lecture), droits relus, retour à l'accueil, files hors ligne gardées.
+  - L'application lit les noms JSON de l'`AccountInfoDTO` (`lg_USER_ID`, `str_LOGIN`, `str_FIRST_NAME`,
+    `str_LAST_NAME`) : merci de ne pas les changer.
+- **Réglage d'officine à prévoir** : un utilisateur borne qui doit accepter le mobile money a besoin de
+  `P_SM_CLOTURER_CAISSE`, `P_SM_DEPOT_EXTENSION` ou `P_BT_MODIFICATION_DE_VENTE`.
+
 ---
 
 ## 3. Prestige Pharmacien (`prestige_app`, 3.10.1+42)

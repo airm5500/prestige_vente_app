@@ -19,6 +19,7 @@ import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart' as session_globale;
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
 /// Erreur d'un appel au serveur Prestige (message prêt à afficher, en français).
 sealed class ErreurPrestige implements Exception {
@@ -135,6 +136,7 @@ class ClientPrestige {
       d.interceptors.add(session_globale.IntercepteurSession(d));
     }
     avecDeploiement(d);
+    IntercepteurUtilisateur.brancher(d);
     d.options.baseUrl = baseUrl();
     return d;
   }
@@ -214,6 +216,9 @@ class ClientPrestige {
       throw const SessionExpiree();
     }
     if (status == 403) throw ErreurHttp(403, detail: messageDroitManquant(r.data));
+    // 4.5.1 : session passée à un autre compte (409 sessionChangee) : rien n'a été exécuté.
+    final change = sessionChangeeDe(status, r.data);
+    if (change != null) throw RefusMetier(change, code: 'sessionChangee');
     if (status < 200 || status >= 300) throw ErreurHttp(status);
     final texte = (r.data ?? '').trim();
     if (texte.isEmpty) throw const ReponseIllisible();

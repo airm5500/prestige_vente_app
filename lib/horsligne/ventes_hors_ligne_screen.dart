@@ -40,7 +40,8 @@ Future<void> confirmerEnvoiVentes(BuildContext context, {HorsLigne? horsLigne, I
   try {
     await f.ensureLoaded();
     final ids = seulement?.toSet();
-    final ventes = f.ventes.where((v) => v.aFaire && (ids == null || ids.contains(v.id))).toList();
+    // 4.5.1 : seulement les ventes du compte connecté (les autres partent sous la session de leur compte).
+    final ventes = f.ventes.where((v) => v.aFaire && f.duCompteCourant(v) && (ids == null || ids.contains(v.id))).toList();
     if (ventes.isEmpty || !context.mounted) {
       f.confirmationVue();
       return;
@@ -354,6 +355,12 @@ class _VentesHorsLigneScreenState extends State<VentesHorsLigneScreen> {
         const SizedBox(height: 6),
         Text('${f.enAttente} en attente · ${f.aVerifier} à vérifier · $envoyees envoyée(s)',
             key: const Key('compteurs_ventes_hl'), style: const TextStyle(fontSize: 13, color: Pal.muted)),
+        if (f.enAttenteAutreCompte > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text('${f.enAttenteAutreCompte} vente(s) saisie(s) par un autre compte : envoyée(s) à sa prochaine connexion.',
+                key: const Key('ventes_hl_autre_compte'), style: const TextStyle(fontSize: 13, color: Color(0xFFB45309))),
+          ),
         if (f.running) ...[
           const SizedBox(height: 8),
           Text('Envoi ${f.index}/${f.total}…', key: const Key('envoi_progression'), style: const TextStyle(fontSize: 13, color: Pal.navy)),

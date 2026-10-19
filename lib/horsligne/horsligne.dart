@@ -28,6 +28,7 @@ import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
 class HorsLigne {
   final ServerMonitor monitor;
@@ -281,7 +282,8 @@ class HorsLigne {
     // BackgroundTransformer (défaut de Dio 5, rendu explicite) : grosses réponses JSON décodées hors du thread UI.
     final d = _syncDio ??= (Dio(BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 60)))
       ..transformer = BackgroundTransformer()
-      ..interceptors.add(CookieManager(DioClient.cookieJar)));
+      ..interceptors.add(CookieManager(DioClient.cookieJar))
+      ..interceptors.add(IntercepteurUtilisateur()));
     avecDeploiement(d);
     d.options.baseUrl = _baseUrl;
     return d;

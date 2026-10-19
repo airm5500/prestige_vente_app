@@ -17,6 +17,8 @@ import 'package:prestige_vente_app/connexion/connexion_commun.dart';
 import 'package:prestige_vente_app/connexion/connexion_reglages.dart';
 import 'package:prestige_vente_app/connexion/pin_personnel.dart';
 import 'package:prestige_vente_app/droits/droits_modules.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
@@ -117,6 +119,10 @@ class AppE2E {
     PointageRh.instance = null;
     SessionExpiree.instance = SessionExpiree();
     DroitsModules.instance.oublier();
+    // 4.5.1 : droits de vente et compte de la session en mémoire, remis à zéro pour chaque test.
+    DroitsVente.instance.oublier();
+    UtilisateurSession.id = null;
+    SessionChangee.instance = SessionChangee();
     ConnexionServices.instance = const ConnexionServices();
     await DioClient.cookieJar.deleteAll();
     serveur.installerEnMemoire();
@@ -127,6 +133,8 @@ class AppE2E {
       StockHorsLigne.instance = null;
       PointageRh.instance = null;
       DroitsModules.instance.oublier();
+      DroitsVente.instance.oublier();
+      UtilisateurSession.id = null;
       await DioClient.cookieJar.deleteAll();
     });
   }

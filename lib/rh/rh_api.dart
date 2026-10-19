@@ -19,6 +19,7 @@ import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
 typedef ReponseRh = ({int status, Map<String, dynamic>? body});
 
@@ -68,7 +69,8 @@ class DioRhServeur implements RhServeur, RhPhotos, RhEmpreintes {
       responseType: ResponseType.plain,
     ))
       ..transformer = BackgroundTransformer()
-      ..interceptors.add(CookieManager(DioClient.cookieJar)));
+      ..interceptors.add(CookieManager(DioClient.cookieJar))
+      ..interceptors.add(IntercepteurUtilisateur()));
     avecDeploiement(d);
     d.options.baseUrl = baseUrl();
     return d;

@@ -5,13 +5,16 @@
 //   4. connexion de l'utilisateur borne au serveur (refusée ≠ serveur injoignable) ;
 //   5. recherche de produits avec la session de la borne (1re catégorie, sinon « DOLI ») ;
 //   6. produits mis en avant trouvés.
+//   4.5.1 : droit de clôture de l'utilisateur borne (GET v1/user/droits) : sans lui, paiement mobile désactivé.
 // La connexion d'essai passe par un client HTTP À PART (son propre pot à cookies) : la session de l'appli (compte
 // administrateur qui fait le test) n'est pas touchée. Session d'essai fermée à la fin (POST /user/logout).
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
@@ -41,6 +44,12 @@ class DiagnosticBorne {
 }
 
 /// Exécute le test contre le serveur [baseUrl] (adresse de l'appli, …/prestige/api/v1).
+/// Titre et message de l'étape « droit de clôture » (4.5.1).
+const titreDroitCloture = 'Paiement mobile money';
+const messageSansDroitCloture = 'Utilisateur borne sans droit de clôture : paiement mobile désactivé '
+    '(le client reçoit son ticket pour la caisse). Droit à donner au profil : P_SM_CLOTURER_CAISSE, '
+    'P_SM_DEPOT_EXTENSION ou P_BT_MODIFICATION_DE_VENTE.';
+
 class TesteurBorne {
   final String baseUrl;
   final BorneSecrets secrets;
@@ -51,6 +60,27 @@ class TesteurBorne {
 
   TesteurBorne({required this.baseUrl, BorneSecrets? secrets, this.delai = const Duration(seconds: 15), this.client})
       : secrets = secrets ?? BorneReglages.secrets;
+
+  /// GET v1/user/droits avec la session d'essai de l'utilisateur borne.
+  static Future<EtapeBorne> _droitCloture(Dio dio) async {
+    try {
+      final r = await dio.get<dynamic>('/user/droits');
+      final d = r.data;
+      if (r.statusCode == 200 && d is Map && d['droits'] is List) {
+        final droits = {for (final x in d['droits'] as List) '$x'};
+        return droits.any(DroitsVente.terminerVenteDroits.contains)
+            ? const EtapeBorne(titreDroitCloture, EtatEtapeBorne.ok, 'Droit de clôture présent : le paiement mobile money peut être proposé.')
+            : const EtapeBorne(titreDroitCloture, EtatEtapeBorne.attention, messageSansDroitCloture);
+      }
+      if (r.statusCode == 404 || r.statusCode == 405) {
+        return const EtapeBorne(titreDroitCloture, EtatEtapeBorne.ok,
+            'Serveur sans lecture des droits (version ancienne) : paiement mobile proposé comme avant.');
+      }
+      return EtapeBorne(titreDroitCloture, EtatEtapeBorne.attention, 'Droits non lus (HTTP ${r.statusCode}).');
+    } on DioException catch (e) {
+      return EtapeBorne(titreDroitCloture, EtatEtapeBorne.attention, 'Droits non lus : ${_reseau(e)}');
+    }
+  }
 
   Dio _nouveauClient() {
     final dio = Dio(BaseOptions(baseUrl: baseUrl, connectTimeout: delai, receiveTimeout: delai, validateStatus: (_) => true));
@@ -91,6 +121,9 @@ class TesteurBorne {
       final d = r.data;
       if (r.statusCode == 200 && d is Map && d['success'] == true) {
         etapes.add(const EtapeBorne('Connexion', EtatEtapeBorne.ok, 'Connexion de l\'utilisateur borne acceptée par le serveur.'));
+        // 4.5.1 : en-tête X-Prestige-Utilisateur de l'utilisateur borne sur la session d'essai (comme la borne).
+        final id = '${d['str_USER_ID'] ?? ''}';
+        if (id.isNotEmpty) dio.options.headers[UtilisateurSession.entete] = id;
       } else if (r.statusCode == 404 || codePasserelle(r.statusCode)) {
         // 4.3.3 : /user/auth existe sur tout serveur Prestige : Prestige en démarrage / redéploiement (jamais « refusée »).
         etapes.add(const EtapeBorne('Connexion', EtatEtapeBorne.echec, MessagesServeur.indisponible));
@@ -106,6 +139,9 @@ class TesteurBorne {
       etapes.add(EtapeBorne('Connexion', EtatEtapeBorne.echec, _reseau(e)));
       return DiagnosticBorne(etapes);
     }
+
+    // 4.5.1 : droit de clôture de l'utilisateur borne (le paiement mobile money de la borne termine la vente).
+    etapes.add(await _droitCloture(dio));
 
     try {
       // 5. Recherche (comme la borne : 1re catégorie en « contient », sinon « DOLI »).

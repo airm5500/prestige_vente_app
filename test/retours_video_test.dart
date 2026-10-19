@@ -213,6 +213,8 @@ class _FakeLicence extends LicenceProvider {
 }
 
 void main() {
+  // 4.5.1 : faux ApiService (aucun serveur) : pas de lecture des droits de vente (GET v1/user/droits) à la connexion.
+  setUp(() => AuthProvider.lireDroitsVente = (_, __) async {});
   setUpAll(() => initializeDateFormatting('fr_FR'));
   setUp(() {
     SharedPreferences.setMockInitialValues({});

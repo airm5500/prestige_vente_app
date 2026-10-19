@@ -29,6 +29,7 @@ import 'package:prestige_vente_app/ventes/core/vente_input.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart' show VenteController;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 enum AssuranceStep { clientSearch, bonAndAyantDroit, productSearch }
 
@@ -913,6 +914,8 @@ class AssuranceController extends ChangeNotifier {
   }) =>
       _run(() async {
         if (_hl != null) return const VenteRefused(_venteLocale);
+        // 4.5.1 : compte sans droit de terminer une vente (le serveur refuserait aussi, 403 interdit).
+        if (!DroitsVente.instance.terminerVente) return const VenteRefused(DroitsVente.messageReserve, code: VenteRefused.codeInterdit);
         final id = _venteId, c = _client, ad = _ayantDroit, s = _summary;
         if (id == null || _items.isEmpty) return const VenteRefused('Le panier est vide.');
         if (_finished) return const VenteOk((dejaCloturee: true));

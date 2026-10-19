@@ -95,6 +95,8 @@ class _Env {
 }
 
 void main() {
+  // 4.5.1 : faux ApiService (aucun serveur) : pas de lecture des droits de vente (GET v1/user/droits) à la connexion.
+  setUp(() => AuthProvider.lireDroitsVente = (_, __) async {});
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   void phone(WidgetTester tester) {

@@ -6,6 +6,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
@@ -209,6 +210,8 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
     try {
       final r = await request();
       final code = r.statusCode ?? 0;
+      final refus = _refusSecurite(code, r.data);
+      if (refus != null) return refus;
       if (code != 200 && code != 202) {
         return VenteFailed('Erreur du serveur (code $code) : $what.', maybeApplied: write);
       }
@@ -222,10 +225,25 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
       }
       return VenteOk(body);
     } on DioException catch (e) {
+      final refus = _refusSecurite(e.response?.statusCode, e.response?.data);
+      if (refus != null) return refus;
       return VenteFailed(_networkMessage(e, what), maybeApplied: write && _mayHaveReached(e));
     } catch (e) {
       return VenteFailed('Impossible de $what : $e', maybeApplied: write);
     }
+  }
+
+  /// 4.5.1 (demande du serveur du 19/10/2026) : refus de sécurité, rien n'a été enregistré.
+  /// - 403 `interdit` (droit manquant) : refus avec le message du serveur — la vente reste telle quelle, aucune
+  ///   relance, JAMAIS une déconnexion (seul 401 = session absente) ;
+  /// - 409 `sessionChangee` : échec sans effet (la requête n'a pas été exécutée ; l'application revient à l'accueil,
+  ///   lib/connexion/changement_utilisateur.dart) ; une vente hors ligne reste en attente (aucune anomalie).
+  static VenteResult<dynamic>? _refusSecurite(int? code, Object? body) {
+    final interdit = refusDeDroit(code, body);
+    if (interdit != null) return VenteRefused(interdit, code: VenteRefused.codeInterdit);
+    final change = sessionChangeeDe(code, body);
+    if (change != null) return VenteFailed(change);
+    return null;
   }
 
   // Échec TLS (certificat refusé, port non HTTPS) : la requête n'est jamais partie.

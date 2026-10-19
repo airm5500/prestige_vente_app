@@ -22,6 +22,7 @@ import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
 /// Une ligne de médicament lue par le service.
 class LigneAvancee {
@@ -99,7 +100,8 @@ class DioServeurLectureAvancee implements ServeurLectureAvancee {
       receiveTimeout: const Duration(seconds: 45),
       validateStatus: (_) => true,
     ))
-      ..interceptors.add(CookieManager(DioClient.cookieJar));
+      ..interceptors.add(CookieManager(DioClient.cookieJar))
+      ..interceptors.add(IntercepteurUtilisateur());
     avecDeploiement(d);
     d.options.baseUrl = adresse;
     return d;

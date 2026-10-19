@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/ventes/common/vente_product_search.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_cart.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 class AssuranceStepProduits extends StatefulWidget {
   /// Présentation et en-tête communs.
@@ -132,7 +133,9 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
         ]),
       );
 
-  Widget _footer(AssuranceController c) {
+  Widget _footer(AssuranceController c) => ListenableBuilder(listenable: DroitsVente.instance, builder: (_, __) => _pied(c));
+
+  Widget _pied(AssuranceController c) {
     final f = widget.frame;
     final s = c.summary;
     final upToDate = c.netUpToDate;
@@ -213,6 +216,8 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
             ),
           ),
         ),
+        // 4.5.1 : « ENCAISSER » / « VALIDER (0 F) » seulement avec le droit de terminer une vente.
+        if (DroitsVente.instance.terminerVente) ...[
         const SizedBox(width: 8),
         Expanded(
           flex: 3,
@@ -227,7 +232,13 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
             label: FittedBox(fit: BoxFit.scaleDown, child: Text(valider)),
           ),
         ),
+        ],
       ]),
+      if (!hl && !DroitsVente.instance.terminerVente)
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Text(DroitsVente.messageReserve, key: ValueKey('assurance-encaissement-reserve'), style: TextStyle(fontSize: 12, color: Pal.muted)),
+        ),
     ]);
   }
 }

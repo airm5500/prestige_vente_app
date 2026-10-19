@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
@@ -133,6 +134,12 @@ class DioPaiementsMobileApi implements PaiementsMobileApi {
       final code = r.statusCode ?? 0;
       if (reponseIndisponible(r)) return const VenteFailed('Paiement : ${MessagesServeur.indisponible}');
       if (code == 404) return const VenteRefused('Paiement mobile money non disponible sur ce serveur.', code: '404');
+      // 4.5.1 : droit manquant (403 interdit, ex. clôture automatique sans droit de terminer une vente) : refus
+      // lisible, rien n'a été créé (le serveur contrôle le droit AVANT d'initier le paiement), jamais une déconnexion.
+      final interdit = refusDeDroit(code, r.data);
+      if (interdit != null) return VenteRefused(interdit, code: VenteRefused.codeInterdit);
+      final change = sessionChangeeDe(code, r.data);
+      if (change != null) return VenteFailed(change);
       if (code == 401 || code == 403) return const VenteFailed('Session expirée : reconnectez-vous.');
       if (code != 200) return VenteFailed('Paiement : erreur du serveur (code $code).');
       return VenteOk(r.data);
@@ -260,6 +267,9 @@ class AttentePaiement extends ChangeNotifier {
 
   PaiementMobile? paiement;
   String? erreur;
+
+  /// 4.5.1 : le serveur a refusé la demande faute de droit (403 interdit) : aucun paiement créé, ne pas réessayer.
+  bool interdit = false;
   bool creation = false;
   DateTime? _fin;
   Timer? _timer;
@@ -294,6 +304,7 @@ class AttentePaiement extends ChangeNotifier {
       _planifier();
     } else {
       erreur = r.message;
+      interdit = r is VenteRefused && (r as VenteRefused).interdit;
     }
     _notifier();
   }

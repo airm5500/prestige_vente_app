@@ -28,6 +28,7 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
+import 'package:prestige_vente_app/connexion/changement_utilisateur.dart';
 
 /// Points de personnalisation de PrestigePOS (remplacés dans les tests).
 class PosApp {
@@ -111,6 +112,9 @@ class PrestigePosApp extends StatelessWidget {
             final auth = AuthProvider(ctx.read<ApiService>());
             // Hors de la borne (jamais l'écran de connexion de Prestige Mobile) : redémarrage de PrestigePOS.
             brancherSessionExpiree(auth, ecranConnexion: (_) => const PosDemarrage());
+            // 4.5.1 (Prestige Mobile) : 409 « session changée » → redémarrage de PrestigePOS (la borne reconnecte son
+            // utilisateur) ; droits de vente relus au retour au premier plan.
+            brancherChangementUtilisateur(auth, accueil: () => const PosDemarrage());
             return auth;
           },
           update: (_, api, previous) => previous!..updateApiService(api),

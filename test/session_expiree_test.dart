@@ -107,6 +107,8 @@ void main() {
     coffre = _Coffre();
     IdentifiantsSecurises.instance = IdentifiantsSecurises(coffre: coffre, journal: () => JournalTerminal());
     SessionExpiree.instance = SessionExpiree();
+    // 4.5.1 : faux ApiService (aucun serveur) : pas de lecture des droits de vente à la connexion.
+    AuthProvider.lireDroitsVente = (_, __) async {};
     await DioClient.cookieJar.deleteAll();
   });
 

@@ -45,6 +45,7 @@ import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/widgets/bouton_deconnexion.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 enum EtatServeur { verification, connecte, horsLigne }
 
@@ -144,6 +145,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     _ventesHL.addListener(_onVentesHL);
     _monitor.addListener(_onMonitor);
     DroitsModules.instance.addListener(_onDroits);
+    DroitsVente.instance.addListener(_onDroits);
     _etatMonitor = _monitor.etat;
     HardwareKeyboard.instance.addHandler(_onTouche);
   }
@@ -239,6 +241,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     _ventesHL.removeListener(_onVentesHL);
     _monitor.removeListener(_onMonitor);
     DroitsModules.instance.removeListener(_onDroits);
+    DroitsVente.instance.removeListener(_onDroits);
     _notif.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _licenceWatchdogTimer?.cancel();
@@ -544,7 +547,8 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     final out = <_Tache>[];
     if (_erreurPreventes != null) {
       out.add(_Tache(titre: 'Préventes à encaisser', detail: _erreurPreventes, icon: Icons.cloud_off, couleur: _rouge, action: 'Réessayer', onTap: _actualiser, erreur: true));
-    } else if ((_preventes ?? 0) > 0) {
+    } else if ((_preventes ?? 0) > 0 && DroitsVente.instance.terminerVente) {
+      // 4.5.1 : tâche d'encaissement réservée aux comptes qui ont le droit de terminer une vente.
       out.add(_Tache(
         titre: '$_preventes prévente(s) à encaisser',
         detail: _preventeAncienne,
@@ -1259,7 +1263,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     // La Caisse (famille Ventes) est proposée sous « Encaisser ».
     final vendre = familles[MenuFamille.ventes]!.where((m) => m.id != 'caisse').toList();
     final encaisser = [
-      if (ids.contains('prevente'))
+      if (ids.contains('prevente') && DroitsVente.instance.terminerVente)
         (titre: 'Préventes à encaisser', icon: Icons.history_toggle_off, onTap: () => _push(VentesVersion.preVente(initialTabIndex: 2))),
       for (final m in parmi(['caisse'])) (titre: m.label, icon: m.icon, onTap: () => _ouvrir(m)),
     ];

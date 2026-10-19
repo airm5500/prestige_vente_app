@@ -27,6 +27,7 @@ import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:provider/provider.dart';
 
 /// Encaissement confirmé par le serveur ; [copies] = 0 : pas d'impression.
@@ -1182,6 +1183,17 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         ]),
       );
       content = panne ? Row(children: [Expanded(child: back), const SizedBox(width: 8), Expanded(flex: 2, child: main)]) : main;
+      // 4.5.1 : compte sans droit de terminer une vente (profil prévente) : aucun bouton de validation.
+      if (!DroitsVente.instance.terminerVente) {
+        content = Row(children: [
+          Expanded(child: back),
+          const SizedBox(width: 8),
+          const Expanded(
+            flex: 2,
+            child: Text(DroitsVente.messageReserve, key: ValueKey('encaissement-reserve'), style: TextStyle(color: Pal.muted)),
+          ),
+        ]);
+      }
     }
     return Material(
       color: Colors.white,
