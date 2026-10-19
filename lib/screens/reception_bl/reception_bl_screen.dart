@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 import 'package:prestige_vente_app/services/label_text_parser.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 
 /// Lecture d'un code par la caméra (remplaçable pour les tests).
 typedef CodeCamera = Future<String?> Function(BuildContext context, {bool dataMatrixOnly});
@@ -95,12 +96,18 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
   @override
   void initState() {
     super.initState();
+    DroitsVente.instance.addListener(_onDroits);
     loadPresentation();
     _load();
   }
 
+  void _onDroits() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    DroitsVente.instance.removeListener(_onDroits);
     _scanDebounce?.cancel();
     for (final c in [_scan, _lot, _date, _qty, _ug]) {
       c.dispose();
@@ -417,6 +424,11 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
       if (ok != true) return;
     }
 
+    // 4.6.0 (décision 12) : saisie des lots réservée au droit P_BL_MOBILE_SCANNER (contrôlé par ce serveur).
+    if (!DroitsVente.instance.scannerBl) {
+      await _alert('Lot non enregistré', DroitsVente.messageScannerBl, blocking: true);
+      return;
+    }
     setState(() => _busy = true);
     final result =
         await widget.gateway.addLot(detailId: line.detailId, quantity: qty, freeQty: ug, numLot: lot, expiry: expiry, serie: _serie, gtin: _gtinSerie);
@@ -598,6 +610,16 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
   }
 
   Widget _buildScanBar({required bool dark}) {
+    // 4.6.0 (décision 12) : sans P_BL_MOBILE_SCANNER (contrôlé par ce serveur), pas de scan : lignes en lecture.
+    if (!DroitsVente.instance.scannerBl) {
+      return Container(
+        key: const Key('reception_scan_reserve'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: const Color(0xFFFFF4E0), borderRadius: BorderRadius.circular(12)),
+        child: const Text(DroitsVente.messageScannerBl, style: TextStyle(color: Color(0xFF7C2D12))),
+      );
+    }
     return TextField(
       controller: _scan,
       focusNode: _scanFocus,

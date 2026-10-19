@@ -31,6 +31,8 @@ import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart' show champsSerie, codeSerieDejaConsommee, messageBoiteDejaScannee;
+import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/retour/retour_gateway.dart' show avisAjoutRetour;
 
 /// Réponse brute du serveur (code HTTP + corps).
 class StockHttp {
@@ -104,7 +106,13 @@ class StockSender {
   Future<StockHttp> _call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers}) async {
     final r = await server.call(method, path, query: query, data: data, headers: headers);
     // Droit manquant (403 interdit:true) : refus de l'opération, pas de déconnexion.
-    if (r.status == 403 && r.map['interdit'] == true) return r;
+    if (r.status == 403 && r.map['interdit'] == true) {
+      // 4.6.0 (décision 12) : P_BL_MOBILE_SCANNER contrôlé par ce serveur (scan des BL masqué pour ce compte).
+      if (path == '/commande/add-lot' || path == '/commande/creerbl') {
+        DroitsVente.instance.controleConstate(DroitsVente.scannerBlDroit);
+      }
+      return r;
+    }
     if (r.status == 401 || r.status == 403) {
       throw const StockStopException('Session expirée : reconnectez-vous puis relancez l\'envoi.');
     }
@@ -449,7 +457,8 @@ class StockSender {
           data: {'lgRETOURFRSID': retourId, ...item(l)}, headers: {enteteClientRef: cleEvenementLigne(op, l)});
       if (r.ok && r.map['success'] == true) {
         srvItems.add({'produitId': produitId, 'intNUMBERRETURN': qty});
-        await _set(op, l, StockLineEtat.applied);
+        // 4.6.0 (décision 17 D7) : « Vous avez ajouté ce produit avec un motif différent » gardé sur la ligne.
+        await _set(op, l, StockLineEtat.applied, avisAjoutRetour(r.map));
       } else {
         await _set(op, l, StockLineEtat.rejected, r.msg ?? 'Produit refusé par le serveur (quantité ou stock).');
       }

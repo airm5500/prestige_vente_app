@@ -12,11 +12,20 @@
 // ([lier]). Un jeton d'un autre compte (ex. NEMA alors que l'appli est ouverte par EMMANUEL) est effacé tout de
 // suite, aucune connexion v1/mobile n'est acceptée pour un autre identifiant, et chaque appel revérifie le lien :
 // jamais de pointage au nom d'un autre compte.
+//
+// 4.6.0 (demande 51, réponse du serveur du 19/10/2026) : « Mon pointage » passe par la SESSION de l'application quand le
+// serveur a les routes `GET v1/rh/moi`, `GET v1/rh/moi/pointages`, `POST v1/rh/moi/pointages` (+ `X-Client-Ref`) :
+// plus de seconde connexion ni de jeton v1/mobile (un jeton gardé est effacé), le pointage va toujours au compte de la
+// session. Serveur sans ces routes (404) : voie v1/mobile ci-dessus, inchangée (avec la liaison au compte de la 4.4.0).
+// Les réglages de l'officine s'appellent KEY_RH_MOBILE_QR / KEY_RH_MOBILE_GPS / KEY_RH_MOBILE_POINTAGE (connexion des
+// téléphones à jeton : KEY_MOBILE_ACTIF) ; l'application ne les lit pas directement (`moi` → pointage.qr / gps).
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:prestige_vente_app/rh/rh_api.dart';
+import 'package:uuid/uuid.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
@@ -81,6 +90,30 @@ typedef ReponseHttp = ({int status, Map<String, dynamic>? body});
 /// Appel HTTP de la voie A. Lève [MobileHorsLigne] si le serveur ne répond pas.
 abstract class TransportMobile {
   Future<ReponseHttp> envoyer(String methode, String chemin, {Map<String, dynamic>? corps, String? jeton});
+}
+
+/// 4.6.0 (demande 51) : appel sous la session de l'application (`v1/rh/moi…`). Lève [MobileHorsLigne] si le serveur
+/// ne répond pas.
+abstract class TransportSession {
+  Future<ReponseHttp> envoyer(String methode, String chemin, {Map<String, dynamic>? corps, String? clientRef});
+}
+
+/// Transport de session sur le client RH de l'application (cookies, en-tête X-Prestige-Utilisateur) ; [chemin] relatif
+/// à `v1/rh/` (« moi », « moi/pointages »).
+class TransportSessionRh implements TransportSession {
+  final RhRequete? Function() serveur;
+  TransportSessionRh(this.serveur);
+
+  @override
+  Future<ReponseHttp> envoyer(String methode, String chemin, {Map<String, dynamic>? corps, String? clientRef}) async {
+    final s = serveur();
+    if (s == null) return (status: 404, body: null);
+    try {
+      return await s.requete(methode, '/rh/$chemin', corps: corps, clientRef: clientRef);
+    } on RhHorsLigne catch (e) {
+      throw MobileHorsLigne(e.panne);
+    }
+  }
 }
 
 /// Dio dédié : base `<serveur>/api/v1/mobile/`, sans cookies ni journal (le jeton ne doit jamais être écrit).
@@ -206,14 +239,62 @@ class MobileApi extends ChangeNotifier {
   final String Function() appareil;
   final String Function() nomAppareil;
 
+  /// 4.6.0 (demande 51) : voie de la session de l'application (null : voie v1/mobile seulement, comme avant).
+  final TransportSession? transportSession;
+
   MobileApi({
     required this.transport,
     CoffreJeton? coffre,
     required this.appareil,
     required this.nomAppareil,
     DateTime Function()? clock,
+    this.transportSession,
   })  : coffre = coffre ?? const CoffreJetonSecurise(),
         _clock = clock ?? DateTime.now;
+
+  /// Voie de la session : null = pas encore sondée, true = routes `v1/rh/moi` présentes, false = serveur sans elles.
+  bool? _voieSession;
+  bool get voieSession => _voieSession == true;
+
+  /// Sonde `GET v1/rh/moi` (une fois par liaison) : présente → la session de l'application sert au pointage (jeton
+  /// v1/mobile effacé) ; 404 → voie v1/mobile. 401 (session de l'application absente) ou autre réponse : voie v1/mobile
+  /// cette fois, sans conclure. Serveur injoignable : [MobileHorsLigne].
+  Future<bool> sonderSession() async {
+    final t = transportSession;
+    if (t == null) return false;
+    if (_voieSession != null) return _voieSession!;
+    final r = await t.envoyer('GET', 'moi');
+    if (r.status == 404 || r.status == 405) {
+      _voieSession = false;
+      return false;
+    }
+    final b = r.body;
+    if (r.status != 200 || b == null || b['success'] != true) return false;
+    _voieSession = true;
+    final n = SessionMobile.fromJson(b, jeton: '');
+    _session = n;
+    _charge = true;
+    // Plus de jeton v1/mobile quand la session suffit.
+    if (await coffre.lire() != null) await coffre.effacer();
+    notifyListeners();
+    return true;
+  }
+
+  /// Appel de la voie de la session : 401 → session de l'application expirée.
+  Future<Map<String, dynamic>> _appelSession(String methode, String chemin, {Map<String, dynamic>? corps, String? clientRef}) async {
+    final r = await transportSession!.envoyer(methode, chemin, corps: corps, clientRef: clientRef);
+    if (r.status == 401) throw const MobileSessionExpiree('Session de l\'application expirée : reconnectez-vous à l\'application.');
+    if (r.status == 404) {
+      _voieSession = false;
+      throw const MobileIndisponible();
+    }
+    final b = r.body;
+    if (b == null) return {'success': false, 'message': 'Réponse illisible du serveur (${r.status}).'};
+    return b;
+  }
+
+  /// Clé client d'un pointage (X-Client-Ref) : un renvoi ne crée jamais deux pointages.
+  static String nouvelleCle() => 'PT-${const Uuid().v4()}';
 
   SessionMobile? _session;
   bool _charge = false;
@@ -239,6 +320,14 @@ class MobileApi extends ChangeNotifier {
     final l = (login ?? '').trim();
     _compte = l.isEmpty ? null : l;
     jetonEfface = null;
+    _voieSession = null;
+    if (transportSession != null) {
+      try {
+        if (await sonderSession()) return false;
+      } on MobileHorsLigne {
+        // Hors ligne : la voie sera sondée à la prochaine ouverture ; reprise du jeton comme avant.
+      }
+    }
     await reprendre();
     final s = _session;
     if (s != null && _autreCompte(s)) {
@@ -254,6 +343,7 @@ class MobileApi extends ChangeNotifier {
 
   /// Session reprise du coffre (null si absente ou expirée : le coffre est alors vidé).
   Future<SessionMobile?> reprendre() async {
+    if (_voieSession == true) return _session;
     if (_charge) return _valide(_session);
     _charge = true;
     final brut = await coffre.lire();
@@ -315,6 +405,8 @@ class MobileApi extends ChangeNotifier {
   /// null : serveur injoignable.
   Future<({bool existe, bool actif})?> sonder() async {
     try {
+      // 4.6.0 : routes de la session présentes → « Mon pointage » disponible (KEY_MOBILE_ACTIF ne concerne que les jetons).
+      if (await sonderSession()) return (existe: true, actif: true);
       final r = await transport.envoyer('POST', 'connexion', corps: const {});
       if (r.status == 404) return (existe: false, actif: false);
       final m = r.body == null ? '' : _message(r.body!, '');
@@ -326,6 +418,14 @@ class MobileApi extends ChangeNotifier {
 
   /// GET moi : droits et réglages relus (ils ont pu changer depuis la connexion).
   Future<SessionMobile> moi() async {
+    if (_voieSession == true) {
+      final b = await _appelSession('GET', 'moi');
+      if (b['success'] != true) throw MobileSessionExpiree(_message(b, 'Compte refusé par le serveur.'));
+      final n = SessionMobile.fromJson(b, jeton: '');
+      _session = n;
+      notifyListeners();
+      return n;
+    }
     final s = await _exiger();
     final b = await _appel('GET', 'moi', s);
     if (b['success'] != true) throw MobileSessionExpiree(_message(b, 'Session du téléphone refusée.'));
@@ -342,8 +442,7 @@ class MobileApi extends ChangeNotifier {
 
   /// POST pointages. [sens] null : le serveur prend l'inverse du dernier pointage (16 h).
   Future<ResultatMobile<PointageAccepte>> pointer({SensPointage? sens, String? code, PositionPointage? position}) async {
-    final s = await _exiger();
-    final b = await _appel('POST', 'pointages', s, corps: {
+    final corps = {
       if (sens != null) 'sens': sens.code,
       if (code != null && code.trim().isNotEmpty) 'code': code.trim(),
       if (position != null) ...{
@@ -351,7 +450,18 @@ class MobileApi extends ChangeNotifier {
         'longitude': position.longitude,
         if (position.precision != null) 'precision': position.precision,
       },
-    });
+    };
+    final Map<String, dynamic> b;
+    if (_voieSession == true) {
+      // Toujours au compte de la session (le serveur ignore employeId / login) ; une clé par pointage.
+      b = await _appelSession('POST', 'moi/pointages', corps: corps, clientRef: nouvelleCle());
+    } else {
+      b = await _appel('POST', 'pointages', await _exiger(), corps: corps);
+    }
+    return _resultatPointage(b);
+  }
+
+  ResultatMobile<PointageAccepte> _resultatPointage(Map<String, dynamic> b) {
     if (b['success'] != true) return ResultatMobile.refus(_message(b, 'Pointage refusé.'));
     final heure = '${b['heure'] ?? ''}';
     final sensOk = sensDepuisCode(b['sens']);
@@ -364,8 +474,7 @@ class MobileApi extends ChangeNotifier {
 
   /// GET pointages : mes pointages des 16 dernières heures (toutes sources).
   Future<List<PointageMobile>> mesPointages() async {
-    final s = await _exiger();
-    final b = await _appel('GET', 'pointages', s);
+    final b = _voieSession == true ? await _appelSession('GET', 'moi/pointages') : await _appel('GET', 'pointages', await _exiger());
     final d = b['data'];
     return [
       if (d is List)

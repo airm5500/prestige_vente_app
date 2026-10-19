@@ -203,6 +203,7 @@ class _RetourBlScreenState extends State<RetourBlScreen> with PresentationAware 
     setState(() => _busy = true);
     String message;
     bool success;
+    String? avis;
     if (_retour == null) {
       final r = await widget.gateway.create(
         blRef: widget.bl.ref,
@@ -218,6 +219,7 @@ class _RetourBlScreenState extends State<RetourBlScreen> with PresentationAware 
       final r = await widget.gateway.addItem(retourId: _retour!.id, produitId: line.produitId, motifId: motifId, quantity: qty);
       success = r.success;
       message = r.message;
+      if (r.success && r.message != messageProduitAjoute) avis = r.message;
     }
     if (!mounted) return;
     if (!success) {
@@ -235,9 +237,11 @@ class _RetourBlScreenState extends State<RetourBlScreen> with PresentationAware 
       _busy = false;
       _current = null;
     });
+    // 4.6.0 (décision 17 D7) : message du serveur (motif différent → nouvelle ligne) affiché en clair.
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('✓ $qty × ${line.name} — ${motif?.label ?? ''}'),
-      backgroundColor: Colors.green.shade700,
+      key: avis == null ? null : const Key('retour_avis_motif'),
+      content: Text(avis == null ? '✓ $qty × ${line.name} — ${motif?.label ?? ''}' : '✓ $qty × ${line.name} — ${motif?.label ?? ''}\n$avis'),
+      backgroundColor: avis == null ? Colors.green.shade700 : const Color(0xFFB45309),
       duration: const Duration(seconds: 2),
     ));
     _scanFocus.requestFocus();

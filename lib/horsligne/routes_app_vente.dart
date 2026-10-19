@@ -1,4 +1,5 @@
 // lib/horsligne/routes_app_vente.dart
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 // Routes des patchs serveur de l'appli de vente (H4 clé client, H5 catalogue différentiel, O4 corrections
 // d'ordonnances, O5 lecture avancée) et détection de leur préfixe.
 //
@@ -46,6 +47,9 @@ abstract final class RoutesAppVente {
     final a = await lire(capacites(prefixe));
     if (a.status == 200 && a.body is Map) {
       _prefixes[serveur] = prefixe;
+      // 4.6.0 : serveur qui annonce le contrôle de P_BL_MOBILE_SCANNER (demandé au serveur, TRANSMISSION § 2) : le
+      // scan des BL est masqué d'emblée pour un compte sans ce droit (sinon seulement après un premier refus).
+      if ((a.body as Map)['droitScannerBl'] == true) DroitsVente.instance.controleConstate(DroitsVente.scannerBlDroit);
       return (status: a.status, body: a.body, prefixe: prefixe);
     }
     if (a.status != 404) return (status: a.status, body: a.body, prefixe: null);

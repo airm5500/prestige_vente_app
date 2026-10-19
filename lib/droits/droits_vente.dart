@@ -30,6 +30,10 @@ class DroitsVente extends ChangeNotifier {
   static const venteDepotDroits = {'P_SM_VENTEDEPOT', 'P_SM_DEPOT_EXTENSION', 'P_SM_CLOTURER_CAISSE'};
   static const annulerVenteDroits = {'P_BT_ANNULER_VENTE'};
 
+  /// 4.6.0 (décision 12) : scanner et saisir les lots d'un BL, créer un BL (`commande/add-lot`, `commande/creerbl`).
+  static const scannerBlDroit = 'P_BL_MOBILE_SCANNER';
+  static const messageScannerBl = 'Réception par scan réservée : droit « P_BL_MOBILE_SCANNER » à demander à l\'administrateur.';
+
   /// Message affiché à la place d'un bouton masqué.
   static const messageReserve = 'Encaissement réservé aux comptes autorisés : terminez en prévente.';
   static const messageDepotReserve = 'Clôture des ventes en dépôt réservée aux comptes autorisés.';
@@ -67,6 +71,26 @@ class DroitsVente extends ChangeNotifier {
 
   /// Annulation d'une vente.
   bool get annulerVente => _unDe(annulerVenteDroits);
+
+  /// Droits dont le serveur a PROUVÉ le contrôle pendant cette session (un 403 `interdit` reçu sur la route).
+  final Set<String> _controles = {};
+
+  /// 4.6.0 (décision 12) : scan et saisie des lots, création de BL. Un serveur ancien ne connaît pas ce droit (il
+  /// n'est dans la liste de personne) : son absence ne suffit pas. Masqué seulement quand le droit manque ET que le
+  /// serveur l'a contrôlé (403 `interdit` sur add-lot / creerbl) ; sinon comportement d'avant.
+  bool get scannerBl => _droits == null || _droits!.contains(scannerBlDroit) || !_controles.contains(scannerBlDroit);
+
+  /// Changement de serveur (et tests) : contrôles constatés oubliés (ils appartiennent au serveur, pas au compte).
+  void oublierControles() {
+    if (_controles.isEmpty) return;
+    _controles.clear();
+    notifyListeners();
+  }
+
+  /// Le serveur a refusé une route faute de [droit] (403 `interdit`) : il le contrôle.
+  void controleConstate(String droit) {
+    if (_controles.add(droit)) notifyListeners();
+  }
 
   /// Profil prévente seulement : droits connus, sans droit de terminer une vente.
   bool get preventeSeule => connus && !terminerVente;

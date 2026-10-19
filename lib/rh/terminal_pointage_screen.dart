@@ -144,7 +144,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   bool _permissionAExpliquer = false;
   bool get _photoActive => _photo != null && _reglages.photoBadge;
   // 4.4.0 : gestion (empreintes, autorisation de la caméra) = administrateur de l'application, pas le droit RH seul.
-  bool get _gestion => widget.gestion ?? adminAppliRh(context);
+  bool get _gestion => widget.gestion ?? adminAppliRh(context, gerer: _rh.gerer);
 
   @override
   void initState() {
@@ -300,7 +300,9 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     if (mounted) setState(() {});
     if (widget.rafraichirAuDemarrage && !_rh.horsLigne()) {
       await _rh.rafraichirEmployes();
-      await _rh.presence(_rh.now);
+      // 4.6.0 (demande 52) : la présence du jour (derniers pointages) est une route de gestion : jamais lue avec
+      // P_RH_POINTER seul (403) ; le terminal s'appuie alors sur ses propres pointages du jour.
+      if (_rh.gerer != false) await _rh.presence(_rh.now);
       if (mounted) setState(() {});
       if (mounted && _rh.enAttente > 0) await confirmerEnvoiPointagesRh(context, _rh);
     }

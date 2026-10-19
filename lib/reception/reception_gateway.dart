@@ -4,6 +4,8 @@
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
+import 'package:prestige_vente_app/api/utilisateur_session.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 abstract class ReceptionGateway {
@@ -67,6 +69,16 @@ class DioReceptionGateway implements ReceptionGateway {
     return ReceptionResult(true, ok);
   }
 
+  /// 4.6.0 (décision 12) : 403 `interdit` sur add-lot / creerbl = droit P_BL_MOBILE_SCANNER contrôlé par ce serveur
+  /// (le scan est ensuite masqué pour ce compte) ; message du serveur affiché, jamais de déconnexion.
+  ReceptionResult _errorScanner(Object e) {
+    if (e is DioException && refusDeDroit(e.response?.statusCode, e.response?.data) != null) {
+      DroitsVente.instance.controleConstate(DroitsVente.scannerBlDroit);
+      return ReceptionResult(false, refusDeDroit(e.response?.statusCode, e.response?.data)!, const {'interdit': true});
+    }
+    return _error(e);
+  }
+
   ReceptionResult _error(Object e) {
     if (e is DioException) {
       final r = e.response;
@@ -120,7 +132,7 @@ class DioReceptionGateway implements ReceptionGateway {
       });
       return _result(r.data, ok: 'BL créé');
     } catch (e) {
-      return _error(e);
+      return _errorScanner(e);
     }
   }
 
@@ -165,10 +177,10 @@ class DioReceptionGateway implements ReceptionGateway {
           final r = await dio.post('/commande/add-lot', data: corps(avecSerie: false));
           return resultatAjoutLot(_result(r.data, ok: 'Lot enregistré'));
         } catch (e2) {
-          return _error(e2);
+          return _errorScanner(e2);
         }
       }
-      return _error(e);
+      return _errorScanner(e);
     } catch (e) {
       return _error(e);
     }
@@ -218,6 +230,19 @@ class DioReceptionGateway implements ReceptionGateway {
       return _error(e);
     }
   }
+}
+
+/// 4.6.0 (décision 12) : entrée en stock refusée tant que des produits ne sont pas saisis.
+const String codeProduitsNonSaisis = 'PRODUITS_NON_SAISIS';
+
+/// Produits nommés par le refus `PRODUITS_NON_SAISIS` de `commande/validerbl` (« CIP NOM (3/10) ») ; null pour un
+/// autre résultat. Liste absente (forme inattendue) : lue dans le message « Produits non saisis : a, b ».
+List<String>? produitsNonSaisis(ReceptionResult r) {
+  if (r.success || '${r.data['code'] ?? ''}' != codeProduitsNonSaisis) return null;
+  final l = r.data['produits'];
+  if (l is List && l.isNotEmpty) return [for (final p in l) if ('$p'.trim().isNotEmpty) '$p'.trim()];
+  final m = r.message.replaceFirst(RegExp(r'^\s*Produits non saisis\s*:\s*', caseSensitive: false), '');
+  return [for (final p in m.split(RegExp(r',\s+(?=\S)'))) if (p.trim().isNotEmpty) p.trim()];
 }
 
 /// D18 (4.3.1) : refus d'une boîte déjà scannée par le serveur.

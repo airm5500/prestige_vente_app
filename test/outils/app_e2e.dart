@@ -121,6 +121,7 @@ class AppE2E {
     DroitsModules.instance.oublier();
     // 4.5.1 : droits de vente et compte de la session en mémoire, remis à zéro pour chaque test.
     DroitsVente.instance.oublier();
+    DroitsVente.instance.oublierControles();
     UtilisateurSession.id = null;
     SessionChangee.instance = SessionChangee();
     ConnexionServices.instance = const ConnexionServices();

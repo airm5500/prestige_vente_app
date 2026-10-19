@@ -133,7 +133,9 @@ class DioRetourGateway implements RetourGateway {
         'intNUMBERRETURN': quantity,
       });
       final ok = r.data is Map && (r.data as Map)['success'] == true;
-      return (success: ok, message: ok ? 'Produit ajouté' : '${(r.data is Map ? (r.data as Map)['msg'] : null) ?? _failure}');
+      // 4.6.0 (décision 17 D7) : même produit avec un autre motif = nouvelle ligne, avec un message du serveur.
+      final avis = ok ? avisAjoutRetour(r.data) : null;
+      return (success: ok, message: ok ? (avis ?? messageProduitAjoute) : '${(r.data is Map ? (r.data as Map)['msg'] : null) ?? _failure}');
     } catch (e) {
       return (success: false, message: _message(e));
     }
@@ -181,4 +183,16 @@ String? checkReturnQuantity({required ReceptionLine line, required int alreadyIn
         '${alreadyInReturn > 0 ? ' ($alreadyInReturn déjà dans ce retour)' : ''}.';
   }
   return null;
+}
+
+/// Message par défaut d'un produit ajouté au retour.
+const String messageProduitAjoute = 'Produit ajouté';
+
+/// 4.6.0 (décision 17 D7) : `data.message` de `retourfournisseur/add-item` (« Vous avez ajouté ce produit avec un
+/// motif différent »), ou null (serveur ancien, ajout simple).
+String? avisAjoutRetour(Object? corps) {
+  if (corps is! Map) return null;
+  final d = corps['data'];
+  final m = d is Map ? '${d['message'] ?? ''}'.trim() : '';
+  return m.isEmpty ? null : m;
 }
