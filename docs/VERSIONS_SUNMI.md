@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.9.3+34** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.9.4+35** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -44,7 +44,8 @@ de la fiche client sans doublon (X-Client-Ref), retour fournisseur sur le bon BL
 (4.9.0+31, voir `docs/NOTE_VERSION_4.9.0.md`) + lecture GS1 dans les ventes Dépôt et Proforma
 (4.9.1+32, voir `docs/NOTE_VERSION_4.9.1.md`) + étiquettes étendues refusées comme le web, même lecture
 GS1 inactive (4.9.2+33, voir `docs/NOTE_VERSION_4.9.2.md`) + Dépôt : étiquette étendue jamais refusée, comme
-le web (4.9.3+34, voir `docs/NOTE_VERSION_4.9.3.md`).
+le web (4.9.3+34, voir `docs/NOTE_VERSION_4.9.3.md`) + Dépôt : étiquette étendue sans produit, comme le
+web (4.9.4+35, voir `docs/NOTE_VERSION_4.9.4.md`).
 
 ## Les 3 règles (permanentes)
 

@@ -71,6 +71,9 @@ class PagedProductSearch {
   /// 4.9.1 : lot différent (avertissement au vendeur ; produit trouvé quand même).
   String? avertissementGs1;
 
+  /// 4.9.4 : étiquette étendue au Dépôt : aucun produit, rien à annoncer (comme le web).
+  bool etendueIgnoree = false;
+
   ProductPager? _pager;
   List<ProductSearchResult> _items = const [];
   int _seq = 0;
@@ -150,9 +153,16 @@ class PagedProductSearch {
     // 4.9.1 : étiquette GS1 (dépôt, proforma) : verdict de la vente ; lecture inactive, serveur ancien, panne,
     // délai → « comme avant », la recherche ci-dessous est exactement celle d'avant.
     var code = q;
-    // 4.9.3 : étiquette étendue au Dépôt (etendueRefusee faux) : ni refus ni verdict, comme DepotCtr du web ; la
-    // recherche d'avant (4.9.0) s'applique. Proforma : refus local (4.9.2).
+    // 4.9.4 : étiquette étendue au Dépôt (etendueRefusee faux) : comme DepotCtr du web, AUCUN produit et rien de
+    // particulier (ni refus, ni verdict, ni « introuvable », ni lecture du GTIN), aucune requête. Proforma : refus
+    // local (4.9.2).
     final etendue = Gs1Vente.estEtiquetteEtendue(q);
+    if (gs1Vente && etendue && !etendueRefusee) {
+      _jeton = null;
+      byCode = true;
+      etendueIgnoree = true;
+      return true;
+    }
     if (gs1Vente && (etendue ? etendueRefusee : Gs1Vente.ressembleGs1(q))) {
       final v = await Gs1Vente.instance.verdict(q, lotEnvoye: false, etendueLocale: etendueRefusee);
       if (seq != _seq) return false;
@@ -263,6 +273,7 @@ class PagedProductSearch {
     loadMoreError = null;
     refusGs1 = null;
     avertissementGs1 = null;
+    etendueIgnoree = false;
   }
 
   /// Efface les résultats (et ignore une recherche encore en cours).

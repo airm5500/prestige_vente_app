@@ -157,7 +157,7 @@ void main() {
       expect(await rechercherEtiquetteGs1('3400935955838', recherche), isNull);
     });
 
-    test('Proforma : refus ; Dépôt et autres menus : comme avant', () async {
+    test('Proforma : refus ; Dépôt : aucun produit (4.9.4) ; autres menus : comme avant', () async {
       Gs1Vente.instance.actifPourTests = false;
       final api = _Api();
       final proforma = PagedProductSearch(() => api, gs1Vente: true, etendueRefusee: true);
@@ -166,7 +166,12 @@ void main() {
       await proforma.run(_dmPlus);
       expect(proforma.refusGs1, Gs1Refus.messageEtendue);
       expect(api.appels, isEmpty);
-      for (final s in [PagedProductSearch(() => api, gs1Vente: true), PagedProductSearch(() => api)]) {
+      final depot = PagedProductSearch(() => api, gs1Vente: true);
+      for (final e in [_dmPlus, _qrPlus]) {
+        await depot.run(e);
+        expect((depot.items.isEmpty, depot.refusGs1, depot.notFound), (true, null, null));
+      }
+      for (final s in [PagedProductSearch(() => api)]) {
         for (final e in [_dmPlus, _qrPlus]) {
           final avant = PagedProductSearch(() => api);
           await avant.run(e);
@@ -179,19 +184,30 @@ void main() {
       expect(srv.appels, 0);
     });
 
-    test('4.9.3 — Dépôt, lecture ACTIVE : étiquette étendue ni refusée ni envoyée à vente/gs1, recherche d\'avant', () async {
+    for (final actif in [true, false]) {
+      test('4.9.4 — Dépôt, lecture ${actif ? 'active' : 'inactive'} : étiquette étendue → aucun produit, rien d\'annoncé, aucune requête (comme le web)', () async {
+        Gs1Vente.instance.actifPourTests = actif;
+        final api = _Api();
+        for (final e in [_dmPlus, _dmPlus.replaceAll('\u001d', '|'), _dmPlus.replaceAll('\u001d', '<GS>'), _qrPlus, ']Q3$_qrPlus']) {
+          final depot = PagedProductSearch(() => api, gs1Vente: true);
+          await depot.run(e);
+          expect(depot.etendueIgnoree, isTrue);
+          expect(depot.items, isEmpty, reason: 'pas de lecture du GTIN d\'une étiquette étendue au Dépôt');
+          expect((depot.refusGs1, depot.avertissementGs1, depot.notFound, depot.error), (null, null, null, null));
+          await depot.run('DOLI');
+          expect(depot.etendueIgnoree, isFalse);
+        }
+        expect(api.appels.where((q) => q != 'DOLI'), isEmpty, reason: 'aucune recherche de produit');
+        expect(srv.appels, 0, reason: 'jamais vente/gs1');
+      });
+    }
+
+    test('4.9.4 — Dépôt : étiquette normale et autres menus inchangés', () async {
       Gs1Vente.instance.actifPourTests = true;
       final api = _Api();
-      for (final e in [_dmPlus, _dmPlus.replaceAll('\u001d', '|'), _dmPlus.replaceAll('\u001d', '<GS>'), _qrPlus, ']Q3$_qrPlus']) {
-        final avant = PagedProductSearch(() => api);
-        await avant.run(e);
-        final depot = PagedProductSearch(() => api, gs1Vente: true);
-        await depot.run(e);
-        expect((depot.refusGs1, depot.avertissementGs1), (null, null));
-        expect(depot.items.map((p) => p.lgFAMILLEID).toList(), avant.items.map((p) => p.lgFAMILLEID).toList());
-        expect((depot.notFound, depot.error, depot.byCode), (avant.notFound, avant.error, avant.byCode));
-      }
-      expect(srv.appels, 0, reason: 'jamais vente/gs1 pour une étiquette étendue au Dépôt');
+      final autres = PagedProductSearch(() => api);
+      await autres.run(_qrPlus);
+      expect(autres.etendueIgnoree, isFalse, reason: 'autres menus : inchangés');
       // Étiquette normale au Dépôt, lecture active : verdict du serveur comme en 4.9.1.
       await PagedProductSearch(() => api, gs1Vente: true).run(_gs1);
       expect(srv.appels, 1);

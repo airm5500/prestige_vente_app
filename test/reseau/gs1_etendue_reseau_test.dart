@@ -63,7 +63,7 @@ void main() {
         }));
   }
 
-  test('4.9.3 — Dépôt, lecture active : étiquette étendue jamais envoyée à vente/gs1, recherche d\'avant, ligne sans lotScanne',
+  test('4.9.4 — Dépôt, lecture active : étiquette étendue → aucun produit, aucune requête (comme le web)',
       () => avecVraiHttp(() async {
             lecture = '1';
             srv.routes['POST /vente/add/depot'] =
@@ -75,10 +75,16 @@ void main() {
             await p.searchProducts(_qrPlus);
             expect(p.productSearch.refusGs1, isNull);
             expect(p.searchResults, isEmpty);
+            final avant = srv.recues.length;
             await p.searchProducts(_dmPlus);
             expect(p.productSearch.refusGs1, isNull);
+            expect(p.searchResults, isEmpty);
+            expect((p.searchNotFound, p.searchError), (null, null));
+            expect(srv.recues.length, avant, reason: 'aucune requête');
+            // Étiquette normale : verdict et produit comme en 4.9.1.
+            await p.searchProducts(_dm);
             expect(p.searchResults.single.lgFAMILLEID, 'F83');
-            expect(srv.recuesSur('/vente/gs1'), isEmpty);
+            expect(srv.recuesSur('/vente/gs1'), hasLength(1));
             expect(await p.addToCart(p.searchResults.single), isTrue);
             expect(srv.recuesSur('/vente/add/depot').single.json.containsKey('lotScanne'), isFalse);
           }));
