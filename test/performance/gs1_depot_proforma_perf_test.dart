@@ -1,7 +1,8 @@
 // PERFORMANCE — 4.9.1 : la lecture GS1 des ventes Dépôt et Proforma ne ralentit pas la recherche :
 //  - 2 000 recherches de codes-barres, CIP et noms : aucune requête vente/gs1, temps comparable à la recherche d'avant ;
 //  - étiquette GS1 avec un verdict rapide : une seule requête de plus ;
-//  - serveur lent : la recherche n'attend jamais plus que Gs1Vente.delai, puis comme avant.
+//  - serveur lent : la recherche n'attend jamais plus que Gs1Vente.delai, puis comme avant ;
+//  - 4.9.3 : étiquettes étendues au Dépôt sans requête vente/gs1.
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -75,6 +76,24 @@ void main() {
     }
 
     await mesurer(false); // chauffe
+    final avant = await mesurer(false);
+    final apres = await mesurer(true);
+    expect(srv.appels, 0);
+    expect(apres.inMicroseconds, lessThan(avant.inMicroseconds * 2 + 200000), reason: 'avant $avant, après $apres');
+  });
+
+  test('4.9.3 — Dépôt : 2 000 étiquettes étendues, lecture active, aucune requête vente/gs1, temps comme avant', () async {
+    final codes = ['01034009359558381728103110LOTA1|91EPLUS1|92DOLI', 'EP1|CIP:3400935955838|NOM:DOLI'];
+    Future<Duration> mesurer(bool gs1) async {
+      final s = PagedProductSearch(() => api, gs1Vente: gs1);
+      final sw = Stopwatch()..start();
+      for (var k = 0; k < 2000; k++) {
+        await s.run(codes[k % 2]);
+      }
+      return sw.elapsed;
+    }
+
+    await mesurer(false);
     final avant = await mesurer(false);
     final apres = await mesurer(true);
     expect(srv.appels, 0);

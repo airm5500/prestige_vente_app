@@ -59,7 +59,8 @@ class PagedProductSearch {
   final bool gs1Vente;
 
   /// 4.9.2 : étiquette étendue (DataMatrix+, QR+) refusée sur l'appareil, même lecture GS1 inactive (Proforma, comme
-  /// DevisCtr du web). Faux pour le Dépôt : DepotCtr du web ne la refuse pas.
+  /// DevisCtr du web). Faux pour le Dépôt : DepotCtr du web ne la refuse pas ; 4.9.3 : au Dépôt, elle ne passe pas
+  /// non plus par le verdict du serveur (qui la refuserait), même lecture active : recherche d'avant.
   final bool etendueRefusee;
 
   PagedProductSearch(this._api, {this.visible, this.classerCodes = false, this.gs1Vente = false, this.etendueRefusee = false});
@@ -149,7 +150,10 @@ class PagedProductSearch {
     // 4.9.1 : étiquette GS1 (dépôt, proforma) : verdict de la vente ; lecture inactive, serveur ancien, panne,
     // délai → « comme avant », la recherche ci-dessous est exactement celle d'avant.
     var code = q;
-    if (gs1Vente && (Gs1Vente.ressembleGs1(q) || (etendueRefusee && Gs1Vente.estEtiquetteEtendue(q)))) {
+    // 4.9.3 : étiquette étendue au Dépôt (etendueRefusee faux) : ni refus ni verdict, comme DepotCtr du web ; la
+    // recherche d'avant (4.9.0) s'applique. Proforma : refus local (4.9.2).
+    final etendue = Gs1Vente.estEtiquetteEtendue(q);
+    if (gs1Vente && (etendue ? etendueRefusee : Gs1Vente.ressembleGs1(q))) {
       final v = await Gs1Vente.instance.verdict(q, lotEnvoye: false, etendueLocale: etendueRefusee);
       if (seq != _seq) return false;
       if (v is Gs1Refus) {
