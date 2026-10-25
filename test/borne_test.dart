@@ -532,6 +532,31 @@ void main() {
       await _fin(tester);
     });
 
+    // 4.9.2 : étiquette étendue (DataMatrix+, QR+) refusée comme le web, même lecture inactive, sans requête.
+    for (final (nom, code) in [
+      ('DataMatrix+', '0103400935955838|17281031|10LOTA1|91EPLUS1|92DOLI_FICTIF'),
+      ('QR+', 'EP1|CIP:3595583|NOM:DOLIPRANE|LOT:LOTA1|PER:31/10/2028'),
+    ]) {
+      testWidgets('$nom, lecture inactive : « présentez-le au comptoir », aucun détail, aucun appel', (tester) async {
+        var appels = 0;
+        serveurGs1(() {
+          appels++;
+          return verdict();
+        }, actif: false);
+        final env = await _borne(tester);
+        await scanner(tester, env, code);
+        expect(find.byKey(const Key('borne_refus_gs1')), findsOneWidget);
+        expect(find.text(Gs1Refus.pourClient), findsOneWidget);
+        for (final x in ['LOT', 'EPLUS', 'EP1', 'étendue', 'DataMatrix', 'QR']) {
+          expect(find.textContaining(x), findsNothing, reason: x);
+        }
+        expect(appels, 0);
+        expect(env.gw.recherches, 0);
+        expect(env.cle.currentState!.panier.vide, isTrue);
+        await _fin(tester);
+      });
+    }
+
     testWidgets('lecture inactive : chemin d\'avant, fiche du produit, aucun appel', (tester) async {
       var appels = 0;
       serveurGs1(() {

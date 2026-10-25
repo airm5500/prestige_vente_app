@@ -196,6 +196,15 @@ class VenteProductSearchState extends State<VenteProductSearch> {
     _debounce?.cancel();
     final q = VenteInput.cleanQuery(raw);
     if (q.isEmpty || !widget.enabled) return;
+    // 4.9.2 : étiquette étendue (DataMatrix+, QR+) refusée sur l'appareil comme le web, même lecture GS1 inactive ;
+    // reconnue sur le contenu reçu (séparateurs GS compris) avant le nettoyage du champ.
+    if (Gs1Vente.estEtiquetteEtendue(raw) || Gs1Vente.estEtiquetteEtendue(q)) {
+      if (_popupOpen) return;
+      _ctrl.clear();
+      setState(() => _hint = null);
+      showVenteSnack(context, Gs1Refus.messageEtendue, error: true, duree: const Duration(seconds: 6));
+      return;
+    }
     if (scan) {
       if (_popupOpen) return;
       _ctrl.clear(); // le code suivant de la douchette ne s'ajoute pas à celui-ci

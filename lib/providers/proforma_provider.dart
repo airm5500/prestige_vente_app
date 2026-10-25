@@ -35,7 +35,7 @@ class ProformaProvider with ChangeNotifier, PagedProductSearchHost {
 
   /// Recherche produit : code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
   @override
-  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService, gs1Vente: true);
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService, gs1Vente: true, etendueRefusee: true);
   List<ProductSearchResult> get searchResults => productSearch.items;
 
   /// Panne de la dernière recherche (≠ produit introuvable).

@@ -374,7 +374,7 @@ class BorneScreenState extends State<BorneScreen> {
     // Lecture inactive, serveur ancien, panne : chemin d'avant.
     var code = t;
     String? lot;
-    if (Gs1Vente.ressembleGs1(brut.trim())) {
+    if (Gs1Vente.ressembleGs1(brut.trim()) || Gs1Vente.estEtiquetteEtendue(brut)) {
       // Contenu de l'étiquette (lot, date, numéro de série) jamais laissé dans le champ de recherche du client.
       _recherche.clear();
       final v = await Gs1Vente.instance.verdict(brut.trim());
