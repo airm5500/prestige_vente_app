@@ -142,6 +142,11 @@
     "test/reponse_serveur_1910_e2e_test.dart": "e2e",
     "test/badge_qr_test.dart": "unitaires",
     "test/badge_qr_e2e_test.dart": "e2e",
+    "test/nom_appareil_test.dart": "unitaires",
+    "test/nom_appareil_e2e_test.dart": "e2e",
+    "test/nom_appareil_garde_test.dart": "non_regression",
+    "test/reseau/nom_appareil_reseau_test.dart": "reseau",
+    "test/performance/nom_appareil_perf_test.dart": "performance",
     "test/reseau/pointage_session_reseau_test.dart": "reseau"
   }
 }

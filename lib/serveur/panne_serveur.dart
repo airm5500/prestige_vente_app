@@ -21,6 +21,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 
 enum PanneServeur { injoignable, indisponible }
 
@@ -126,7 +127,7 @@ abstract final class SondeDeploiement {
 
   static Future<bool> _verifier(String racine, HttpClientAdapter? transport) async {
     sondes++;
-    final d = Dio(BaseOptions(connectTimeout: delai, sendTimeout: delai, receiveTimeout: delai, validateStatus: (_) => true));
+    final d = IntercepteurPoste.brancher(Dio(BaseOptions(connectTimeout: delai, sendTimeout: delai, receiveTimeout: delai, validateStatus: (_) => true)));
     if (transport != null) d.httpClientAdapter = transport; // partagé : jamais fermé ici
     try {
       final r = await d.get<dynamic>('$racine/officine');
@@ -197,7 +198,10 @@ class IntercepteurDeploiement extends Interceptor {
 }
 
 /// Pose [IntercepteurDeploiement] sur [d] (une seule fois) et renvoie [d].
+/// 4.7.0 : pose aussi [IntercepteurPoste] (nom de cet appareil, en-tête X-Poste) : tous les clients de Prestige
+/// passent par ici.
 Dio avecDeploiement(Dio d) {
   if (!d.interceptors.any((i) => i is IntercepteurDeploiement)) d.interceptors.add(IntercepteurDeploiement(source: d));
+  IntercepteurPoste.brancher(d);
   return d;
 }

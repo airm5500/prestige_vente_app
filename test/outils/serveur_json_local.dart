@@ -24,7 +24,11 @@ class RequeteRecue {
 
   /// 4.5.1 : en-tête X-Prestige-Utilisateur (str_USER_ID du compte de l'application) ; vide sinon.
   final String utilisateur;
-  RequeteRecue(this.methode, this.chemin, this.query, this.corps, this.cookie, {this.autorisation = '', this.clientRef = '', this.utilisateur = ''});
+
+  /// 4.7.0 : en-tête X-Poste (nom de cet appareil, encodé en URL) ; vide sinon.
+  final String poste;
+  RequeteRecue(this.methode, this.chemin, this.query, this.corps, this.cookie,
+      {this.autorisation = '', this.clientRef = '', this.utilisateur = '', this.poste = ''});
 
   /// Jeton Bearer envoyé, ou null.
   String? get jeton => autorisation.startsWith('Bearer ') ? autorisation.substring(7) : null;
@@ -109,7 +113,7 @@ class ServeurJsonLocal {
       final corps = await utf8.decoder.bind(req).join();
       final r = RequeteRecue(req.method, req.uri.path, req.uri.queryParameters, corps, req.headers.value('cookie') ?? '',
           autorisation: req.headers.value('authorization') ?? '', clientRef: req.headers.value('x-client-ref') ?? '',
-          utilisateur: req.headers.value('x-prestige-utilisateur') ?? '');
+          utilisateur: req.headers.value('x-prestige-utilisateur') ?? '', poste: req.headers.value('x-poste') ?? '');
       recues.add(r);
       final rep = await repondre(r);
       if (rep.delai > Duration.zero) await Future<void>.delayed(rep.delai);

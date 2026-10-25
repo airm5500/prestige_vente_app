@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/activite_app.dart';
@@ -255,12 +256,12 @@ class HorsLigne {
 
   /// GET /officine, délai court, sans journal ni session.
   Future<bool> _ping() async {
-    final d = _pingDio ??= Dio(BaseOptions(
+    final d = _pingDio ??= IntercepteurPoste.brancher(Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 5),
       sendTimeout: const Duration(seconds: 5),
       receiveTimeout: const Duration(seconds: 5),
       validateStatus: (_) => true,
-    ));
+    )));
     d.options.baseUrl = _baseUrl;
     try {
       final r = await d.get('/officine');

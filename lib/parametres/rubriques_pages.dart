@@ -17,6 +17,7 @@ import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
 import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
 import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee_screen.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
+import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/parametres/taille_ecran_reglage.dart';
 import 'package:prestige_vente_app/pointage/pointage_logic.dart';
@@ -1066,6 +1067,16 @@ class _LicencePageState extends State<LicencePage> {
             const SettingText('Appareil'),
             const SizedBox(height: 4),
             Text(hwText, style: const TextStyle(fontSize: 13, color: Pal.ink, height: 1.5)),
+          ]),
+        ),
+        // 4.7.0 : nom envoyé à Prestige (en-tête X-Poste), affiché dans « Ventes terminées ».
+        const SettingCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            SettingText('Nom de cet appareil',
+                subtitle: 'Affiché dans Prestige (« Ventes terminées ») pour les ventes saisies et encaissées ici. '
+                    'Distingue deux terminaux du même modèle.'),
+            SizedBox(height: 10),
+            ChampNomAppareil(),
           ]),
         ),
         SettingCard(
