@@ -27,6 +27,8 @@ import 'package:prestige_vente_app/prestigepos/demarrage_auto.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/pos_app.dart';
 import 'package:prestige_vente_app/prestigepos/pos_reglages.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
+import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ui/taille_ecran.dart';
 import 'package:prestige_vente_app/version_app.dart';
@@ -50,6 +52,8 @@ Future<void> initialiserPrestigePos() async {
     ventes: FileVentesHL(store: MemoryVentesHLStore()),
   );
   JournalTerminal.instance = JournalTerminal();
+  // 1.5.0 : nom de cet appareil (en-tête X-Poste vers Prestige) ; marque et modèle (nom par défaut) lus par main().
+  await NomAppareil.instance.charger();
   PosApp.installer();
   // 1.1.0 : démarrage automatique — Android remis d'accord avec le réglage (sans attendre).
   unawaited(DemarrageAuto.synchroniser());
@@ -59,6 +63,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await VersionApp.charger();
   await initialiserPrestigePos();
+  // 1.5.0 : marque et modèle de l'appareil (nom par défaut de X-Poste), par le canal natif existant.
+  await JournalTerminal.instance.chargerIdentite(materiel: FingerprintService.hardwareInfo);
   ProduitImages.instance.dossier = () async => Directory('${(await getApplicationSupportDirectory()).path}/images_produits');
   unawaited(ProduitImages.instance.init());
   // Plein écran dès le lancement.

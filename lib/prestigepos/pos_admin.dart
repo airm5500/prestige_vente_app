@@ -10,6 +10,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_diagnostic.dart';
 import 'package:prestige_vente_app/borne/borne_reglages_page.dart';
@@ -132,6 +134,12 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
                   () => _ouvrir(const PosImprimantePage())),
               _entree('pos-admin-borne', Icons.tune, 'Réglages de la borne', 'Catégories, produits mis en avant, plafonds, ticket discret',
                   () => _ouvrir(BornePage(ouvrir: (ctx) => PosApp.ouvrirBorne(ctx)))),
+              // 1.5.0 : nom envoyé à Prestige (en-tête X-Poste) : poste de saisie des ventes de la borne.
+              ListenableBuilder(
+                listenable: NomAppareil.instance,
+                builder: (_, __) => _entree('pos-admin-nom-appareil', Icons.badge_outlined, 'Nom de cet appareil',
+                    NomAppareil.instance.effectif ?? 'Aucun : Prestige garde le nom réseau', () => _ouvrir(const PosNomAppareilPage())),
+              ),
               _entree('pos-admin-tester', Icons.fact_check_outlined, 'Tester la borne', 'Connexion de l\'utilisateur borne et produits', _tester),
               // 1.1.0 : démarrage automatique avec l'appareil (désactivé par défaut) et sortie vers Android.
               ValueListenableBuilder<EtatDemarrage>(
@@ -152,6 +160,29 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
       ),
     );
   }
+}
+
+/// 1.5.0 — page « Nom de cet appareil » de l'administration (affiché dans « Ventes terminées » de Prestige).
+class PosNomAppareilPage extends StatelessWidget {
+  const PosNomAppareilPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        key: const ValueKey('pos-nom-appareil-page'),
+        backgroundColor: Pal.page,
+        appBar: AppBar(backgroundColor: Pal.navy, foregroundColor: Colors.white, title: const Text('Nom de cet appareil')),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 24), children: const [
+              Text('Ce nom apparaît dans Prestige (« Ventes terminées ») comme poste des ventes faites à cette borne. '
+                  'Donnez un nom à chaque borne, par exemple « Borne entrée ».'),
+              SizedBox(height: 16),
+              ChampNomAppareil(),
+            ]),
+          ),
+        ),
+      );
 }
 
 /// Page « Imprimante de ticket » de l'administration.

@@ -15,6 +15,7 @@ import 'package:prestige_vente_app/prestigepos/impression/transports.dart';
 import 'package:prestige_vente_app/prestigepos/pos_admin.dart';
 import 'package:prestige_vente_app/prestigepos/pos_reglages.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 
 import 'outils/pos_e2e.dart';
 
@@ -161,6 +162,45 @@ void main() {
     await t.pump(const Duration(minutes: 3, seconds: 1));
     await attendreBorne(t, app);
     expect(app.kiosque.demarrages, 3);
+    await app.fermer(t);
+  });
+
+  // 1.5.0 (Prestige Mobile 4.7.0) : nom de cet appareil dans l'en-tête X-Poste, réglé depuis l'administration.
+  testWidgets('nom de cet appareil : modifiable dans l\'administration ; X-Poste sur toutes les requêtes de la borne', (t) async {
+    tablettePortrait(t);
+    final app = PosE2E();
+    await app.preparer(configure: true, prefs: {NomAppareil.prefNom: 'Borne entrée'});
+    await app.lancer(t);
+    await attendreBorne(t, app);
+    expect(app.serveur.recues, isNotEmpty);
+    for (final r in app.serveur.recues) {
+      expect(r.poste, 'Borne%20entr%C3%A9e', reason: '$r');
+    }
+    await app.quitterBorne(t);
+    expect(await app.attendreQue(t, find.byType(PosAdminScreen)), isTrue);
+    expect(find.text('Borne entrée'), findsOneWidget);
+    await app.toucher(t, 'pos-admin-nom-appareil');
+    expect(find.byKey(const ValueKey('pos-nom-appareil-page')), findsOneWidget);
+    await t.enterText(find.byKey(const Key('nom_appareil_champ')), 'Borne #2');
+    await t.pump();
+    expect(find.text('Enregistré dans Prestige : « Borne 2 »'), findsOneWidget);
+    await t.tap(find.byKey(const Key('nom_appareil_enregistrer')));
+    await app.attendre(t, const Duration(seconds: 1));
+    expect(NomAppareil.instance.entete, 'Borne%202');
+    await t.binding.handlePopRoute();
+    await app.attendre(t, const Duration(seconds: 1));
+    expect(find.text('Borne 2'), findsOneWidget);
+    expect(t.takeException(), isNull);
+    await app.toucher(t, 'pos-admin-reprendre');
+    await attendreBorne(t, app);
+    final avant = app.serveur.recues.length;
+    await acheter(t, app);
+    final apres = app.serveur.recues.sublist(avant);
+    expect(apres, isNotEmpty);
+    for (final r in apres) {
+      expect(r.poste, 'Borne%202', reason: '$r');
+    }
+    expect(app.serveur.recuesSur('/vente/add/vno').last.poste, 'Borne%202', reason: 'poste de saisie de la prévente');
     await app.fermer(t);
   });
 
