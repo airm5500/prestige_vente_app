@@ -156,6 +156,16 @@ class _ProformaScreenState extends State<ProformaScreen> {
         if (autoAddIfUnique) _searchController.clear();
         return;
       }
+      // 4.9.1 : étiquette GS1 refusée (périmée, lot à prendre, étendue, sans produit) : rien n'est ajouté ;
+      // lot différent : avertissement au vendeur, le produit est ajouté comme avant.
+      final refusGs1 = provider.productSearch.refusGs1;
+      if (refusGs1 != null) {
+        _searchController.clear();
+        _messageGs1(refusGs1, refus: true);
+        return;
+      }
+      final avertGs1 = provider.productSearch.avertissementGs1;
+      if (avertGs1 != null && provider.searchResults.isNotEmpty) _messageGs1(avertGs1, refus: false);
       final results = provider.searchResults;
 
       if (results.isEmpty) {
@@ -351,6 +361,17 @@ class _ProformaScreenState extends State<ProformaScreen> {
     ).then((_) { setState(() => _isPopupOpen = false); _requestSearchFocus(); });
   }
 
+  /// 4.9.1 : message de la lecture GS1 (refus en rouge, lot différent en orange), assez long pour être lu.
+  void _messageGs1(String m, {required bool refus}) {
+    final s = ScaffoldMessenger.of(context);
+    s.hideCurrentSnackBar();
+    s.showSnackBar(SnackBar(
+        key: const Key('vente_message_gs1'),
+        content: Text(m),
+        backgroundColor: refus ? Colors.red.shade700 : Colors.orange.shade800,
+        duration: const Duration(seconds: 6)));
+  }
+
   void _showError(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m), backgroundColor: Colors.red));
 
   void _showEditDialog(SaleLine item) async {
@@ -403,7 +424,7 @@ class _ProformaScreenState extends State<ProformaScreen> {
                   Container(
                     padding: const EdgeInsets.all(10), color: Colors.white,
                     child: provider.currentSaleId == null
-                        ? Row(children: [Expanded(flex: 4, child: DropdownButtonFormField<TypeDevis>(value: provider.selectedTypeDevis, decoration: const InputDecoration(labelText: "Type", border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)), items: _typesDevis.map((t) => DropdownMenuItem(value: t, child: Text(t.strNAME, style: const TextStyle(fontSize: 13)))).toList(), onChanged: (val) { provider.setTypeDevis(val); if (val != null) Future.delayed(const Duration(milliseconds: 200), () => _showClientSearchDialog()); })), const SizedBox(width: 10), Expanded(flex: 6, child: InkWell(onTap: _showClientSearchDialog, child: InputDecorator(decoration: const InputDecoration(labelText: "Client", border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)), child: Text(provider.selectedClient?.fullName ?? "Sélectionner...", style: TextStyle(color: provider.selectedClient == null ? Colors.grey : Colors.black, overflow: TextOverflow.ellipsis)))))])
+                        ? Row(children: [Expanded(flex: 4, child: DropdownButtonFormField<TypeDevis>(value: provider.selectedTypeDevis, isExpanded: true, decoration: const InputDecoration(labelText: "Type", border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)), items: _typesDevis.map((t) => DropdownMenuItem(value: t, child: Text(t.strNAME, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)))).toList(), onChanged: (val) { provider.setTypeDevis(val); if (val != null) Future.delayed(const Duration(milliseconds: 200), () => _showClientSearchDialog()); })), const SizedBox(width: 10), Expanded(flex: 6, child: InkWell(onTap: _showClientSearchDialog, child: InputDecorator(decoration: const InputDecoration(labelText: "Client", border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)), child: Text(provider.selectedClient?.fullName ?? "Sélectionner...", style: TextStyle(color: provider.selectedClient == null ? Colors.grey : Colors.black, overflow: TextOverflow.ellipsis)))))])
                         : Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.grey.shade100, border: Border.all(color: Colors.grey.shade300)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text("Client: ${provider.selectedClient?.fullName}", style: const TextStyle(fontWeight: FontWeight.bold)), Text("REF: ${provider.currentSaleRef ?? '...'}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueGrey))])), Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: Colors.purple.shade100, borderRadius: BorderRadius.circular(20)), child: Text("${provider.cartItems.length} Art.", style: TextStyle(color: Colors.purple.shade800, fontWeight: FontWeight.bold)))])),
                   ),
                   Container(

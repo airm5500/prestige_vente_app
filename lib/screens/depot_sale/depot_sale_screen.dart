@@ -191,6 +191,16 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> with PresentationAwar
         _showError("Recherche impossible : ${provider.searchError}");
         return;
       }
+      // 4.9.1 : étiquette GS1 refusée (périmée, lot à prendre, étendue, sans produit) : rien n'est ajouté ;
+      // lot différent : avertissement au vendeur, le produit est ajouté comme avant.
+      final refusGs1 = provider.productSearch.refusGs1;
+      if (refusGs1 != null) {
+        _searchController.clear();
+        _messageGs1(refusGs1, refus: true);
+        return;
+      }
+      final avertGs1 = provider.productSearch.avertissementGs1;
+      if (avertGs1 != null && provider.searchResults.isNotEmpty) _messageGs1(avertGs1, refus: false);
 
       final results = provider.searchResults;
 
@@ -273,6 +283,17 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> with PresentationAwar
       // Annulation : on ajoute l'unité scannée mais on garde le compteur à 3 (persistance)
       _checkStockAndAddDirectly(product);
     }
+  }
+
+  /// 4.9.1 : message de la lecture GS1 (refus en rouge, lot différent en orange), assez long pour être lu.
+  void _messageGs1(String m, {required bool refus}) {
+    final s = ScaffoldMessenger.of(context);
+    s.hideCurrentSnackBar();
+    s.showSnackBar(SnackBar(
+        key: const Key('vente_message_gs1'),
+        content: Text(m),
+        backgroundColor: refus ? Colors.red.shade700 : Colors.orange.shade800,
+        duration: const Duration(seconds: 6)));
   }
 
   void _checkStockAndAddDirectly(ProductSearchResult product) {

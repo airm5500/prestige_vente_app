@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.9.0+31** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.9.1+32** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -41,7 +41,8 @@ de la fiche client sans doublon (X-Client-Ref), retour fournisseur sur le bon BL
 (4.7.0+28, voir `docs/NOTE_VERSION_4.7.0.md`) + journal de la console sans secret, nom de l'appareil obligatoire
 (4.7.1+29, voir `docs/NOTE_VERSION_4.7.1.md`) + nom de l'appareil retrouvé par le serveur après une réinstallation
 (demande 56, 4.8.0+30, voir `docs/NOTE_VERSION_4.8.0.md`) + étiquettes GS1 à la vente alignées sur le web
-(4.9.0+31, voir `docs/NOTE_VERSION_4.9.0.md`).
+(4.9.0+31, voir `docs/NOTE_VERSION_4.9.0.md`) + lecture GS1 dans les ventes Dépôt et Proforma
+(4.9.1+32, voir `docs/NOTE_VERSION_4.9.1.md`).
 
 ## Les 3 règles (permanentes)
 
