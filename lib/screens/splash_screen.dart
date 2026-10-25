@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
 import 'package:prestige_vente_app/borne/borne_launcher.dart';
 import 'package:prestige_vente_app/connexion/lancement_screen.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
@@ -53,6 +54,11 @@ class _AncienSplashScreenState extends State<AncienSplashScreen> {
 
     // 3. Vérification si configuré
     if (settingsProvider.isConfigured) {
+      // 4.7.1 : nom de cet appareil obligatoire (jamais sur une borne).
+      if (!BorneLauncher.auDemarrage && mounted) {
+        await exigerNomAppareil(context);
+        if (!mounted) return;
+      }
 
       // ANO-08 : l'ApiService fourni a été créé à la 1re image (réglages pas encore lus → http://localhost:8080) et
       // n'est recréé par le ProxyProvider qu'à l'image suivante ; « Future.delayed(Duration.zero) » n'en laisse

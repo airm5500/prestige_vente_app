@@ -15,6 +15,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/horsligne/vente_hors_ligne.dart';
@@ -373,7 +374,7 @@ class JournalTerminal extends ChangeNotifier {
         _ajouts++;
         notifyListeners();
       } catch (err) {
-        debugPrint('Journal du terminal : écriture impossible ($err)');
+        journalErreur('Journal du terminal : écriture impossible', err);
       }
     });
   }

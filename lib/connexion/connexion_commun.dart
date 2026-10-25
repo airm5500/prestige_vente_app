@@ -6,8 +6,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
-import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/connexion/assistance.dart';
@@ -597,16 +595,11 @@ class ConnexionFlux {
   }
 
   /// Ouvre l'accueil (pile vidée).
-  /// 4.7.0 : à la première connexion, propose de nommer l'appareil (X-Poste) si ce n'est jamais fait ; non bloquant.
+  /// (4.7.1 : la proposition du nom de l'appareil après la connexion est remplacée par l'étape obligatoire du
+  /// lancement, voir lib/parametres/nom_appareil_reglage.dart.)
   static void allerAccueil(BuildContext context, {ConnexionServices? services}) {
     final sv = services ?? ConnexionServices.instance;
-    final nav = Navigator.of(context);
-    nav.pushAndRemoveUntil(MaterialPageRoute(builder: (_) => sv.ecranAccueil()), (_) => false);
-    if (!NomAppareil.instance.dejaPropose) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (nav.mounted) proposerNomAppareil(nav.context);
-      });
-    }
+    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => sv.ecranAccueil()), (_) => false);
   }
 
   /// Message affiché (jamais d'exception technique).

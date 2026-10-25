@@ -17,8 +17,8 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10)
-3. Prestige Pharmacien : réponses et demande 45
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10)
+3. Prestige Pharmacien : réponses et demandes 45 et 55 (péremptions courtes, 25/10)
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
 
@@ -244,6 +244,19 @@ Aujourd'hui, elle ne masque le scan des BL qu'après un premier 403 `interdit` s
 rétrocompatible : ajouter à `GET v1/app-vente/capacites` le champ `"droitScannerBl": true` quand le droit est
 contrôlé. L'application le lit déjà : le scan serait alors masqué d'emblée pour un compte sans le droit.
 
+### Demandes 53 et 54 — `X-Poste` : nom de l'appareil partout (P3, facultatif)
+
+Depuis la 4.7.0+28 (PrestigePOS 1.5.0+14), l'application envoie `X-Poste` (nom de l'appareil, encodé en URL) sur
+toutes les requêtes. Elle fonctionne sans ces deux corrections.
+
+- **53 — Journal des connexions.** La ligne « Authentification … nom poste … » et le journal RH des connexions
+  prennent encore le nom réseau, souvent l'adresse IP : `UserServiceImpl.getHostName`, qui appelle
+  `NomDePoste.depuis(request)`. Prendre `ContexteRequete.poste()` comme le reste du journal : `X-Poste` s'il est
+  envoyé, sinon le nom réseau.
+- **54 — Clôture mobile money par la notification du fournisseur.** Quand la vente est clôturée par la notification
+  (webhook) du fournisseur, `marquerPosteEncaissement` enregistre comme poste d'encaissement le nom réseau du
+  fournisseur. Garder à la place le poste de saisie de la vente, ou celui de l'appareil qui a lancé le paiement.
+
 ---
 
 ## 3. Prestige Pharmacien (`prestige_app`, 3.10.1+42)
@@ -320,6 +333,20 @@ Résultats attendus :
 - les sommes de `parGrossiste` égalent les totaux ;
 - `parGrossiste` est identique entre `TOUS` et `NON_POINTES` ;
 - la recherche par grossiste n'a pas de `parGrossiste`, et ses montants égalent l'élément du même grossiste.
+
+---
+
+### Demande 55 — Péremptions courtes : dire si le compte peut changer le statut (P3, facultatif)
+
+L'écran « Péremptions courtes » de Prestige Pharmacien 3.15.0 lit
+`GET v1/reception/peremptions-courtes?du=&au=[&grossiste=][&statut=]` → `{total, valeur, data: [...]}`. Il change le
+statut par `PUT v1/reception/peremptions-courtes/{id}/statut?statut=A_TRAITER|RECLAME|AVOIR_RECU`, que le serveur
+réserve au droit `P_BL_MOBILE_ACCEPTER_PEREMPTION_COURTE`.
+
+Aujourd'hui, l'application ne sait qu'après un premier 403 que le compte n'a pas ce droit ; elle masque alors
+l'action. Proposition rétrocompatible : ajouter à la réponse de la liste `"peutChangerStatut": true|false`, au même
+niveau que `total` et `valeur`. L'application masquera l'action d'emblée. Sans ce champ, elle garde son comportement
+actuel.
 
 ---
 
@@ -438,5 +465,8 @@ Toujours attendu : `auteurId`, `auteurLogin`, `auteurNom` dans les 7 routes `ws/
 | 50 | Auteur des saisies en lecture (rappel 27) | Inventaire | P2 |
 | 51 | Pointer avec la session de l'application (`GET v1/rh/moi`, `POST v1/rh/moi/pointages`, sans `P_SM_RH`) | Mobile | P2 |
 | 52 | Droit distinct `P_RH_POINTER` (terminal : lecture des employés + pointage) | Mobile | P2 |
+| 53 | Journal des connexions : `X-Poste` (`ContexteRequete.poste()`) au lieu du nom réseau | Mobile, PrestigePOS | P3 (facultatif) |
+| 54 | Clôture mobile money par la notification du fournisseur : garder le poste de la vente | Mobile, PrestigePOS | P3 (facultatif) |
+| 55 | Péremptions courtes : `peutChangerStatut` dans la réponse de la liste | Pharmacien | P3 (facultatif) |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.

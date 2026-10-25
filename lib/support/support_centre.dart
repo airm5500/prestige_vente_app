@@ -18,6 +18,7 @@ import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/support/support_event.dart';
@@ -254,7 +255,7 @@ class SupportCentre extends ChangeNotifier {
           motif: '${corps['niveau']} ${corps['module']} : ${corps['messageCourt']}');
       return issue;
     } catch (err) {
-      debugPrint('Centre de support : $err');
+      journalErreur('Centre de support', err);
       return SupportIssue.enAttente;
     }
   }

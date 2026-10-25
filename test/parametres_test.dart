@@ -98,7 +98,13 @@ class _Env {
 void main() {
   // 4.5.1 : faux ApiService (aucun serveur) : pas de lecture des droits de vente (GET v1/user/droits) à la connexion.
   setUp(() => AuthProvider.lireDroitsVente = (_, __) async {});
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  // 4.7.1 : nom de cet appareil déjà enregistré (sinon la carte obligatoire est en tête des réglages) ; l'étape
+  // obligatoire est testée à part.
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({NomAppareil.prefNom: 'Poste test'});
+    NomAppareil.reinitialiser();
+    await NomAppareil.instance.charger();
+  });
 
   void phone(WidgetTester tester) {
     tester.view.physicalSize = const Size(720, 1400);
@@ -389,22 +395,28 @@ void main() {
       tester.view.devicePixelRatio = densite;
       tester.platformDispatcher.textScaleFactorTestValue = echelle;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await (await SharedPreferences.getInstance()).remove(NomAppareil.prefNom);
       NomAppareil.reinitialiser();
       NomAppareil.instance.modele = () => 'SUNMI V2s';
       await NomAppareil.instance.charger();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(env.app());
       await tester.pumpAndSettle();
-      expect(env.saved, 0);
+      expect(NomAppareil.instance.nomEnregistre, isFalse);
+      expect(find.byKey(const Key('nom_appareil_obligatoire'), skipOffstage: false), findsOneWidget, reason: 'aucun nom : carte obligatoire en tête');
       await open(tester, Rubrique.licence);
       final champ = find.byKey(const Key('nom_appareil_champ'));
       await tester.scrollUntilVisible(champ, 120, scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
-      expect(find.text('Nom par défaut : « SUNMI V2s » (marque et modèle).'), findsOneWidget);
+      expect(find.text('Enregistré dans Prestige : « SUNMI V2s »'), findsWidgets, reason: 'pré-rempli : marque et modèle');
+      expect(find.textContaining('Gardé sur cet appareil'), findsOneWidget, reason: '4.7.1 : où le nom est gardé');
       await tester.enterText(champ, ' Caisse/mobile 1 ');
       await tester.pump();
       expect(find.text('Enregistré dans Prestige : « Caissemobile 1 »'), findsOneWidget);
       await tester.enterText(champ, 'Caisse mobile 1');
       await tester.pump();
-      await tester.scrollUntilVisible(find.byKey(const Key('nom_appareil_enregistrer')), 120, scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.byKey(const Key('nom_appareil_enregistrer')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('nom_appareil_enregistrer')));
       await tester.pumpAndSettle();
       expect(NomAppareil.instance.effectif, 'Caisse mobile 1');

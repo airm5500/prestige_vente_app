@@ -5,6 +5,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/accueil/organiser_accueil_screen.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_reglages_page.dart';
@@ -61,11 +63,17 @@ class _ParametresScreenState extends State<ParametresScreen> {
   void initState() {
     super.initState();
     _search.addListener(() => setState(() {}));
+    NomAppareil.instance.addListener(_nomChange);
     _reloadSummaries();
+  }
+
+  void _nomChange() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    NomAppareil.instance.removeListener(_nomChange);
     _search.dispose();
     super.dispose();
   }
@@ -290,7 +298,8 @@ class _ParametresScreenState extends State<ParametresScreen> {
           ].where((e) => e.isNotEmpty).join(' · ')
         : 'Non connecté';
     // Charte bleu nuit / ambre (en-tête comme les autres écrans du nouvel accueil, au lieu de l'en-tête blanc).
-    return Theme(
+    return GardeNomAppareil(
+        child: Theme(
       data: themeCharte(Theme.of(context)),
       child: Scaffold(
         backgroundColor: Pal.page,
@@ -304,7 +313,7 @@ class _ParametresScreenState extends State<ParametresScreen> {
           ),
         ]),
       ),
-    );
+    ));
   }
 
   /// Centre de support : envoi automatique des anomalies, « Signaler un problème ».
@@ -347,6 +356,9 @@ class _ParametresScreenState extends State<ParametresScreen> {
         top: false,
         child: ListView(
           children: [
+            // 4.7.1 : nom de cet appareil obligatoire, tout en haut tant qu'il n'est pas enregistré (réglages non
+            // quittables, voir GardeNomAppareil).
+            if (!NomAppareil.instance.nomEnregistre) const CarteNomAppareilObligatoire(),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
               child: TextField(
