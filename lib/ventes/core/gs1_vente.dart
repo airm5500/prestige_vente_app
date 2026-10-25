@@ -200,19 +200,21 @@ class Gs1Vente {
   // -------------------------------------------------------------------------------------------------------------
 
   /// Verdict d'un scan. [brut] : contenu tel que reçu. Jamais d'exception.
-  Future<VerdictGs1> verdict(String brut) async {
+  /// [lotEnvoye] (4.9.1) : false pour les ventes dont la route d'ajout n'utilise pas `lotScanne` (dépôt, proforma) :
+  /// aucun lot mis en attente, avertissement « lot différent » sans annoncer quel lot sortira.
+  Future<VerdictGs1> verdict(String brut, {bool lotEnvoye = true}) async {
     if (!ressembleGs1(brut)) return const Gs1CommeAvant();
     // Lecture inactive (dernier réglage lu : 0, vide, absent, ou jamais lu) : rien ne change, même hors ligne.
     if (!_actif) return const Gs1CommeAvant();
     if (horsLigne()) return controleHorsLigne(brut) ?? const Gs1CommeAvant();
     try {
-      return await _lire(contenu(brut)).timeout(delai, onTimeout: () => const Gs1CommeAvant());
+      return await _lire(contenu(brut), lotEnvoye: lotEnvoye).timeout(delai, onTimeout: () => const Gs1CommeAvant());
     } catch (_) {
       return const Gs1CommeAvant();
     }
   }
 
-  Future<VerdictGs1> _lire(String code) async {
+  Future<VerdictGs1> _lire(String code, {required bool lotEnvoye}) async {
     final r = await dio().get<dynamic>('/vente/gs1',
         queryParameters: {'code': code},
         options: Options(validateStatus: (_) => true, receiveTimeout: delai, sendTimeout: delai));
@@ -242,14 +244,16 @@ class Gs1Vente {
     final lotEnStock = j['lotEnStock'] == true;
     final cip = '${j['cip'] ?? ''}'.trim();
     String? avert;
-    if (different) {
+    if (different && !lotEnvoye) {
+      avert = 'Lot différent : boîte scannée $info (prévu : ${prevu.isEmpty ? 'lot prévu' : prevu}).';
+    } else if (different) {
       avert = mode == 'B' && lotEnStock
           ? 'Lot différent : boîte scannée $info ; la vente sortira ce lot (au lieu du ${prevu.isEmpty ? 'lot prévu' : prevu}).'
           : 'Lot différent : boîte scannée $info ; Prestige sort le ${prevu.isEmpty ? 'lot prévu' : prevu}.';
     }
     final data = j['data'];
     final produitId = data is Map ? '${data['lgFAMILLEID'] ?? ''}' : '';
-    final sortir = mode == 'B' && lotEnStock && lot.isNotEmpty ? lot : null;
+    final sortir = lotEnvoye && mode == 'B' && lotEnStock && lot.isNotEmpty ? lot : null;
     if (sortir != null && produitId.isNotEmpty) {
       LotScanneEnAttente.poser(produitId, sortir);
     } else {

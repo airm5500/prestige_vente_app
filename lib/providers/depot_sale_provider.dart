@@ -24,7 +24,7 @@ class DepotSaleProvider with ChangeNotifier, PagedProductSearchHost {
   // --- GESTION RECHERCHE ---
   /// Code → produit exact (EAN-13 → CIP7…) ; texte → liste par pages (« 50 sur 120 »).
   @override
-  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService);
+  late final PagedProductSearch productSearch = PagedProductSearch(() => _apiService, gs1Vente: true);
   List<ProductSearchResult> get searchResults => productSearch.items;
 
   /// Échec de la dernière recherche (réseau/serveur) : ≠ « produit introuvable ».

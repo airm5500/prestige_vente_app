@@ -14,6 +14,7 @@ import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/services/classement_code.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
@@ -53,7 +54,17 @@ class PagedProductSearch {
   /// Recherche Article, Évaluation Vente et la recherche de l'accueil ; les autres menus gardent l'ordre du serveur.
   final bool classerCodes;
 
-  PagedProductSearch(this._api, {this.visible, this.classerCodes = false});
+  /// 4.9.1 : ventes Dépôt et Proforma : une étiquette GS1 passe par la lecture GS1 de la vente (lib/ventes/core/
+  /// gs1_vente.dart) sans `lotScanne` (leurs routes d'ajout ne s'en servent pas). Faux (autres menus) : inchangé.
+  final bool gs1Vente;
+
+  PagedProductSearch(this._api, {this.visible, this.classerCodes = false, this.gs1Vente = false});
+
+  /// 4.9.1 : boîte refusée à la lecture de son étiquette GS1 (message ; aucun produit).
+  String? refusGs1;
+
+  /// 4.9.1 : lot différent (avertissement au vendeur ; produit trouvé quand même).
+  String? avertissementGs1;
 
   ProductPager? _pager;
   List<ProductSearchResult> _items = const [];
@@ -131,9 +142,26 @@ class PagedProductSearch {
       return true;
     }
     final search = apiPageSearch(_api(), jeton: _nouveauJeton());
+    // 4.9.1 : étiquette GS1 (dépôt, proforma) : verdict de la vente ; lecture inactive, serveur ancien, panne,
+    // délai → « comme avant », la recherche ci-dessous est exactement celle d'avant.
+    var code = q;
+    if (gs1Vente && Gs1Vente.ressembleGs1(q)) {
+      final v = await Gs1Vente.instance.verdict(q, lotEnvoye: false);
+      if (seq != _seq) return false;
+      if (v is Gs1Refus) {
+        _jeton = null;
+        byCode = true;
+        refusGs1 = v.message;
+        return true;
+      }
+      if (v is Gs1Accepte) {
+        code = v.code;
+        avertissementGs1 = v.avertissement;
+      }
+    }
     if (asCode ?? ProductLookup.looksLikeCode(q)) {
       byCode = true;
-      final r = await ProductLookup.byCode(q, search);
+      final r = await ProductLookup.byCode(code, search);
       if (seq != _seq) return false;
       _jeton = null; // terminée : plus rien à annuler
       if (r is! VenteOk<CodeLookup>) {
@@ -142,7 +170,10 @@ class PagedProductSearch {
       }
       final found = r.value;
       _items = _montrer(found.exact != null ? [found.exact!] : found.candidates);
-      if (_items.isEmpty) notFound = codeIntrouvableMessage(q, found.tried);
+      if (_items.isEmpty) {
+        notFound = codeIntrouvableMessage(code, found.tried);
+        avertissementGs1 = null;
+      }
       return true;
     }
     final pager = ProductPager(search, q, mode: modeFor(q));
@@ -222,6 +253,8 @@ class PagedProductSearch {
     notFound = null;
     loadingMore = false;
     loadMoreError = null;
+    refusGs1 = null;
+    avertissementGs1 = null;
   }
 
   /// Efface les résultats (et ignore une recherche encore en cours).

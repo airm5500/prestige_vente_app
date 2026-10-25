@@ -154,6 +154,10 @@
     "test/gs1_vente_e2e_test.dart": "e2e",
     "test/reseau/gs1_vente_reseau_test.dart": "reseau",
     "test/performance/gs1_vente_perf_test.dart": "performance",
+    "test/gs1_depot_proforma_test.dart": "unitaires",
+    "test/gs1_depot_proforma_e2e_test.dart": "e2e",
+    "test/reseau/gs1_depot_proforma_reseau_test.dart": "reseau",
+    "test/performance/gs1_depot_proforma_perf_test.dart": "performance",
     "test/reseau/pointage_session_reseau_test.dart": "reseau"
   }
 }
