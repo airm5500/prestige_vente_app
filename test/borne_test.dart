@@ -2,6 +2,8 @@
 // avec faux serveur, plafonds, indisponible non ajoutable, écart de prix, ticket (produits + numéro),
 // ticket discret, inactivité / retour accueil (panier vidé), hors ligne, sortie du kiosque (code admin),
 // 360 px / tablette portrait / paysage, 3 présentations ; intégration réelle (sautée sans serveur).
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -38,6 +40,7 @@ import 'package:prestige_vente_app/pointage/pointage_repository.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -60,6 +63,8 @@ class _Gw implements VenteGateway, ClientRefGateway {
   int recherches = 0;
   final ajouts = <({String produit, int qte, int pu, String? vente})>[];
   final cles = <String>[];
+  /// 4.9.0 : `lotScanne` envoyé avec chaque ligne (null : aucun).
+  final lots = <String?>[];
   String? _cle;
   int terminees = 0;
   int retraits = 0;
@@ -81,6 +86,7 @@ class _Gw implements VenteGateway, ClientRefGateway {
     if (venteId == null && _cle != null) cles.add(_cle!);
     _cle = null;
     ajouts.add((produit: produitId, qte: qte, pu: itemPu, vente: venteId));
+    lots.add(LotScanneEnAttente.champ(produitId)['lotScanne']); // comme DioVenteGateway (corps de la ligne)
     return const VenteOk('V1');
   }
 
@@ -442,6 +448,100 @@ void main() {
       final d = BorneTicket(officine: 'PHCIE', prevente: p, discret: true);
       expect(d.lignes.join('\n'), isNot(contains('DOLIPRANE')));
       expect(d.lignes.first, '2 articles');
+    });
+  });
+
+  // 4.9.0 : étiquette GS1 scannée à la borne (lecture de l'officine active) : le client ne voit jamais de détail de
+  // lot ; boîte refusée → « présentez-le au comptoir » ; mode B, lot en stock → `lotScanne` à la création.
+  group('Étiquette GS1', () {
+    const dm = '01034009359558381728103110LOTA1';
+    Map<String, dynamic> verdict({String controle = 'DIFFERENT', String mode = 'A', bool lotEnStock = false, bool perime = false}) => {
+          'success': true,
+          'actif': true,
+          'lot': 'LOTA1',
+          'peremption': perime ? '31/01/2020' : '31/10/2028',
+          'perime': perime,
+          'cip': '3595583',
+          'lotPrevu': 'LOTB2',
+          'peremptionPrevue': '30/06/2028',
+          'controle': controle,
+          'modeControle': mode,
+          'lotEnStock': lotEnStock,
+          'data': {'lgFAMILLEID': 'P1'},
+        };
+    void serveurGs1(Object? Function() corps, {bool actif = true, bool horsLigne = false}) {
+      final d = Dio()
+        ..interceptors.add(InterceptorsWrapper(onRequest: (o, h) {
+          final c = corps();
+          if (c == null) return h.reject(DioException(requestOptions: o, type: DioExceptionType.connectionError));
+          h.resolve(Response(requestOptions: o, statusCode: 200, data: jsonEncode(c)));
+        }));
+      final g = Gs1Vente.instance;
+      g.dio = () => d;
+      g.horsLigne = () => horsLigne;
+      g.actifPourTests = actif;
+    }
+
+    Future<void> scanner(WidgetTester tester, _Env env, String code) async {
+      unawaited(env.cle.currentState!.rechercher(code));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    for (final (cas, corps, horsLigne) in <(String, Map<String, dynamic>?, bool)>[
+      ('boîte périmée', verdict(controle: 'CONFORME', perime: true), false),
+      ('mode C, lot différent', verdict(mode: 'C'), false),
+      ('étiquette étendue', {'success': false, 'actif': true, 'etendu': true, 'msg': 'Étiquette étendue : réservée à la commande.'}, false),
+      ('hors ligne, boîte périmée', null, true),
+    ]) {
+      testWidgets('$cas : « présentez-le au comptoir », aucun détail de lot, rien dans le panier', (tester) async {
+        serveurGs1(() => corps, horsLigne: horsLigne);
+        final env = await _borne(tester);
+        await scanner(tester, env, horsLigne ? '010340093595583817200131\u001d10LOTX' : dm);
+        expect(find.byKey(const Key('borne_refus_gs1')), findsOneWidget);
+        expect(find.text(Gs1Refus.pourClient), findsOneWidget);
+        for (final x in ['LOT', 'Périm', 'périm', '2020', '2028', 'étendue']) {
+          expect(find.textContaining(x), findsNothing, reason: 'jamais de détail pour le client : $x');
+        }
+        expect(env.cle.currentState!.panier.vide, isTrue);
+        expect(find.byKey(const ValueKey('borne-fiche-ajouter')), findsNothing);
+        await _fin(tester);
+      });
+    }
+
+    testWidgets('mode A ou B lot différent : fiche ouverte sans avertissement ; mode B : « lotScanne » à la création, une fois', (tester) async {
+      serveurGs1(() => verdict(mode: 'B', lotEnStock: true));
+      final env = await _borne(tester);
+      await scanner(tester, env, dm);
+      expect(find.byKey(const ValueKey('borne-fiche-ajouter')), findsOneWidget, reason: 'fiche du produit');
+      expect(find.textContaining('Lot'), findsNothing, reason: 'aucun avertissement A/B à la borne');
+      expect(find.textContaining('LOT'), findsNothing);
+      await _tap(tester, find.byKey(const ValueKey('borne-fiche-ajouter')));
+      expect(LotScanneEnAttente.champ('P1'), isEmpty, reason: 'le lot suit la ligne de la borne, pas l\'attente globale');
+      await _tap(tester, find.byKey(const ValueKey('borne-voir-panier')));
+      final payer = find.byKey(const ValueKey('borne-payer'));
+      await tester.ensureVisible(payer);
+      await tester.tap(payer);
+      for (var i = 0; i < 4; i++) {
+        await tester.pump();
+      }
+      expect(env.gw.lots, ['LOTA1']);
+      expect(env.cle.currentState!.widget.service.lotsScannes, isEmpty);
+      await _fin(tester);
+    });
+
+    testWidgets('lecture inactive : chemin d\'avant, fiche du produit, aucun appel', (tester) async {
+      var appels = 0;
+      serveurGs1(() {
+        appels++;
+        return verdict(perime: true);
+      }, actif: false);
+      final env = await _borne(tester);
+      await scanner(tester, env, dm);
+      expect(appels, 0);
+      expect(find.byKey(const ValueKey('borne-fiche-ajouter')), findsOneWidget);
+      await _fin(tester);
     });
   });
 

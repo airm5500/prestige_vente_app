@@ -12,6 +12,7 @@
 //   droits relus, panier du compte précédent effacé, retour à l'accueil (l'action refusée n'a pas été exécutée) ;
 //   retour de l'application au premier plan → droits relus.
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:prestige_vente_app/borne/borne_launcher.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
@@ -43,6 +44,7 @@ class EtatLocalVente {
     }
     await PendingSaleStore.toutEffacer();
     DroitsVente.instance.oublier();
+    Gs1Vente.instance.oublier();
   }
 }
 

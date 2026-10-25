@@ -120,5 +120,6 @@ void main() {
 
 /// Requêtes de la connexion jusqu'à l'accueil chargé (4.2.0 : 26 dont 5 lectures en double ; 4.3.0 : 24 — ANO-09
 /// traitée : 3 doubles supprimés, 2 gardés exprès ; + GET /posos/droits ; 4.5.1 : 25 — + GET /user/droits, droits de
-/// vente lus à chaque connexion, demande du serveur du 19/10/2026 : sécurité des ventes).
-const plafondConnexion = 25;
+/// vente lus à chaque connexion, demande du serveur du 19/10/2026 : sécurité des ventes ; 4.9.0 : 26 — + GET
+/// /app-params/value/KEY_VENTE_LECTURE_GS1, réglage de lecture GS1 à la vente, lu comme le web, en parallèle des droits).
+const plafondConnexion = 26;

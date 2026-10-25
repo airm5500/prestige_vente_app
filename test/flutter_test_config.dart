@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil_serveur.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   setUp(() {
@@ -17,6 +18,9 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
     // dans les tests qui en donnent une.
     NomAppareilServeur.reinitialiser();
     NomAppareilServeur.instance.empreinte = () async => null;
+    // 4.9.0 : lecture GS1 à la vente inactive au départ (réglage relu à la connexion) ; aucun lot en attente.
+    Gs1Vente.reinitialiser();
+    LotScanneEnAttente.vider();
   });
   await testMain();
 }

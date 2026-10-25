@@ -8,6 +8,7 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/common/product_list_modal.dart';
@@ -263,7 +264,26 @@ class VenteProductSearchState extends State<VenteProductSearch> {
   Future<void> _searchPaged(String q, {required bool scan}) async {
     final search = widget.pageSearch!;
     if (scan) {
-      final r = await ProductLookup.byCode(q, search);
+      // 4.9.0 : étiquette GS1, lecture de l'officine active : verdict du serveur (périmé, lot) avant le produit ; le
+      // produit est cherché ensuite par le chemin d'avant (CIP de l'étiquette). Lecture inactive, serveur ancien,
+      // panne, délai : verdict « comme avant », rien ne change.
+      var code = q;
+      String? avertissement;
+      if (Gs1Vente.ressembleGs1(q)) {
+        final v = await Gs1Vente.instance.verdict(q);
+        if (!mounted) return;
+        if (v is Gs1Refus) {
+          setState(() => _loading = false);
+          _ctrl.clear();
+          showVenteSnack(context, v.message, error: true);
+          return;
+        }
+        if (v is Gs1Accepte) {
+          code = v.code;
+          avertissement = v.avertissement;
+        }
+      }
+      final r = await ProductLookup.byCode(code, search);
       if (!mounted) return;
       setState(() => _loading = false);
       if (r is! VenteOk<CodeLookup>) {
@@ -273,7 +293,7 @@ class VenteProductSearchState extends State<VenteProductSearch> {
       }
       final found = r.value;
       if (found.exact != null) {
-        await _handleResults(q, [found.exact!], scan: true);
+        await _handleResults(q, [found.exact!], scan: true, avertissement: avertissement);
         return;
       }
       final candidates = found.candidates.where(_visible).toList();
@@ -315,7 +335,7 @@ class VenteProductSearchState extends State<VenteProductSearch> {
     await _askQuantity(chosen);
   }
 
-  Future<void> _handleResults(String q, List<ProductSearchResult> results, {required bool scan}) async {
+  Future<void> _handleResults(String q, List<ProductSearchResult> results, {required bool scan, String? avertissement}) async {
     if (results.isEmpty) {
       if (scan) {
         _ctrl.clear();
@@ -332,6 +352,7 @@ class VenteProductSearchState extends State<VenteProductSearch> {
         if (_lastCip == p.intCIP.toString()) {
           _repeat++;
           if (_repeat >= 3) {
+            if (avertissement != null) showVenteSnack(context, avertissement, color: Colors.orange.shade800, duree: const Duration(seconds: 6));
             await _repeatedScan(p);
             return;
           }
@@ -339,7 +360,7 @@ class VenteProductSearchState extends State<VenteProductSearch> {
           _lastCip = p.intCIP.toString();
           _repeat = 1;
         }
-        await _addOne(p);
+        await _addOne(p, avertissement: avertissement);
       } else {
         _resetRepeat();
         await _askQuantity(p);
@@ -363,12 +384,12 @@ class VenteProductSearchState extends State<VenteProductSearch> {
   }
 
   /// Scan simple : +1 (stock vide → « forcer ? »). L'ajout n'est pas attendu : les scans suivants continuent.
-  Future<void> _addOne(ProductSearchResult p) async {
+  Future<void> _addOne(ProductSearchResult p, {String? avertissement}) async {
     if (p.intNUMBERAVAILABLE <= 0) {
       final force = await _popup(() => showForceStockDialog(context, stock: p.intNUMBERAVAILABLE, qty: 1));
       if (force != true || !mounted) return;
     }
-    unawaited(_add(p, 1, announce: true));
+    unawaited(_add(p, 1, announce: true, avertissement: avertissement));
   }
 
   /// 3ᵉ scan du même produit : « Combien en reste-t-il ? ». Annuler n'ajoute rien.
@@ -401,9 +422,13 @@ class VenteProductSearchState extends State<VenteProductSearch> {
     await _add(p, qty, announce: false);
   }
 
-  Future<void> _add(ProductSearchResult p, int qty, {required bool announce}) async {
+  /// [avertissement] (4.9.0, étiquette GS1 lot différent) : affiché avec la confirmation, plus longtemps, pour que
+  /// « ajouté » ne le cache pas.
+  Future<void> _add(ProductSearchResult p, int qty, {required bool announce, String? avertissement}) async {
     final ok = await widget.addProduct(p, qty);
-    if (ok && announce && mounted) {
+    if (ok && avertissement != null && mounted) {
+      showVenteSnack(context, '${p.strNAME} ajouté (+$qty). $avertissement', color: Colors.orange.shade800, duree: const Duration(seconds: 6));
+    } else if (ok && announce && mounted) {
       showVenteSnack(context, '${p.strNAME} ajouté (+$qty)', color: Colors.green.shade700);
     }
   }

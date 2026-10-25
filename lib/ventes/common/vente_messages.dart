@@ -16,14 +16,14 @@ String venteMessage(String? raw, {String fallback = 'Opération impossible.'}) {
 }
 
 /// Bandeau bas : erreur (rouge), panne avec « Réessayer », ou information.
-void showVenteSnack(BuildContext context, String message, {bool error = false, VoidCallback? onRetry, Color? color}) {
+void showVenteSnack(BuildContext context, String message, {bool error = false, VoidCallback? onRetry, Color? color, Duration? duree}) {
   if (!context.mounted) return;
   final messenger = ScaffoldMessenger.of(context);
   messenger.hideCurrentSnackBar();
   messenger.showSnackBar(SnackBar(
     content: Text(message),
     backgroundColor: color ?? (error ? Colors.red.shade700 : null),
-    duration: Duration(seconds: onRetry != null ? 6 : (error ? 4 : 2)),
+    duration: duree ?? Duration(seconds: onRetry != null ? 6 : (error ? 4 : 2)),
     action: onRetry == null ? null : SnackBarAction(label: 'Réessayer', textColor: Colors.white, onPressed: onRetry),
   ));
 }

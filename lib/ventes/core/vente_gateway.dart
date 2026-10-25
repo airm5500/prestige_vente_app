@@ -6,6 +6,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
@@ -394,6 +395,8 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
         "prevente": prevente,
         "remiseId": null,
         "userVendeurId": null,
+        // 4.9.0 : lot de la boîte scannée (lecture GS1, mode B), comme le web ; absent sinon (corps inchangé).
+        ...LotScanneEnAttente.champ(produitId),
       }, options: _creation(first)),
       what: 'ajouter le produit',
       write: true,
@@ -815,6 +818,8 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
         "typeVenteId": typeVenteId,
         "userVendeurId": userVendeurId,
         "venteId": venteId,
+        // 4.9.0 : lot de la boîte scannée (lecture GS1, mode B).
+        ...LotScanneEnAttente.champ(produitId),
       }, options: _creation(first)),
       what: 'ajouter le produit',
       write: true,

@@ -8,6 +8,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_kiosque.dart';
@@ -125,6 +126,9 @@ class BorneScreenState extends State<BorneScreen> {
 
   ProductPager? _pager;
   String? _rechercheErreur;
+
+  /// 4.9.0 : boîte refusée à la lecture de son étiquette GS1 (message pour le client).
+  String? _refusGs1;
   Timer? _debounce;
   int _rechercheNo = 0;
   List<BorneProduit> _vedettes = const [];
@@ -323,6 +327,7 @@ class BorneScreenState extends State<BorneScreen> {
     _attente = null;
     _opChoisi = null;
     panier.vider();
+    widget.service.lotsScannes.clear(); // 4.9.0 : lots GS1 du client précédent oubliés
     _recherche.clear();
     _focus.unfocus();
     if (!mounted) return;
@@ -364,10 +369,35 @@ class BorneScreenState extends State<BorneScreen> {
       return;
     }
     final no = ++_rechercheNo;
-    if (ProductLookup.looksLikeCode(t)) {
-      final r = await widget.service.parCode(t);
+    if (_refusGs1 != null) setState(() => _refusGs1 = null);
+    // 4.9.0 : étiquette GS1 (lecture de l'officine active) : boîte refusée (périmée, lot à prendre, étiquette
+    // étendue, périmée hors ligne) → message pour le client, sans détail de lot ; mode B : lot gardé pour la ligne.
+    // Lecture inactive, serveur ancien, panne : chemin d'avant.
+    var code = t;
+    String? lot;
+    if (Gs1Vente.ressembleGs1(brut.trim())) {
+      final v = await Gs1Vente.instance.verdict(brut.trim());
+      if (!mounted || no != _rechercheNo) return;
+      if (v is Gs1Refus) {
+        setState(() {
+          _pager = null;
+          _rechercheErreur = null;
+          _refusGs1 = Gs1Refus.pourClient;
+          vue = BorneVue.resultats;
+        });
+        return;
+      }
+      if (v is Gs1Accepte) {
+        code = v.code;
+        lot = v.lotScanne;
+      }
+      LotScanneEnAttente.vider(); // à la borne, le lot suit la ligne (envoyé à la création de la prévente)
+    }
+    if (ProductLookup.looksLikeCode(code)) {
+      final r = await widget.service.parCode(code);
       if (!mounted || no != _rechercheNo) return;
       if (r case VenteOk(value: final p?)) {
+        if (lot != null) widget.service.lotsScannes[p.lgFAMILLEID] = lot;
         _ouvrirFiche(_produit(p), depuis: BorneVue.resultats);
         return;
       }
@@ -568,6 +598,7 @@ class BorneScreenState extends State<BorneScreen> {
         payePar: payePar);
     _inactif?.cancel();
     panier.vider();
+    widget.service.lotsScannes.clear(); // 4.9.0 : lots GS1 du client précédent oubliés
     setState(() {
       _prevente = p;
       _ticket = ticket;
@@ -609,6 +640,7 @@ class BorneScreenState extends State<BorneScreen> {
     final pm = widget.paiementsMobile!;
     _inactif?.cancel();
     panier.vider();
+    widget.service.lotsScannes.clear(); // 4.9.0 : lots GS1 du client précédent oubliés
     final a = AttentePaiement(pm.api!,
         intervalle: widget.intervallePaiement, delai: Duration(minutes: pm.capacitesConnues?.expirationMin ?? 10));
     a.addListener(() => _onAttente(p, op));
@@ -1056,7 +1088,18 @@ class BorneScreenState extends State<BorneScreen> {
     final p = _pager;
     final items = _resultats;
     Widget corps;
-    if (p == null || (p.loading && items.isEmpty)) {
+    if (_refusGs1 != null) {
+      corps = Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(key: const Key('borne_refus_gs1'), mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.storefront_outlined, size: 48, color: Pal.navy),
+            const SizedBox(height: 8),
+            Text(_refusGs1!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Pal.ink)),
+          ]),
+        ),
+      );
+    } else if (p == null || (p.loading && items.isEmpty)) {
       corps = const Center(child: CircularProgressIndicator());
     } else if (items.isEmpty && _rechercheErreur != null) {
       corps = _erreur(_rechercheErreur!, () => rechercher(_recherche.text));
