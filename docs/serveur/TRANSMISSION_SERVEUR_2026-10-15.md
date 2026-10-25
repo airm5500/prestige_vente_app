@@ -17,7 +17,7 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10)
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10)
 3. Prestige Pharmacien : réponses et demandes 45 et 55 (péremptions courtes, 25/10)
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
@@ -257,6 +257,47 @@ toutes les requêtes. Elle fonctionne sans ces deux corrections.
   (webhook) du fournisseur, `marquerPosteEncaissement` enregistre comme poste d'encaissement le nom réseau du
   fournisseur. Garder à la place le poste de saisie de la vente, ou celui de l'appareil qui a lancé le paiement.
 
+### Demande 56 — Retrouver le nom de l'appareil après une réinstallation (P2, décision du pharmacien du 25/10)
+
+Depuis la 4.7.1+29 (PrestigePOS 1.5.1+15), le nom de l'appareil (`X-Poste`) est **obligatoire** et gardé sur
+l'appareil : une mise à jour le conserve, mais une désinstallation l'efface et il faut le ressaisir. Aucune solution
+fiable n'existe côté application seule : Android 11+ empêche de relire un fichier après réinstallation sans
+permission spéciale, et la sauvegarde Google manque sur la plupart des Sunmi. Le pharmacien demande donc que le serveur
+garde le nom, rattaché à l'appareil.
+
+**Empreinte de l'appareil.** L'application calcule `empreinte = SHA-256(ANDROID_ID + ":" + nom du paquet)`, en
+hexadécimal minuscule (64 caractères). `ANDROID_ID` reste le même après une réinstallation (même appareil, même clé
+de signature) ; il change seulement après une remise à zéro d'usine. L'identifiant en clair n'est jamais envoyé.
+L'empreinte n'est pas un secret d'authentification et ne donne aucun droit.
+
+**Routes proposées :**
+
+| Route | Session | Rôle |
+|---|---|---|
+| `GET v1/appareil/nom?empreinte=<64 hex>` | **non requise** | → `200 {"nom": "Caisse mobile 1"}`, ou `200 {"nom": null}` si l'empreinte est inconnue |
+| `PUT v1/appareil/nom` corps `{"empreinte": "<64 hex>", "nom": "Caisse mobile 1"}` | requise (tout utilisateur connecté) | enregistre ou remplace le nom ; → `200 {"nom": "<nom tel qu'enregistré>"}` |
+
+- **Pourquoi la lecture sans session :** l'étape « Nom de cet appareil » a lieu au premier lancement, avant la
+  connexion. Le nom n'est pas un secret (il est déjà affiché dans « Ventes terminées ») et l'empreinte (256 bits) ne
+  se devine pas. Limiter le débit de cette route (par exemple 30 requêtes par minute et par adresse) et refuser en
+  400 une empreinte qui n'a pas 64 caractères hexadécimaux. Si vous préférez une session pour la lecture aussi,
+  l'application relira le nom juste après la connexion : dites-le.
+- **Nom :** mêmes règles que `X-Poste` (`ContexteRequete.nettoyer` : lettres, chiffres, espace, point, tiret, souligné ;
+  60 caractères au plus) ; nom vide refusé en 400.
+- **Journal :** journaliser l'enregistrement (utilisateur, nom, date), jamais l'empreinte en entier (8 premiers
+  caractères au plus).
+- **Stockage :** une table `empreinte` (clé unique) → `nom`, `date de mise à jour`, `utilisateur`.
+- **Sans la route** (404 ou 405), l'application garde son comportement actuel : nom pré-rempli avec la marque et le
+  modèle, à confirmer.
+
+**Ce que fera l'application** (dès que la route existe ; rien n'est fait tant que vous ne confirmez pas le format) :
+1. À l'enregistrement du nom, puis à chaque connexion si le serveur ne l'a pas encore : `PUT v1/appareil/nom`.
+2. Au premier lancement sans nom local : `GET v1/appareil/nom` ; si un nom revient, il est enregistré sur l'appareil
+   et l'étape obligatoire est passée (l'utilisateur peut toujours le changer dans les réglages).
+
+**Vérification :** nommer un terminal « Caisse mobile 1 », désinstaller puis réinstaller l'application : au
+lancement, l'étape du nom ne s'affiche pas et la vente suivante porte « Caisse mobile 1 » dans « Ventes terminées ».
+
 ---
 
 ## 3. Prestige Pharmacien (`prestige_app`, 3.10.1+42)
@@ -468,5 +509,6 @@ Toujours attendu : `auteurId`, `auteurLogin`, `auteurNom` dans les 7 routes `ws/
 | 53 | Journal des connexions : `X-Poste` (`ContexteRequete.poste()`) au lieu du nom réseau | Mobile, PrestigePOS | P3 (facultatif) |
 | 54 | Clôture mobile money par la notification du fournisseur : garder le poste de la vente | Mobile, PrestigePOS | P3 (facultatif) |
 | 55 | Péremptions courtes : `peutChangerStatut` dans la réponse de la liste | Pharmacien | P3 (facultatif) |
+| 56 | Nom de l'appareil gardé par le serveur (`GET`/`PUT v1/appareil/nom`, empreinte SHA-256) | Mobile, PrestigePOS | P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.
