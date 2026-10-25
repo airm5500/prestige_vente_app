@@ -115,9 +115,17 @@ class _Step3ProductsWidgetState extends State<Step3ProductsWidget> {
       if (!mounted || _isPopupOpen) return;
 
       final results = provider.productSearchResults;
+      // 4.9.0 : étiquette GS1 : refus (périmée, lot à prendre, étiquette étendue) ou lot différent, une fois.
+      final messageGs1 = provider.prendreMessageGs1();
+      if (messageGs1 != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(key: const Key('vente_message_gs1'), content: Text(messageGs1), backgroundColor: Colors.orange.shade800),
+        );
+        if (results.isEmpty) _searchController.clear();
+      }
 
       if (results.isEmpty) {
-        if (autoAddIfUnique) {
+        if (autoAddIfUnique && messageGs1 == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Produit introuvable"), backgroundColor: Colors.orange, duration: Duration(seconds: 1)),
           );

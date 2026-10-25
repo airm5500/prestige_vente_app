@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:dio/dio.dart' show Options;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil_serveur.dart';
 import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -169,6 +170,7 @@ class AuthProvider with ChangeNotifier {
     // 4.5.1 : droits oubliés ; le panier est effacé seulement si un AUTRE compte se connecte ensuite.
     UtilisateurSession.id = null;
     DroitsVente.instance.oublier();
+    Gs1Vente.instance.oublier();
     _user = null;
     _officine = null;
     _officineDeLaConnexion = false;
@@ -188,8 +190,12 @@ class AuthProvider with ChangeNotifier {
   static Duration delaiDroits = const Duration(seconds: 8);
 
   /// Lecture des droits de vente (GET v1/user/droits) ; remplaçable dans les tests à faux ApiService.
-  static Future<void> Function(ApiService api, String utilisateur) lireDroitsVente =
-      (api, utilisateur) => DroitsVente.instance.actualiser(api.dio, utilisateur: utilisateur);
+  /// 4.9.0 : relit aussi le réglage de lecture GS1 à la vente (KEY_VENTE_LECTURE_GS1), comme le web à chaque
+  /// ouverture de la vente.
+  static Future<void> Function(ApiService api, String utilisateur) lireDroitsVente = (api, utilisateur) async {
+    // En parallèle : la connexion n'attend pas une lecture de plus.
+    await Future.wait([DroitsVente.instance.actualiser(api.dio, utilisateur: utilisateur), Gs1Vente.instance.relireReglage(api.dio)]);
+  };
 
   /// Connexion acceptée (mot de passe, connexion automatique, reconnexion silencieuse, borne) : en-tête
   /// X-Prestige-Utilisateur, panier du compte précédent effacé si le compte change, droits lus.

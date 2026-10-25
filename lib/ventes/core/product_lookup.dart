@@ -7,6 +7,7 @@
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
 /// Une page de résultats du serveur (`total` = nombre total de produits correspondants).
@@ -44,13 +45,16 @@ class ProductLookup {
     final v = raw.trim();
     if (v.isEmpty) return false;
     if (v.contains('\u001d') || v.contains('␝') || v.startsWith(']d2') || v.startsWith('01') && v.length > 16) return true;
+    // 4.9.0 : autres formes d'étiquette GS1 (préfixes ]Q3 / ]C1, forme lisible « (01)… », lien GS1 Digital Link).
+    if (Gs1Vente.ressembleGs1(v)) return true;
     return _digits.hasMatch(v) && v.length >= 7;
   }
 
   /// Codes à essayer, du plus précis au plus large.
   static List<String> codeCandidates(String raw) {
     // GS (FNC1) conservé ; « ␝ » (GS rendu visible dans un champ de saisie) redevient GS.
-    final v = raw.replaceAll('␝', '\u001d').replaceAll(RegExp(r'[\x00-\x1C\x1E\x1F\x7F]'), '').trim();
+    // 4.9.0 : lien GS1 Digital Link traduit en « (01)…(17)…(10)… » (seulement si sa lecture est univoque).
+    final v = Gs1Vente.contenu(raw).replaceAll('␝', '\u001d').replaceAll(RegExp(r'[\x00-\x1C\x1E\x1F\x7F]'), '').trim();
     if (v.isEmpty) return const [];
     final out = <String>[];
     final dm = DataMatrixParser.parse(v);

@@ -1,6 +1,8 @@
 // lib/providers/carnet_sale_provider.dart
 // 09/11/2025 19:40 (Correction 'toggleTiersPayant' manquant)
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/services/product_finder.dart' show apiPageSearch;
+import 'package:prestige_vente_app/ventes/core/gs1_recherche.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
@@ -298,6 +300,24 @@ class CarnetSaleProvider with ChangeNotifier {
 
   // --- ÉTAPE 3: GESTION DU PANIER ---
 
+
+  // 4.9.0 : étiquette GS1 scannée (ancienne interface) : même chemin que la nouvelle (verdict GS1, puis décodage
+  // sur l'appareil) ; message (refus, lot différent) à afficher une fois par l'écran.
+  String? _messageGs1;
+  String? prendreMessageGs1() {
+    final m = _messageGs1;
+    _messageGs1 = null;
+    return m;
+  }
+
+  Future<List<ProductSearchResult>> _chercherProduits(String query) async {
+    _messageGs1 = null;
+    final g = await rechercherEtiquetteGs1(query, apiPageSearch(_apiService));
+    if (g == null) return _apiService.searchProducts(query);
+    _messageGs1 = g.refus?.message ?? g.avertissement ?? g.erreur;
+    return [...g.produits];
+  }
+
   Future<void> searchProducts(String query) async {
     if (query.length < 3) {
       _productSearchResults = [];
@@ -307,7 +327,7 @@ class CarnetSaleProvider with ChangeNotifier {
     _setLoading(true);
     //_productSearchResults = await _apiService.searchProducts(query);
     // 1. On récupère TOUS les résultats
-    List<ProductSearchResult> results = await _apiService.searchProducts(query);
+    List<ProductSearchResult> results = await _chercherProduits(query);
 
     // 2. FILTRAGE RV (LOGIQUE AJOUTÉE)
     // On récupère le réglage directement depuis les SharedPreferences pour être sûr

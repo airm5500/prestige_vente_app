@@ -7,6 +7,7 @@
 // Aucune prévente hors ligne à la borne (B1) : serveur injoignable = borne indisponible.
 import 'dart:math';
 
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/borne/borne_panier.dart';
@@ -102,6 +103,9 @@ class BorneService {
   ProductPager pager(String texte, {SearchMode? mode}) =>
       ProductPager(gateway.searchProductsPage, texte, mode: modeFor(texte, mode));
 
+  /// 4.9.0 : lots des boîtes scannées (lecture GS1, mode B), par produit, envoyés à la création de la prévente.
+  final Map<String, String> lotsScannes = {};
+
   /// Produit exact par code (scan) ; null si introuvable.
   Future<VenteResult<ProductSearchResult?>> parCode(String code) async {
     final r = await ProductLookup.byCode(code, gateway.searchProductsPage);
@@ -165,6 +169,9 @@ class BorneService {
         if (h4) gw = refGw.avecClientRef(cle);
         String? venteId;
         for (final l in lignes) {
+          // 4.9.0 : lot de la boîte scannée (lecture GS1, mode B), envoyé avec la ligne de ce produit.
+          final lot = lotsScannes.remove(l.produit.id);
+          if (lot != null) LotScanneEnAttente.poser(l.produit.id, lot);
           final r = await (venteId == null ? gw : gateway)
               .addItemVno(produitId: l.produit.id, qte: l.qte, itemPu: l.produit.prix, venteId: venteId, prevente: true);
           if (r case VenteOk(:final value)) {
