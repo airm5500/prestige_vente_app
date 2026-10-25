@@ -376,6 +376,8 @@ class BorneScreenState extends State<BorneScreen> {
     var code = t;
     String? lot;
     if (Gs1Vente.ressembleGs1(brut.trim())) {
+      // Contenu de l'étiquette (lot, date, numéro de série) jamais laissé dans le champ de recherche du client.
+      _recherche.clear();
       final v = await Gs1Vente.instance.verdict(brut.trim());
       if (!mounted || no != _rechercheNo) return;
       if (v is Gs1Refus) {

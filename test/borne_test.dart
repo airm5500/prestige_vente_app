@@ -2,7 +2,6 @@
 // avec faux serveur, plafonds, indisponible non ajoutable, écart de prix, ticket (produits + numéro),
 // ticket discret, inactivité / retour accueil (panier vidé), hors ligne, sortie du kiosque (code admin),
 // 360 px / tablette portrait / paysage, 3 présentations ; intégration réelle (sautée sans serveur).
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -482,8 +481,10 @@ void main() {
       g.actifPourTests = actif;
     }
 
+    // Douchette sur le champ de recherche de la borne (le contenu y est effacé dès la reconnaissance).
     Future<void> scanner(WidgetTester tester, _Env env, String code) async {
-      unawaited(env.cle.currentState!.rechercher(code));
+      await tester.enterText(find.byKey(const ValueKey('borne-recherche')), code);
+      await tester.pump(const Duration(milliseconds: 450));
       for (var i = 0; i < 6; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }

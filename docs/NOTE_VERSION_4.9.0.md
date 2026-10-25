@@ -33,7 +33,8 @@ vente, en parallèle), et oublié à la déconnexion.
 - **Borne** : le client ne voit jamais de détail de lot. Boîte refusée (périmée, mode C lot différent, étiquette
   étendue, périmée hors ligne) → « Ce produit ne peut pas être ajouté ici : présentez-le au comptoir ». Aucun
   avertissement A/B. Mode B, lot en stock : `lotScanne` part à la création de la prévente avec la ligne du produit ;
-  lots oubliés à chaque nouveau client.
+  lots oubliés à chaque nouveau client. Le contenu scanné est effacé du champ de recherche de la borne dès qu'il est
+  reconnu comme étiquette GS1.
 - **Ancienne interface des ventes** (« nouvelle version des ventes » désactivée : vente comptant, assurance, carnet) :
   ses recherches passent par le même chemin GS1 ; l'étiquette 2D y est maintenant trouvée (avant : recherche texte
   du contenu brut, sans résultat), refus et avertissements affichés.
