@@ -17,7 +17,7 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10)
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10)
 3. Prestige Pharmacien : réponses et demandes 45 et 55 (péremptions courtes, 25/10)
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
@@ -298,6 +298,113 @@ L'empreinte n'est pas un secret d'authentification et ne donne aucun droit.
 **Vérification :** nommer un terminal « Caisse mobile 1 », désinstaller puis réinstaller l'application : au
 lancement, l'étape du nom ne s'affiche pas et la vente suivante porte « Caisse mobile 1 » dans « Ventes terminées ».
 
+### Demande 57 — Borne de pointage sans compte : appareil enrôlé (P2, décision du pharmacien du 25/10)
+
+**Besoin (pharmacien) :** « je veux une application spéciale qui n'a pas besoin de compte pour qu'on pointe ; le
+terminal est partagé, on ne peut pas connecter ce compte, ensuite le déconnecter et connecter les comptes normaux pour
+travailler, c'est trop long ; on doit pouvoir pointer, scanner un badge pour pointer ».
+
+Le même Sunmi sert à la vente (comptes normaux, Prestige Mobile). Le pointage passera par une application séparée,
+**Prestige Pointage** (paquet `com.dici.prestigepointage`). Un administrateur l'**enrôle une seule fois** ; ensuite,
+plus aucune connexion. Les salariés pointent par QR, code 1D, NFC ou empreinte, avec la photo de contrôle et la file
+hors ligne actuelles. La session de vente de Prestige Mobile n'est jamais touchée.
+
+Aujourd'hui, aucune route ne permet de pointer sans session :
+- les routes du terminal (demande 52) exigent une session P_SM_RH ou P_RH_POINTER ;
+- `v1/user/auth-badge` ouvre une session complète du salarié ;
+- les jetons `v1/mobile/*` sont liés à un utilisateur, pour 30 jours au plus.
+
+**1. Enrôlement — `POST v1/rh/bornes`** (session ; P_SM_RH ou administrateur, sinon 403 `{interdit:true, msg}`)
+- Corps : `{"empreinte": "<64 hex>", "nom": "Borne entrée"}`.
+  - `empreinte` : celle de la demande 56, SHA-256(ANDROID_ID + ":" + paquet).
+  - `nom` : nettoyé comme `X-Poste`, 60 caractères au plus, obligatoire.
+- Réponse 200 : `{"success": true, "borneId": "<id>", "secret": "<base64url, 32 octets aléatoires>", "creeLe": "<ISO>"}`.
+  - Le **secret n'est rendu qu'une fois**.
+  - Il est gardé chiffré côté serveur, car le serveur doit pouvoir recalculer la signature. Utiliser la même clé
+    AES que les secrets de badge.
+  - Il n'est jamais journalisé.
+- Erreur : 400 `{"success": false, "code": "INVALIDE", "msg"}` (empreinte ou nom invalide).
+- Enrôler à nouveau la même empreinte retire l'ancienne borne et émet un nouveau secret.
+- Journal : « Borne de pointage <nom> enrôlée par <utilisateur> » (empreinte : 8 caractères au plus).
+
+**2. Appels de la borne : préfixe `v1/borne-pointage/`, sans session ni cookie** (traité par le filtre comme
+`v1/mobile/`)
+- En-têtes :
+  - `X-Borne: <borneId>` ;
+  - `X-Borne-Date: <ISO-8601 UTC>` ;
+  - `X-Borne-Empreinte: <64 hex>` ;
+  - `X-Borne-Signature: base64url(HMAC-SHA256(secret, CHAINE))` ;
+  - `X-Poste`, comme d'habitude.
+- `CHAINE` = la méthode, le chemin et les paramètres tels que reçus, la date, l'empreinte et `sha256hex(corps)`,
+  séparés par `\n`.
+  - Chemin et paramètres : `getRequestURI()`, puis `?` et `getQueryString()` s'il y en a.
+  - Corps : les octets bruts du corps, multipart compris ; corps vide → SHA-256 de la chaîne vide.
+  - Le **secret ne circule jamais**. C'est voulu : le réseau local est souvent en HTTP simple.
+- **Le serveur refuse** si :
+  - la borne est inconnue ou n'est pas active ;
+  - l'empreinte diffère de celle de l'enrôlement ;
+  - l'écart d'horloge dépasse 300 s ;
+  - la signature est fausse (comparaison à temps constant) ;
+  - la même signature a déjà été vue dans les 10 minutes (anti-rejeu).
+- **Réseau :** limité aux adresses de l'officine par défaut, avec le même contrôle que `v1/pointage-affichage`.
+  - Paramètre `KEY_BORNE_POINTAGE_RESEAU_LOCAL` : `1` par défaut ; `0` ouvre à Internet.
+- **Erreurs :**
+  - 401 `{"success": false, "code": "BORNE", "message"}` : inconnue, empreinte, date, signature ou rejeu, sans dire
+    laquelle ;
+  - 401 `{"code": "REVOQUEE"}` : borne retirée ;
+  - 429 `{"code": "TROP_DE_DEMANDES"}` au-delà de 120 appels par minute et par borne, ou après 10 signatures fausses
+    par minute et par adresse, avec un blocage croissant comme `LimiteConnexion`.
+- **La borne n'a accès à rien d'autre** : toute autre route lui répond 401 (par exemple `v1/vente/search`).
+
+**3. Routes de la borne** (mêmes services et mêmes règles que la demande 52)
+
+| Route | Réponse et règles |
+|---|---|
+| `GET v1/borne-pointage/moi` | `{success, borneId, nom, statut, empreintesPartagees}` (test de la borne, état affiché à l'administrateur) |
+| `GET v1/borne-pointage/employes` | mêmes champs réduits que pour P_RH_POINTER : `id, matricule, nom, prenoms, badge, statut` |
+| `POST v1/borne-pointage/pointages` | même corps que `POST v1/rh/pointages` (`employeId, sens, jour?, heure?, motif?, id, controle:{photo, motif}`) ; idempotent par `id` ; refusé si l'heure est plus de 2 min dans le futur ou plus de 72 h dans le passé (file hors ligne) |
+| `POST v1/borne-pointage/pointages/{id}/photo` | mêmes limites que `v1/rh/pointages/{id}/photo` (JPEG ≤ 150 Ko, ≤ 1024 px), seulement pour un pointage créé par **cette** borne |
+| `GET v1/borne-pointage/empreintes?depuis&format` | comme `GET v1/rh/empreintes` (demande 43), seulement si `KEY_EMPREINTES_PARTAGEES = 1`, `Cache-Control: no-store`, lecture tracée dans `t_empreinte_journal` |
+
+- Pointage enregistré :
+  - `source = 'BORNE'`, `saisi_par` vide, et une nouvelle colonne `borne_id` ;
+  - journal « Pointage par la borne <nom> pour <employé> », sans contenu de badge ;
+  - la colonne « Saisi par » du web affiche « Borne <nom> ».
+- **Empreintes (aucune nouvelle route d'enrôlement) :** l'enrôlement des empreintes reste comme aujourd'hui, soumis à
+  P_SM_RH.
+  - L'administrateur l'ouvre sur la borne par le code administrateur, puis une connexion **temporaire** avec son
+    compte.
+  - Ce n'est pas la session de la borne : elle est fermée à la fin.
+  - Il utilise les routes existantes de la demande 43 si le partage est actif ; sinon les gabarits restent sur la
+    borne.
+  - Le secret de la borne ne sert **jamais** à enrôler, lire une photo ou gérer les badges.
+
+**4. Page web « RH › Bornes de pointage »** (P_SM_RH)
+- Liste : nom, enrôlée par et le, dernière activité et adresse, statut.
+- Action **« Retirer »** : effet immédiat (401 `REVOQUEE`), journalisée.
+- Une borne retirée ne se réactive pas : elle doit être enrôlée à nouveau.
+
+**5. Tests à faire côté serveur**
+- Enrôlement : droits (P_SM_RH ou administrateur, sinon 403), empreinte ou nom invalide (400).
+- Secret : rendu une seule fois, absent de tous les journaux.
+- Signature : valide, fausse, date hors fenêtre de 300 s, rejeu, empreinte différente.
+- Révocation : borne retirée → 401 `REVOQUEE` immédiat.
+- Une autre route appelée avec les en-têtes de la borne → 401.
+- Horodatage : futur de plus de 2 min et passé de plus de 72 h refusés.
+- Photo d'un pointage d'une autre borne refusée.
+- Limites : 429.
+- Réseau : adresse hors de l'officine refusée avec `KEY_BORNE_POINTAGE_RESEAU_LOCAL = 1`, acceptée avec 0.
+- Idempotence par `id` ; `source = 'BORNE'` et `borne_id` enregistrés.
+- `empreintes` refusé quand `KEY_EMPREINTES_PARTAGEES = 0`.
+
+**Côté applications**
+- Prestige Pointage n'est développée qu'après votre réponse.
+- Le mode terminal actuel de Prestige Mobile (compte P_RH_POINTER, demande 52) reste inchangé pour les serveurs sans
+  la demande 57.
+- Prestige Mobile reçoit seulement un bouton « Pointer » qui ouvre Prestige Pointage.
+- Si vous préférez un autre schéma d'authentification (par exemple un jeton à durée de vie longue renouvelé par la
+  borne), dites-le avant de coder : l'application suivra votre format.
+
 ---
 
 ## 3. Prestige Pharmacien (`prestige_app`, 3.10.1+42)
@@ -510,5 +617,6 @@ Toujours attendu : `auteurId`, `auteurLogin`, `auteurNom` dans les 7 routes `ws/
 | 54 | Clôture mobile money par la notification du fournisseur : garder le poste de la vente | Mobile, PrestigePOS | P3 (facultatif) |
 | 55 | Péremptions courtes : `peutChangerStatut` dans la réponse de la liste | Pharmacien | P3 (facultatif) |
 | 56 | Nom de l'appareil gardé par le serveur (`GET`/`PUT v1/appareil/nom`, empreinte SHA-256) | Mobile, PrestigePOS | P2 |
+| 57 | Borne de pointage sans compte : appareil enrôlé (`POST v1/rh/bornes`, `v1/borne-pointage/*` signés HMAC, retrait depuis le web) | Prestige Pointage, Mobile | P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.
