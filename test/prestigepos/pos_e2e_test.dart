@@ -5,7 +5,8 @@
 //    recherche → panier → prévente sur le serveur → ticket ESC/POS envoyé à l'imprimante Bluetooth ;
 //  - sortie par code administrateur (mauvais code refusé), administration, reprise (manuelle et automatique) ;
 //  - serveur injoignable puis rétabli ; session de l'utilisateur borne expirée ; imprimante en panne ;
-//    licence absente.
+//    licence absente ;
+//  - 1.7.0 : étiquette GS1 scannée à la borne (refus pour le client sans détail de lot, mode B, lecture inactive).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
@@ -17,6 +18,7 @@ import 'package:prestige_vente_app/prestigepos/pos_reglages.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil_serveur.dart';
+import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 
 import 'outils/pos_e2e.dart';
 
@@ -265,6 +267,82 @@ void main() {
     await attendreBorne(t, app);
     await acheter(t, app);
     expect(app.serveur.recuesSur('/vente/add/vno').last.poste, 'Borne%20entr%C3%A9e');
+    await app.fermer(t);
+  });
+
+  // 1.7.0 (Prestige Mobile 4.9.0) : étiquette GS1 scannée à la borne, lecture de l'officine active. Le client ne voit
+  // jamais de détail de lot ; boîte refusée → « présentez-le au comptoir » ; aucun avertissement A/B ; mode B, lot en
+  // stock → `lotScanne` à la création de la prévente.
+  const dmBorne = '01034009359558381728103110LOTA1';
+  Map<String, dynamic> verdictBorne({String controle = 'DIFFERENT', String mode = 'A', bool lotEnStock = false, bool perime = false}) => {
+        'success': true,
+        'actif': true,
+        'lot': 'LOTA1',
+        'peremption': perime ? '31/01/2020' : '31/10/2028',
+        'perime': perime,
+        'cip': '3595583',
+        'gtin': '03400935955838',
+        'lotPrevu': 'LOTB2',
+        'peremptionPrevue': '30/06/2028',
+        'controle': controle,
+        'modeControle': mode,
+        'lotEnStock': lotEnStock,
+        'data': {'lgFAMILLEID': 'F1', 'intCIP': '3595583'},
+      };
+  Future<PosE2E> borneGs1(WidgetTester t, Map<String, dynamic> verdict, {String lecture = '1'}) async {
+    tablettePortrait(t);
+    final app = PosE2E();
+    app.serveur.routes['GET /app-params/value/KEY_VENTE_LECTURE_GS1'] = (_) => FauxServeurPrestige.ok({'success': true, 'data': lecture, 'total': 1});
+    app.serveur.routes['GET /vente/gs1'] = (_) => FauxServeurPrestige.ok(verdict);
+    await app.preparer(configure: true);
+    await app.lancer(t);
+    await attendreBorne(t, app);
+    return app;
+  }
+
+  for (final (cas, verdict) in <(String, Map<String, dynamic>)>[
+    ('boîte périmée', verdictBorne(controle: 'CONFORME', perime: true)),
+    ('mode C, lot différent', verdictBorne(mode: 'C')),
+    ('étiquette étendue', {'success': false, 'actif': true, 'etendu': true, 'msg': 'Étiquette étendue (DataMatrix+ ou QR+) : réservée à la commande.'}),
+  ]) {
+    testWidgets('1.7.0 : $cas scannée à la borne : « présentez-le au comptoir », aucun détail de lot, rien ajouté', (t) async {
+      final app = await borneGs1(t, verdict);
+      expect(Gs1Vente.instance.actif, isTrue, reason: 'réglage lu à la connexion de l\'utilisateur borne');
+      await app.chercher(t, dmBorne);
+      expect(await app.attendreQue(t, find.byKey(const Key('borne_refus_gs1'))), isTrue);
+      expect(find.text(Gs1Refus.pourClient), findsOneWidget);
+      for (final x in ['LOT', 'Périm', 'périm', '2020', '2028', 'étendue', 'Prenez']) {
+        expect(find.textContaining(x), findsNothing, reason: 'jamais de détail pour le client : $x');
+      }
+      expect(find.byKey(const ValueKey('borne-fiche-ajouter')), findsNothing);
+      expect(app.serveur.recuesSur('/vente/add/vno'), isEmpty);
+      await app.fermer(t);
+    });
+  }
+
+  testWidgets('1.7.0 : mode B lot en stock à la borne : fiche sans avertissement, « lotScanne » à la création de la prévente', (t) async {
+    final app = await borneGs1(t, verdictBorne(mode: 'B', lotEnStock: true));
+    await app.chercher(t, dmBorne);
+    expect(await app.attendreQue(t, find.byKey(const ValueKey('borne-fiche-ajouter'))), isTrue, reason: 'fiche du produit');
+    expect(find.textContaining('Lot'), findsNothing, reason: 'aucun avertissement A/B à la borne');
+    expect(find.textContaining('LOT'), findsNothing);
+    await app.toucher(t, 'borne-fiche-ajouter');
+    await app.attendre(t, const Duration(milliseconds: 2600));
+    await app.toucher(t, 'borne-voir-panier');
+    await app.toucher(t, 'borne-payer');
+    expect(await app.attendreQue(t, find.byKey(const ValueKey('borne-numero'))), isTrue, reason: 'écran du ticket');
+    final ajout = app.serveur.recuesSur('/vente/add/vno').single;
+    expect(ajout.json['produitId'], 'F1');
+    expect(ajout.json['lotScanne'], 'LOTA1');
+    expect(app.ticketsTexte().last, isNot(contains('LOTA1')), reason: 'pas de lot sur le ticket du client');
+    await app.fermer(t);
+  });
+
+  testWidgets('1.7.0 : lecture inactive : borne comme avant (vente/gs1 jamais appelé)', (t) async {
+    final app = await borneGs1(t, verdictBorne(perime: true), lecture: '0');
+    await app.chercher(t, dmBorne);
+    expect(await app.attendreQue(t, find.byKey(const ValueKey('borne-fiche-ajouter'))), isTrue);
+    expect(app.serveur.recuesSur('/vente/gs1'), isEmpty);
     await app.fermer(t);
   });
 
