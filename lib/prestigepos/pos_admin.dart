@@ -9,6 +9,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil_serveur.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
@@ -44,6 +45,12 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
   void initState() {
     super.initState();
     _activite();
+    // 1.6.0 (demande 56) : sans nom sur l'appareil (réinstallation), nom cherché sur le serveur, sans rien afficher :
+    // trouvé, la carte obligatoire disparaît d'elle-même.
+    if (!NomAppareil.instance.nomEnregistre) {
+      final racine = context.read<SettingsProvider>().baseUrl;
+      unawaited(NomAppareilServeur.instance.retrouver(racine));
+    }
   }
 
   @override

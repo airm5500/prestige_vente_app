@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/prestigepos/pos_admin.dart';
 import 'package:prestige_vente_app/prestigepos/pos_reglages.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil_serveur.dart';
 
 import 'outils/pos_e2e.dart';
 
@@ -237,6 +238,33 @@ void main() {
     expect(find.byKey(const Key('nom_appareil_obligatoire')), findsNothing);
     await app.toucher(t, 'pos-admin-reprendre');
     await attendreBorne(t, app);
+    await app.fermer(t);
+  });
+
+  // 1.6.0 (demande 56) : réinstallation simulée (préférences sans nom, même empreinte) : le nom gardé par le serveur
+  // revient dans l'administration sans rien demander ; la borne n'affiche rien au client.
+  testWidgets('1.6.0 : réinstallation : nom retrouvé sur le serveur, carte obligatoire levée, X-Poste rétabli', (t) async {
+    tablettePortrait(t);
+    final app = PosE2E();
+    final emp = 'b0b0cafe' * 8;
+    app.serveur.activerNomAppareil();
+    app.serveur.nomsAppareils[emp] = 'Borne entrée';
+    await app.preparer(configure: true, nomAppareil: false);
+    NomAppareilServeur.instance.empreinte = () async => emp;
+    await app.lancer(t);
+    await attendreBorne(t, app);
+    expect(find.byKey(const Key('nom_appareil_obligatoire')), findsNothing);
+    await app.quitterBorne(t);
+    expect(await app.attendreQue(t, find.byType(PosAdminScreen)), isTrue);
+    await app.attendre(t, const Duration(seconds: 1));
+    expect(NomAppareil.instance.saisi, 'Borne entrée');
+    expect(find.byKey(const Key('nom_appareil_obligatoire')), findsNothing, reason: 'nom retrouvé : plus de carte');
+    final get = app.serveur.recues.where((r) => r.chemin.endsWith('/appareil/nom')).single;
+    expect((get.methode, get.query['empreinte']), ('GET', emp));
+    await app.toucher(t, 'pos-admin-reprendre');
+    await attendreBorne(t, app);
+    await acheter(t, app);
+    expect(app.serveur.recuesSur('/vente/add/vno').last.poste, 'Borne%20entr%C3%A9e');
     await app.fermer(t);
   });
 

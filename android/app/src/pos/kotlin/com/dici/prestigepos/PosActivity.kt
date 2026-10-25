@@ -1,6 +1,7 @@
 package com.dici.prestigepos
 
 import com.dici.prestige_vente_app.KiosqueBridge
+import com.dici.prestige_vente_app.SunmiFingerprintBridge
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
@@ -9,12 +10,16 @@ import io.flutter.embedding.engine.FlutterEngine
  * saveur. Mêmes plugins Flutter (GeneratedPluginRegistrant, via super), épinglage d'écran de la borne
  * (KiosqueBridge, code partagé) et pont des imprimantes Bluetooth / USB, propre à PrestigePOS.
  * 1.1.0 : pont du démarrage automatique (DemarrageBridge).
- * Les ponts empreinte Sunmi et NFC (pointage) de Prestige Mobile ne sont pas utilisés par PrestigePOS.
+ * Le pont NFC (pointage) de Prestige Mobile n'est pas utilisé par PrestigePOS. 1.6.0 : canal « prestige/fingerprint »
+ * branché pour deux lectures seulement, la marque et le modèle (nom par défaut de l'appareil) et l'empreinte de
+ * l'appareil (demande 56) ; le service d'empreinte Sunmi n'est jamais sollicité par PrestigePOS.
  */
 class PosActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         KiosqueBridge(this, flutterEngine.dartExecutor.binaryMessenger)
+        // 1.6.0 : hardwareInfo (marque et modèle) et empreinteAppareil (demande 56) ; rien d'autre n'est appelé.
+        SunmiFingerprintBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         flutterEngine.plugins.add(ImprimantesPlugin())
         // 1.1.0 : démarrage automatique ; propriétaire de l'appareil → verrouillage de la borne sans confirmation.
         DemarrageBridge(this, flutterEngine.dartExecutor.binaryMessenger)

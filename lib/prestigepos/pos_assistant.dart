@@ -218,7 +218,8 @@ class _PosAssistantState extends State<PosAssistant> {
     }
     if (!mounted) return;
     // 1.5.1 : nom de cet appareil obligatoire avant d'ouvrir la borne (l'assistant est fait par l'administrateur).
-    await exigerNomAppareil(context);
+    // 1.6.0 (demande 56) : nom d'abord cherché sur le serveur (réinstallation) ; trouvé, l'étape est sautée.
+    await exigerNomAppareil(context, racine: _s.baseUrl);
     if (!mounted) return;
     await PosApp.ouvrirBorne(context);
   }
