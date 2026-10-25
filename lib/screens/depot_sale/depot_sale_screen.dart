@@ -199,6 +199,11 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> with PresentationAwar
         _messageGs1(refusGs1, refus: true);
         return;
       }
+      // 4.9.4 : étiquette étendue (DataMatrix+, QR+) : aucun produit, rien d'affiché, comme DepotCtr du web.
+      if (provider.productSearch.etendueIgnoree) {
+        _searchController.clear();
+        return;
+      }
       final avertGs1 = provider.productSearch.avertissementGs1;
       if (avertGs1 != null && provider.searchResults.isNotEmpty) _messageGs1(avertGs1, refus: false);
 

@@ -2,7 +2,7 @@
 // (DataMatrix+, QR+) refusée comme le web MÊME lecture GS1 inactive ou absente, sans requête :
 //  - vente au comptant (nouvelle interface) : lecture 0, réglage absent, lecture 1, hors ligne ;
 //  - ancienne interface des ventes ; Proforma ;
-//  - Dépôt (le web ne la refuse pas dans DepotCtr) : jamais refusée, lecture active ou inactive (4.9.3) ;
+//  - Dépôt (comme DepotCtr du web) : aucun produit, rien d'affiché, lecture active ou inactive (4.9.4) ;
 //  - étiquette GS1 normale, code-barres, nom, lecture inactive : comme avant ; contenu scanné jamais journalisé.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -180,12 +180,11 @@ void main() {
     await app.fermer(t);
   });
 
-  // 4.9.3 : Dépôt, comme DepotCtr du web : étiquette étendue jamais refusée, ni envoyée à vente/gs1, lecture active
-  // ou inactive ; la recherche d'avant (4.9.0) s'applique : DataMatrix+ → produit trouvé par son GTIN (fenêtre de
-  // quantité), QR+ → aucun produit (comme findone du web, qui ne le trouve pas).
+  // 4.9.4 : Dépôt, comme DepotCtr du web : étiquette étendue (DataMatrix+ et QR+) → AUCUN produit et rien de
+  // particulier (ni refus, ni « introuvable », ni lecture du GTIN), lecture active ou inactive, aucune requête.
   for (final lecture in ['0', '1']) {
-    for (final (nom, code, trouve) in [('DataMatrix+', _dmPlus, true), ('QR+', _qrPlus, false)]) {
-      testWidgets('Dépôt, lecture $lecture, $nom : jamais refusé, recherche d\'avant', (t) async {
+    for (final (nom, code) in [('DataMatrix+', _dmPlus), ('QR+', _qrPlus)]) {
+      testWidgets('Dépôt, lecture $lecture, $nom : aucun produit, rien d\'affiché, aucune requête', (t) async {
         TailleEcran.sunmiV2s.appliquer(t);
         final app = await _app(lecture: lecture);
         await app.lancer(t);
@@ -204,18 +203,14 @@ void main() {
         expect(_refus, findsNothing);
         expect(find.byKey(const Key('vente_message_gs1')), findsNothing);
         expect(_gs1Appels(app), isEmpty, reason: 'jamais vente/gs1 pour une étiquette étendue au Dépôt');
-        expect(app.serveur.recuesSur('/vente/search').where((r) => r.query['query'] != '%'), isNotEmpty, reason: 'recherche d\'avant');
-        expect(_champQte.evaluate().isNotEmpty, trouve);
-        if (trouve) {
-          await t.enterText(_champQte, '1');
-          await t.tap(find.text('Ajouter'));
-          await app.attendre(t, const Duration(seconds: 2));
-          final a = app.serveur.recuesSur('/vente/add/depot').single;
-          expect(a.json['produitId'], 'F83');
-          expect(a.json.containsKey('lotScanne'), isFalse);
-        } else {
-          expect(_ajouts(app), 0);
-        }
+        expect(app.serveur.recuesSur('/vente/search').where((r) => r.query['query'] != '%'), isEmpty, reason: 'aucune recherche');
+        expect(_champQte, findsNothing, reason: 'aucun produit');
+        expect(find.byType(SnackBar), findsNothing, reason: 'rien de particulier affiché');
+        expect(find.textContaining('introuvable'), findsNothing);
+        expect(_ajouts(app), 0);
+        // Une étiquette GS1 normale reste trouvée (règles 4.9.1 inchangées).
+        expect(await _saisir(t, app, find.widgetWithText(TextField, 'Saisir nom ou scanner'), _dm), isFalse);
+        expect(_champQte, findsOneWidget, reason: 'étiquette normale : produit trouvé');
         await app.fermer(t);
       });
     }

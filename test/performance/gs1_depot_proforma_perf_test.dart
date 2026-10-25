@@ -2,7 +2,7 @@
 //  - 2 000 recherches de codes-barres, CIP et noms : aucune requête vente/gs1, temps comparable à la recherche d'avant ;
 //  - étiquette GS1 avec un verdict rapide : une seule requête de plus ;
 //  - serveur lent : la recherche n'attend jamais plus que Gs1Vente.delai, puis comme avant ;
-//  - 4.9.3 : étiquettes étendues au Dépôt sans requête vente/gs1.
+//  - 4.9.4 : étiquettes étendues au Dépôt : aucune requête, aucun produit.
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -82,7 +82,7 @@ void main() {
     expect(apres.inMicroseconds, lessThan(avant.inMicroseconds * 2 + 200000), reason: 'avant $avant, après $apres');
   });
 
-  test('4.9.3 — Dépôt : 2 000 étiquettes étendues, lecture active, aucune requête vente/gs1, temps comme avant', () async {
+  test('4.9.4 — Dépôt : 2 000 étiquettes étendues, lecture active, aucune requête, pas plus lent qu\'avant', () async {
     final codes = ['01034009359558381728103110LOTA1|91EPLUS1|92DOLI', 'EP1|CIP:3400935955838|NOM:DOLI'];
     Future<Duration> mesurer(bool gs1) async {
       final s = PagedProductSearch(() => api, gs1Vente: gs1);
@@ -98,6 +98,10 @@ void main() {
     final apres = await mesurer(true);
     expect(srv.appels, 0);
     expect(apres.inMicroseconds, lessThan(avant.inMicroseconds * 2 + 200000), reason: 'avant $avant, après $apres');
+    final s = PagedProductSearch(() => api, gs1Vente: true);
+    final n = api.recherches;
+    await s.run(codes[0]);
+    expect(api.recherches, n, reason: 'aucune recherche de produit');
   });
 
   test('étiquette GS1, verdict rapide : une requête de plus, moins de 300 ms', () async {
