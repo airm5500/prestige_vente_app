@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
@@ -155,8 +156,13 @@ class PosE2E {
       };
 
   /// Appareil neuf ([configure] false) ou PrestigePOS configuré.
-  Future<void> preparer({bool configure = false, Map<String, Object> prefs = const {}, bool motDePasse = true}) async {
-    SharedPreferences.setMockInitialValues({if (configure) ...prefsConfigure(), ...prefs});
+  /// [nomAppareil] (1.5.1) : PrestigePOS configuré avec un nom de cet appareil déjà enregistré (obligatoire).
+  Future<void> preparer({bool configure = false, Map<String, Object> prefs = const {}, bool motDePasse = true, bool nomAppareil = true}) async {
+    SharedPreferences.setMockInitialValues({
+      if (configure) ...prefsConfigure(),
+      if (configure && nomAppareil) NomAppareil.prefNom: 'Borne test',
+      ...prefs,
+    });
     FlutterSecureStorage.setMockInitialValues({});
     final secretsAvant = BorneReglages.secrets;
     BorneReglages.secrets = MemoireBorneSecrets(configure && motDePasse ? mdpBorne : null);

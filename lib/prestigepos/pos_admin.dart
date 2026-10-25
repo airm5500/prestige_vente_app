@@ -64,6 +64,17 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
     });
   }
 
+  /// 1.5.1 (décision du pharmacien) : nom de cet appareil obligatoire : l'administration ne se quitte pas (borne,
+  /// Android, fermeture) tant qu'il n'est pas enregistré. La reprise automatique après 3 min reste (la borne ne doit
+  /// jamais rester sur l'administration) : le nom sera demandé à la prochaine entrée dans l'administration.
+  void _sortir(VoidCallback f) {
+    if (!NomAppareil.instance.nomEnregistre) {
+      signalerNomAppareilObligatoire(context, message: 'Saisissez le nom de cet appareil avant de quitter l\'administration.');
+      return;
+    }
+    f();
+  }
+
   Future<void> _tester() async {
     final d = await TesteurBorne(baseUrl: context.read<ApiService>().dio.options.baseUrl).tester(BorneReglages.courant.value);
     if (!mounted) return;
@@ -118,8 +129,15 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
             child: ListView(padding: const EdgeInsets.all(16), children: [
+              // 1.5.1 : nom de cet appareil obligatoire, en tête tant qu'il n'est pas enregistré.
+              ListenableBuilder(
+                listenable: NomAppareil.instance,
+                builder: (_, __) => NomAppareil.instance.nomEnregistre
+                    ? const SizedBox.shrink()
+                    : const Padding(padding: EdgeInsets.only(bottom: 10), child: CarteNomAppareilObligatoire()),
+              ),
               if (configure)
-                _entree('pos-admin-reprendre', Icons.storefront, 'Reprendre la borne', 'Plein écran, mode kiosque', () => PosApp.ouvrirBorne(context),
+                _entree('pos-admin-reprendre', Icons.storefront, 'Reprendre la borne', 'Plein écran, mode kiosque', () => _sortir(() => PosApp.ouvrirBorne(context)),
                     principal: true)
               else
                 Container(
@@ -133,7 +151,7 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
               _entree('pos-admin-imprimante', Icons.print, 'Imprimante de ticket', ImprimanteReglages.courant.value.resume,
                   () => _ouvrir(const PosImprimantePage())),
               _entree('pos-admin-borne', Icons.tune, 'Réglages de la borne', 'Catégories, produits mis en avant, plafonds, ticket discret',
-                  () => _ouvrir(BornePage(ouvrir: (ctx) => PosApp.ouvrirBorne(ctx)))),
+                  () => _ouvrir(BornePage(ouvrir: (ctx) => _sortir(() => PosApp.ouvrirBorne(ctx))))),
               // 1.5.0 : nom envoyé à Prestige (en-tête X-Poste) : poste de saisie des ventes de la borne.
               ListenableBuilder(
                 listenable: NomAppareil.instance,
@@ -148,9 +166,9 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
                     e.actif ? 'Activé : la borne se rouvre avec l\'appareil' : 'Désactivé', () => _ouvrir(const PosDemarrageAutoPage())),
               ),
               _entree('pos-admin-android', Icons.exit_to_app, 'Revenir à Android',
-                  'Désactive le démarrage automatique et ouvre l\'accueil d\'Android', DemarrageAuto.revenirAndroid),
+                  'Désactive le démarrage automatique et ouvre l\'accueil d\'Android', () => _sortir(DemarrageAuto.revenirAndroid)),
               _entree('pos-admin-fermer', Icons.power_settings_new, 'Fermer PrestigePOS', 'La borne se rouvrira au prochain lancement',
-                  () => SystemNavigator.pop()),
+                  () => _sortir(() => SystemNavigator.pop())),
               const SizedBox(height: 8),
               Text('${PosApp.nom} ${VersionApp.complete} · serveur ${settings.adresseAffichee(false)}',
                   textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted, fontSize: 13)),
@@ -167,7 +185,9 @@ class PosNomAppareilPage extends StatelessWidget {
   const PosNomAppareilPage({super.key});
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => GardeNomAppareil(
+      message: 'Saisissez le nom de cet appareil avant de quitter cette page.',
+      child: Scaffold(
         key: const ValueKey('pos-nom-appareil-page'),
         backgroundColor: Pal.page,
         appBar: AppBar(backgroundColor: Pal.navy, foregroundColor: Colors.white, title: const Text('Nom de cet appareil')),
@@ -182,7 +202,7 @@ class PosNomAppareilPage extends StatelessWidget {
             ]),
           ),
         ),
-      );
+      ));
 }
 
 /// Page « Imprimante de ticket » de l'administration.

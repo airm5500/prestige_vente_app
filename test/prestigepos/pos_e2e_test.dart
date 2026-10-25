@@ -98,7 +98,15 @@ void main() {
     // 5. Terminé → borne.
     expect(find.text('5. Terminé'), findsOneWidget);
     await app.toucher(t, 'pos-demarrer');
+    // 1.5.1 : nom de cet appareil obligatoire avant la borne (pré-rempli : un appui sur « Enregistrer »).
+    expect(await app.attendreQue(t, find.byKey(const Key('nom_appareil_etape'))), isTrue, reason: 'étape « Nom de cet appareil »');
+    await t.binding.handlePopRoute();
+    await app.attendre(t, const Duration(milliseconds: 500));
+    expect(find.byKey(const Key('nom_appareil_etape')), findsOneWidget, reason: 'retour bloqué');
+    await t.enterText(find.byKey(const Key('nom_appareil_champ')), 'Borne entrée');
+    await t.tap(find.byKey(const Key('nom_appareil_enregistrer')));
     await attendreBorne(t, app);
+    expect(NomAppareil.instance.saisi, 'Borne entrée');
     expect(PosReglages.courant.value.configure, isTrue);
     expect(BorneReglages.courant.value.actif, isTrue);
     expect(app.kiosque.demarrages, 1, reason: 'écran épinglé');
@@ -201,6 +209,34 @@ void main() {
       expect(r.poste, 'Borne%202', reason: '$r');
     }
     expect(app.serveur.recuesSur('/vente/add/vno').last.poste, 'Borne%202', reason: 'poste de saisie de la prévente');
+    await app.fermer(t);
+  });
+
+  testWidgets('1.5.1 : administration sans nom enregistré : carte obligatoire, sortie refusée, puis reprise', (t) async {
+    tablettePortrait(t);
+    final app = PosE2E();
+    await app.preparer(configure: true, nomAppareil: false);
+    await app.lancer(t);
+    await attendreBorne(t, app);
+    expect(find.byKey(const Key('nom_appareil_etape')), findsNothing, reason: 'jamais d\'étape sur l\'écran de la borne');
+    expect(find.byKey(const Key('nom_appareil_obligatoire')), findsNothing);
+    await app.quitterBorne(t);
+    expect(await app.attendreQue(t, find.byType(PosAdminScreen)), isTrue);
+    expect(find.byKey(const Key('nom_appareil_obligatoire')), findsOneWidget);
+    await app.toucher(t, 'pos-admin-reprendre');
+    expect(find.byType(PosAdminScreen), findsOneWidget, reason: 'sortie refusée sans nom');
+    expect(find.text('Saisissez le nom de cet appareil avant de quitter l\'administration.'), findsOneWidget);
+    // Marque et modèle inconnus sous les tests (pas de canal natif) : champ vide, nom vide refusé.
+    await t.tap(find.byKey(const Key('nom_appareil_enregistrer')));
+    await app.attendre(t, const Duration(milliseconds: 500));
+    expect(NomAppareil.instance.nomEnregistre, isFalse);
+    await t.enterText(find.byKey(const Key('nom_appareil_champ')), 'Borne caisse');
+    await t.tap(find.byKey(const Key('nom_appareil_enregistrer')));
+    await app.attendre(t, const Duration(seconds: 1));
+    expect(NomAppareil.instance.nomEnregistre, isTrue);
+    expect(find.byKey(const Key('nom_appareil_obligatoire')), findsNothing);
+    await app.toucher(t, 'pos-admin-reprendre');
+    await attendreBorne(t, app);
     await app.fermer(t);
   });
 

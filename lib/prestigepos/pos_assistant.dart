@@ -9,6 +9,7 @@
 //   5. Récapitulatif → « Démarrer la borne ».
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_diagnostic.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
@@ -215,6 +216,9 @@ class _PosAssistantState extends State<PosAssistant> {
       await TailleEcranReglage.enregistrer(_taille);
       TailleEcranReglage.appliquerMaintenant();
     }
+    if (!mounted) return;
+    // 1.5.1 : nom de cet appareil obligatoire avant d'ouvrir la borne (l'assistant est fait par l'administrateur).
+    await exigerNomAppareil(context);
     if (!mounted) return;
     await PosApp.ouvrirBorne(context);
   }
