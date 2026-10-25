@@ -6,7 +6,8 @@
 //  - sortie par code administrateur (mauvais code refusé), administration, reprise (manuelle et automatique) ;
 //  - serveur injoignable puis rétabli ; session de l'utilisateur borne expirée ; imprimante en panne ;
 //    licence absente ;
-//  - 1.7.0 : étiquette GS1 scannée à la borne (refus pour le client sans détail de lot, mode B, lecture inactive).
+//  - 1.7.0 : étiquette GS1 scannée à la borne (refus pour le client sans détail de lot, mode B, lecture inactive) ;
+//  - 1.7.2 : étiquette étendue (DataMatrix+, QR+) refusée même lecture inactive.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
@@ -337,6 +338,28 @@ void main() {
     expect(app.ticketsTexte().last, isNot(contains('LOTA1')), reason: 'pas de lot sur le ticket du client');
     await app.fermer(t);
   });
+
+  // 1.7.2 (Prestige Mobile 4.9.2) : étiquette étendue (DataMatrix+, QR+) refusée à la borne comme le web, même lecture
+  // GS1 inactive, sans requête ; le client ne voit que le message générique.
+  for (final (nom, code) in [
+    ('DataMatrix+', '0103400935955838|17281031|10LOTA1|91EPLUS1|92DOLIPRANE'),
+    ('QR+', 'EP1|CIP:3595583|NOM:DOLIPRANE|LOT:LOTA1|PER:31/10/2028'),
+  ]) {
+    testWidgets('1.7.2 : $nom, lecture inactive : « présentez-le au comptoir », aucun détail, aucune requête', (t) async {
+      final app = await borneGs1(t, verdictBorne(), lecture: '0');
+      expect(Gs1Vente.instance.actif, isFalse);
+      final avant = app.serveur.recues.length;
+      await app.chercher(t, code);
+      expect(await app.attendreQue(t, find.byKey(const Key('borne_refus_gs1'))), isTrue);
+      expect(find.text(Gs1Refus.pourClient), findsOneWidget);
+      for (final x in ['LOT', 'EPLUS', 'EP1', 'étendue', 'DataMatrix', 'QR+']) {
+        expect(find.textContaining(x), findsNothing, reason: 'jamais de détail pour le client : $x');
+      }
+      expect(app.serveur.recues.sublist(avant).where((r) => r.chemin.endsWith('/vente/gs1') || r.chemin.endsWith('/vente/search')), isEmpty);
+      expect(app.serveur.recuesSur('/vente/add/vno'), isEmpty);
+      await app.fermer(t);
+    });
+  }
 
   testWidgets('1.7.0 : lecture inactive : borne comme avant (vente/gs1 jamais appelé)', (t) async {
     final app = await borneGs1(t, verdictBorne(perime: true), lecture: '0');
