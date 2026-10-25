@@ -2,15 +2,21 @@
 // 4.7.1 : le nom de cet appareil est obligatoire ; sans nom enregistré, l'étape s'ouvre au lancement et les réglages
 // ne se quittent pas. Chaque test part d'un appareil déjà nommé (en mémoire seulement), sauf ceux qui testent
 // l'étape : ils repartent d'une instance neuve (NomAppareil.reinitialiser, AppE2E.preparer(nomAppareil: null)).
+// 4.8.0 : pas d'empreinte de l'appareil par défaut (aucun échange v1/appareil/nom).
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil_serveur.dart';
 
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   setUp(() {
     NomAppareil.reinitialiser();
     NomAppareil.instance.enregistrerEnMemoire('Poste test');
+    // 4.8.0 (demande 56) : pas d'empreinte sous les tests (pas de canal natif) : ni lecture ni envoi du nom, sauf
+    // dans les tests qui en donnent une.
+    NomAppareilServeur.reinitialiser();
+    NomAppareilServeur.instance.empreinte = () async => null;
   });
   await testMain();
 }

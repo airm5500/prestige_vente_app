@@ -125,7 +125,8 @@ bool routePubliquePrestige(String chemin) {
   while (p.endsWith('/')) {
     p = p.substring(0, p.length - 1);
   }
-  const publiques = ['/user/auth', '/user/logout', '/licence/find', '/officine', '/app/info'];
+  // 4.8.0 : /appareil/nom (demande 56) : le filtre le laisse passer ; le PUT vérifie la session lui-même.
+  const publiques = ['/user/auth', '/user/logout', '/licence/find', '/officine', '/app/info', '/appareil/nom'];
   return publiques.any(p.endsWith) || p.contains('/licence/save') || p.contains('/mobile/') || p.contains('/espace-produit/');
 }
 
@@ -418,6 +419,45 @@ class FauxServeurPrestige extends ServeurJsonLocal {
   final List<Map<String, dynamic>> pointagesTerminal = [];
 
   /// Active les routes du terminal (droits, employés, pointages) selon [droitsRh].
+  /// 4.8.0 — demande 56 : noms d'appareils gardés par empreinte (GET sans session, PUT avec la session).
+  final Map<String, String> nomsAppareils = {};
+
+  /// Statut forcé de GET v1/appareil/nom (429, 404…) ; null = réponse normale.
+  int? statutLectureNom;
+
+  /// Délai de GET v1/appareil/nom.
+  Duration delaiLectureNom = Duration.zero;
+
+  /// Nom renvoyé par le PUT à partir du nom reçu (le serveur nettoie comme X-Poste) ; remplaçable.
+  String Function(String recu) nomEnregistreServeur = (n) => n.trim();
+
+  /// Statut forcé du PUT (404 = serveur ancien…) ; null = réponse normale.
+  int? statutEnvoiNom;
+
+  void activerNomAppareil() {
+    routesParDefaut.addAll({
+      'GET /appareil/nom': (r) {
+        if (statutLectureNom != null) {
+          return ReponseLocale({'success': false, 'code': statutLectureNom == 429 ? 'TROP_DE_DEMANDES' : 'X'}, statut: statutLectureNom!, delai: delaiLectureNom);
+        }
+        final e = r.query['empreinte'] ?? '';
+        if (!RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(e)) return const ReponseLocale({'success': false, 'code': 'INVALIDE'}, statut: 400);
+        return ReponseLocale({'success': true, 'nom': nomsAppareils[e.toLowerCase()]}, delai: delaiLectureNom);
+      },
+      'PUT /appareil/nom': (r) {
+        if (statutEnvoiNom != null) return ReponseLocale('<html>$statutEnvoiNom</html>', statut: statutEnvoiNom!);
+        if (!_sessionValide(r)) return const ReponseLocale({'success': false, 'code': 'SESSION'}, statut: 401);
+        final j = _jsonOuVide(r.corps);
+        final e = '${j['empreinte'] ?? ''}';
+        if (!RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(e)) return const ReponseLocale({'success': false, 'code': 'INVALIDE'}, statut: 400);
+        final nom = nomEnregistreServeur('${j['nom'] ?? ''}');
+        if (nom.isEmpty) return const ReponseLocale({'success': false, 'code': 'INVALIDE'}, statut: 400);
+        nomsAppareils[e.toLowerCase()] = nom;
+        return ReponseLocale({'success': true, 'nom': nom});
+      },
+    });
+  }
+
   void activerTerminalRh() {
     String? compte(RequeteRecue r) => r.jsessionid == null ? null : compteSession[r.jsessionid];
     ({bool pointer, bool gerer})? d(RequeteRecue r) => droitsRh[compte(r)];

@@ -1,9 +1,12 @@
 // lib/providers/auth_provider.dart
 // Mise à jour: Gestion du rôle Admin via str_LOGIN
 
+import 'dart:async';
+
 import 'package:dio/dio.dart' show Options;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil_serveur.dart';
 import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
@@ -204,7 +207,12 @@ class AuthProvider with ChangeNotifier {
     try {
       await lireDroitsVente(_apiService, u.userId).timeout(delaiDroits);
     } catch (_) {}
+    // 4.8.0 (demande 56) : nom de l'appareil envoyé au serveur s'il ne l'a pas encore confirmé (sans attendre).
+    unawaited(synchroniserNomAppareil());
   }
+
+  /// 4.8.0 : envoi du nom de l'appareil après une connexion ; remplaçable pour les tests.
+  static Future<void> Function() synchroniserNomAppareil = () => NomAppareilServeur.instance.synchroniser();
 
   /// Retour de l'application au premier plan : droits relus (jamais d'exception).
   Future<void> relireDroits() async {

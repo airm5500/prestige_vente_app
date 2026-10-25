@@ -48,6 +48,17 @@ class FingerprintService {
   }
 
   /// Informations sur le lecteur du terminal (système Android et services Sunmi).
+  /// 4.8.0 (demande 56) : empreinte de l'appareil, SHA-256(ANDROID_ID + ":" + paquet) en hexadécimal (64 caractères),
+  /// calculée par le code natif : ANDROID_ID n'arrive jamais ici. null si indisponible (autre appareil, test).
+  static Future<String?> empreinteAppareil() async {
+    try {
+      final e = await _call<String>('empreinteAppareil');
+      return e != null && RegExp(r'^[0-9a-f]{64}$').hasMatch(e) ? e : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<Map<String, Object?>> hardwareInfo() async {
     final m = await _call<Map<Object?, Object?>>('hardwareInfo') ?? const {};
     return {for (final e in m.entries) '${e.key}': e.value};

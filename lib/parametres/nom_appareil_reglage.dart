@@ -5,7 +5,10 @@
 //    imposée au lancement (après la configuration du serveur) et les réglages ne se quittent pas ; le champ est
 //    pré-rempli avec la marque et le modèle : un appui sur « Enregistrer » suffit. Plus de « Plus tard ».
 //    Jamais montré aux clients : pas d'étape au lancement d'une borne (réglée par l'administrateur).
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil_serveur.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
@@ -62,7 +65,11 @@ class ChampNomAppareilState extends State<ChampNomAppareil> {
       _erreur = e == null ? messageNomAppareilVide : null;
       if (e != null) _champ.text = e;
     });
-    if (e != null) widget.enregistre?.call(e);
+    if (e != null) {
+      // 4.8.0 (demande 56) : nom envoyé au serveur (tout de suite si une session est ouverte, sinon après la connexion).
+      unawaited(NomAppareilServeur.instance.synchroniser());
+      widget.enregistre?.call(e);
+    }
     return e;
   }
 
@@ -204,8 +211,14 @@ class NomAppareilObligatoireScreen extends StatelessWidget {
 }
 
 /// Lancement : impose l'étape tant qu'aucun nom n'est enregistré ; renvoie tout de suite sinon.
-Future<void> exigerNomAppareil(BuildContext context, {NomAppareil? nom}) async {
+/// 4.8.0 (demande 56) : [racine] (adresse de l'API) donnée, le nom gardé par le serveur pour cet appareil est d'abord
+/// cherché (délai court) ; trouvé, il est enregistré sur l'appareil et l'étape est sautée.
+Future<void> exigerNomAppareil(BuildContext context, {NomAppareil? nom, String? racine}) async {
   final n = nom ?? NomAppareil.instance;
   if (n.nomEnregistre || !context.mounted) return;
+  if (racine != null && racine.isNotEmpty) {
+    await NomAppareilServeur.instance.retrouver(racine);
+    if (n.nomEnregistre || !context.mounted) return;
+  }
   await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => NomAppareilObligatoireScreen(nom: n)));
 }
