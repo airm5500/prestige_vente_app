@@ -120,7 +120,7 @@ class ProductSearchProvider with ChangeNotifier, PagedProductSearchHost {
           orders: monthlyData[monthIndex].orders + order.intNumber,
           orderFrequency: monthlyData[monthIndex].orderFrequency + 1,
         );
-      } catch (e) { print("Could not parse date: ${order.dtEntree}"); }
+      } catch (e) { debugPrint('Date de commande illisible'); }
     }
 
     sales.forEach((monthName, salesCount) {

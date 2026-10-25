@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
@@ -498,7 +499,7 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
       _dateController.text = formattedDate;
       return true;
     } catch (e) {
-      print("Date invalide: $e");
+      journalErreur('Date invalide', e);
       return false;
     }
   }

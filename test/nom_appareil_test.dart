@@ -4,6 +4,8 @@
 //  - encodage URL (UTF-8) relu tel quel par le serveur (URLDecoder) ;
 //  - nom saisi gardé sur l'appareil, nom par défaut = marque et modèle, intercepteur Dio.
 // Les attendus ont été recoupés avec le code Java du serveur (même expression, même coupure).
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
@@ -73,40 +75,72 @@ void main() {
       NomAppareil.reinitialiser();
     });
 
-    test('sans saisie : marque et modèle ; marque inconnue : aucun en-tête', () async {
+    test('aucun nom enregistré : marque et modèle envoyés en attendant ; nom à enregistrer (obligatoire)', () async {
       final n = NomAppareil.instance..modele = () => 'SUNMI V2s';
       await n.charger();
+      expect(n.nomEnregistre, isFalse);
       expect(n.effectif, 'SUNMI V2s');
       expect(n.entete, 'SUNMI%20V2s');
-      expect(n.dejaPropose, isFalse);
       n.modele = () => '';
       expect(n.effectif, isNull);
       expect(n.entete, isNull);
     });
 
-    test('saisie nettoyée et gardée sur l\'appareil ; vide = retour au nom par défaut', () async {
+    test('4.7.1 : nom nettoyé et gardé sur l\'appareil ; vide ou sans caractère permis : refusé, rien ne change', () async {
       final n = NomAppareil.instance..modele = () => 'SUNMI V2s';
       await n.charger();
+      expect(await n.enregistrer('  '), isNull);
+      expect(await n.enregistrer('#/!'), isNull);
+      expect(n.nomEnregistre, isFalse);
       expect(await n.enregistrer('  Caisse/mobile 1 '), 'Caissemobile 1');
       final p = await SharedPreferences.getInstance();
       expect(p.getString(NomAppareil.prefNom), 'Caissemobile 1');
-      expect(n.dejaPropose, isTrue);
+      expect(n.nomEnregistre, isTrue);
+      expect(await n.enregistrer(''), isNull);
+      expect(n.saisi, 'Caissemobile 1', reason: 'un nom enregistré ne s\'efface pas');
       NomAppareil.reinitialiser();
       final relu = NomAppareil.instance..modele = () => 'SUNMI V2s';
       await relu.charger();
-      expect(relu.effectif, 'Caissemobile 1', reason: 'relu après redémarrage');
-      expect(await relu.enregistrer('  '), 'SUNMI V2s');
-      expect(p.getString(NomAppareil.prefNom), isNull);
-      expect(relu.dejaPropose, isTrue, reason: 'déjà proposé : plus de proposition');
+      expect((relu.nomEnregistre, relu.effectif), (true, 'Caissemobile 1'), reason: 'relu après redémarrage');
     });
 
-    test('« Plus tard » : proposé une seule fois', () async {
-      final n = NomAppareil.instance;
+    test('nom par défaut enregistré tel quel (un appui sur Enregistrer)', () async {
+      final n = NomAppareil.instance..modele = () => 'SUNMI V2s';
       await n.charger();
-      await n.marquerPropose();
+      expect(await n.enregistrer(n.parDefaut!), 'SUNMI V2s');
+      expect(n.nomEnregistre, isTrue);
+    });
+  });
+
+  // 4.7.1 (demande du pharmacien) : le nom n'est pas à ressaisir après une mise à jour.
+  group('conservation', () {
+    test('mise à jour : le nom saisi en 4.7.0 (préférences de l\'appareil) est relu tel quel, plus demandé', () async {
+      // Préférences laissées par la 4.7.0 : une mise à jour Android garde les données de l'application.
+      SharedPreferences.setMockInitialValues({'nom_appareil_v1': 'Caisse mobile 1', 'nom_appareil_propose_v1': true});
+      NomAppareil.reinitialiser();
+      final n = NomAppareil.instance..modele = () => 'SUNMI V2s';
+      await n.charger();
+      expect(n.effectif, 'Caisse mobile 1');
+      expect(n.entete, 'Caisse%20mobile%201');
+      expect(n.nomEnregistre, isTrue);
+      expect(NomAppareil.prefNom, 'nom_appareil_v1', reason: 'clé figée : la changer ferait perdre le nom à la mise à jour');
+    });
+
+    test('mise à jour d\'une 4.7.0 sans nom (« Plus tard ») : nom à enregistrer', () async {
+      SharedPreferences.setMockInitialValues({'nom_appareil_propose_v1': true});
       NomAppareil.reinitialiser();
       await NomAppareil.instance.charger();
-      expect(NomAppareil.instance.dejaPropose, isTrue);
+      expect(NomAppareil.instance.nomEnregistre, isFalse);
+    });
+
+    test('sauvegarde Android : préférences de l\'application jamais exclues (seul le stockage sécurisé l\'est)', () {
+      for (final f in ['android/app/src/main/res/xml/regles_sauvegarde.xml', 'android/app/src/main/res/xml/regles_extraction.xml']) {
+        final x = File(f).readAsStringSync();
+        expect(x, isNot(contains('FlutterSharedPreferences')), reason: f);
+        expect(RegExp(r'<exclude domain="sharedpref" path="([^"]+)"').allMatches(x).map((m) => m.group(1)).toSet(), {'FlutterSecureStorage.xml'},
+            reason: f);
+      }
+      expect(File('android/app/src/main/AndroidManifest.xml').readAsStringSync(), isNot(contains('android:allowBackup="false"')));
     });
   });
 

@@ -18,6 +18,7 @@
 // « Configuration » protégée par le code administrateur. Pas de « Continuer hors ligne » (décision client).
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/licence_lookup.dart';
 import 'package:prestige_vente_app/borne/borne_launcher.dart';
@@ -124,6 +125,13 @@ class _LancementScreenState extends State<LancementScreen> {
     if (!settings.isConfigured) {
       setState(() => _panneau = _Panneau.premiereUtilisation);
       return;
+    }
+
+    // 2 bis. 4.7.1 : nom de cet appareil obligatoire (nouvelle installation, ou 4.7.0 sans nom), juste après la
+    // configuration du serveur ; jamais sur une borne (vue par les clients : réglé par l'administrateur).
+    if (!BorneLauncher.auDemarrage) {
+      await exigerNomAppareil(context);
+      if (!mounted) return;
     }
 
     // 3. Licence (premier contact avec le serveur).

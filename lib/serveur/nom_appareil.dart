@@ -49,6 +49,11 @@ String? valeurEntetePoste(String? brut) {
 }
 
 /// Nom de cet appareil (saisi, sinon marque et modèle).
+///
+/// 4.7.1 (décision du pharmacien) : le nom est OBLIGATOIRE. Tant qu'aucun nom n'est enregistré sur l'appareil
+/// ([nomEnregistre] faux : nouvelle installation, réinstallation, ou 4.7.0 sans nom saisi), l'application le demande
+/// (lancement, réglages) sans possibilité de passer ; une fois enregistré, il n'est plus demandé (une mise à jour
+/// garde les préférences). En attendant, l'en-tête porte la marque et le modèle.
 class NomAppareil extends ChangeNotifier {
   NomAppareil._();
   static NomAppareil instance = NomAppareil._();
@@ -57,22 +62,31 @@ class NomAppareil extends ChangeNotifier {
   @visibleForTesting
   static void reinitialiser() => instance = NomAppareil._();
 
+  /// Pour les tests : nom tenu pour enregistré, en mémoire seulement (test/flutter_test_config.dart).
+  @visibleForTesting
+  void enregistrerEnMemoire(String nom) {
+    _saisi = nettoyerNomPoste(nom) ?? '';
+    notifyListeners();
+  }
+
+  /// Clé figée depuis la 4.7.0 (la changer ferait perdre le nom à la mise à jour).
   static const prefNom = 'nom_appareil_v1';
-  static const prefPropose = 'nom_appareil_propose_v1';
 
   String _saisi = '';
-  bool _propose = false;
 
   /// Marque et modèle (journal du terminal, lus au démarrage) ; remplaçable pour les tests.
   String Function() modele = () => JournalTerminal.instance.terminalNom;
 
-  /// Nom saisi par l'utilisateur ('' = aucun).
+  /// Nom enregistré sur l'appareil ('' = aucun).
   String get saisi => _saisi;
 
-  /// Nom par défaut, tel qu'enregistré (null si la marque et le modèle sont inconnus).
+  /// Un nom a été enregistré sur cet appareil (sinon il est demandé, sans possibilité de passer).
+  bool get nomEnregistre => _saisi.isNotEmpty;
+
+  /// Nom par défaut, tel qu'enregistré (null si la marque et le modèle sont inconnus) : proposé, pré-rempli.
   String? get parDefaut => nettoyerNomPoste(modele());
 
-  /// Nom envoyé (saisi, sinon par défaut) ; null = aucun en-tête (le serveur garde le nom réseau).
+  /// Nom envoyé (enregistré, sinon par défaut) ; null = aucun en-tête (le serveur garde le nom réseau).
   String? get effectif => nettoyerNomPoste(_saisi) ?? parDefaut;
 
   // Valeur de l'en-tête gardée tant que le nom saisi et le modèle ne changent pas (lue à chaque requête).
@@ -90,43 +104,26 @@ class NomAppareil extends ChangeNotifier {
     return _enteteCache;
   }
 
-  /// Le nom a déjà été proposé (ou saisi) sur cet appareil.
-  bool get dejaPropose => _propose || _saisi.isNotEmpty;
-
   Future<void> charger() async {
     try {
       final p = await SharedPreferences.getInstance();
-      _saisi = p.getString(prefNom) ?? '';
-      _propose = p.getBool(prefPropose) ?? false;
+      _saisi = nettoyerNomPoste(p.getString(prefNom)) ?? '';
     } catch (_) {}
     notifyListeners();
   }
 
-  /// Enregistre le nom NETTOYÉ (celui que le serveur gardera) ; '' = revenir au nom par défaut.
+  /// Enregistre le nom NETTOYÉ (celui que le serveur gardera). Rien ne reste après nettoyage : refusé (null),
+  /// rien n'est changé — un nom est obligatoire.
   Future<String?> enregistrer(String brut) async {
-    final n = nettoyerNomPoste(brut) ?? '';
+    final n = nettoyerNomPoste(brut);
+    if (n == null) return null;
     _saisi = n;
-    _propose = true;
     try {
       final p = await SharedPreferences.getInstance();
-      if (n.isEmpty) {
-        await p.remove(prefNom);
-      } else {
-        await p.setString(prefNom, n);
-      }
-      await p.setBool(prefPropose, true);
+      await p.setString(prefNom, n);
     } catch (_) {}
     notifyListeners();
-    return effectif;
-  }
-
-  /// La proposition de la première connexion a été vue (« Plus tard » compris).
-  Future<void> marquerPropose() async {
-    _propose = true;
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(prefPropose, true);
-    } catch (_) {}
+    return n;
   }
 }
 

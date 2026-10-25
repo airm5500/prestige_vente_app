@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.7.0+28** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.7.1+29** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -38,7 +38,8 @@ session, terminal avec P_RH_POINTER (4.6.0+25, voir `docs/NOTE_VERSION_4.6.0.md`
 de la fiche client sans doublon (X-Client-Ref), retour fournisseur sur le bon BL (blId) (4.6.1+26, voir
 `docs/NOTE_VERSION_4.6.1.md`) + badges RH imprimés en QR reconnus par le terminal de pointage (4.6.2+27, voir
 `docs/NOTE_VERSION_4.6.2.md`) + nom de cet appareil envoyé à Prestige (en-tête X-Poste, « Ventes terminées »)
-(4.7.0+28, voir `docs/NOTE_VERSION_4.7.0.md`).
+(4.7.0+28, voir `docs/NOTE_VERSION_4.7.0.md`) + journal de la console sans secret, nom de l'appareil obligatoire
+(4.7.1+29, voir `docs/NOTE_VERSION_4.7.1.md`).
 
 ## Les 3 règles (permanentes)
 

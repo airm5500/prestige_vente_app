@@ -1,6 +1,8 @@
 // lib/screens/auth/settings_screen.dart
 // 13/11/2025 10:00 (Complet : Assurance + Menu Organizer + Sécurité PIN + Stock BL Mode)
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/interface_version.dart';
@@ -165,7 +167,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final bool isAdmin = authProvider.isAdmin;
 
-    return Scaffold(
+    // 4.7.1 : nom de cet appareil obligatoire (réglages non quittables tant qu'il n'est pas enregistré).
+    return GardeNomAppareil(
+        child: Scaffold(
       appBar: AppBar(title: const Text('Configuration')),
       body: Center(
         child: SingleChildScrollView(
@@ -179,6 +183,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // 4.7.1 : toujours visible ici (interface d'origine) ; obligatoire tant qu'il n'est pas enregistré.
+                      ListenableBuilder(
+                        listenable: NomAppareil.instance,
+                        builder: (_, __) => NomAppareil.instance.nomEnregistre
+                            ? ListTile(
+                                key: const Key('nom_appareil_ligne'),
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Nom de cet appareil'),
+                                subtitle: Text('${NomAppareil.instance.saisi}\n$mentionConservationNomAppareil'),
+                                isThreeLine: true,
+                                trailing: TextButton(
+                                  key: const Key('nom_appareil_modifier'),
+                                  onPressed: () => Navigator.of(context)
+                                      .push(MaterialPageRoute(builder: (_) => const NomAppareilObligatoireScreen())),
+                                  child: const Text('Modifier'),
+                                ),
+                              )
+                            : const Padding(padding: EdgeInsets.only(bottom: 16), child: CarteNomAppareilObligatoire()),
+                      ),
                       Text('Serveur', style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 10),
                       _buildIpField(adresse: _localA, label: 'Adresse IP Locale', isRequired: true),
@@ -338,7 +361,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 
   // 4.1.0 : nom de serveur et « https:// » acceptés (clavier adapté en https) ; port explicite « nom:8443 » accepté.

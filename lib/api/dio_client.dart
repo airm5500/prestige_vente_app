@@ -1,9 +1,10 @@
 // lib/api/dio_client.dart
 // Mise à jour avec Timeout de sécurité
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
+import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
@@ -38,8 +39,10 @@ class DioClient {
     // 4.3.2 : journal des requêtes en mode DÉBOGAGE seulement. Dans l'APK livré, il recopiait chaque corps de
     // réponse (listes de produits, ventes, clients) dans le journal du téléphone : travail inutile à chaque
     // requête et données de l'officine hors de l'application.
+    // 4.7.1 : méthode, chemin (sans valeur), statut et durée seulement : jamais de corps (mot de passe de la
+    // connexion, ventes, clients), d'en-têtes (cookies, jetons, X-Client-Ref) ni de paramètres (lib/utils/journal_debug.dart).
     if (kDebugMode) {
-      dio.interceptors.add(LogInterceptor(responseBody: true, requestBody: true, logPrint: (o) => debugPrint(masquerSerie('$o'))));
+      dio.interceptors.add(JournalHttpDebug());
     }
 
     return dio;

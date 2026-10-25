@@ -1,6 +1,7 @@
 // lib/providers/licence_provider.dart
 // 30/12/2025 03:30 (Correction : Gestion stricte Serveur Local + Fix updateApiService)
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/api/models/licence_model.dart';
@@ -69,7 +70,7 @@ class LicenceProvider with ChangeNotifier {
       LicenceIssue.notHttps => '${ErreurTls.messageProtocole}\n\nLa licence n\'est pas en cause.',
     };
     // Le détail technique (exception réseau) reste dans les logs, pas à l'écran.
-    if (detail != null && detail.isNotEmpty) print('Licence - détail : $detail');
+    if (detail != null && detail.isNotEmpty) debugPrint('Licence : ${issue.name} (détail technique non journalisé)');
     return base;
   }
 
@@ -141,7 +142,7 @@ class LicenceProvider with ChangeNotifier {
         _status = LicenceStatus.none;
       }
     } catch (e) {
-      print("Erreur Licence: $e");
+      journalErreur('Erreur Licence', e);
       _status = LicenceStatus.error;
       _issue = LicenceIssue.unreachable;
       _errorMessage = messageFor(LicenceIssue.unreachable, e.toString());

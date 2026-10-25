@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -293,7 +294,7 @@ class ProformaProvider with ChangeNotifier, PagedProductSearchHost {
         await _apiService.deleteSale(_currentSaleId!);
         resetProforma();
       } catch (e) {
-        print("Erreur suppression proforma: $e");
+        journalErreur('Erreur suppression proforma', e);
       }
     }
   }

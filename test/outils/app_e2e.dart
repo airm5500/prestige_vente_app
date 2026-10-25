@@ -44,6 +44,9 @@ import 'faux_serveur_prestige.dart';
 export 'faux_serveur_prestige.dart';
 
 /// Taille d'écran (pixels physiques, densité).
+/// Nom de cet appareil enregistré par défaut dans les tests e2e (étape obligatoire testée à part).
+const nomAppareilE2E = 'Terminal e2e';
+
 class TailleEcran {
   final String nom;
   final Size pixels;
@@ -86,6 +89,8 @@ class AppE2E {
     String motDePasse = DonneesFictives.motDePasse,
     Map<String, Object> prefs = const {},
     bool interfaceNouvelle = true,
+    // 4.7.1 : nom de cet appareil déjà enregistré (sinon l'étape obligatoire s'ouvre au lancement) ; null = aucun.
+    String? nomAppareil = nomAppareilE2E,
   }) async {
     SharedPreferences.setMockInitialValues({
       'local_ip': FauxServeurPrestige.hoteMemoire,
@@ -93,8 +98,7 @@ class AppE2E {
       'app_name': 'prestige',
       'interface_nouvelle_version_v1': interfaceNouvelle,
       if (resterConnecte) ...{'stay_connected': true, 'saved_login': login},
-      // 4.7.0 : proposition du nom de l'appareil déjà vue (testée à part : nom_appareil_e2e_test).
-      NomAppareil.prefPropose: true,
+      if (nomAppareil != null) NomAppareil.prefNom: nomAppareil,
       ...prefs,
     });
     FlutterSecureStorage.setMockInitialValues(resterConnecte ? {IdentifiantsSecurises.cleSure: motDePasse} : {});

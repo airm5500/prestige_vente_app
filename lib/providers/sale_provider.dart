@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -74,7 +75,7 @@ class SaleProvider with ChangeNotifier {
     try {
       _paymentMethodsWithQr = await _apiService.getPaymentMethodsWithQr();
     } catch (e) {
-      debugPrint("Error fetching QR methods: $e");
+      journalErreur('Error fetching QR methods', e);
     } finally {
       notifyListeners();
     }
@@ -266,7 +267,7 @@ class SaleProvider with ChangeNotifier {
       });
       return results;
     } catch (e) {
-      debugPrint("Erreur fetchPreventesByType: $e");
+      journalErreur('Erreur fetchPreventesByType', e);
       return [];
     }
   }
@@ -285,7 +286,7 @@ class SaleProvider with ChangeNotifier {
       }
       return null;
     } catch (e) {
-      debugPrint("Erreur fetchFullSaleDetails: $e");
+      journalErreur('Erreur fetchFullSaleDetails', e);
       return null;
     }
   }

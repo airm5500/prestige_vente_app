@@ -4,6 +4,7 @@
 import 'package:dio/dio.dart' show Options;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
@@ -127,7 +128,7 @@ class AuthProvider with ChangeNotifier {
         return false;
       }
     } catch (e) {
-      print("Erreur AutoLogin: $e");
+      journalErreur('Erreur AutoLogin', e);
       _status = AuthStatus.Unauthenticated;
       notifyListeners();
       return false;
@@ -263,7 +264,7 @@ class AuthProvider with ChangeNotifier {
       _officine = await _apiService.fetchOfficineInfo();
       notifyListeners();
     } catch (e) {
-      print("Erreur chargement officine: $e");
+      journalErreur('Erreur chargement officine', e);
     }
   }
 
@@ -288,7 +289,7 @@ class AuthProvider with ChangeNotifier {
     try {
       await _apiService.logout();
     } catch (e) {
-      print("Erreur logout API: $e");
+      journalErreur('Erreur logout API', e);
     }
     // 4.5.1 : une connexion a eu lieu pendant la fermeture de session (écran de connexion déjà affiché) : la nouvelle
     // session, son panier et ses droits ne sont jamais effacés par cette déconnexion (la connexion d'un autre compte a
