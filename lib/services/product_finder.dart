@@ -58,7 +58,11 @@ class PagedProductSearch {
   /// gs1_vente.dart) sans `lotScanne` (leurs routes d'ajout ne s'en servent pas). Faux (autres menus) : inchangé.
   final bool gs1Vente;
 
-  PagedProductSearch(this._api, {this.visible, this.classerCodes = false, this.gs1Vente = false});
+  /// 4.9.2 : étiquette étendue (DataMatrix+, QR+) refusée sur l'appareil, même lecture GS1 inactive (Proforma, comme
+  /// DevisCtr du web). Faux pour le Dépôt : DepotCtr du web ne la refuse pas.
+  final bool etendueRefusee;
+
+  PagedProductSearch(this._api, {this.visible, this.classerCodes = false, this.gs1Vente = false, this.etendueRefusee = false});
 
   /// 4.9.1 : boîte refusée à la lecture de son étiquette GS1 (message ; aucun produit).
   String? refusGs1;
@@ -145,8 +149,8 @@ class PagedProductSearch {
     // 4.9.1 : étiquette GS1 (dépôt, proforma) : verdict de la vente ; lecture inactive, serveur ancien, panne,
     // délai → « comme avant », la recherche ci-dessous est exactement celle d'avant.
     var code = q;
-    if (gs1Vente && Gs1Vente.ressembleGs1(q)) {
-      final v = await Gs1Vente.instance.verdict(q, lotEnvoye: false);
+    if (gs1Vente && (Gs1Vente.ressembleGs1(q) || (etendueRefusee && Gs1Vente.estEtiquetteEtendue(q)))) {
+      final v = await Gs1Vente.instance.verdict(q, lotEnvoye: false, etendueLocale: etendueRefusee);
       if (seq != _seq) return false;
       if (v is Gs1Refus) {
         _jeton = null;

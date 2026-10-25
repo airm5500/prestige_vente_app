@@ -71,6 +71,10 @@ class Gs1Refus extends VerdictGs1 {
   final String raison;
   const Gs1Refus(this.message, {required this.raison});
   static const pourClient = 'Ce produit ne peut pas être ajouté ici : présentez-le au comptoir';
+
+  /// 4.9.2 : message du web (VenteCtr / DevisCtr.refuserEtiquetteEtendue) pour une étiquette étendue.
+  static const messageEtendue = 'Cette étiquette (DataMatrix+ ou QR+) est réservée à la commande, à la réception et à '
+      'l\'inventaire : elle ne passe pas à la vente. Scannez le code de la boîte ou l\'étiquette standard du produit.';
 }
 
 /// Boîte acceptée : produit à chercher par [code] (CIP de l'étiquette, sinon le contenu scanné) ; [avertissement]
@@ -179,6 +183,18 @@ class Gs1Vente {
     return dm != null && dm.gtin != null && (dm.lotCandidates.isNotEmpty || dm.expiryCandidates.isNotEmpty);
   }
 
+  /// 4.9.2 — étiquette étendue d'Étiquetage Pro (DataMatrix+, QR+), reconnue SUR L'APPAREIL exactement comme le web
+  /// (VenteCtr / DevisCtr / VenteEnDepotCtr.estEtiquetteEtendue) : préfixe de lecteur retiré, puis « EP1| » en tête
+  /// (QR+), ou le champ 91 « EPLUS1 » après un séparateur (GS, « <GS> », « ^] », « ~1 », « | »), entre parenthèses ou
+  /// en tête (DataMatrix+). Refusée à la vente quel que soit KEY_VENTE_LECTURE_GS1, sans requête.
+  static bool estEtiquetteEtendue(String brut) {
+    final v = brut.trim().replaceFirst(RegExp(r'^\](d2|Q3|Q1|C1|e0)'), '');
+    return RegExp(r'^EP1\|', caseSensitive: false).hasMatch(v) ||
+        RegExp(r'(\u001d|<GS>|\^\]|~1|\|)91EPLUS1').hasMatch(v) ||
+        RegExp(r'\(91\)EPLUS1').hasMatch(v) ||
+        RegExp(r'^91EPLUS1').hasMatch(v);
+  }
+
   /// Contenu à envoyer au serveur et à décoder sur l'appareil (lien numérique traduit).
   static String contenu(String brut) => depuisLienNumerique(brut) ?? brut;
 
@@ -202,7 +218,10 @@ class Gs1Vente {
   /// Verdict d'un scan. [brut] : contenu tel que reçu. Jamais d'exception.
   /// [lotEnvoye] (4.9.1) : false pour les ventes dont la route d'ajout n'utilise pas `lotScanne` (dépôt, proforma) :
   /// aucun lot mis en attente, avertissement « lot différent » sans annoncer quel lot sortira.
-  Future<VerdictGs1> verdict(String brut, {bool lotEnvoye = true}) async {
+  /// [etendueLocale] (4.9.2) : étiquette étendue refusée sur l'appareil, même lecture inactive ou hors ligne (comme le
+  /// web à la vente et à la proforma) ; false pour la vente Dépôt (le web ne la refuse pas dans DepotCtr).
+  Future<VerdictGs1> verdict(String brut, {bool lotEnvoye = true, bool etendueLocale = true}) async {
+    if (etendueLocale && estEtiquetteEtendue(brut)) return const Gs1Refus(Gs1Refus.messageEtendue, raison: 'etendu');
     if (!ressembleGs1(brut)) return const Gs1CommeAvant();
     // Lecture inactive (dernier réglage lu : 0, vide, absent, ou jamais lu) : rien ne change, même hors ligne.
     if (!_actif) return const Gs1CommeAvant();

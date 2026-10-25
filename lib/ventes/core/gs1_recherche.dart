@@ -28,7 +28,7 @@ class RechercheGs1 {
 
 /// null si [brut] n'est pas une étiquette GS1 (code-barres, CIP, nom : chemin d'avant, inchangé).
 Future<RechercheGs1?> rechercherEtiquetteGs1(String brut, ProductPageSearch search, {Gs1Vente? gs1}) async {
-  if (!Gs1Vente.ressembleGs1(brut)) return null;
+  if (!Gs1Vente.ressembleGs1(brut) && !Gs1Vente.estEtiquetteEtendue(brut)) return null;
   final v = await (gs1 ?? Gs1Vente.instance).verdict(brut);
   String code = brut;
   String? avert;
