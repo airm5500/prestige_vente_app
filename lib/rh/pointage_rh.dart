@@ -25,6 +25,7 @@ import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
+import 'package:prestige_vente_app/rh/badge_qr.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
@@ -59,8 +60,12 @@ sealed class LectureBadge {
 }
 
 class BadgeInconnu extends LectureBadge {
+  /// Code affiché (numéro du badge pour un QR ; jamais le contenu d'un QR, qui porte le secret).
   final String code;
-  const BadgeInconnu(this.code);
+
+  /// 4.6.2 : QR de badge illisible (raison seulement) ; null pour un badge simplement inconnu.
+  final String? raisonQr;
+  const BadgeInconnu(this.code, {this.raisonQr});
 }
 
 /// Même badge relu moins de 2 minutes après : aucun nouveau pointage, « vous avez déjà pointé ».
@@ -466,6 +471,12 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
 
   /// Badge lu (clavier, scanner, caméra, NFC) → employé et sens proposé.
   LectureBadge lire(String brut, {MoyenIdentification moyen = MoyenIdentification.scan}) {
+    // 4.6.2 : QR des badges RH (PRESTIGE-BADGE|1|numéro|login|secret) → numéro seul ; le reste n'est jamais gardé.
+    if (moyen != MoyenIdentification.nfc) {
+      final qr = lireBadgeQr(brut);
+      if (qr is BadgeQrIllisible) return BadgeInconnu('', raisonQr: qr.raison);
+      if (qr is BadgeQrReconnu) brut = qr.numero;
+    }
     final e = employePourBadge(_employes, moyen == MoyenIdentification.nfc ? normaliserUidNfc(brut) : brut) ??
         (moyen == MoyenIdentification.nfc ? employePourBadge(_employes, brut) : null);
     if (e == null) return BadgeInconnu(normaliserBadge(brut));

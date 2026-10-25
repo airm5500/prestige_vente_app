@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/rh/badge_qr.dart';
 import 'package:prestige_vente_app/rh/empreintes_screen.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
 import 'package:prestige_vente_app/rh/empreintes_partagees.dart';
@@ -112,6 +113,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   PointageRh get _rh => widget.rh;
 
   final _champ = TextEditingController();
+  bool _masque = false;
   final _focus = FocusNode(debugLabel: 'badge');
   Timer? _debounce;
   bool _saisieClavier = false;
@@ -329,6 +331,9 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
 
   void _onChange(String v) {
     _debounce?.cancel();
+    // 4.6.2 : QR d'un badge RH (il porte un secret) : masqué dès ses premiers caractères, jamais affiché en clair.
+    final masque = ressembleBadgeQr(v);
+    if (masque != _masque) setState(() => _masque = masque);
     // Scanner intégré sans touche Entrée : le code arrive d'un bloc, on attend la fin de la rafale.
     if (_saisieClavier || v.trim().isEmpty) return;
     _debounce = Timer(const Duration(milliseconds: 300), () => _lu(_champ.text));
@@ -351,6 +356,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   Future<void> _lu(String brut, {MoyenIdentification moyen = MoyenIdentification.scan}) async {
     _debounce?.cancel();
     _champ.clear();
+    if (_masque && mounted) setState(() => _masque = false);
     if (!mounted || brut.trim().isEmpty) return;
     // Une confirmation est à l'écran (ou une lecture en cours) : les lectures suivantes sont ignorées.
     if (_attente != null || _enregistrement || _lecture) {
@@ -369,8 +375,14 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
 
   void _traiter(LectureBadge l) {
     switch (l) {
-      case BadgeInconnu(:final code):
-        _afficher(_Affiche('Badge non reconnu', 'Badge « $code » inconnu : faites-le associer à votre fiche (menu RH de Prestige).', false, _rh.now));
+      case BadgeInconnu(:final code, :final raisonQr):
+        _afficher(_Affiche(
+            'Badge non reconnu',
+            raisonQr != null
+                ? 'QR du badge non reconnu ($raisonQr). Réessayez, ou saisissez le numéro imprimé sur le badge.'
+                : 'Badge « $code » inconnu : faites-le associer à votre fiche (menu RH de Prestige).',
+            false,
+            _rh.now));
         _signal(false);
       case BadgeIgnore(:final message):
         // Aucun nouveau pointage : information claire (orange), son et vibration distincts.
@@ -662,6 +674,9 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       controller: _champ,
       focusNode: _focus,
       autofocus: true,
+      obscureText: _masque,
+      enableSuggestions: false,
+      autocorrect: false,
       keyboardType: _saisieClavier ? TextInputType.text : TextInputType.none,
       textInputAction: TextInputAction.done,
       onChanged: _onChange,

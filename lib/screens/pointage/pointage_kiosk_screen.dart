@@ -13,6 +13,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:prestige_vente_app/rh/badge_qr.dart';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/pointage/pointage_export.dart';
@@ -110,6 +112,8 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
 
   // Badge : le scanner Sunmi "tape" le code dans ce champ (sans afficher le clavier).
   final _badgeController = TextEditingController();
+  // 4.6.2 : QR d'un badge RH (il porte un secret) masqué dès ses premiers caractères.
+  bool _badgeMasque = false;
   final _badgeFocus = FocusNode();
   Timer? _badgeDebounce;
   bool _badgeKeyboard = false;
@@ -258,6 +262,8 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
   // ---------------------------------------------------------------------------
   void _onBadgeChanged(String value) {
     _badgeDebounce?.cancel();
+    final masque = ressembleBadgeQr(value);
+    if (masque != _badgeMasque) setState(() => _badgeMasque = masque);
     // Saisie au clavier : on attend "Entrée". Scanner : le code arrive d'un coup, on valide après une courte pause.
     if (_badgeKeyboard || value.trim().isEmpty) return;
     _badgeDebounce = Timer(const Duration(milliseconds: 300), () => _onBadge(_badgeController.text));
@@ -271,7 +277,14 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
   Future<void> _onBadge(String raw) async {
     _badgeDebounce?.cancel();
     _badgeController.clear();
-    final code = normalizeBadge(raw);
+    if (_badgeMasque && mounted) setState(() => _badgeMasque = false);
+    // 4.6.2 : QR des badges RH (PRESTIGE-BADGE|1|numéro|login|secret) → numéro seul, le reste n'est jamais gardé.
+    final qr = lireBadgeQr(raw);
+    if (qr is BadgeQrIllisible) {
+      _toast('QR du badge non reconnu (${qr.raison}). Réessayez, ou saisissez le numéro imprimé sur le badge.', error: true);
+      return;
+    }
+    final code = normalizeBadge(qr is BadgeQrReconnu ? qr.numero : raw);
     if (code.isEmpty) return;
     await _identifiedByBadge(_employees.where((e) => e.hasBadge && normalizeBadge(e.badgeCode) == code).toList());
   }
@@ -515,6 +528,9 @@ class _PointageKioskScreenState extends State<PointageKioskScreen> with WidgetsB
       controller: _badgeController,
       focusNode: _badgeFocus,
       autofocus: true,
+      obscureText: _badgeMasque,
+      enableSuggestions: false,
+      autocorrect: false,
       // Sans clavier à l'écran : le scanner Sunmi saisit le code directement.
       keyboardType: _badgeKeyboard ? TextInputType.text : TextInputType.none,
       decoration: _fieldDeco(
