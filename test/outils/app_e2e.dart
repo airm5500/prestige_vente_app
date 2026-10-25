@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/accueil/accueil_menus.dart';
 import 'package:prestige_vente_app/accueil/accueil_screen.dart';
 import 'package:prestige_vente_app/connexion/connexion_screen.dart';
@@ -92,6 +93,8 @@ class AppE2E {
       'app_name': 'prestige',
       'interface_nouvelle_version_v1': interfaceNouvelle,
       if (resterConnecte) ...{'stay_connected': true, 'saved_login': login},
+      // 4.7.0 : proposition du nom de l'appareil déjà vue (testée à part : nom_appareil_e2e_test).
+      NomAppareil.prefPropose: true,
       ...prefs,
     });
     FlutterSecureStorage.setMockInitialValues(resterConnecte ? {IdentifiantsSecurises.cleSure: motDePasse} : {});
@@ -110,6 +113,9 @@ class AppE2E {
     await ImagesReglages.charger();
     await PaiementsMobileReglages.charger();
     JournalTerminal.instance = JournalTerminal();
+    // 4.7.0 : nom de cet appareil (X-Poste) lu comme main(), après la marque et le modèle.
+    NomAppareil.reinitialiser();
+    await NomAppareil.instance.charger();
 
     final store = MemoryLocalStore();
     horsLigne = HorsLigne(monitor: ServerMonitor(), store: store, sync: CatalogueSync(store: store, occupee: () => false), ventes: FileVentesHL(store: MemoryVentesHLStore()));

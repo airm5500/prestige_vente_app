@@ -1,6 +1,7 @@
 // lib/main.dart
 // 10/11/2025 09:30 (Ajout LicenceProvider)
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -80,6 +81,8 @@ Future<void> main() async {
   JournalTerminal.instance = JournalTerminal.app(HorsLigne.instance.store);
   await JournalTerminal.chargerReglages();
   await JournalTerminal.instance.chargerIdentite(materiel: FingerprintService.hardwareInfo);
+  // 4.7.0 : nom de cet appareil (en-tête X-Poste), après la marque et le modèle lus ci-dessus.
+  await NomAppareil.instance.charger();
   // Centre de support : file locale des anomalies, réglage d'envoi automatique, capture des erreurs Flutter.
   SupportCentre.instance = SupportCentre(file: PrefsSupportFileStore());
   await SupportCentre.instance.chargerReglage();

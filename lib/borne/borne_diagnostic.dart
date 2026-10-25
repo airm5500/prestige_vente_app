@@ -12,6 +12,7 @@ import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
@@ -85,7 +86,7 @@ class TesteurBorne {
   Dio _nouveauClient() {
     final dio = Dio(BaseOptions(baseUrl: baseUrl, connectTimeout: delai, receiveTimeout: delai, validateStatus: (_) => true));
     dio.interceptors.add(CookieManager(CookieJar()));
-    return dio;
+    return IntercepteurPoste.brancher(dio);
   }
 
   /// 4.3.3 : aucune réponse (délai, réseau, PC serveur éteint) → « Serveur injoignable… ».

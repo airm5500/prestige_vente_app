@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/services/identifiants_securises.dart';
 import 'package:prestige_vente_app/services/pin_securise.dart';
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
@@ -383,7 +384,7 @@ class SettingsProvider with ChangeNotifier {
     final url = '${AdresseServeur.racineApi(ip, port, appName)}/user/auth';
     final adresse = AdresseServeur.affichage(ip, port);
     try {
-      final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 8), receiveTimeout: const Duration(seconds: 8)));
+      final dio = IntercepteurPoste.brancher(Dio(BaseOptions(connectTimeout: const Duration(seconds: 8), receiveTimeout: const Duration(seconds: 8))));
       await dio.post(url, data: {}, options: Options(receiveDataWhenStatusError: true));
       return true;
     } on DioException catch (e) {

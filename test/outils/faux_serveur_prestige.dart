@@ -796,7 +796,7 @@ class _FauxRequete implements HttpClientRequest {
     try {
       final r = RequeteRecue(method, uri.path, uri.queryParameters, utf8.decode(_corps.takeBytes(), allowMalformed: true), headers.value('cookie') ?? '',
           autorisation: headers.value('authorization') ?? '', clientRef: headers.value('x-client-ref') ?? '',
-          utilisateur: headers.value('x-prestige-utilisateur') ?? '');
+          utilisateur: headers.value('x-prestige-utilisateur') ?? '', poste: headers.value('x-poste') ?? '');
       final rep = await serveur._traiterMemoire(r);
       if (rep.delai > Duration.zero) await Future<void>.delayed(rep.delai);
       if (serveur.coupe) throw const SocketException('Connection reset by peer');

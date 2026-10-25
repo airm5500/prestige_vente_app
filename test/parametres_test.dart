@@ -12,6 +12,7 @@ import 'package:prestige_vente_app/parametres/parametres_screen.dart';
 import 'package:prestige_vente_app/parametres/parametres_services.dart';
 import 'package:prestige_vente_app/pointage/pointage_repository.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/providers/licence_provider.dart';
 import 'package:prestige_vente_app/providers/sale_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
@@ -374,6 +375,43 @@ void main() {
     expect(find.text('Présentation C · organiser l\'accueil'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  // 4.7.0 : « Nom de cet appareil » (en-tête X-Poste) dans « Licence & appareil » : téléphone 360 dp et Sunmi V2s,
+  // texte ×1 à ×2 ; aperçu du nom tel que Prestige l'enregistrera, enregistré nettoyé.
+  for (final (nom, taille, densite, echelle) in [
+    ('téléphone 360 dp', const Size(720, 1400), 2.0, 1.0),
+    ('Sunmi V2s', const Size(720, 1440), 2.0, 1.3),
+    ('Sunmi V2s', const Size(720, 1440), 2.0, 2.0),
+  ]) {
+    testWidgets('Nom de cet appareil ($nom, texte ×$echelle) : aperçu, enregistrement nettoyé, sans débordement', (tester) async {
+      final env = await start(tester);
+      tester.view.physicalSize = taille;
+      tester.view.devicePixelRatio = densite;
+      tester.platformDispatcher.textScaleFactorTestValue = echelle;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      NomAppareil.reinitialiser();
+      NomAppareil.instance.modele = () => 'SUNMI V2s';
+      await NomAppareil.instance.charger();
+      await tester.pumpAndSettle();
+      expect(env.saved, 0);
+      await open(tester, Rubrique.licence);
+      final champ = find.byKey(const Key('nom_appareil_champ'));
+      await tester.scrollUntilVisible(champ, 120, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Nom par défaut : « SUNMI V2s » (marque et modèle).'), findsOneWidget);
+      await tester.enterText(champ, ' Caisse/mobile 1 ');
+      await tester.pump();
+      expect(find.text('Enregistré dans Prestige : « Caissemobile 1 »'), findsOneWidget);
+      await tester.enterText(champ, 'Caisse mobile 1');
+      await tester.pump();
+      await tester.scrollUntilVisible(find.byKey(const Key('nom_appareil_enregistrer')), 120, scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.byKey(const Key('nom_appareil_enregistrer')));
+      await tester.pumpAndSettle();
+      expect(NomAppareil.instance.effectif, 'Caisse mobile 1');
+      expect(NomAppareil.instance.entete, 'Caisse%20mobile%201');
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('360 px : toutes les rubriques s\'ouvrent sans débordement', (tester) async {
     final env = await start(tester, login: 'admin');

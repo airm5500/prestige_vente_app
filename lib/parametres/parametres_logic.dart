@@ -74,7 +74,8 @@ extension RubriqueInfo on Rubrique {
         Rubrique.equipe => 'pointage employés badge nfc empreinte pin rapport diagnostic lecteur',
         Rubrique.securite => 'code pin administrateur admin mot de passe sécurité connexion rapide qui etes vous terminal partage '
             'rester connecte pin personnel assistance numero telephone appeler',
-        Rubrique.licence => 'licence expiration jours appareil modèle android identifiant support',
+        Rubrique.licence => 'licence expiration jours appareil modèle android identifiant support '
+            'nom de cet appareil poste caisse terminal ventes terminées',
         Rubrique.borne => 'borne libre service self kiosque client vitrine liste guidee ticket discret inactivite '
             'categories produits mis en avant epinglage ecran',
         Rubrique.images => 'images photos produits vignettes cache telechargement prechargement hors ligne photo appareil',
