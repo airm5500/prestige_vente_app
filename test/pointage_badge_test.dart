@@ -78,6 +78,26 @@ void main() {
     expect(repo.records, isEmpty);
   });
 
+  // 4.6.2 : QR des badges RH (PRESTIGE-BADGE|1|numéro|login|secret) → numéro seul ; contenu jamais affiché.
+  testWidgets('badge RH en QR (douchette QWERTY + majuscules) → employé du numéro ; QR illisible : raison seule', (tester) async {
+    await pumpKiosk(tester, const PointageSettings(badgeMode: BadgeMode.only));
+    await tester.enterText(badgeField, 'PRESTIGE\u00b0BQDGE*1*PV12QB34*qwq.fictive*SECRETfictif');
+    await tester.pump();
+    expect(tester.widget<TextField>(badgeField).obscureText, isTrue, reason: 'QR masqué pendant la lecture');
+    expect(find.byWidgetPredicate((w) => w is Text && (w.data ?? '').contains('SECRETfictif')), findsNothing);
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(find.text('Awa Kouassi'), findsOneWidget);
+    await tester.tap(find.text('Arrivée'));
+    await tester.pumpAndSettle();
+    expect(repo.records.single.employeeId, 'awa');
+    await scan(tester, 'PRESTIGE-BADGE|3|PV12AB34|awa.fictive|SECRETfictif');
+    expect(find.textContaining('QR du badge non reconnu'), findsWidgets);
+    expect(find.byWidgetPredicate((w) => w is Text && (w.data ?? '').contains('SECRETfictif')), findsNothing);
+    expect(find.byWidgetPredicate((w) => w is Text && (w.data ?? '').contains('awa.fictive')), findsNothing);
+    expect(repo.records, hasLength(1));
+  });
+
   testWidgets('badge par la caméra', (tester) async {
     await pumpKiosk(tester, const PointageSettings(badgeMode: BadgeMode.only), cameraValue: '0004567');
     await tester.tap(find.byTooltip('Scanner le badge (caméra)'));

@@ -140,6 +140,8 @@
     "test/reseau/droits_vente_reseau_test.dart": "reseau",
     "test/reponse_serveur_1910_test.dart": "unitaires",
     "test/reponse_serveur_1910_e2e_test.dart": "e2e",
+    "test/badge_qr_test.dart": "unitaires",
+    "test/badge_qr_e2e_test.dart": "e2e",
     "test/reseau/pointage_session_reseau_test.dart": "reseau"
   }
 }
