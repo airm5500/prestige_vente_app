@@ -78,6 +78,7 @@ class SunmiFingerprintBridge(private val context: Context, messenger: BinaryMess
             when (call.method) {
                 "isServiceInstalled" -> result.success(isServiceInstalled())
                 "hardwareInfo" -> result.success(hardwareInfo())
+                "empreinteAppareil" -> result.success(empreinteAppareil())
                 "connect" -> connect(Once(result, main))
                 "engage" -> engage(Once(result, main))
                 "release" -> result.success(release())
@@ -105,6 +106,19 @@ class SunmiFingerprintBridge(private val context: Context, messenger: BinaryMess
         } catch (e: Exception) {
             result.error("ERROR", e.toString(), null)
         }
+    }
+
+    /**
+     * Demande mobile 56 (4.8.0) : empreinte de l'appareil = SHA-256(ANDROID_ID + ":" + nom du paquet), en hexadécimal
+     * minuscule (64 caractères), pour retrouver le nom de l'appareil gardé par le serveur après une réinstallation.
+     * ANDROID_ID (Android 8+ : stable pour cette clé de signature, cet appareil et cet utilisateur ; aucune permission)
+     * ne sort JAMAIS de cette méthode : seule l'empreinte est rendue à Flutter. null si l'identifiant est absent.
+     */
+    private fun empreinteAppareil(): String? {
+        val id = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        if (id.isNullOrBlank()) return null
+        val h = java.security.MessageDigest.getInstance("SHA-256").digest("$id:${context.packageName}".toByteArray(Charsets.UTF_8))
+        return h.joinToString("") { "%02x".format(it) }
     }
 
     private fun isServiceInstalled(): Boolean {

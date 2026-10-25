@@ -48,6 +48,9 @@ class DioClient {
     return dio;
   }
 
+  /// 4.8.0 : client de la session, à l'adresse du serveur courant (nom de l'appareil enregistré sur le serveur).
+  static Dio get session => _dio;
+
   /// Session partagée (synchro hors ligne : même connexion, sans le journal).
   static CookieJar get cookieJar => _cookieJar;
 

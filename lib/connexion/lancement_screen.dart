@@ -130,7 +130,7 @@ class _LancementScreenState extends State<LancementScreen> {
     // 2 bis. 4.7.1 : nom de cet appareil obligatoire (nouvelle installation, ou 4.7.0 sans nom), juste après la
     // configuration du serveur ; jamais sur une borne (vue par les clients : réglé par l'administrateur).
     if (!BorneLauncher.auDemarrage) {
-      await exigerNomAppareil(context);
+      await exigerNomAppareil(context, racine: settings.baseUrl);
       if (!mounted) return;
     }
 

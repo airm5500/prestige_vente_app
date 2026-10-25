@@ -30,6 +30,25 @@ void main() {
     }
   });
 
+  // 4.8.0 (demande 56) : ANDROID_ID ne sort jamais du code natif ; l'empreinte n'est jamais journalisée.
+  test('ANDROID_ID : lu et haché dans le code natif seulement ; Flutter ne reçoit que l\'empreinte', () {
+    final kt = File('android/app/src/main/kotlin/com/dici/prestige_vente_app/SunmiFingerprintBridge.kt').readAsStringSync();
+    final i = kt.indexOf('private fun empreinteAppareil()');
+    expect(i, greaterThan(0));
+    final corps = kt.substring(i, kt.indexOf('\n    }\n', i));
+    expect(corps, contains('MessageDigest.getInstance("SHA-256")'));
+    expect(corps, contains('"\$id:\${context.packageName}"'));
+    expect(RegExp(r'return h\.joinToString').hasMatch(corps), isTrue, reason: 'seule l\'empreinte est rendue');
+    expect(RegExp(r'Log\.|println').hasMatch(corps), isFalse);
+    for (final f in Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'))) {
+      for (final l in f.readAsLinesSync()) {
+        if (l.trimLeft().startsWith('//') || l.trimLeft().startsWith('///')) continue;
+        expect(l.contains('ANDROID_ID') || l.contains('android_id'), isFalse, reason: '${f.path} : $l');
+        if (RegExp(r'\b(debugPrint|print)\(').hasMatch(l)) expect(l.contains('mpreinte'), isFalse, reason: '${f.path} : $l');
+      }
+    }
+  });
+
   test('avecDeploiement pose IntercepteurPoste', () {
     final code = File('lib/serveur/panne_serveur.dart').readAsStringSync();
     final i = code.indexOf('Dio avecDeploiement(Dio d) {');

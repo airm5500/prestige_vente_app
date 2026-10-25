@@ -56,7 +56,7 @@ class _AncienSplashScreenState extends State<AncienSplashScreen> {
     if (settingsProvider.isConfigured) {
       // 4.7.1 : nom de cet appareil obligatoire (jamais sur une borne).
       if (!BorneLauncher.auDemarrage && mounted) {
-        await exigerNomAppareil(context);
+        await exigerNomAppareil(context, racine: settingsProvider.baseUrl);
         if (!mounted) return;
       }
 
