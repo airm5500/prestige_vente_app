@@ -2,7 +2,7 @@
 // (DataMatrix+, QR+) refusée comme le web MÊME lecture GS1 inactive ou absente, sans requête :
 //  - vente au comptant (nouvelle interface) : lecture 0, réglage absent, lecture 1, hors ligne ;
 //  - ancienne interface des ventes ; Proforma ;
-//  - Dépôt (le web ne la refuse pas dans DepotCtr) : comme avant ;
+//  - Dépôt (le web ne la refuse pas dans DepotCtr) : jamais refusée, lecture active ou inactive (4.9.3) ;
 //  - étiquette GS1 normale, code-barres, nom, lecture inactive : comme avant ; contenu scanné jamais journalisé.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -180,27 +180,46 @@ void main() {
     await app.fermer(t);
   });
 
-  testWidgets('Dépôt, lecture inactive : comme avant (le web ne refuse pas l\'étiquette étendue dans DepotCtr)', (t) async {
-    TailleEcran.sunmiV2s.appliquer(t);
-    final app = await _app();
-    await app.lancer(t);
-    expect(await app.seConnecter(t), isTrue);
-    await app.ouvrirMenu(t, ListPresentation.dashboard, 'depot');
-    await app.attendre(t);
-    await t.tap(find.text('Nouvelle Vente').first);
-    await app.attendre(t);
-    Provider.of<DepotSaleProvider>(t.element(find.byType(DepotSaleScreen)), listen: false).selectDepot(DepotModel.fromJson(const {
-      'lgCLIENTID': 'D1', 'strNAME': 'DEPOT FICTIF', 'lgEMPLACEMENTID': 'E2', 'lgTYPEDEPOTID': 'T1',
-    }));
-    await app.attendre(t, const Duration(milliseconds: 500));
-    expect(await _saisir(t, app, find.widgetWithText(TextField, 'Saisir nom ou scanner'), _dmPlus), isFalse);
-    await app.attendre(t, const Duration(seconds: 2));
-    expect(_refus, findsNothing);
-    expect(find.byKey(const Key('vente_message_gs1')), findsNothing);
-    expect(app.serveur.recuesSur('/vente/search').where((r) => r.query['query'] != '%'), isNotEmpty, reason: 'recherche d\'avant');
-    expect(_gs1Appels(app), isEmpty);
-    await app.fermer(t);
-  });
+  // 4.9.3 : Dépôt, comme DepotCtr du web : étiquette étendue jamais refusée, ni envoyée à vente/gs1, lecture active
+  // ou inactive ; la recherche d'avant (4.9.0) s'applique : DataMatrix+ → produit trouvé par son GTIN (fenêtre de
+  // quantité), QR+ → aucun produit (comme findone du web, qui ne le trouve pas).
+  for (final lecture in ['0', '1']) {
+    for (final (nom, code, trouve) in [('DataMatrix+', _dmPlus, true), ('QR+', _qrPlus, false)]) {
+      testWidgets('Dépôt, lecture $lecture, $nom : jamais refusé, recherche d\'avant', (t) async {
+        TailleEcran.sunmiV2s.appliquer(t);
+        final app = await _app(lecture: lecture);
+        await app.lancer(t);
+        expect(await app.seConnecter(t), isTrue);
+        expect(Gs1Vente.instance.actif, lecture == '1');
+        await app.ouvrirMenu(t, ListPresentation.dashboard, 'depot');
+        await app.attendre(t);
+        await t.tap(find.text('Nouvelle Vente').first);
+        await app.attendre(t);
+        Provider.of<DepotSaleProvider>(t.element(find.byType(DepotSaleScreen)), listen: false).selectDepot(DepotModel.fromJson(const {
+          'lgCLIENTID': 'D1', 'strNAME': 'DEPOT FICTIF', 'lgEMPLACEMENTID': 'E2', 'lgTYPEDEPOTID': 'T1',
+        }));
+        await app.attendre(t, const Duration(milliseconds: 500));
+        expect(await _saisir(t, app, find.widgetWithText(TextField, 'Saisir nom ou scanner'), code), isFalse);
+        await app.attendre(t, const Duration(seconds: 2));
+        expect(_refus, findsNothing);
+        expect(find.byKey(const Key('vente_message_gs1')), findsNothing);
+        expect(_gs1Appels(app), isEmpty, reason: 'jamais vente/gs1 pour une étiquette étendue au Dépôt');
+        expect(app.serveur.recuesSur('/vente/search').where((r) => r.query['query'] != '%'), isNotEmpty, reason: 'recherche d\'avant');
+        expect(_champQte.evaluate().isNotEmpty, trouve);
+        if (trouve) {
+          await t.enterText(_champQte, '1');
+          await t.tap(find.text('Ajouter'));
+          await app.attendre(t, const Duration(seconds: 2));
+          final a = app.serveur.recuesSur('/vente/add/depot').single;
+          expect(a.json['produitId'], 'F83');
+          expect(a.json.containsKey('lotScanne'), isFalse);
+        } else {
+          expect(_ajouts(app), 0);
+        }
+        await app.fermer(t);
+      });
+    }
+  }
 
   testWidgets('le contenu de l\'étiquette étendue n\'apparaît jamais dans le journal', (t) async {
     TailleEcran.sunmiV2s.appliquer(t);

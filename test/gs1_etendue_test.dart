@@ -179,6 +179,35 @@ void main() {
       expect(srv.appels, 0);
     });
 
+    test('4.9.3 — Dépôt, lecture ACTIVE : étiquette étendue ni refusée ni envoyée à vente/gs1, recherche d\'avant', () async {
+      Gs1Vente.instance.actifPourTests = true;
+      final api = _Api();
+      for (final e in [_dmPlus, _dmPlus.replaceAll('\u001d', '|'), _dmPlus.replaceAll('\u001d', '<GS>'), _qrPlus, ']Q3$_qrPlus']) {
+        final avant = PagedProductSearch(() => api);
+        await avant.run(e);
+        final depot = PagedProductSearch(() => api, gs1Vente: true);
+        await depot.run(e);
+        expect((depot.refusGs1, depot.avertissementGs1), (null, null));
+        expect(depot.items.map((p) => p.lgFAMILLEID).toList(), avant.items.map((p) => p.lgFAMILLEID).toList());
+        expect((depot.notFound, depot.error, depot.byCode), (avant.notFound, avant.error, avant.byCode));
+      }
+      expect(srv.appels, 0, reason: 'jamais vente/gs1 pour une étiquette étendue au Dépôt');
+      // Étiquette normale au Dépôt, lecture active : verdict du serveur comme en 4.9.1.
+      await PagedProductSearch(() => api, gs1Vente: true).run(_gs1);
+      expect(srv.appels, 1);
+    });
+
+    test('4.9.3 — Proforma et vente, lecture active : étiquette étendue toujours refusée', () async {
+      Gs1Vente.instance.actifPourTests = true;
+      final api = _Api();
+      final proforma = PagedProductSearch(() => api, gs1Vente: true, etendueRefusee: true);
+      await proforma.run(_qrPlus);
+      expect(proforma.refusGs1, Gs1Refus.messageEtendue);
+      final r = (await rechercherEtiquetteGs1(_dmPlus, recherche))!;
+      expect(r.refus?.message, Gs1Refus.messageEtendue);
+      expect(srv.appels, 0);
+    });
+
     test('ProductLookup inchangé pour une étiquette normale', () async {
       final r = await ProductLookup.byCode(_gs1, recherche);
       expect(r.valueOrNull!.exact!.lgFAMILLEID, 'P83');

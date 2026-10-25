@@ -4,7 +4,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
+import 'package:prestige_vente_app/api/models/depot_model.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
+import 'package:prestige_vente_app/providers/depot_sale_provider.dart';
 import 'package:prestige_vente_app/ventes/core/gs1_recherche.dart';
 import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
@@ -60,6 +62,26 @@ void main() {
           expect(srv.recues.length, avant, reason: 'reconnue sur l\'appareil');
         }));
   }
+
+  test('4.9.3 — Dépôt, lecture active : étiquette étendue jamais envoyée à vente/gs1, recherche d\'avant, ligne sans lotScanne',
+      () => avecVraiHttp(() async {
+            lecture = '1';
+            srv.routes['POST /vente/add/depot'] =
+                (_) => FauxServeurPrestige.ok({'success': true, 'data': {'lgPREENREGISTREMENTID': 'D-1', 'strREF': 'DEP-1'}});
+            await Gs1Vente.instance.relireReglage(api.dio);
+            expect(Gs1Vente.instance.actif, isTrue);
+            final p = DepotSaleProvider(api)
+              ..selectDepot(DepotModel.fromJson(const {'lgCLIENTID': 'D1', 'strNAME': 'DEPOT FICTIF', 'lgEMPLACEMENTID': 'E2', 'lgTYPEDEPOTID': 'T1'}));
+            await p.searchProducts(_qrPlus);
+            expect(p.productSearch.refusGs1, isNull);
+            expect(p.searchResults, isEmpty);
+            await p.searchProducts(_dmPlus);
+            expect(p.productSearch.refusGs1, isNull);
+            expect(p.searchResults.single.lgFAMILLEID, 'F83');
+            expect(srv.recuesSur('/vente/gs1'), isEmpty);
+            expect(await p.addToCart(p.searchResults.single), isTrue);
+            expect(srv.recuesSur('/vente/add/depot').single.json.containsKey('lotScanne'), isFalse);
+          }));
 
   test('serveur coupé : refus quand même (détection locale)', () => avecVraiHttp(() async {
         await Gs1Vente.instance.relireReglage(api.dio);
