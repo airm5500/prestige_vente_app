@@ -15,6 +15,10 @@ plugins {
 // PrestigePOS (saveur `pos`) : sa propre version, dans prestigepos-version.properties (le pubspec.yaml reste
 // celui de Prestige Mobile et ses garde-fous de version Sunmi sont inchangés). Voir docs/prestigepos/README.md.
 val versionPos = Properties().apply { file("prestigepos-version.properties").inputStream().use { load(it) } }
+// Prestige Pointage (saveur `pointage`, demande 57) : sa propre version, dans prestigepointage-version.properties (le
+// pubspec.yaml reste celui de Prestige Mobile et ses garde-fous de version Sunmi sont inchangés). Voir
+// docs/prestigepointage/README.md.
+val versionPointage = Properties().apply { file("prestigepointage-version.properties").inputStream().use { load(it) } }
 
 // 4.5.0 — CLÉ D'ENVOI (Google Play). Lue, dans cet ordre, dans les variables d'environnement (CI : secrets GitHub,
 // voir .github/workflows/play.yml) puis dans android/key.properties (poste du développeur ; fichier JAMAIS commité,
@@ -103,12 +107,14 @@ android {
         }
     }
 
-    // Deux applications dans le même projet Flutter (code partagé, borne comprise) :
+    // Trois applications dans le même projet Flutter (code partagé, borne comprise) :
     //  - `mobile` : Prestige Mobile — applicationId, nom, icône, permissions et version (pubspec.yaml) de
     //    defaultConfig et de src/main, INCHANGÉS. Saveur par défaut (pubspec.yaml : flutter › default-flavor),
     //    donc « flutter build apk --release » sans --flavor construit toujours Prestige Mobile.
     //  - `pos` : PrestigePOS — com.dici.prestigepos (installable à côté de Prestige Mobile), point d'entrée
     //    lib/main_pos.dart, nom, icône, activité et permissions Bluetooth / USB dans src/pos uniquement.
+    //  - `pointage` : Prestige Pointage — com.dici.prestigepointage (installable à côté de Prestige Mobile), point
+    //    d'entrée lib/main_pointage.dart, nom, icône et permissions dans src/pointage uniquement.
     flavorDimensions += "appli"
     productFlavors {
         create("mobile") {
@@ -120,17 +126,27 @@ android {
             versionCode = versionPos.getProperty("codeVersion").trim().toInt()
             versionName = versionPos.getProperty("nomVersion").trim()
         }
+        create("pointage") {
+            dimension = "appli"
+            applicationId = "com.dici.prestigepointage"
+            versionCode = versionPointage.getProperty("codeVersion").trim().toInt()
+            versionName = versionPointage.getProperty("nomVersion").trim()
+        }
     }
 
     // MODIFICATION : Utilisation de votre script de renommage (syntaxe Kotlin)
-    // Prestige Mobile garde son nom de fichier d'origine (« prestigepos-release-4.2.0.apk ») ;
-    // PrestigePOS : « PrestigePOS-release-1.0.0.apk ».
+    // Prestige Mobile garde son nom de fichier d'origine (« prestigepos-release-4.10.0.apk ») ;
+    // PrestigePOS : « PrestigePOS-release-1.0.0.apk » ; Prestige Pointage : « PrestigePointage-release-1.0.0.apk ».
     applicationVariants.all {
         val variante = this
         outputs.all {
             val outputImpl = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
             // Ce script ne met que le versionName (ex: 1.2.1)
-            val prefixe = if (variante.flavorName == "pos") "PrestigePOS" else "prestigepos"
+            val prefixe = when (variante.flavorName) {
+                "pos" -> "PrestigePOS"
+                "pointage" -> "PrestigePointage"
+                else -> "prestigepos"
+            }
             outputImpl.outputFileName = "$prefixe-${variante.buildType.name}-${variante.versionName}.apk"
         }
     }

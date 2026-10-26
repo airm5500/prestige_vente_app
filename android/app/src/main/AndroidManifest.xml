@@ -73,6 +73,8 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- 4.10.0 : bouton « Pointer » : présence et ouverture de Prestige Pointage (Android 11+, visibilité des paquets) -->
+        <package android:name="com.dici.prestigepointage" />
         <!-- Bouton « Appeler l'assistance » (écran de connexion) : composeur téléphonique (Android 11+) -->
         <intent>
             <action android:name="android.intent.action.DIAL"/>

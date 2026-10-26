@@ -15,6 +15,7 @@ import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_launcher.dart';
 import 'package:prestige_vente_app/connexion/session_expiree_app.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/prestigepointage/lanceur_pointage.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_pos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/pos_admin.dart';
@@ -46,6 +47,10 @@ class PosApp {
   static void installer() {
     BorneLauncher.hote = () => const PosBorne();
     BorneLauncher.apresSortie = () => const PosAdminScreen();
+    // 1.8.0 : aucun bouton « Pointer » (Prestige Pointage) dans PrestigePOS — borne tournée vers les clients, aucun
+    // écran de Prestige Mobile affiché ; même si l'un d'eux l'était, Prestige Pointage est tenue pour absente.
+    LanceurPointage.detecteur = () async => false;
+    LanceurPointage.installee.value = false;
   }
 
   /// Ouvre la borne (mode borne actif : la borne se rouvre aussi au prochain démarrage).

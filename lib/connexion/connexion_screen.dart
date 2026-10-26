@@ -10,6 +10,7 @@
 // - Tablette (≥ 900 px) : deux colonnes (identité + serveur à gauche, formulaire à droite, 440 px max).
 // - Pas de « Continuer hors ligne » (décision client).
 // - Option C : après une connexion par mot de passe, création facultative d'un code PIN personnel.
+import 'package:prestige_vente_app/prestigepointage/lanceur_pointage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/connexion/assistance.dart';
@@ -354,6 +355,8 @@ class _ConnexionScreenState extends State<ConnexionScreen> {
       ]);
 
   Widget _pied(Color couleur) => Column(mainAxisSize: MainAxisSize.min, children: [
+        // 4.10.0 : Prestige Pointage installée → « Pointer » sans se connecter (masqué sinon).
+        BoutonPointer(couleur: couleur),
         PiedConnexion(couleur: couleur),
         TextButton.icon(
           key: const Key('appeler_assistance'),

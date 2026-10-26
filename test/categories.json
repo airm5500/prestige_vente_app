@@ -162,6 +162,15 @@
     "test/gs1_etendue_e2e_test.dart": "e2e",
     "test/reseau/gs1_etendue_reseau_test.dart": "reseau",
     "test/performance/gs1_etendue_perf_test.dart": "performance",
-    "test/reseau/pointage_session_reseau_test.dart": "reseau"
+    "test/reseau/pointage_session_reseau_test.dart": "reseau",
+    "test/prestigepointage/signature_borne_test.dart": "unitaires",
+    "test/prestigepointage/prestigepointage_test.dart": "unitaires",
+    "test/prestigepointage/client_borne_test.dart": "integration",
+    "test/prestigepointage/pointage_e2e_test.dart": "e2e",
+    "test/prestigepointage/mobile_pointer_e2e_test.dart": "e2e",
+    "test/prestigepointage/pointage_ergonomie_test.dart": "ergonomie",
+    "test/prestigepointage/prestigepointage_garde_test.dart": "non_regression",
+    "test/reseau/prestigepointage_reseau_test.dart": "reseau",
+    "test/performance/prestigepointage_perf_test.dart": "performance"
   }
 }

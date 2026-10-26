@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.9.4+35** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.10.0+36** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -45,7 +45,13 @@ de la fiche client sans doublon (X-Client-Ref), retour fournisseur sur le bon BL
 (4.9.1+32, voir `docs/NOTE_VERSION_4.9.1.md`) + étiquettes étendues refusées comme le web, même lecture
 GS1 inactive (4.9.2+33, voir `docs/NOTE_VERSION_4.9.2.md`) + Dépôt : étiquette étendue jamais refusée, comme
 le web (4.9.3+34, voir `docs/NOTE_VERSION_4.9.3.md`) + Dépôt : étiquette étendue sans produit, comme le
-web (4.9.4+35, voir `docs/NOTE_VERSION_4.9.4.md`).
+web (4.9.4+35, voir `docs/NOTE_VERSION_4.9.4.md`) + bouton « Pointer » et tuile de l'accueil qui ouvrent l'application
+Prestige Pointage quand elle est installée (4.10.0+36, voir `docs/NOTE_VERSION_4.10.0.md`).
+
+**Prestige Pointage** (borne de pointage sans compte, `com.dici.prestigepointage`, même dépôt, saveur Android
+`pointage`) a sa **propre** version, dans `android/app/prestigepointage-version.properties` (`nomVersion`,
+`codeVersion`) : **1.0.0+1** (voir `docs/prestigepointage/NOTE_VERSION_1.0.0.md`). Mêmes règles 2 et 3 que ci-dessous,
+appliquées à ce fichier ; elle ne change jamais la version de Prestige Mobile (`pubspec.yaml`).
 
 ## Les 3 règles (permanentes)
 

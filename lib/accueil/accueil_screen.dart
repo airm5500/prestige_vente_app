@@ -7,6 +7,7 @@
 // Conserve tout l'accueil d'origine (lib/screens/home/home_screen.dart, inchangé) : mêmes menus,
 // mêmes écrans, Ajustement protégé par code, ordre / menus masqués (SettingsProvider), contrôle de
 // la licence au retour au premier plan et toutes les 15 min, rappels de licence, tâches en attente.
+import 'package:prestige_vente_app/prestigepointage/lanceur_pointage.dart';
 import 'dart:async';
 
 import 'package:clock/clock.dart';
@@ -126,6 +127,9 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     loadPresentation();
+    // 4.10.0 : tuile « Pointer » si Prestige Pointage est installée (masquée sinon).
+    LanceurPointage.installee.addListener(_onPointage);
+    LanceurPointage.detecter();
 
     _saleProvider = Provider.of<SaleProvider>(context, listen: false);
     _blProvider = Provider.of<BlControlProvider>(context, listen: false);
@@ -237,6 +241,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
 
   @override
   void dispose() {
+    LanceurPointage.installee.removeListener(_onPointage);
     HardwareKeyboard.instance.removeHandler(_onTouche);
     _ventesHL.removeListener(_onVentesHL);
     _monitor.removeListener(_onMonitor);
@@ -255,6 +260,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _performSecurityCheck();
+      LanceurPointage.detecter(); // installée / désinstallée entre-temps
     }
   }
 
@@ -396,6 +402,10 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     if (DateTime.now().difference(_dernierRetour) > const Duration(seconds: 30)) _actualiser();
   }
 
+  void _onPointage() {
+    if (mounted) setState(() {});
+  }
+
   // ---------------------------------------------------------------------------
   // Navigation
   // ---------------------------------------------------------------------------
@@ -406,6 +416,11 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
 
   /// Ouvre un menu (code administrateur d'abord pour les menus protégés, comme à l'origine).
   Future<void> _ouvrir(AccueilMenu m) async {
+    // 4.10.0 : « Pointer » lance l'application Prestige Pointage (aucun écran de Prestige Mobile).
+    if (identical(m, menuPrestigePointage)) {
+      await LanceurPointage.ouvrir(context);
+      return;
+    }
     if (m.protege) {
       final ok = await (widget.askPin ?? PinCodeDialog.show)(context);
       if (!ok || !mounted) return;
@@ -640,7 +655,9 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     final visibles = _visibles(settings);
     final idsVisibles = visibles.map((m) => m.id).toSet();
     // « Borne / vente discrète » ajoutée au groupe Ventes pour l'administrateur.
-    final familles = avecMenusAdmin(menusByFamille(settings.menuOrder, settings.menusMasques), admin: _estAdmin);
+    // 4.10.0 : « Pointer » (Prestige Pointage) ajouté au groupe Équipe si l'application est installée.
+    final familles = avecMenuPointage(avecMenusAdmin(menusByFamille(settings.menuOrder, settings.menusMasques), admin: _estAdmin),
+        installee: LanceurPointage.installee.value);
     final taches = _taches(context, idsVisibles);
     final nb = _nombreTaches(taches);
 

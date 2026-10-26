@@ -1,9 +1,10 @@
 // PrestigePOS — construction : deux applications dans le même projet (saveurs Android), sans toucher Prestige Mobile.
-//  - version de PrestigePOS 1.7.4+21 (android/app/prestigepos-version.properties), pubspec.yaml inchangé ;
+//  - version de PrestigePOS 1.8.0+22 (android/app/prestigepos-version.properties), pubspec.yaml inchangé ;
 //  - saveurs `mobile` (par défaut, sans applicationId propre) et `pos` (com.dici.prestigepos) ;
 //  - permissions Bluetooth / USB et activité PrestigePOS dans le manifeste de la saveur pos SEULEMENT ;
 //  - icônes PrestigePOS (toutes densités, adaptative, ronde) ; configurations Android Studio versionnées ;
-//  - CI : job prestigepos-apk.
+//  - CI : job prestigepos-apk ;
+//  - 1.8.0 : saveur `pointage` (Prestige Pointage) à côté ; aucun bouton « Pointer » dans PrestigePOS.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -18,10 +19,10 @@ String lire(String f) => File(f).readAsStringSync();
 }
 
 void main() {
-  test('version de PrestigePOS : 1.7.4+21, propre à la saveur pos', () {
+  test('version de PrestigePOS : 1.8.0+22, propre à la saveur pos', () {
     final p = lire('android/app/prestigepos-version.properties');
-    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.7.4');
-    expect(RegExp(r'^codeVersion=(\d+)$', multiLine: true).firstMatch(p)!.group(1), '21');
+    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.8.0');
+    expect(RegExp(r'^codeVersion=(\d+)$', multiLine: true).firstMatch(p)!.group(1), '22');
     final g = lire('android/app/build.gradle.kts');
     expect(g, contains('getProperty("nomVersion")'));
     expect(g, contains('getProperty("codeVersion")'));
@@ -93,5 +94,24 @@ void main() {
     expect(ci, contains('name: prestigepos-apk'));
     expect(ci, contains('flutter test test/prestigepos'));
     expect(ci, contains('GITHUB_STEP_SUMMARY'));
+  });
+
+  test('1.8.0 : trois saveurs (mobile, pos, pointage) ; aucun « Pointer » dans PrestigePOS', () {
+    final g = lire('android/app/build.gradle.kts');
+    final pointage = RegExp(r'create\("pointage"\)\s*\{([^}]*)\}').firstMatch(g)!.group(1)!;
+    expect(pointage, contains('applicationId = "com.dici.prestigepointage"'));
+    expect(g, contains('"pos" -> "PrestigePOS"'));
+    expect(g, contains('"pointage" -> "PrestigePointage"'));
+    final ci = lire('.github/workflows/build-apk.yml');
+    expect(ci, contains('flutter build apk --release --flavor pointage -t lib/main_pointage.dart'));
+    // Borne tournée vers les clients : ni bouton ni canal natif de Prestige Pointage dans la saveur pos.
+    for (final d in ['lib/prestigepos', 'lib/borne']) {
+      for (final f in Directory(d).listSync(recursive: true).whereType<File>()) {
+        expect(f.readAsStringSync(), isNot(contains('BoutonPointer')), reason: f.path);
+        expect(f.readAsStringSync(), isNot(contains('menuPrestigePointage')), reason: f.path);
+      }
+    }
+    expect(lire('android/app/src/pos/kotlin/com/dici/prestigepos/PosActivity.kt'), isNot(contains('prestige/pointage')));
+    expect(lire('lib/prestigepos/pos_app.dart'), contains('LanceurPointage.detecteur = () async => false;'));
   });
 }

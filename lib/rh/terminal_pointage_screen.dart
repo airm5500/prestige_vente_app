@@ -67,6 +67,15 @@ class TerminalPointageScreen extends StatefulWidget {
   /// Code administrateur demandé pour quitter le mode borne (tests) ; sinon PinCodeDialog.show.
   final Future<bool> Function(BuildContext)? codeAdmin;
 
+  /// Prestige Pointage (demande 57) : bandeau affiché en haut (état de la borne), actions ajoutées à l'en-tête
+  /// (administration), envoi de la file sans confirmation (géré par l'application), mode borne dès l'ouverture, titre.
+  /// Valeurs par défaut : comportement de Prestige Mobile inchangé.
+  final Widget? bandeau;
+  final List<Widget> Function(Color couleur)? actionsEnPlus;
+  final bool confirmerEnvoi;
+  final bool borneAuDemarrage;
+  final String titre;
+
   const TerminalPointageScreen({
     super.key,
     required this.rh,
@@ -78,6 +87,11 @@ class TerminalPointageScreen extends StatefulWidget {
     this.rafraichirAuDemarrage = true,
     this.gestion,
     this.codeAdmin,
+    this.bandeau,
+    this.actionsEnPlus,
+    this.confirmerEnvoi = true,
+    this.borneAuDemarrage = false,
+    this.titre = 'Terminal de pointage',
   });
 
   @override
@@ -157,6 +171,10 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     _demarrer();
     _initCapacites();
     _chargerReglages();
+    if (widget.borneAuDemarrage) {
+      _borne = true;
+      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+    }
   }
 
   /// Réglages de la photo de contrôle ; purge des photos trop anciennes ; autorisation de la caméra à expliquer.
@@ -290,7 +308,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   void _onRh() {
     if (!mounted) return;
     setState(() {});
-    if (_rh.confirmationDemandee && _attente == null) {
+    if (widget.confirmerEnvoi && _rh.confirmationDemandee && _attente == null) {
       _rh.confirmationVue();
       confirmerEnvoiPointagesRh(context, _rh).then((_) => _refocus());
     }
@@ -306,7 +324,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       // P_RH_POINTER seul (403) ; le terminal s'appuie alors sur ses propres pointages du jour.
       if (_rh.gerer != false) await _rh.presence(_rh.now);
       if (mounted) setState(() {});
-      if (mounted && _rh.enAttente > 0) await confirmerEnvoiPointagesRh(context, _rh);
+      if (mounted && widget.confirmerEnvoi && _rh.enAttente > 0) await confirmerEnvoiPointagesRh(context, _rh);
     }
     _refocus();
   }
@@ -559,6 +577,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         key: const Key('rh_terminal'),
         padding: const EdgeInsets.all(16),
         children: [
+          if (widget.bandeau != null) ...[widget.bandeau!, const SizedBox(height: 12)],
           if (_photoActive && _permissionAExpliquer && !_borne && _gestion) ...[
             _bandeauAutorisation(),
             const SizedBox(height: 12),
@@ -608,7 +627,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     ]);
     final ecran = PresentationScaffold(
       style: style,
-      title: 'Terminal de pointage',
+      title: widget.titre,
       subtitle: style == ListPresentation.dashboard ? 'Présentez votre badge' : null,
       actions: (col) => [
         if (_rh.file.isNotEmpty)
@@ -625,6 +644,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
               child: Icon(Icons.cloud_upload_outlined, color: col),
             ),
           ),
+        ...?widget.actionsEnPlus?.call(col),
         if (_capacites.empreinte && !_borne && _gestion)
           IconButton(
             key: const Key('rh_gerer_empreintes'),
