@@ -81,8 +81,10 @@ jobs:
               echo "artefact=prestige-mobile-aab"
               echo "fichier=prestige-mobile"
               echo "options="
-              echo "sortie=build/app/outputs/bundle/release/app-release.aab"
-              echo "apk=build/app/outputs/flutter-apk/app-release.apk"
+              # 4.10.0 : saveur par défaut `mobile` (pubspec.yaml, default-flavor) : commande inchangée, sorties
+              # nommées par Flutter d'après la saveur.
+              echo "sortie=build/app/outputs/bundle/mobileRelease/app-mobile-release.aab"
+              echo "apk=build/app/outputs/flutter-apk/app-mobile-release.apk"
             } >> "$GITHUB_OUTPUT"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"

@@ -61,6 +61,9 @@ void main() {
     expect(play, contains('play-pointage-'));
     expect(File('android/DEMANDE_PLAY_POINTAGE').existsSync(), isFalse, reason: 'aucun envoi Google Play déclenché');
     expect(_lire('.github/workflows/play.yml'), isNot(contains('prestigepointage')), reason: 'envoi de Prestige Mobile inchangé');
+    // Saveur par défaut `mobile` : commande inchangée, sorties nommées d'après la saveur par Flutter.
+    expect(_lire('.github/workflows/play.yml'), contains('sortie=build/app/outputs/bundle/mobileRelease/app-mobile-release.aab'));
+    expect(_lire('.github/workflows/play.yml'), contains('apk=build/app/outputs/flutter-apk/app-mobile-release.apk'));
   });
 
   test('secrets : secret de la borne lu seulement pour signer ; aucune trace dans lib/prestigepointage', () {
