@@ -4,6 +4,7 @@
 // pavé de 64 px) ou son mot de passe. Après 3 codes faux, le mot de passe complet est exigé.
 // Le PIN débloque le mot de passe gardé chiffré pour CET utilisateur sur l'appareil ; la connexion au
 // serveur est toujours faite (ConnexionFlux, même logique que la connexion classique).
+import 'package:prestige_vente_app/prestigepointage/lanceur_pointage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/connexion/connexion_commun.dart';
@@ -187,6 +188,8 @@ class _QuiEtesVousScreenState extends State<QuiEtesVousScreen> {
                             ),
                     ),
                     const SizedBox(height: 6),
+                    // 4.10.0 : Prestige Pointage installée → « Pointer » sans se connecter (masqué sinon).
+                    BoutonPointer(couleur: t.attenue),
                     PiedConnexion(couleur: t.attenue, extra: 'Appui long sur un nom : le retirer'),
                   ]),
                 ),

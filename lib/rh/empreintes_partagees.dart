@@ -156,8 +156,13 @@ class EmpreintesPartagees {
   static final Expando<EmpreintesPartagees> _parCoffre = Expando('empreintesPartagees');
 
   /// Service du [coffre] (un seul par coffre : une synchronisation à la fois).
-  static EmpreintesPartagees pour(RhServeur serveur, CoffreEmpreintes coffre, {bool Function()? horsLigne}) =>
-      _parCoffre[coffre] ??= EmpreintesPartagees(serveur: serveur, coffre: coffre, horsLigne: horsLigne);
+  /// Prestige Pointage : le même coffre sert à la borne (client signé, lecture) et à l'enrôlement des empreintes (session
+  /// temporaire de l'administrateur, envoi) : un autre client remplace le service. Prestige Mobile : toujours le même.
+  static EmpreintesPartagees pour(RhServeur serveur, CoffreEmpreintes coffre, {bool Function()? horsLigne}) {
+    final e = _parCoffre[coffre];
+    if (e != null && identical(e.serveur, serveur)) return e;
+    return _parCoffre[coffre] = EmpreintesPartagees(serveur: serveur, coffre: coffre, horsLigne: horsLigne);
+  }
 
   Future<void>? _enCours;
 

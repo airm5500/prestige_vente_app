@@ -2,7 +2,7 @@ name: prestige_vente_app
 description: "Application de point de vente Prestige Vente"
 publish_to: 'none'
 
-version: 4.9.4+35
+version: 4.10.0+36
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -38,6 +38,8 @@ dependencies:
   barcode_widget: ^2.0.4
   # Pour la génération d'UUID uniques (pour les ID de vente)
   uuid: ^4.4.0
+  # Prestige Pointage (demande 57) : signature HMAC-SHA256 des appels de la borne (déjà présent, Dart pur).
+  crypto: ^3.0.6
 
   # Icônes
   cupertino_icons: ^1.0.6
@@ -74,6 +76,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Saveurs Android (android/app/build.gradle.kts) : `mobile` = Prestige Mobile (par défaut : « flutter run » et
+  # « flutter build apk » sans --flavor construisent Prestige Mobile, comme avant), `pointage` = Prestige Pointage
+  # (--flavor pointage -t lib/main_pointage.dart). Voir docs/prestigepointage/README.md.
+  default-flavor: mobile
   assets:
     - assets/icon/icon.png
     - assets/ordonnances/verite_terrain.json

@@ -1,5 +1,6 @@
 // lib/screens/auth/login_screen.dart
 // 20/10/2025 02:45
+import 'package:prestige_vente_app/prestigepointage/lanceur_pointage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/providers/bl_control_provider.dart';
@@ -251,6 +252,8 @@ class _AncienLoginScreenState extends State<AncienLoginScreen> {
                       );
                     },
                   ),
+                  // 4.10.0 : Prestige Pointage installée → « Pointer » sans se connecter (masqué sinon).
+                  const BoutonPointer(couleur: AppColors.primary),
                 ],
               ),
             ),

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Prestige Pointage (saveur `pointage`, demande 57) : fusionné avec src/main/AndroidManifest.xml pour CETTE saveur
+     seulement. Même activité que Prestige Mobile (ponts natifs : empreinte Sunmi et empreinte de l'appareil, NFC,
+     épinglage d'écran), propre nom et propre icône. La position (pointage par téléphone de Prestige Mobile) n'est pas
+     demandée par la borne. Prestige Mobile (saveur `mobile`) n'en reçoit rien. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+
+    <application
+        android:label="Prestige Pointage"
+        android:icon="@mipmap/launcher_icon"
+        android:roundIcon="@mipmap/launcher_icon_round"
+        tools:replace="android:label,android:icon" />
+</manifest>

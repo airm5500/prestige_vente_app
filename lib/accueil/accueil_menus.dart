@@ -148,6 +148,26 @@ Map<MenuFamille, List<AccueilMenu>> avecMenusAdmin(Map<MenuFamille, List<Accueil
   if (!admin) return familles;
   return {for (final e in familles.entries) e.key: e.key == MenuFamille.ventes ? [...e.value, menuBorneAdmin] : e.value};
 }
+/// 4.10.0 — « Pointer » : ouvre l'application Prestige Pointage (borne de pointage sans compte, demande 57) installée
+/// sur ce terminal, sans se déconnecter. Hors de [accueilMenus] (comme [menuBorneAdmin]) : ajoutée au groupe Équipe
+/// seulement quand Prestige Pointage est installée ; l'écran n'est jamais ouvert (l'accueil lance l'application).
+final AccueilMenu menuPrestigePointage = AccueilMenu(
+  id: 'prestige_pointage',
+  label: 'Pointer (Prestige Pointage)',
+  short: 'Pointer',
+  icon: Icons.badge_outlined,
+  color: const Color(0xFF0F766E),
+  famille: MenuFamille.equipe,
+  screen: () => const SizedBox.shrink(),
+);
+
+/// Familles affichées : [menuPrestigePointage] ajouté en fin du groupe Équipe si Prestige Pointage est installée.
+Map<MenuFamille, List<AccueilMenu>> avecMenuPointage(Map<MenuFamille, List<AccueilMenu>> familles, {required bool installee}) {
+  if (!installee) return familles;
+  if (!familles.containsKey(MenuFamille.equipe)) return {...familles, MenuFamille.equipe: [menuPrestigePointage]};
+  return {for (final e in familles.entries) e.key: e.key == MenuFamille.equipe ? [...e.value, menuPrestigePointage] : e.value};
+}
+
 /// Menus soumis à un droit, ajoutés après les 23 menus d'origine (catalogue d'origine inchangé). Ils ne figurent
 /// que si le compte connecté y a droit ([AccueilMenu.visible]) ; ils ne sont ni organisables ni proposés en favoris.
 final List<AccueilMenu> menusSousDroits = [

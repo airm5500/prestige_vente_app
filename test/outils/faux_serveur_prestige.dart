@@ -510,9 +510,18 @@ class FauxServeurPrestige extends ServeurJsonLocal {
       '<body><h1>HTTP Status 404 - Not Found</h1></body></html>',
       statut: 404);
 
+  /// 4.10.0 (Prestige Pointage, demande 57) : filtre exécuté AVANT celui de la session (comme celui du serveur pour
+  /// v1/borne-pointage/* et l'en-tête X-Borne) ; null = requête non concernée. Voir test/outils/faux_serveur_borne.dart.
+  FutureOr<ReponseLocale?> Function(RequeteRecue r)? filtreAvantSession;
+
   Future<ReponseLocale> _repondre(RequeteRecue r) async {
     if (prestigeAbsent) {
       return statutAbsent == 404 ? payara404 : ReponseLocale('<html><body>$statutAbsent</body></html>', statut: statutAbsent);
+    }
+    final f = filtreAvantSession;
+    if (f != null) {
+      final rep = await f(r);
+      if (rep != null) return rep;
     }
     // Filtre d'authentification : requête refusée AVANT d'être exécutée.
     if (exigerSession && !routePubliquePrestige(r.chemin) && !_sessionValide(r)) {
@@ -834,9 +843,13 @@ class _FauxRequete implements HttpClientRequest {
 
   Future<void> _envoyer() async {
     try {
-      final r = RequeteRecue(method, uri.path, uri.queryParameters, utf8.decode(_corps.takeBytes(), allowMalformed: true), headers.value('cookie') ?? '',
+      final octets = _corps.takeBytes();
+      final entetes = <String, String>{};
+      headers.forEach((k, v) => entetes[k.toLowerCase()] = v.join(','));
+      final r = RequeteRecue(method, uri.path, uri.queryParameters, utf8.decode(octets, allowMalformed: true), headers.value('cookie') ?? '',
           autorisation: headers.value('authorization') ?? '', clientRef: headers.value('x-client-ref') ?? '',
-          utilisateur: headers.value('x-prestige-utilisateur') ?? '', poste: headers.value('x-poste') ?? '');
+          utilisateur: headers.value('x-prestige-utilisateur') ?? '', poste: headers.value('x-poste') ?? '',
+          octets: octets, cible: uri.hasQuery ? '${uri.path}?${uri.query}' : uri.path, entetes: entetes);
       final rep = await serveur._traiterMemoire(r);
       if (rep.delai > Duration.zero) await Future<void>.delayed(rep.delai);
       if (serveur.coupe) throw const SocketException('Connection reset by peer');

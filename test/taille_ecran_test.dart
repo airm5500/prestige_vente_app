@@ -258,7 +258,14 @@ void main() {
       expect(main.indexOf('RacineTailleEcran('), lessThan(main.indexOf('MaterialApp(')));
       expect(main.indexOf('MultiProvider('), lessThan(main.indexOf('RacineTailleEcran(')), reason: 'providers gardés à la relance');
       final apps = Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart') && RegExp(r'\bMaterialApp\(').hasMatch(f.readAsStringSync()));
-      expect(apps.map((f) => f.path.replaceAll('\\', '/')), ['lib/main.dart']);
+      // Une MaterialApp par application : Prestige Mobile (main.dart) et Prestige Pointage (saveur pointage, même règle).
+      expect(apps.map((f) => f.path.replaceAll('\\', '/')).toSet(), {'lib/main.dart', 'lib/prestigepointage/pointage_app.dart'});
+      final pointage = File('lib/prestigepointage/pointage_app.dart').readAsStringSync();
+      expect(pointage.indexOf('RacineTailleEcran('), lessThan(pointage.indexOf('MaterialApp(')));
+      expect(pointage.indexOf('MultiProvider('), lessThan(pointage.indexOf('RacineTailleEcran(')));
+      final mainPointage = File('lib/main_pointage.dart').readAsStringSync();
+      expect(mainPointage.indexOf('TailleEcranReglage.charger()'), greaterThan(0));
+      expect(mainPointage.indexOf('initialiserPrestigePointage();', mainPointage.indexOf('Future<void> main()')), lessThan(mainPointage.indexOf('runApp(')));
     });
   });
 }

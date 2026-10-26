@@ -7,6 +7,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 /// Requête reçue par le serveur local.
 class RequeteRecue {
@@ -27,8 +28,19 @@ class RequeteRecue {
 
   /// 4.7.0 : en-tête X-Poste (nom de cet appareil, encodé en URL) ; vide sinon.
   final String poste;
+
+  /// 4.10.0 (Prestige Pointage, demande 57) : corps en octets bruts (multipart compris), chemin et paramètres tels que
+  /// reçus (encodés, comme getRequestURI + « ? » + getQueryString du serveur), en-têtes (noms en minuscules).
+  final List<int> octets;
+  final String cible;
+  final Map<String, String> entetes;
   RequeteRecue(this.methode, this.chemin, this.query, this.corps, this.cookie,
-      {this.autorisation = '', this.clientRef = '', this.utilisateur = '', this.poste = ''});
+      {this.autorisation = '', this.clientRef = '', this.utilisateur = '', this.poste = '', List<int>? octets, String? cible, this.entetes = const {}})
+      : octets = octets ?? utf8.encode(corps),
+        cible = cible ?? chemin;
+
+  /// En-tête [nom] (insensible à la casse), ou null.
+  String? entete(String nom) => entetes[nom.toLowerCase()];
 
   /// Jeton Bearer envoyé, ou null.
   String? get jeton => autorisation.startsWith('Bearer ') ? autorisation.substring(7) : null;
@@ -110,10 +122,18 @@ class ServeurJsonLocal {
     _s = s;
     _port = s.port;
     s.listen((req) async {
-      final corps = await utf8.decoder.bind(req).join();
+      final b = BytesBuilder(copy: false);
+      await for (final x in req) {
+        b.add(x);
+      }
+      final octets = b.takeBytes();
+      final corps = utf8.decode(octets, allowMalformed: true);
+      final entetes = <String, String>{};
+      req.headers.forEach((k, v) => entetes[k.toLowerCase()] = v.join(','));
       final r = RequeteRecue(req.method, req.uri.path, req.uri.queryParameters, corps, req.headers.value('cookie') ?? '',
           autorisation: req.headers.value('authorization') ?? '', clientRef: req.headers.value('x-client-ref') ?? '',
-          utilisateur: req.headers.value('x-prestige-utilisateur') ?? '', poste: req.headers.value('x-poste') ?? '');
+          utilisateur: req.headers.value('x-prestige-utilisateur') ?? '', poste: req.headers.value('x-poste') ?? '',
+          octets: octets, cible: req.uri.hasQuery ? '${req.uri.path}?${req.uri.query}' : req.uri.path, entetes: entetes);
       recues.add(r);
       final rep = await repondre(r);
       if (rep.delai > Duration.zero) await Future<void>.delayed(rep.delai);

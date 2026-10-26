@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Prestige Pointage : icône adaptative (Android 8+), fond vert sarcelle, avant-plan dans la zone de sécurité. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/launcher_icon_background" />
+    <foreground android:drawable="@mipmap/launcher_icon_foreground" />
+</adaptive-icon>
