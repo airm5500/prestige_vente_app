@@ -28,7 +28,7 @@ Détails : `docs/NOTE_VERSION_4.10.0.md` et `docs/prestigepointage/NOTE_VERSION_
 
 ## Non-régression
 
-- Job `prestige-mobile-identique` : la référence est **4.10.0+36** (commit `1c0dc1c`, avant la fusion). Le chemin de
+- Job `prestige-mobile-identique` : la référence est **4.10.0+36** (commit `e0fdc76`, avant la fusion). Le chemin de
   l'APK de référence est adapté aux saveurs (`app-mobile-release.apk`).
 - `test/prestigepos/pos_version_test.dart` :
   - version 1.8.0+22 ;

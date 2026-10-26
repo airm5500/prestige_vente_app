@@ -101,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      REFERENCE_MOBILE: 1c0dc1c48fe0fad9a6fd7774ee80e657f7fa1e27  # 4.10.0+36, avant la fusion dans PrestigePOS
+      REFERENCE_MOBILE: e0fdc765eef4cc51935049fca0b7d3e459e09735  # 4.10.0+36, avant la fusion dans PrestigePOS
     steps:
       - uses: actions/checkout@v4
         with:
