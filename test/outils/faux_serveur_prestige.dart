@@ -95,9 +95,9 @@ class DonneesFictives {
       };
 
   // --- Fiche client (v1/ordonnance-client) : patient FICTIF ---
-  static Map<String, dynamic> dossierClient() => {
+  static Map<String, dynamic> dossierClient({String naissance = '1980-01-01'}) => {
         'success': true,
-        'client': {'id': 'C1', 'nom': 'DEMO', 'prenoms': 'Patient Fictif', 'telephone': '0100000000', 'naissance': '1980-01-01', 'age': 46, 'sexe': 'F', 'type': 'STANDARD'},
+        'client': {'id': 'C1', 'nom': 'DEMO', 'prenoms': 'Patient Fictif', 'telephone': '0100000000', 'naissance': naissance, 'age': naissance.isEmpty ? null : 46, 'sexe': 'F', 'type': 'STANDARD'},
         'terrains': ['T1'],
         'allergies': 'Allergie fictive',
         'parametres': [
@@ -255,6 +255,9 @@ class FauxServeurPrestige extends ServeurJsonLocal {
   /// Routes par défaut (après les routes scriptées).
   final Map<String, FutureOr<ReponseLocale> Function(RequeteRecue r)> routesParDefaut = {};
 
+  /// 4.10.1 : date de naissance du client fictif C1 ('' = absente), complétée par POST client/C1/identite.
+  String naissanceC1 = '1980-01-01';
+
   /// Modules Réserve, Analyse posologie et Fiche client avec des données fictives (droits accordés si [droits]).
   void activerModules({bool droits = true}) {
     routesParDefaut.addAll({
@@ -266,7 +269,20 @@ class FauxServeurPrestige extends ServeurJsonLocal {
               {'lgCLIENTID': 'C1', 'strFIRSTNAME': 'DEMO', 'strLASTNAME': 'Patient Fictif', 'strADRESSE': '', 'strTELEPHONE': '0100000000'}
             ]
           }),
-      'GET /client/C1/dossier': (_) => ReponseLocale(DonneesFictives.dossierClient()),
+      'GET /client/C1/dossier': (_) => ReponseLocale(DonneesFictives.dossierClient(naissance: naissanceC1)),
+      // 4.10.1 : POST client/{id}/identite, règles de DossierClientService.completerIdentite (serveur a2bb8cc8) :
+      // complète une date ABSENTE seulement, AAAA-MM-JJ, ni à venir ni avant 1900, droit de saisie.
+      'POST /client/C1/identite': (r) {
+        if (!droits) return const ReponseLocale({'success': false, 'message': 'Votre profil ne permet pas de saisir ou de modifier une ordonnance.'});
+        final n = '${r.json['naissance'] ?? ''}'.trim();
+        final d = RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(n) ? DateTime.tryParse(n) : null;
+        if (d == null) return const ReponseLocale({'success': false, 'message': 'Date de naissance illisible : jj/mm/aaaa attendu.'});
+        if (d.isAfter(DateTime.now())) return const ReponseLocale({'success': false, 'message': 'La date de naissance ne peut pas être dans le futur.'});
+        if (d.year < 1900) return const ReponseLocale({'success': false, 'message': 'Date de naissance improbable.'});
+        if (naissanceC1.isNotEmpty) return const ReponseLocale({'success': false, 'message': 'Déjà renseigné : la fiche n\'a pas été modifiée.'});
+        naissanceC1 = n;
+        return const ReponseLocale({'success': true, 'message': 'Fiche complétée : date de naissance.'});
+      },
       'GET /ordonnance-client/terrains': (_) => const ReponseLocale({
             'success': true,
             'data': [

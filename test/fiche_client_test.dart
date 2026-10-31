@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/fiche_client/fiche_client_api.dart';
 import 'package:prestige_vente_app/fiche_client/fiche_client_models.dart';
+import 'package:prestige_vente_app/fiche_client/fiche_client_tab.dart' show FormatDateJJMMAAAA;
 import 'package:prestige_vente_app/fiche_client/fiche_client_validation.dart';
 import 'package:prestige_vente_app/fiche_client/ordonnances_clients_screen.dart';
 import 'package:prestige_vente_app/serveur/client_prestige.dart';
@@ -17,9 +18,9 @@ const _poids = ParametreClinique(id: 'PARAM_POIDS', code: 'POIDS', libelle: 'Poi
 const _tension = ParametreClinique(id: 'PARAM_TENSION', code: 'TENSION', libelle: 'Tension artérielle', unite: 'mmHg', genre: 'tension', saisieMin: 40, saisieMax: 260);
 const _glycemie = ParametreClinique(id: 'PARAM_GLY', code: 'GLYCEMIE_JEUN', libelle: 'Glycémie à jeun', unite: 'g/L', decimales: 2);
 
-Map<String, dynamic> _dossier() => {
+Map<String, dynamic> _dossier({String naissance = '1980-01-01'}) => {
       'success': true,
-      'client': {'id': 'C1', 'nom': 'TEST', 'prenoms': 'Patient Fictif', 'telephone': '0100000000', 'naissance': '1980-01-01', 'age': 46, 'sexe': 'F', 'type': 'STANDARD'},
+      'client': {'id': 'C1', 'nom': 'TEST', 'prenoms': 'Patient Fictif', 'telephone': '0100000000', 'naissance': naissance, 'age': naissance.isEmpty ? null : 46, 'sexe': 'F', 'type': 'STANDARD'},
       'terrains': ['T1', 'T2'],
       'allergies': 'Allergie fictive',
       'parametres': [
@@ -43,9 +44,20 @@ class _FakeApiCles extends _FakeApi {
 }
 
 class _FakeApi extends FicheClientApi {
-  _FakeApi(this.d) : super(ClientPrestige(() => 'http://127.0.0.1:1/prestige/api/v1'));
+  _FakeApi(this.d, {this.naissance = '1980-01-01'}) : super(ClientPrestige(() => 'http://127.0.0.1:1/prestige/api/v1'));
   final DroitsOrdonnances d;
   int enregistrements = 0;
+
+  /// 4.10.1 : date de naissance du dossier fictif ('' = absente) ; dates envoyées par « Ajouter ».
+  String naissance;
+  final List<DateTime> naissancesEnvoyees = [];
+
+  @override
+  Future<String> completerNaissance(String clientId, DateTime n) async {
+    naissancesEnvoyees.add(n);
+    naissance = '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+    return 'Fiche complétée : date de naissance.';
+  }
 
   @override
   Future<DroitsOrdonnances> droits() async => d;
@@ -58,7 +70,7 @@ class _FakeApi extends FicheClientApi {
         LigneConsommation(cip: '0000002', nom: 'PRODUIT FICTIF B SIROP', dernierAchat: '2026-02-11', nbAchats: 1, qteTotale: 1, montant: 2350, habitude: 'Dormant', stock: 0),
       ];
   @override
-  Future<DossierClient> dossier(String clientId) async => DossierClient.fromJson(_dossier());
+  Future<DossierClient> dossier(String clientId) async => DossierClient.fromJson(_dossier(naissance: naissance));
   @override
   Future<List<TerrainClinique>> terrains() async => const [TerrainClinique(id: 'T1', libelle: 'Diabète'), TerrainClinique(id: 'T2', libelle: 'Pénicilline', allergie: true)];
   @override
@@ -150,6 +162,31 @@ void main() {
     });
   });
 
+  group('date de naissance (4.10.1)', () {
+    test('JJ/MM/AAAA : illisible, inexistante, à venir, avant 1900 refusées (comme le serveur) ; date lue', () {
+      final now = DateTime(2026, 10, 31, 9);
+      expect(validerNaissance('', maintenant: now), contains('Saisissez'));
+      expect(validerNaissance('1985-03-02', maintenant: now), contains('JJ/MM/AAAA'));
+      expect(validerNaissance('31/02/1985', maintenant: now), contains('n\'existe pas'));
+      expect(validerNaissance('01/11/2026', maintenant: now), contains('futur'));
+      expect(validerNaissance('31/10/2026', maintenant: now), isNull, reason: 'aujourd\'hui accepté');
+      expect(validerNaissance('31/12/1899', maintenant: now), contains('1900'));
+      expect(lireNaissance(' 02/03/1985 ', maintenant: now), DateTime(1985, 3, 2));
+      expect(lireNaissance('29/02/2001', maintenant: now), isNull);
+      expect(dateClientFr('1985-03-02'), '02/03/1985');
+    });
+
+    test('saisie au clavier : chiffres seulement, « / » ajoutés, 8 chiffres au plus', () {
+      final f = FormatDateJJMMAAAA();
+      TextEditingValue v(String t) => f.formatEditUpdate(TextEditingValue.empty, TextEditingValue(text: t));
+      expect(v('02').text, '02');
+      expect(v('023').text, '02/3');
+      expect(v('02031985').text, '02/03/1985');
+      expect(v('02/03/19851').text, '02/03/1985');
+      expect(v('ab0-2').text, '02');
+    });
+  });
+
   group('client v1/ordonnance-client', () {
     late ServeurJsonLocal srv;
     late FicheClientApi api;
@@ -217,6 +254,20 @@ void main() {
           expect(FicheClientApi.nouvelleCle().length, lessThanOrEqualTo(64));
           expect(FicheClientApi.nouvelleCle(), isNot(FicheClientApi.nouvelleCle()));
         }));
+
+    // 4.10.1 : POST client/{id}/identite (serveur a2bb8cc8 du 13/10) : complète la date absente, sans écrasement.
+    test('date de naissance : AAAA-MM-JJ envoyée ; « Déjà renseigné » ; serveur ancien (404) ; date à venir sans appel', () => avecVraiHttp(() async {
+          srv.routes['POST /client/C1/identite'] = (_) => const ReponseLocale({'success': true, 'message': 'Fiche complétée : date de naissance.'});
+          expect(await api.completerNaissance('C1', DateTime(1985, 3, 2)), 'Fiche complétée : date de naissance.');
+          expect(srv.recuesSur('/identite').single.json, {'naissance': '1985-03-02'});
+          srv.routes['POST /client/C1/identite'] = (_) => const ReponseLocale({'success': false, 'message': 'Déjà renseigné : la fiche n\'a pas été modifiée.'});
+          await expectLater(api.completerNaissance('C1', DateTime(1985, 3, 2)), throwsA(isA<RefusMetier>().having((e) => e.message, 'message', startsWith('Déjà renseigné'))));
+          srv.routes.remove('POST /client/C1/identite');
+          await expectLater(api.completerNaissance('C1', DateTime(1985, 3, 2)), throwsA(isA<ErreurHttp>().having((e) => e.status, 'status', 404)));
+          final avant = srv.recues.length;
+          await expectLater(api.completerNaissance('C1', DateTime.now().add(const Duration(days: 2))), throwsA(isA<RefusMetier>()));
+          expect(srv.recues.length, avant, reason: 'aucun appel pour une date à venir');
+        }));
   });
 
   group('écran', () {
@@ -229,6 +280,46 @@ void main() {
       await t.tap(find.byKey(const ValueKey('fiche-client-C1')));
       await t.pumpAndSettle();
     }
+
+    testWidgets('4.10.1 : date absente + droit de saisie → « Ajouter » ; date à venir refusée ; JJ/MM/AAAA envoyée et affichée', (t) async {
+      await _taille(t, const Size(720, 1440));
+      final api = _FakeApi(const DroitsOrdonnances(consulter: true, modifier: true), naissance: '');
+      await ouvrirDossier(t, api);
+      await t.tap(find.byKey(const ValueKey('fiche-ajouter-naissance')));
+      await t.pumpAndSettle();
+      final demain = DateTime.now().add(const Duration(days: 1));
+      String deux(int v) => v.toString().padLeft(2, '0');
+      await t.enterText(find.byKey(const ValueKey('fiche-naissance-champ')), '${deux(demain.day)}${deux(demain.month)}${demain.year}');
+      await t.tap(find.byKey(const ValueKey('fiche-naissance-enregistrer')));
+      await t.pumpAndSettle();
+      expect(find.textContaining('futur'), findsOneWidget);
+      expect(api.naissancesEnvoyees, isEmpty);
+      await t.enterText(find.byKey(const ValueKey('fiche-naissance-champ')), '02031985');
+      await t.pump();
+      expect(t.widget<TextField>(find.byKey(const ValueKey('fiche-naissance-champ'))).controller!.text, '02/03/1985');
+      await t.tap(find.byKey(const ValueKey('fiche-naissance-enregistrer')));
+      await t.pumpAndSettle();
+      expect(api.naissancesEnvoyees, [DateTime(1985, 3, 2)]);
+      expect(find.text('Fiche complétée : date de naissance.'), findsOneWidget);
+      expect(find.byKey(const ValueKey('fiche-ajouter-naissance')), findsNothing, reason: 'date désormais renseignée');
+      expect(find.textContaining('02/03/1985'), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('4.10.1 : date présente → JJ/MM/AAAA, pas de bouton', (t) async {
+      await _taille(t, const Size(720, 1440));
+      await ouvrirDossier(t, _FakeApi(const DroitsOrdonnances(consulter: true, modifier: true)));
+      expect(find.text('01/01/1980 · 46 ans'), findsOneWidget);
+      expect(find.byKey(const ValueKey('fiche-ajouter-naissance')), findsNothing);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('4.10.1 : date absente en consultation seule → pas de bouton', (t) async {
+      await _taille(t, const Size(720, 1440));
+      await ouvrirDossier(t, _FakeApi(const DroitsOrdonnances(consulter: true, modifier: false), naissance: ''));
+      expect(find.byKey(const ValueKey('fiche-ajouter-naissance')), findsNothing);
+      expect(t.takeException(), isNull);
+    });
 
     testWidgets('sans droit de consultation : message, aucune recherche', (t) async {
       await _taille(t, const Size(720, 1440));

@@ -1,5 +1,6 @@
 // lib/fiche_client/fiche_client_tab.dart
-// Onglet « Fiche client » : recherche d'un client (nom ou téléphone), identité (lecture seule), terrains et
+// Onglet « Fiche client » : recherche d'un client (nom ou téléphone), identité (lecture seule ; 4.10.1 : date de
+// naissance ajoutée si elle manque, avec le droit de saisie), terrains et
 // allergies, paramètres suivis (tension, poids, glycémie…) avec leur historique, consommation sur 12 mois.
 // Saisie (allergies / terrains, nouvelle mesure) seulement si [modifier] (P_ORDONNANCE_CLIENT_MAJ).
 // Données de santé : en mémoire seulement (jamais journalisées ni écrites sur le disque).
@@ -208,6 +209,16 @@ class _FicheClientTabState extends State<FicheClientTab> {
     _chargerDossier();
   }
 
+  /// 4.10.1 : date de naissance d'un client qui n'en a pas.
+  Future<void> _ajouterNaissance() async {
+    final c = _client;
+    if (!widget.modifier || c == null) return;
+    final message = await showDialog<String>(context: context, builder: (_) => _SaisieNaissance(api: _api, clientId: c.id));
+    if (message == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    _chargerDossier();
+  }
+
   Future<void> _ajouterMesure({ParametreClinique? parametre}) async {
     final c = _client, parametres = _parametres;
     if (!widget.modifier || c == null) return;
@@ -374,7 +385,26 @@ class _FicheClientTabState extends State<FicheClientTab> {
         ligne('Nom', i.nom),
         ligne('Prénoms', i.prenoms),
         ligne('Téléphone', i.telephone),
-        ligne('Naissance', [i.naissance, if (i.age != null) '${i.age} ans'].where((x) => x.isNotEmpty).join(' · ')),
+        // 4.10.1 : date affichée JJ/MM/AAAA ; absente et droit de saisie : « Ajouter » (le serveur complète une date
+        // manquante, sans jamais en écraser une ; la modifier : demande 58).
+        if (i.naissance.trim().isEmpty && widget.modifier)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Row(children: [
+              const SizedBox(width: 110, child: Text('Naissance', style: TextStyle(color: Pal.muted, fontSize: 13))),
+              const Text('—', style: TextStyle(fontSize: 13)),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                key: const ValueKey('fiche-ajouter-naissance'),
+                style: TextButton.styleFrom(minimumSize: const Size(48, 40), padding: const EdgeInsets.symmetric(horizontal: 8)),
+                onPressed: _ajouterNaissance,
+                icon: const Icon(Icons.cake_outlined, size: 18),
+                label: const Text('Ajouter'),
+              ),
+            ]),
+          )
+        else
+          ligne('Naissance', [dateClientFr(i.naissance), if (i.age != null) '${i.age} ans'].where((x) => x.isNotEmpty).join(' · ')),
         ligne('Sexe', sexe),
         ligne('Type', i.type),
         ligne('Ordonnances', '${d.nbOrdonnances}'),
@@ -1010,5 +1040,122 @@ class _HistoriqueMesuresState extends State<_HistoriqueMesures> {
         ),
       ]),
     );
+  }
+}
+
+/// 4.10.1 — saisie de la date de naissance (JJ/MM/AAAA, chiffres seulement, « / » ajoutés), calendrier en secours ;
+/// contrôles du serveur rejoués avant l'envoi (illisible, à venir, avant 1900).
+class _SaisieNaissance extends StatefulWidget {
+  final FicheClientApi api;
+  final String clientId;
+  const _SaisieNaissance({required this.api, required this.clientId});
+
+  @override
+  State<_SaisieNaissance> createState() => _SaisieNaissanceState();
+}
+
+class _SaisieNaissanceState extends State<_SaisieNaissance> {
+  final _champ = TextEditingController();
+  String? _erreur;
+  bool _envoi = false;
+
+  @override
+  void dispose() {
+    _champ.dispose();
+    super.dispose();
+  }
+
+  Future<void> _calendrier() async {
+    final now = DateTime.now();
+    final d = await showDatePicker(
+      context: context,
+      initialDate: lireNaissance(_champ.text) ?? DateTime(now.year - 30, 1, 1),
+      firstDate: DateTime(1900),
+      lastDate: now,
+      initialDatePickerMode: DatePickerMode.year,
+      initialEntryMode: DatePickerEntryMode.calendarOnly,
+    );
+    if (d == null || !mounted) return;
+    String deux(int v) => v.toString().padLeft(2, '0');
+    setState(() {
+      _champ.text = '${deux(d.day)}/${deux(d.month)}/${d.year}';
+      _erreur = null;
+    });
+  }
+
+  Future<void> _enregistrer() async {
+    final e = validerNaissance(_champ.text);
+    if (e != null) {
+      setState(() => _erreur = e);
+      return;
+    }
+    setState(() {
+      _envoi = true;
+      _erreur = null;
+    });
+    try {
+      final m = await widget.api.completerNaissance(widget.clientId, lireNaissance(_champ.text)!);
+      if (mounted) Navigator.of(context).pop(m);
+    } catch (x) {
+      if (mounted) setState(() => _erreur = messageErreur(x));
+    } finally {
+      if (mounted) setState(() => _envoi = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Date de naissance'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          TextField(
+            key: const ValueKey('fiche-naissance-champ'),
+            controller: _champ,
+            autofocus: true,
+            enabled: !_envoi,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FormatDateJJMMAAAA()],
+            decoration: InputDecoration(
+              labelText: 'JJ/MM/AAAA',
+              hintText: '02/03/1985',
+              errorText: _erreur,
+              errorMaxLines: 3,
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                key: const ValueKey('fiche-naissance-calendrier'),
+                tooltip: 'Calendrier',
+                icon: const Icon(Icons.calendar_month),
+                onPressed: _envoi ? null : _calendrier,
+              ),
+            ),
+            onSubmitted: (_) => _enregistrer(),
+          ),
+          const SizedBox(height: 8),
+          const Text('Une date déjà renseignée ne peut pas être modifiée depuis le téléphone.',
+              style: TextStyle(color: Pal.muted, fontSize: 12.5)),
+        ]),
+        actions: [
+          TextButton(onPressed: _envoi ? null : () => Navigator.of(context).pop(), child: const Text('Annuler')),
+          FilledButton(
+            key: const ValueKey('fiche-naissance-enregistrer'),
+            onPressed: _envoi ? null : _enregistrer,
+            child: _envoi ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Enregistrer'),
+          ),
+        ],
+      );
+}
+
+/// Chiffres seulement, « / » ajoutés après le jour et le mois : « 02031985 » → « 02/03/1985 ».
+class FormatDateJJMMAAAA extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue ancien, TextEditingValue nouveau) {
+    final chiffres = nouveau.text.replaceAll(RegExp(r'\D'), '');
+    final c = chiffres.length > 8 ? chiffres.substring(0, 8) : chiffres;
+    final b = StringBuffer();
+    for (var k = 0; k < c.length; k++) {
+      if (k == 2 || k == 4) b.write('/');
+      b.write(c[k]);
+    }
+    final t = b.toString();
+    return TextEditingValue(text: t, selection: TextSelection.collapsed(offset: t.length));
   }
 }

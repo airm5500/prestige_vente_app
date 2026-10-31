@@ -6,6 +6,7 @@
 // Retour automatique à l'accueil (panier vidé) après le ticket et après l'inactivité.
 // Serveur injoignable : « Borne momentanément indisponible — adressez-vous au comptoir ».
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
@@ -972,15 +973,20 @@ class BorneScreenState extends State<BorneScreen> {
           if (cats.isNotEmpty) ...[
             const Text('Catégories', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Pal.ink)),
             const SizedBox(height: 8),
-            GridView.count(
-              crossAxisCount: colsCat,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: w < 600 ? 1.05 : 1.25,
-              children: [for (final c in cats) _tuileCategorie(c)],
-            ),
+            // 4.10.1 : hauteur de la tuile = la plus grande de (largeur / rapport) et (pictogramme + libellé à la taille de
+            // texte réelle) : « Taille de l'affichage » d'Android agrandie ou texte agrandi ne coupent plus le pictogramme ni
+            // le libellé par le bas. À la taille d'usine, la hauteur reste celle du rapport (grille inchangée).
+            LayoutBuilder(builder: (context, box) {
+              final largeur = (box.maxWidth - 8 * (colsCat - 1)) / colsCat;
+              final hauteur = math.max(largeur / (w < 600 ? 1.05 : 1.25), hauteurTuileCategorie(context));
+              return GridView(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: colsCat, mainAxisSpacing: 8, crossAxisSpacing: 8, mainAxisExtent: hauteur),
+                children: [for (final c in cats) _tuileCategorie(c)],
+              );
+            }),
             const SizedBox(height: 16),
           ],
           if (_vedettes.isNotEmpty) ...[
@@ -1015,6 +1021,25 @@ class BorneScreenState extends State<BorneScreen> {
     return (f == FormeProduit.autre ? Icons.local_pharmacy : f.icon, bg, fg);
   }
 
+  /// Style du libellé d'une tuile de catégorie.
+  static const styleLibelleCategorie = TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5, color: Pal.ink);
+
+  /// Hauteur nécessaire au contenu d'une tuile de catégorie (marges, pictogramme 44, espace, une ligne de libellé à la
+  /// taille de texte de l'appareil, bordure).
+  static double hauteurTuileCategorie(BuildContext context) {
+    // Style réellement appliqué : celui de la Material de la tuile (textTheme.bodyMedium, hauteur de ligne comprise).
+    final style = (Theme.of(context).textTheme.bodyMedium ?? const TextStyle()).merge(styleLibelleCategorie);
+    final tp = TextPainter(
+      text: TextSpan(text: 'Hg', style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final h = tp.height;
+    tp.dispose();
+    return (6 + 44 + 6 + h + 6 + 4).ceilToDouble();
+  }
+
   Widget _tuileCategorie(BorneCategorie c) {
     final (icon, bg, fg) = iconeCategorie(c);
     return Material(
@@ -1034,7 +1059,7 @@ class BorneScreenState extends State<BorneScreen> {
               child: Icon(icon, color: fg, size: 26),
             ),
             const SizedBox(height: 6),
-            Text(c.libelle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5, color: Pal.ink)),
+            Text(c.libelle, maxLines: 1, overflow: TextOverflow.ellipsis, style: styleLibelleCategorie),
           ]),
         ),
       ),
