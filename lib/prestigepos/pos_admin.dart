@@ -16,12 +16,15 @@ import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_diagnostic.dart';
 import 'package:prestige_vente_app/borne/borne_reglages_page.dart';
+import 'package:prestige_vente_app/paiements/etat_mobile_money.dart';
+import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_page.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/pos_app.dart';
 import 'package:prestige_vente_app/prestigepos/demarrage_auto.dart';
 import 'package:prestige_vente_app/prestigepos/pos_assistant.dart';
 import 'package:prestige_vente_app/prestigepos/pos_demarrage_page.dart';
+import 'package:prestige_vente_app/prestigepos/pos_reglages.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/version_app.dart';
@@ -165,6 +168,12 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
                 builder: (_, __) => _entree('pos-admin-nom-appareil', Icons.badge_outlined, 'Nom de cet appareil',
                     NomAppareil.instance.effectif ?? 'Aucun : Prestige garde le nom réseau', () => _ouvrir(const PosNomAppareilPage())),
               ),
+              // 1.8.2 : option Mobile Money et ligne d'état (pourquoi le paiement n'est pas proposé au client).
+              ValueListenableBuilder<bool>(
+                valueListenable: PaiementsMobileReglages.actif,
+                builder: (_, actif, __) => _entree('pos-admin-mobile-money', Icons.qr_code_2, 'Paiement mobile money',
+                    actif ? 'Proposé au client si le serveur le permet (état à l\'ouverture)' : 'Non proposé : le client paie à la caisse', () => _ouvrir(const PosMobileMoneyPage())),
+              ),
               _entree('pos-admin-tester', Icons.fact_check_outlined, 'Tester la borne', 'Connexion de l\'utilisateur borne et produits', _tester),
               // 1.1.0 : démarrage automatique avec l'appareil (désactivé par défaut) et sortie vers Android.
               ValueListenableBuilder<EtatDemarrage>(
@@ -181,6 +190,88 @@ class _PosAdminScreenState extends State<PosAdminScreen> {
                   textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted, fontSize: 13)),
             ]),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 1.8.2 — page « Paiement mobile money » de l'administration : option (enregistrée dans PrestigePOS) et ligne d'état
+/// calculée avec les mêmes conditions que la borne (connexion d'essai de l'utilisateur borne, capacités relues, droit
+/// de clôture). Écran du personnel seulement : jamais montré au client.
+class PosMobileMoneyPage extends StatefulWidget {
+  /// Test remplaçable (tests) ; sinon TesteurBorne sur l'adresse du serveur.
+  final TesteurBorne Function(String baseUrl)? testeur;
+  const PosMobileMoneyPage({super.key, this.testeur});
+
+  @override
+  State<PosMobileMoneyPage> createState() => _PosMobileMoneyPageState();
+}
+
+class _PosMobileMoneyPageState extends State<PosMobileMoneyPage> {
+  DiagnosticMobileMoney? _etat;
+  bool _verification = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _verifier();
+  }
+
+  Future<void> _verifier() async {
+    setState(() => _verification = true);
+    final base = context.read<SettingsProvider>().baseUrl;
+    final d = await (widget.testeur?.call(base) ?? TesteurBorne(baseUrl: base))
+        .mobileMoney(BorneReglages.courant.value, actif: PaiementsMobileReglages.actif.value);
+    if (!mounted) return;
+    setState(() {
+      _etat = d;
+      _verification = false;
+    });
+  }
+
+  Future<void> _changer(bool v) async {
+    await PosReglages.enregistrer(PosReglages.courant.value.copyWith(mobileMoney: v));
+    PaiementsMobileReglages.actif.value = v;
+    if (mounted) setState(() {});
+    await _verifier();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final actif = PaiementsMobileReglages.actif.value;
+    final e = _etat;
+    return Scaffold(
+      key: const ValueKey('pos-mobile-money-page'),
+      backgroundColor: Pal.page,
+      appBar: AppBar(backgroundColor: Pal.navy, foregroundColor: Colors.white, title: const Text('Paiement mobile money')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
+            SwitchListTile(
+              key: const ValueKey('pos-mobile-money'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Proposer le paiement mobile money'),
+              subtitle: const Text('QR du montant exact, confirmé par l\'agrégateur du serveur Prestige. Sinon, le client paie à '
+                  'la caisse avec son ticket de prévente.'),
+              value: actif,
+              onChanged: _verification ? null : _changer,
+            ),
+            if (_verification) const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator()),
+            if (e != null && !_verification && actif)
+              LigneEtatMobileMoney(cle: 'pos-mobile-money-etat', titre: 'Borne', d: e, padding: const EdgeInsets.only(top: 6, bottom: 6)),
+            if (actif)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const ValueKey('pos-mobile-money-verifier'),
+                  onPressed: _verification ? null : _verifier,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Vérifier à nouveau'),
+                ),
+              ),
+          ]),
         ),
       ),
     );

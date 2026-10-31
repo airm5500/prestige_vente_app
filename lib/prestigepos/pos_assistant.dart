@@ -7,11 +7,13 @@
 //   3. Présentation (Vitrine / Liste rapide / Guidée), taille de l'écran, mobile money ;
 //   4. Imprimante de ticket (Sunmi, Bluetooth, USB, réseau ; 58 / 80 mm ; test) ;
 //   5. Récapitulatif → « Démarrer la borne ».
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_diagnostic.dart';
+import 'package:prestige_vente_app/paiements/etat_mobile_money.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_page.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
@@ -114,6 +116,26 @@ class _PosAssistantState extends State<PosAssistant> {
   // 3. Présentation
   late TailleEcran _taille = TailleEcranReglage.enregistree;
   late bool _mobileMoney = PosReglages.courant.value.mobileMoney;
+
+  /// 1.8.2 : ligne d'état sous l'option (mêmes conditions que la borne), vérifiée à l'arrivée sur l'étape et à chaque
+  /// changement de l'option.
+  DiagnosticMobileMoney? _etatMM;
+  bool _verifMM = false;
+  int _demandeMM = 0;
+
+  Future<void> _verifierMobileMoney() async {
+    final n = ++_demandeMM;
+    setState(() {
+      _verifMM = true;
+      _etatMM = null;
+    });
+    final d = await (widget.testeur?.call(_s.baseUrl) ?? TesteurBorne(baseUrl: _s.baseUrl)).mobileMoney(_borne, actif: _mobileMoney);
+    if (!mounted || n != _demandeMM) return;
+    setState(() {
+      _etatMM = d;
+      _verifMM = false;
+    });
+  }
 
   @override
   void initState() {
@@ -232,6 +254,7 @@ class _PosAssistantState extends State<PosAssistant> {
     }
     if (!mounted) return;
     setState(() => _etape = (_etape + 1).clamp(0, PosAssistant.etapes.length - 1));
+    if (_etape == 2) unawaited(_verifierMobileMoney());
   }
 
   void _precedent() {
@@ -381,8 +404,14 @@ class _PosAssistantState extends State<PosAssistant> {
           subtitle: const Text('Seulement si le serveur Prestige l\'annonce (module paiements mobile). Sinon, le client paie '
               'à la caisse avec son ticket de prévente.'),
           value: _mobileMoney,
-          onChanged: (v) => setState(() => _mobileMoney = v),
+          onChanged: (v) {
+            setState(() => _mobileMoney = v);
+            unawaited(_verifierMobileMoney());
+          },
         ),
+        if (_mobileMoney && _verifMM) const LinearProgressIndicator(),
+        if (_mobileMoney && !_verifMM && _etatMM != null)
+          LigneEtatMobileMoney(cle: 'pos-mobile-money-etat', titre: 'Borne', d: _etatMM!, padding: const EdgeInsets.only(top: 4, bottom: 4)),
       ]);
 
   Widget _termine() {

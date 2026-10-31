@@ -235,6 +235,10 @@ void main() {
     await app.attendre(t, const Duration(milliseconds: 500));
     expect(NomAppareil.instance.nomEnregistre, isFalse);
     await t.enterText(find.byKey(const Key('nom_appareil_champ')), 'Borne caisse');
+    // 1.8.2 : administration plus longue (entrée « Paiement mobile money ») : bouton ramené à l'écran avant le toucher.
+    await app.attendre(t, const Duration(milliseconds: 500));
+    await t.ensureVisible(find.byKey(const Key('nom_appareil_enregistrer')));
+    await app.attendre(t, const Duration(milliseconds: 500));
     await t.tap(find.byKey(const Key('nom_appareil_enregistrer')));
     await app.attendre(t, const Duration(seconds: 1));
     expect(NomAppareil.instance.nomEnregistre, isTrue);
