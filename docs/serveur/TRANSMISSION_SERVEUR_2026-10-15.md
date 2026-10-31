@@ -17,7 +17,7 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10)
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10)
 3. Prestige Pharmacien : réponses et demandes 45 et 55 (péremptions courtes, 25/10)
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
@@ -405,6 +405,56 @@ Aujourd'hui, aucune route ne permet de pointer sans session :
 - Si vous préférez un autre schéma d'authentification (par exemple un jeton à durée de vie longue renouvelé par la
   borne), dites-le avant de coder : l'application suivra votre format.
 
+### Demande 58 — Fiche client : modifier ou effacer la date de naissance (P2, retour du pharmacien du 31/10)
+
+**Besoin (pharmacien) :** « pourquoi on ne peut pas modifier ou ajouter la date de naissance d'un client quand on est
+sur sa fiche ? »
+
+**Ce qui existe (vérifié dans le code, ee179bb7)**
+
+| Route | Ce qu'elle fait pour la date de naissance |
+|---|---|
+| `POST v1/ordonnance-client/client/{id}/identite {naissance, sexe}` (a2bb8cc8, 13/10) | La **complète si elle est vide**, sans jamais l'écraser : « Déjà renseigné » sinon. Prestige Mobile 4.10.1 s'en sert pour **ajouter** une date absente. |
+| `POST v1/ordonnance-client/client/{id}/dossier` | Allergies et terrains seulement. |
+| `POST v1/client/update-infos-client/{id}` | Ignore `dtNAISSANCE` et suppose un compte tiers payant. |
+| `POST v1/client/gestion/update` (formulaire) | Réécrit **toute** la fiche (plafonds, quotas, tiers payant, remise…) : inutilisable depuis le téléphone sans risquer d'écraser d'autres champs. |
+| Enregistrement d'une ordonnance (`dateNaissance`) | Reportée sur la fiche du client **standard** seulement, en effet secondaire. |
+
+Aucune route ne permet donc de **corriger** une date fausse ni de l'**effacer** depuis la fiche client.
+
+**Demande : étendre `POST v1/ordonnance-client/client/{id}/identite`**, sans changer le comportement actuel par
+défaut :
+- Corps : `{"naissance": "AAAA-MM-JJ" | "" | null, "remplacer": true}`.
+  - Sans `remplacer` (ou `false`) : comportement actuel (compléter seulement).
+  - Avec `remplacer: true` et une date : la date du client est **remplacée**.
+  - Avec `remplacer: true` et `naissance` vide ou `null` : la date est **effacée** (`dt_NAISSANCE = NULL`), si vous
+    l'acceptez ; sinon, refus explicite « La date de naissance ne peut pas être effacée ».
+- Contrôles :
+  - ceux de `DateNaissance.valider` : date impossible, date à venir, âge supérieur à `AGE_MAX` ;
+  - droit `P_ORDONNANCE_CLIENT_MAJ`, comme aujourd'hui.
+- Réponse : `{success:true, message:"Date de naissance modifiée." | "Date de naissance effacée.", naissance:"AAAA-MM-JJ" | ""}`.
+- Journal : « Date de naissance du client <id> modifiée par <utilisateur> ». Ni l'ancienne ni la nouvelle date dans
+  le message (donnée de santé).
+- `t_client.dt_UPDATED = NOW()`, comme pour la complétion.
+
+**Capacité, pour que l'application n'affiche « Modifier » que sur un serveur qui la gère :**
+- ajouter `"naissanceModifiable": true` dans la réponse de `GET v1/ordonnance-client/client/{id}/dossier` (objet
+  `client`) ou de `GET v1/ordonnance-client/droits` ;
+- à vous de choisir l'emplacement, l'application lit les deux.
+
+**Question au serveur :** la modification vaut-elle pour **tous** les types de client (assurance et carnet compris),
+ou seulement pour le client standard ? Dans le code de l'ordonnance, la date d'un client assurance ou carnet est
+« gérée par son propre écran ». Si seul le client standard est autorisé, renvoyer pour les autres types
+`naissanceModifiable: false` et, en cas d'envoi, le refus « Date gérée par la fiche assurance du client ».
+
+**Côté application (Prestige Mobile 4.10.1, déjà livré) :**
+- Ajout d'une date absente : bouton « Ajouter » de la fiche client, saisie JJ/MM/AAAA ou calendrier, pas de date à
+  venir, rien avant 1900. Envoi par la route `identite` actuelle.
+- Une date déjà renseignée s'affiche JJ/MM/AAAA, sans bouton.
+- Après votre réponse : bouton « Modifier » (et « Effacer » si accepté) seulement si `naissanceModifiable` vaut
+  `true`, avec `remplacer: true`.
+- Aucune date n'est journalisée ni gardée sur le téléphone.
+
 ---
 
 ## 3. Prestige Pharmacien (`prestige_app`, 3.10.1+42)
@@ -618,5 +668,6 @@ Toujours attendu : `auteurId`, `auteurLogin`, `auteurNom` dans les 7 routes `ws/
 | 55 | Péremptions courtes : `peutChangerStatut` dans la réponse de la liste | Pharmacien | P3 (facultatif) |
 | 56 | Nom de l'appareil gardé par le serveur (`GET`/`PUT v1/appareil/nom`, empreinte SHA-256) | Mobile, PrestigePOS | P2 |
 | 57 | Borne de pointage sans compte : appareil enrôlé (`POST v1/rh/bornes`, `v1/borne-pointage/*` signés HMAC, retrait depuis le web) | Prestige Pointage, Mobile | P2 |
+| 58 | Fiche client : modifier ou effacer la date de naissance (`POST v1/ordonnance-client/client/{id}/identite` avec `remplacer`, capacité `naissanceModifiable`) | Mobile | P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.

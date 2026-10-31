@@ -171,6 +171,8 @@
     "test/prestigepointage/pointage_ergonomie_test.dart": "ergonomie",
     "test/prestigepointage/prestigepointage_garde_test.dart": "non_regression",
     "test/reseau/prestigepointage_reseau_test.dart": "reseau",
-    "test/performance/prestigepointage_perf_test.dart": "performance"
+    "test/performance/prestigepointage_perf_test.dart": "performance",
+    "test/fiche_naissance_e2e_test.dart": "e2e",
+    "test/reseau/fiche_naissance_reseau_test.dart": "reseau"
   }
 }

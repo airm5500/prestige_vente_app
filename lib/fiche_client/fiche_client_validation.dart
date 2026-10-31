@@ -147,3 +147,26 @@ class SaisieMesure {
 /// Contrôle des allergies (texte libre).
 String? validerAllergies(String texte) =>
     texte.trim().length > maxAllergies ? 'Allergies : $maxAllergies caractères au plus (${texte.trim().length} saisis).' : null;
+
+/// 4.10.1 — date de naissance saisie « JJ/MM/AAAA » (ajout d'une date absente, POST client/{id}/identite) : mêmes
+/// refus que le serveur (DossierClientService.completerIdentite) : illisible, à venir, avant 1900. Null si elle est
+/// recevable.
+String? validerNaissance(String saisie, {DateTime? maintenant}) => _naissance(saisie, maintenant ?? DateTime.now()).$1;
+
+/// La date de naissance saisie (JJ/MM/AAAA), ou null si elle n'est pas recevable.
+DateTime? lireNaissance(String saisie, {DateTime? maintenant}) => _naissance(saisie, maintenant ?? DateTime.now()).$2;
+
+(String?, DateTime?) _naissance(String saisie, DateTime maintenant) {
+  final s = saisie.trim();
+  if (s.isEmpty) return ('Saisissez la date de naissance (JJ/MM/AAAA).', null);
+  final m = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})$').firstMatch(s);
+  if (m == null) return ('Date de naissance illisible : JJ/MM/AAAA attendu.', null);
+  final j = int.parse(m[1]!), mo = int.parse(m[2]!), a = int.parse(m[3]!);
+  final d = DateTime(a, mo, j);
+  if (mo < 1 || mo > 12 || j < 1 || d.month != mo || d.day != j) return ('Cette date n\'existe pas (JJ/MM/AAAA).', null);
+  if (d.isAfter(DateTime(maintenant.year, maintenant.month, maintenant.day))) {
+    return ('La date de naissance ne peut pas être dans le futur.', null);
+  }
+  if (a < 1900) return ('Date de naissance improbable (avant 1900).', null);
+  return (null, d);
+}

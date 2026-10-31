@@ -11,6 +11,9 @@
 //   POST client/{id}/mesures {parametreId, date, valeur | gauche/droite, commentaire}   (NON idempotent ; 4.6.1 :
 //        en-tête X-Client-Ref = une seule mesure par clé sur un serveur à jour, ignoré par un serveur ancien)
 //   GET  client/{id}/consommation?dtStart=&dtEnd=   consommation (12 mois par défaut)
+//   POST client/{id}/identite {naissance: AAAA-MM-JJ}   4.10.1 : COMPLÈTE la date de naissance absente (jamais
+//        d'écrasement ; « Déjà renseigné » sinon ; date à venir ou avant 1900 refusée ; serveur a2bb8cc8 du 13/10).
+//        La modifier ou l'effacer : demande 58.
 // Aucune réponse n'est journalisée ni conservée sur le disque.
 import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/fiche_client/fiche_client_models.dart';
@@ -68,6 +71,17 @@ class FicheClientApi {
     if (erreurs.isNotEmpty) throw RefusMetier(erreurs.first);
     final j = await client.post('$_base/client/${_id(clientId)}/mesures', saisie.toJson(), idempotent: false, clientRef: cle);
     return txtOuNull(j['message']) ?? 'Mesure enregistrée.';
+  }
+
+  /// 4.10.1 : ajoute la date de naissance d'un client qui n'en a pas (le serveur n'écrase jamais une date existante).
+  Future<String> completerNaissance(String clientId, DateTime naissance) async {
+    final n = DateTime.now();
+    if (naissance.isAfter(DateTime(n.year, n.month, n.day))) throw const RefusMetier('La date de naissance ne peut pas être dans le futur.');
+    if (naissance.year < 1900) throw const RefusMetier('Date de naissance improbable (avant 1900).');
+    String deux(int v) => v.toString().padLeft(2, '0');
+    final iso = '${naissance.year.toString().padLeft(4, '0')}-${deux(naissance.month)}-${deux(naissance.day)}';
+    final j = await client.post('$_base/client/${_id(clientId)}/identite', {'naissance': iso}, idempotent: true);
+    return txtOuNull(j['message']) ?? 'Date de naissance enregistrée.';
   }
 
   /// Clé d'une saisie de mesure (X-Client-Ref, 64 caractères au plus côté serveur).

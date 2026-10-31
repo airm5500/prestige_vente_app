@@ -961,6 +961,52 @@ void main() {
       }
     }
 
+    // 4.10.1 (retour du pharmacien du 31/10 : « les icônes sont coupées par le bas ») : tuiles « Catégories » sur Sunmi V2s
+    // (720 × 1440) avec la « Taille de l'affichage » d'Android agrandie (densité 2 à 2,75) et le texte ×1 à ×1,5 :
+    // pictogramme et libellé entiers dans la tuile, aucun débordement ; à la taille d'usine, tuiles inchangées.
+    // Combinaisons dont l'en-tête fixe tient à l'écran avec la police des tests (plus large que Roboto) ; les autres
+    // (texte ×1,5 et densité 2,75, ou Guidée à densité 2,5 et texte ×1,3) débordent dans l'en-tête, hors du sujet.
+    const communes = [(2.0, 1.0), (2.0, 1.3), (2.25, 1.0), (2.25, 1.3), (2.5, 1.0), (2.75, 1.0)];
+    const sansEtapes = [(2.5, 1.3), (2.75, 1.3), (2.25, 1.5), (2.5, 1.5)];
+    for (final pres in BornePresentation.values) {
+      for (final (densite, texte) in [...communes, if (pres != BornePresentation.guidee) ...sansEtapes]) {
+        {
+          testWidgets('${pres.label} · V2s densité $densite · texte ×$texte : tuiles de catégorie entières', (tester) async {
+            tester.view.physicalSize = const Size(720, 1440);
+            tester.view.devicePixelRatio = densite;
+            tester.platformDispatcher.textScaleFactorTestValue = texte;
+            addTearDown(tester.view.reset);
+            addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+            final env = _Env();
+            await tester.pumpWidget(env.app(BorneConfig(actif: true, login: 'b', presentation: pres)));
+            await tester.pump();
+            _sansErreur(tester);
+            final zoneEl = find.ancestor(of: find.text('Catégories'), matching: find.byType(Scrollable)).evaluate().first;
+            final zone = find.byElementPredicate((e) => e == zoneEl);
+            for (final c in BorneConfig.categoriesDefaut) {
+              final tuile = find.byKey(ValueKey('borne-categorie-${c.libelle}'));
+              await tester.scrollUntilVisible(tuile, 80, scrollable: zone);
+              await tester.ensureVisible(tuile);
+              await tester.pump();
+              final r = tester.getRect(tuile);
+              final icone = tester.getRect(find.descendant(of: tuile, matching: find.byType(Icon)));
+              final libelle = tester.getRect(find.descendant(of: tuile, matching: find.text(c.libelle)));
+              for (final (quoi, x) in [('pictogramme', icone), ('libellé', libelle)]) {
+                expect(x.top >= r.top - 0.5 && x.bottom <= r.bottom + 0.5, isTrue, reason: '${c.libelle} : $quoi $x hors de la tuile $r');
+              }
+            }
+            if (densite == 2.0 && texte == 1.0) {
+              // Taille d'usine : hauteur = largeur / 1,05 (grille d'avant la 4.10.1).
+              final r = tester.getRect(find.byKey(const ValueKey('borne-categorie-Douleur')));
+              expect(r.height, closeTo(r.width / 1.05, 0.6));
+            }
+            _sansErreur(tester);
+            await _fin(tester);
+          });
+        }
+      }
+    }
+
     test('colonnes : 1 (terminal), 2–3 (tablette portrait), 4 + panier latéral (paysage)', () {
       expect(BorneScreenState.colonnes(360), 1);
       expect(BorneScreenState.colonnes(700), 2);
