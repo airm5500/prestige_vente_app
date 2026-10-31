@@ -115,4 +115,32 @@ void main() {
       });
     }
   }
+
+  // 1.8.1 (retour du pharmacien du 31/10 : « les icônes sont coupées par le bas ») : Sunmi V2s avec la « Taille de
+  // l'affichage » d'Android agrandie (densité 2,25 à 2,75) : accueil de la borne sans débordement, tuiles « Catégories »
+  // entières (pictogramme et libellé dans la tuile).
+  for (final (densite, texte) in const [(2.25, 1.0), (2.25, 1.3), (2.5, 1.0), (2.75, 1.0)]) {
+    testWidgets('Sunmi V2s densité $densite, texte ×$texte : accueil de la borne, tuiles de catégorie entières', (t) async {
+      t.view.physicalSize = const Size(720, 1440);
+      t.view.devicePixelRatio = densite;
+      t.platformDispatcher.textScaleFactorTestValue = texte;
+      addTearDown(t.view.reset);
+      addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+      final app = PosE2E();
+      await app.preparer(configure: true);
+      await app.lancer(t);
+      await attendreBorne(t, app);
+      expect(t.takeException(), isNull, reason: 'aucun débordement');
+      final tuile = find.byKey(const ValueKey('borne-categorie-Douleur'));
+      await t.ensureVisible(tuile);
+      await t.pump();
+      final r = t.getRect(tuile);
+      for (final x in [find.byType(Icon), find.text('Douleur')]) {
+        final e = t.getRect(find.descendant(of: tuile, matching: x));
+        expect(e.top >= r.top - 0.5 && e.bottom <= r.bottom + 0.5, isTrue, reason: '$e hors de la tuile $r');
+      }
+      expect(t.takeException(), isNull);
+      await app.fermer(t);
+    });
+  }
 }
