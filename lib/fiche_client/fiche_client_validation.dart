@@ -149,8 +149,8 @@ String? validerAllergies(String texte) =>
     texte.trim().length > maxAllergies ? 'Allergies : $maxAllergies caractères au plus (${texte.trim().length} saisis).' : null;
 
 /// 4.10.1 — date de naissance saisie « JJ/MM/AAAA » (ajout d'une date absente, POST client/{id}/identite) : mêmes
-/// refus que le serveur (DossierClientService.completerIdentite) : illisible, à venir, avant 1900. Null si elle est
-/// recevable.
+/// refus que le serveur (DossierClientService.completerIdentite et, 4.10.2, remplacerNaissance) : illisible, à venir,
+/// avant 1900, plus de 130 ans. Null si elle est recevable.
 String? validerNaissance(String saisie, {DateTime? maintenant}) => _naissance(saisie, maintenant ?? DateTime.now()).$1;
 
 /// La date de naissance saisie (JJ/MM/AAAA), ou null si elle n'est pas recevable.
@@ -167,6 +167,10 @@ DateTime? lireNaissance(String saisie, {DateTime? maintenant}) => _naissance(sai
   if (d.isAfter(DateTime(maintenant.year, maintenant.month, maintenant.day))) {
     return ('La date de naissance ne peut pas être dans le futur.', null);
   }
+  // 4.10.2 : âge au plus 130 ans (AGE_MAX du serveur, contrôle de la modification).
+  var age = maintenant.year - a;
+  if (maintenant.month < mo || (maintenant.month == mo && maintenant.day < j)) age--;
+  if (age > 130) return ('La date de naissance donne plus de 130 ans.', null);
   if (a < 1900) return ('Date de naissance improbable (avant 1900).', null);
   return (null, d);
 }

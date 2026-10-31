@@ -40,7 +40,12 @@ class IdentiteClient {
   final String sexe;
   final String type;
 
-  const IdentiteClient({required this.id, this.nom = '', this.prenoms = '', this.telephone = '', this.naissance = '', this.age, this.sexe = '', this.type = ''});
+  /// 4.10.2 (demande 58) : la date de naissance peut être corrigée ou effacée (`client.naissanceModifiable` du dossier,
+  /// droit P_ORDONNANCE_CLIENT_MAJ) ; absente (serveur ancien) : faux, seul l'ajout d'une date manquante reste.
+  final bool naissanceModifiable;
+
+  const IdentiteClient(
+      {required this.id, this.nom = '', this.prenoms = '', this.telephone = '', this.naissance = '', this.age, this.sexe = '', this.type = '', this.naissanceModifiable = false});
 
   factory IdentiteClient.fromJson(Map<String, dynamic> j) => IdentiteClient(
         id: txt(j['id']),
@@ -51,6 +56,7 @@ class IdentiteClient {
         age: entier(j['age']),
         sexe: txt(j['sexe']),
         type: txt(j['type']),
+        naissanceModifiable: j['naissanceModifiable'] == true,
       );
 
   String get nomComplet => '$nom $prenoms'.trim();

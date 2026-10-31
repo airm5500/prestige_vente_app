@@ -6,6 +6,8 @@
 //   5. recherche de produits avec la session de la borne (1re catégorie, sinon « DOLI ») ;
 //   6. produits mis en avant trouvés.
 //   4.5.1 : droit de clôture de l'utilisateur borne (GET v1/user/droits) : sans lui, paiement mobile désactivé.
+//   4.10.2 : « Module Mobile Money » : réglage, capacités du serveur (relues), droit de clôture — même ligne d'état que
+//   sous l'option (lib/paiements/etat_mobile_money.dart).
 // La connexion d'essai passe par un client HTTP À PART (son propre pot à cookies) : la session de l'appli (compte
 // administrateur qui fait le test) n'est pas touchée. Session d'essai fermée à la fin (POST /user/logout).
 import 'package:cookie_jar/cookie_jar.dart';
@@ -16,6 +18,8 @@ import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/paiements/etat_mobile_money.dart';
+import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
@@ -47,6 +51,7 @@ class DiagnosticBorne {
 /// Exécute le test contre le serveur [baseUrl] (adresse de l'appli, …/prestige/api/v1).
 /// Titre et message de l'étape « droit de clôture » (4.5.1).
 const titreDroitCloture = 'Paiement mobile money';
+const titreModuleMobileMoney = 'Module Mobile Money';
 const messageSansDroitCloture = 'Utilisateur borne sans droit de clôture : paiement mobile désactivé '
     '(le client reçoit son ticket pour la caisse). Droit à donner au profil : P_SM_CLOTURER_CAISSE, '
     'P_SM_DEPOT_EXTENSION ou P_BT_MODIFICATION_DE_VENTE.';
@@ -80,6 +85,52 @@ class TesteurBorne {
       return EtapeBorne(titreDroitCloture, EtatEtapeBorne.attention, 'Droits non lus (HTTP ${r.statusCode}).');
     } on DioException catch (e) {
       return EtapeBorne(titreDroitCloture, EtatEtapeBorne.attention, 'Droits non lus : ${_reseau(e)}');
+    }
+  }
+
+  /// 4.10.2 : réglage « Proposer le paiement mobile money » lu au moment du test (remplaçable dans les tests).
+  static bool Function() mobileMoneyActif = () => PaiementsMobileReglages.actif.value;
+
+  /// Diagnostic Mobile Money avec la session d'essai [dio] de l'utilisateur borne (capacités relues, droits lus).
+  static Future<DiagnosticMobileMoney> _mobileMoneyAvec(Dio dio, String login, {required bool actif}) => diagnostiquerMobileMoney(
+        actif: actif,
+        horsLigne: false,
+        capacites: () => DioPaiementsMobileApi(() => dio).capacites(),
+        droits: () async {
+          final r = await dio.get<dynamic>('/user/droits');
+          final d = r.data;
+          if (r.statusCode == 200 && d is Map && d['droits'] is List) return {for (final x in d['droits'] as List) '$x'};
+          return null;
+        },
+        compte: login,
+      );
+
+  /// 4.10.2 : ligne d'état Mobile Money de la borne (écrans d'administration) : connexion d'essai de l'utilisateur
+  /// borne (client HTTP à part), capacités relues, droits ; session d'essai fermée ensuite.
+  Future<DiagnosticMobileMoney> mobileMoney(BorneConfig c, {bool? actif}) async {
+    final a = actif ?? mobileMoneyActif();
+    if (!a) return const DiagnosticMobileMoney(EtatMobileMoney.desactive);
+    final mdp = await secrets.lire();
+    if (c.login.trim().isEmpty || mdp == null || mdp.isEmpty) {
+      return const DiagnosticMobileMoney(EtatMobileMoney.erreur, detail: 'utilisateur borne ou mot de passe non renseigné');
+    }
+    final dio = client?.call(baseUrl) ?? _nouveauClient();
+    try {
+      final r = await dio.post('/user/auth', data: {'login': c.login, 'password': mdp});
+      final d = r.data;
+      if (r.statusCode == 404 || codePasserelle(r.statusCode)) return const DiagnosticMobileMoney(EtatMobileMoney.horsLigne);
+      if (r.statusCode != 200 || d is! Map || d['success'] != true) {
+        return DiagnosticMobileMoney(EtatMobileMoney.erreur, detail: 'connexion de l\'utilisateur borne « ${c.login} » refusée');
+      }
+      final id = '${d['str_USER_ID'] ?? ''}';
+      if (id.isNotEmpty) dio.options.headers[UtilisateurSession.entete] = id;
+      return await _mobileMoneyAvec(dio, c.login, actif: true);
+    } on DioException {
+      return const DiagnosticMobileMoney(EtatMobileMoney.horsLigne);
+    } finally {
+      try {
+        await dio.post('/user/logout');
+      } catch (_) {}
     }
   }
 
@@ -145,6 +196,10 @@ class TesteurBorne {
     etapes.add(await _droitCloture(dio));
 
     try {
+      // 4.10.2 : module Mobile Money (même diagnostic que la ligne d'état de l'option).
+      final mm = await _mobileMoneyAvec(dio, c.login, actif: mobileMoneyActif());
+      etapes.add(EtapeBorne(titreModuleMobileMoney,
+          mm.propose || mm.etat == EtatMobileMoney.desactive ? EtatEtapeBorne.ok : EtatEtapeBorne.attention, mm.message));
       // 5. Recherche (comme la borne : 1re catégorie en « contient », sinon « DOLI »).
       final cat = c.categories.isNotEmpty ? c.categories.first : const BorneCategorie('Douleur', 'DOLI');
       final q = serverQuery(cat.motCle, modeFor(cat.motCle, SearchMode.contient));

@@ -209,14 +209,49 @@ class _FicheClientTabState extends State<FicheClientTab> {
     _chargerDossier();
   }
 
-  /// 4.10.1 : date de naissance d'un client qui n'en a pas.
-  Future<void> _ajouterNaissance() async {
+  /// 4.10.1 : date de naissance d'un client qui n'en a pas ; 4.10.2 (demande 58) : correction de [actuelle].
+  Future<void> _ajouterNaissance({String? actuelle}) async {
     final c = _client;
     if (!widget.modifier || c == null) return;
-    final message = await showDialog<String>(context: context, builder: (_) => _SaisieNaissance(api: _api, clientId: c.id));
+    final message = await showDialog<String>(context: context, builder: (_) => _SaisieNaissance(api: _api, clientId: c.id, actuelle: actuelle));
     if (message == null || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
     _chargerDossier();
+  }
+
+  /// 4.10.2 (demande 58) : effacement de la date de naissance, après confirmation.
+  Future<void> _effacerNaissance() async {
+    final c = _client;
+    if (!widget.modifier || c == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Effacer la date de naissance ?'),
+        content: const Text('La date de naissance de ce client sera retirée de sa fiche dans Prestige. L\'âge ne sera plus calculé.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Annuler')),
+          FilledButton(
+            key: const ValueKey('fiche-effacer-naissance-confirmer'),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB91C1C)),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Effacer'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      final m = await _api.modifierNaissance(c.id, null);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(m)));
+      _chargerDossier();
+    } catch (e) {
+      if (mounted) afficherErreur(context, e);
+    }
   }
 
   Future<void> _ajouterMesure({ParametreClinique? parametre}) async {
@@ -403,8 +438,31 @@ class _FicheClientTabState extends State<FicheClientTab> {
               ),
             ]),
           )
-        else
+        else ...[
           ligne('Naissance', [dateClientFr(i.naissance), if (i.age != null) '${i.age} ans'].where((x) => x.isNotEmpty).join(' · ')),
+          // 4.10.2 (demande 58) : date présente, serveur à jour et droit de saisie : la corriger ou l'effacer.
+          if (i.naissance.trim().isNotEmpty && widget.modifier && i.naissanceModifiable)
+            Padding(
+              padding: const EdgeInsets.only(left: 102),
+              child: Wrap(spacing: 4, children: [
+                TextButton.icon(
+                  key: const ValueKey('fiche-modifier-naissance'),
+                  style: TextButton.styleFrom(minimumSize: const Size(48, 40), padding: const EdgeInsets.symmetric(horizontal: 8)),
+                  onPressed: () => _ajouterNaissance(actuelle: i.naissance),
+                  icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+                  label: const Text('Modifier'),
+                ),
+                TextButton.icon(
+                  key: const ValueKey('fiche-effacer-naissance'),
+                  style: TextButton.styleFrom(
+                      minimumSize: const Size(48, 40), padding: const EdgeInsets.symmetric(horizontal: 8), foregroundColor: const Color(0xFFB91C1C)),
+                  onPressed: _effacerNaissance,
+                  icon: const Icon(Icons.backspace_outlined, size: 18),
+                  label: const Text('Effacer'),
+                ),
+              ]),
+            ),
+        ],
         ligne('Sexe', sexe),
         ligne('Type', i.type),
         ligne('Ordonnances', '${d.nbOrdonnances}'),
@@ -1048,14 +1106,18 @@ class _HistoriqueMesuresState extends State<_HistoriqueMesures> {
 class _SaisieNaissance extends StatefulWidget {
   final FicheClientApi api;
   final String clientId;
-  const _SaisieNaissance({required this.api, required this.clientId});
+
+  /// 4.10.2 : date actuelle (AAAA-MM-JJ du serveur) à corriger ; null : ajout d'une date absente.
+  final String? actuelle;
+  const _SaisieNaissance({required this.api, required this.clientId, this.actuelle});
 
   @override
   State<_SaisieNaissance> createState() => _SaisieNaissanceState();
 }
 
 class _SaisieNaissanceState extends State<_SaisieNaissance> {
-  final _champ = TextEditingController();
+  late final _champ = TextEditingController(text: widget.actuelle == null ? '' : dateClientFr(widget.actuelle!));
+  bool get _modification => widget.actuelle != null;
   String? _erreur;
   bool _envoi = false;
 
@@ -1094,7 +1156,8 @@ class _SaisieNaissanceState extends State<_SaisieNaissance> {
       _erreur = null;
     });
     try {
-      final m = await widget.api.completerNaissance(widget.clientId, lireNaissance(_champ.text)!);
+      final d = lireNaissance(_champ.text)!;
+      final m = _modification ? await widget.api.modifierNaissance(widget.clientId, d) : await widget.api.completerNaissance(widget.clientId, d);
       if (mounted) Navigator.of(context).pop(m);
     } catch (x) {
       if (mounted) setState(() => _erreur = messageErreur(x));
@@ -1105,7 +1168,7 @@ class _SaisieNaissanceState extends State<_SaisieNaissance> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Date de naissance'),
+        title: Text(_modification ? 'Modifier la date de naissance' : 'Date de naissance'),
         content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TextField(
             key: const ValueKey('fiche-naissance-champ'),
@@ -1130,8 +1193,9 @@ class _SaisieNaissanceState extends State<_SaisieNaissance> {
             onSubmitted: (_) => _enregistrer(),
           ),
           const SizedBox(height: 8),
-          const Text('Une date déjà renseignée ne peut pas être modifiée depuis le téléphone.',
-              style: TextStyle(color: Pal.muted, fontSize: 12.5)),
+          if (!_modification)
+            const Text('Une date déjà renseignée ne peut pas être modifiée depuis le téléphone.',
+                style: TextStyle(color: Pal.muted, fontSize: 12.5)),
         ]),
         actions: [
           TextButton(onPressed: _envoi ? null : () => Navigator.of(context).pop(), child: const Text('Annuler')),

@@ -18,9 +18,12 @@ const _poids = ParametreClinique(id: 'PARAM_POIDS', code: 'POIDS', libelle: 'Poi
 const _tension = ParametreClinique(id: 'PARAM_TENSION', code: 'TENSION', libelle: 'Tension artérielle', unite: 'mmHg', genre: 'tension', saisieMin: 40, saisieMax: 260);
 const _glycemie = ParametreClinique(id: 'PARAM_GLY', code: 'GLYCEMIE_JEUN', libelle: 'Glycémie à jeun', unite: 'g/L', decimales: 2);
 
-Map<String, dynamic> _dossier({String naissance = '1980-01-01'}) => {
+Map<String, dynamic> _dossier({String naissance = '1980-01-01', bool? modifiable}) => {
       'success': true,
-      'client': {'id': 'C1', 'nom': 'TEST', 'prenoms': 'Patient Fictif', 'telephone': '0100000000', 'naissance': naissance, 'age': naissance.isEmpty ? null : 46, 'sexe': 'F', 'type': 'STANDARD'},
+      'client': {
+        'id': 'C1', 'nom': 'TEST', 'prenoms': 'Patient Fictif', 'telephone': '0100000000', 'naissance': naissance, 'age': naissance.isEmpty ? null : 46, 'sexe': 'F', 'type': 'STANDARD',
+        if (modifiable != null) 'naissanceModifiable': modifiable,
+      },
       'terrains': ['T1', 'T2'],
       'allergies': 'Allergie fictive',
       'parametres': [
@@ -44,7 +47,18 @@ class _FakeApiCles extends _FakeApi {
 }
 
 class _FakeApi extends FicheClientApi {
-  _FakeApi(this.d, {this.naissance = '1980-01-01'}) : super(ClientPrestige(() => 'http://127.0.0.1:1/prestige/api/v1'));
+  _FakeApi(this.d, {this.naissance = '1980-01-01', this.modifiable}) : super(ClientPrestige(() => 'http://127.0.0.1:1/prestige/api/v1'));
+
+  /// 4.10.2 : capacité `naissanceModifiable` du dossier (null = absente, serveur ancien) ; corrections envoyées.
+  final bool? modifiable;
+  final List<DateTime?> modifications = [];
+
+  @override
+  Future<String> modifierNaissance(String clientId, DateTime? n) async {
+    modifications.add(n);
+    naissance = n == null ? '' : '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+    return n == null ? 'Date de naissance effacée.' : 'Date de naissance modifiée.';
+  }
   final DroitsOrdonnances d;
   int enregistrements = 0;
 
@@ -70,7 +84,7 @@ class _FakeApi extends FicheClientApi {
         LigneConsommation(cip: '0000002', nom: 'PRODUIT FICTIF B SIROP', dernierAchat: '2026-02-11', nbAchats: 1, qteTotale: 1, montant: 2350, habitude: 'Dormant', stock: 0),
       ];
   @override
-  Future<DossierClient> dossier(String clientId) async => DossierClient.fromJson(_dossier(naissance: naissance));
+  Future<DossierClient> dossier(String clientId) async => DossierClient.fromJson(_dossier(naissance: naissance, modifiable: modifiable));
   @override
   Future<List<TerrainClinique>> terrains() async => const [TerrainClinique(id: 'T1', libelle: 'Diabète'), TerrainClinique(id: 'T2', libelle: 'Pénicilline', allergie: true)];
   @override
@@ -172,6 +186,7 @@ void main() {
       expect(validerNaissance('31/10/2026', maintenant: now), isNull, reason: 'aujourd\'hui accepté');
       expect(validerNaissance('31/12/1899', maintenant: now), contains('1900'));
       expect(lireNaissance(' 02/03/1985 ', maintenant: now), DateTime(1985, 3, 2));
+      expect(validerNaissance('30/10/1895', maintenant: DateTime(2027, 1, 1)), contains('130 ans'), reason: '4.10.2 : AGE_MAX du serveur');
       expect(lireNaissance('29/02/2001', maintenant: now), isNull);
       expect(dateClientFr('1985-03-02'), '02/03/1985');
     });
@@ -268,6 +283,26 @@ void main() {
           await expectLater(api.completerNaissance('C1', DateTime.now().add(const Duration(days: 2))), throwsA(isA<RefusMetier>()));
           expect(srv.recues.length, avant, reason: 'aucun appel pour une date à venir');
         }));
+
+    // 4.10.2 (demande 58, serveur b5020735) : remplacer / effacer, refus en HTTP 200, capacité du dossier.
+    test('modifier : {naissance, remplacer:true} ; effacer : naissance vide ; refus du serveur ; capacité lue', () => avecVraiHttp(() async {
+          srv.routes['POST /client/C1/identite'] = (r) => ReponseLocale({
+                'success': true,
+                'message': r.json['naissance'] == '' ? 'Date de naissance effacée.' : 'Date de naissance modifiée.',
+                'naissance': r.json['naissance'],
+              });
+          expect(await api.modifierNaissance('C1', DateTime(1979, 12, 31)), 'Date de naissance modifiée.');
+          expect(srv.recuesSur('/identite').last.json, {'naissance': '1979-12-31', 'remplacer': true});
+          expect(await api.modifierNaissance('C1', null), 'Date de naissance effacée.');
+          expect(srv.recuesSur('/identite').last.json, {'naissance': '', 'remplacer': true});
+          srv.routes['POST /client/C1/identite'] = (_) => const ReponseLocale({'success': false, 'message': 'Client introuvable.'});
+          await expectLater(api.modifierNaissance('C1', DateTime(1979, 12, 31)), throwsA(isA<RefusMetier>().having((e) => e.message, 'message', 'Client introuvable.')));
+          final avant = srv.recues.length;
+          await expectLater(api.modifierNaissance('C1', DateTime.now().add(const Duration(days: 3))), throwsA(isA<RefusMetier>()));
+          expect(srv.recues.length, avant);
+          expect(DossierClient.fromJson(_dossier(modifiable: true)).client.naissanceModifiable, isTrue);
+          expect(DossierClient.fromJson(_dossier()).client.naissanceModifiable, isFalse, reason: 'absente : serveur ancien');
+        }));
   });
 
   group('écran', () {
@@ -305,6 +340,45 @@ void main() {
       expect(find.textContaining('02/03/1985'), findsOneWidget);
       expect(t.takeException(), isNull);
     });
+
+    testWidgets('4.10.2 : date présente + capacité → « Modifier » (date pré-remplie) puis « Effacer » confirmé', (t) async {
+      await _taille(t, const Size(720, 1440));
+      final api = _FakeApi(const DroitsOrdonnances(consulter: true, modifier: true), modifiable: true);
+      await ouvrirDossier(t, api);
+      await t.tap(find.byKey(const ValueKey('fiche-modifier-naissance')));
+      await t.pumpAndSettle();
+      expect(t.widget<TextField>(find.byKey(const ValueKey('fiche-naissance-champ'))).controller!.text, '01/01/1980');
+      await t.enterText(find.byKey(const ValueKey('fiche-naissance-champ')), '31121979');
+      await t.tap(find.byKey(const ValueKey('fiche-naissance-enregistrer')));
+      await t.pumpAndSettle();
+      expect(api.modifications, [DateTime(1979, 12, 31)]);
+      expect(find.text('Date de naissance modifiée.'), findsOneWidget);
+      expect(find.textContaining('31/12/1979'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('fiche-effacer-naissance')));
+      await t.pumpAndSettle();
+      expect(find.text('Effacer la date de naissance ?'), findsOneWidget);
+      await t.tap(find.text('Annuler'));
+      await t.pumpAndSettle();
+      expect(api.modifications, hasLength(1), reason: 'annulé : rien envoyé');
+      await t.tap(find.byKey(const ValueKey('fiche-effacer-naissance')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('fiche-effacer-naissance-confirmer')));
+      await t.pumpAndSettle();
+      expect(api.modifications.last, isNull);
+      expect(find.text('Date de naissance effacée.'), findsOneWidget);
+      expect(find.byKey(const ValueKey('fiche-ajouter-naissance')), findsOneWidget, reason: 'date absente : « Ajouter »');
+      expect(t.takeException(), isNull);
+    });
+
+    for (final cap in [false, null]) {
+      testWidgets('4.10.2 : capacité ${cap == null ? 'absente (serveur ancien)' : 'fausse'} → ni « Modifier » ni « Effacer »', (t) async {
+        await _taille(t, const Size(720, 1440));
+        await ouvrirDossier(t, _FakeApi(const DroitsOrdonnances(consulter: true, modifier: true), modifiable: cap));
+        expect(find.byKey(const ValueKey('fiche-modifier-naissance')), findsNothing);
+        expect(find.byKey(const ValueKey('fiche-effacer-naissance')), findsNothing);
+        expect(t.takeException(), isNull);
+      });
+    }
 
     testWidgets('4.10.1 : date présente → JJ/MM/AAAA, pas de bouton', (t) async {
       await _taille(t, const Size(720, 1440));

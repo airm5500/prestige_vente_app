@@ -3,6 +3,7 @@
 //  - corps JSON exact `{naissance: AAAA-MM-JJ}`, session (cookie) envoyée ; fiche relue avec la date ;
 //  - deuxième envoi : « Déjà renseigné » (jamais d'écrasement) ;
 //  - serveur coupé : erreur réseau claire, rien d'enregistré ; retour du serveur : l'envoi aboutit.
+//  - 4.10.2 (demande 58) : remplacer puis effacer (`remplacer:true`), refus « plus de 130 ans » rendu tel quel.
 // Patient FICTIF.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
@@ -46,5 +47,18 @@ void main() {
         await srv.retablir();
         expect(await api.completerNaissance('C1', DateTime(1985, 3, 2)), 'Fiche complétée : date de naissance.');
         expect(srv.naissanceC1, '1985-03-02');
+      }));
+
+  test('4.10.2 : modifier puis effacer, corps exacts ; refus du serveur ; capacité du dossier', () => avecVraiHttp(() async {
+        srv.naissanceC1 = '1980-01-01';
+        expect((await api.dossier('C1')).client.naissanceModifiable, isTrue);
+        expect(await api.modifierNaissance('C1', DateTime(1979, 12, 31)), 'Date de naissance modifiée.');
+        expect(srv.recuesSur('/client/C1/identite').last.json, {'naissance': '1979-12-31', 'remplacer': true});
+        expect((await api.dossier('C1')).client.naissance, '1979-12-31');
+        expect(await api.modifierNaissance('C1', null), 'Date de naissance effacée.');
+        expect(srv.naissanceC1, '');
+        srv.routes['POST /client/C1/identite'] = (_) => FauxServeurPrestige.ok({'success': false, 'message': 'La date de naissance donne plus de 130 ans.'});
+        await expectLater(api.modifierNaissance('C1', DateTime(1990, 1, 1)),
+            throwsA(isA<RefusMetier>().having((e) => e.message, 'message', 'La date de naissance donne plus de 130 ans.')));
       }));
 }
