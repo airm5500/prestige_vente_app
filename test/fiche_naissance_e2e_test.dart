@@ -6,6 +6,9 @@
 //  - date déjà renseignée : affichée JJ/MM/AAAA, aucun bouton ;
 //  - serveur sans la route (ancien) : « il doit être mis à jour » ;
 //  - la date saisie n'est jamais journalisée.
+// 4.10.2 (demande 58) : date présente et capacité `naissanceModifiable` → « Modifier » / « Effacer » (confirmation),
+// message du serveur affiché, fiche relue ; refus du serveur (plus de 130 ans, client introuvable) ; serveur sans la
+// demande 58 : ni « Modifier » ni « Effacer ».
 // Patient FICTIF.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,10 +17,11 @@ import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 import 'outils/app_e2e.dart';
 
-Future<AppE2E> _ouvrirFiche(WidgetTester t, {String naissance = ''}) async {
+Future<AppE2E> _ouvrirFiche(WidgetTester t, {String naissance = '', bool demande58 = true}) async {
   TailleEcran.sunmiV2s.appliquer(t);
   final app = AppE2E()..serveur.activerModules();
   app.serveur.naissanceC1 = naissance;
+  app.serveur.demande58 = demande58;
   await app.preparer(prefs: {'hiddenMenuIds': <String>[]});
   await app.lancer(t);
   expect(await app.seConnecter(t), isTrue);
@@ -78,6 +82,53 @@ void main() {
     await app.attendre(t);
     expect(find.textContaining('mis à jour'), findsOneWidget);
     expect(app.serveur.naissanceC1, '');
+    await app.fermer(t);
+  });
+
+  testWidgets('4.10.2 : « Modifier » 31/12/1979 → message du serveur, fiche relue ; « Effacer » confirmé → « Ajouter »', (t) async {
+    final app = await _ouvrirFiche(t, naissance: '1980-01-01');
+    expect(await app.attendreQue(t, find.byKey(const ValueKey('fiche-modifier-naissance'))), isTrue);
+    await t.tap(find.byKey(const ValueKey('fiche-modifier-naissance')));
+    await app.attendre(t, const Duration(milliseconds: 600));
+    await t.enterText(find.byKey(const ValueKey('fiche-naissance-champ')), '31121979');
+    await t.tap(find.byKey(const ValueKey('fiche-naissance-enregistrer')));
+    await app.attendre(t);
+    expect(app.serveur.recuesSur('/client/C1/identite').last.json, {'naissance': '1979-12-31', 'remplacer': true});
+    expect(app.serveur.naissanceC1, '1979-12-31');
+    expect(find.text('Date de naissance modifiée.'), findsOneWidget);
+    expect(find.textContaining('31/12/1979'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('fiche-effacer-naissance')));
+    await app.attendre(t, const Duration(milliseconds: 600));
+    await t.tap(find.byKey(const ValueKey('fiche-effacer-naissance-confirmer')));
+    await app.attendre(t);
+    expect(app.serveur.recuesSur('/client/C1/identite').last.json, {'naissance': '', 'remplacer': true});
+    expect(app.serveur.naissanceC1, '');
+    expect(find.text('Date de naissance effacée.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('fiche-ajouter-naissance')), findsOneWidget);
+    final journal = [for (final e in await JournalTerminal.instance.lire()) '${e.action}|${e.motif}|${e.refLocale}'].join('\n');
+    expect(journal, isNot(contains('1979')));
+    expect(t.takeException(), isNull);
+    await app.fermer(t);
+  });
+
+  testWidgets('4.10.2 : refus du serveur affiché tel quel (client introuvable), date inchangée', (t) async {
+    final app = await _ouvrirFiche(t, naissance: '1980-01-01');
+    app.serveur.routes['POST /client/C1/identite'] = (_) => FauxServeurPrestige.ok({'success': false, 'message': 'Client introuvable.'});
+    await t.tap(find.byKey(const ValueKey('fiche-modifier-naissance')));
+    await app.attendre(t, const Duration(milliseconds: 600));
+    await t.enterText(find.byKey(const ValueKey('fiche-naissance-champ')), '31121979');
+    await t.tap(find.byKey(const ValueKey('fiche-naissance-enregistrer')));
+    await app.attendre(t);
+    expect(find.text('Client introuvable.'), findsOneWidget);
+    expect(app.serveur.naissanceC1, '1980-01-01');
+    await app.fermer(t);
+  });
+
+  testWidgets('4.10.2 : serveur sans la demande 58 : date affichée, ni « Modifier » ni « Effacer »', (t) async {
+    final app = await _ouvrirFiche(t, naissance: '1980-01-01', demande58: false);
+    expect(await app.attendreQue(t, find.textContaining('01/01/1980')), isTrue);
+    expect(find.byKey(const ValueKey('fiche-modifier-naissance')), findsNothing);
+    expect(find.byKey(const ValueKey('fiche-effacer-naissance')), findsNothing);
     await app.fermer(t);
   });
 }

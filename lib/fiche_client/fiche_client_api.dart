@@ -13,7 +13,9 @@
 //   GET  client/{id}/consommation?dtStart=&dtEnd=   consommation (12 mois par défaut)
 //   POST client/{id}/identite {naissance: AAAA-MM-JJ}   4.10.1 : COMPLÈTE la date de naissance absente (jamais
 //        d'écrasement ; « Déjà renseigné » sinon ; date à venir ou avant 1900 refusée ; serveur a2bb8cc8 du 13/10).
-//        La modifier ou l'effacer : demande 58.
+//        4.10.2 (demande 58, serveur b5020735) : {naissance: AAAA-MM-JJ | "", remplacer: true} REMPLACE ou EFFACE la
+//        date (tous types de client) → {success, message: « Date de naissance modifiée. » | « … effacée. », naissance} ;
+//        refus HTTP 200 (impossible, à venir, plus de 130 ans, client introuvable). Capacité : client.naissanceModifiable.
 // Aucune réponse n'est journalisée ni conservée sur le disque.
 import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/fiche_client/fiche_client_models.dart';
@@ -82,6 +84,20 @@ class FicheClientApi {
     final iso = '${naissance.year.toString().padLeft(4, '0')}-${deux(naissance.month)}-${deux(naissance.day)}';
     final j = await client.post('$_base/client/${_id(clientId)}/identite', {'naissance': iso}, idempotent: true);
     return txtOuNull(j['message']) ?? 'Date de naissance enregistrée.';
+  }
+
+  /// 4.10.2 (demande 58) : corrige la date de naissance ([naissance]) ou l'efface (null). Serveur à jour seulement
+  /// (capacité `naissanceModifiable` du dossier).
+  Future<String> modifierNaissance(String clientId, DateTime? naissance) async {
+    String iso = '';
+    if (naissance != null) {
+      String deux(int v) => v.toString().padLeft(2, '0');
+      final e = validerNaissance('${deux(naissance.day)}/${deux(naissance.month)}/${naissance.year}');
+      if (e != null) throw RefusMetier(e);
+      iso = '${naissance.year.toString().padLeft(4, '0')}-${deux(naissance.month)}-${deux(naissance.day)}';
+    }
+    final j = await client.post('$_base/client/${_id(clientId)}/identite', {'naissance': iso, 'remplacer': true}, idempotent: true);
+    return txtOuNull(j['message']) ?? (naissance == null ? 'Date de naissance effacée.' : 'Date de naissance modifiée.');
   }
 
   /// Clé d'une saisie de mesure (X-Client-Ref, 64 caractères au plus côté serveur).

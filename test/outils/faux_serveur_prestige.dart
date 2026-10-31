@@ -95,9 +95,12 @@ class DonneesFictives {
       };
 
   // --- Fiche client (v1/ordonnance-client) : patient FICTIF ---
-  static Map<String, dynamic> dossierClient({String naissance = '1980-01-01'}) => {
+  static Map<String, dynamic> dossierClient({String naissance = '1980-01-01', bool? naissanceModifiable}) => {
         'success': true,
-        'client': {'id': 'C1', 'nom': 'DEMO', 'prenoms': 'Patient Fictif', 'telephone': '0100000000', 'naissance': naissance, 'age': naissance.isEmpty ? null : 46, 'sexe': 'F', 'type': 'STANDARD'},
+        'client': {
+          'id': 'C1', 'nom': 'DEMO', 'prenoms': 'Patient Fictif', 'telephone': '0100000000', 'naissance': naissance, 'age': naissance.isEmpty ? null : 46, 'sexe': 'F', 'type': 'STANDARD',
+          if (naissanceModifiable != null) 'naissanceModifiable': naissanceModifiable,
+        },
         'terrains': ['T1'],
         'allergies': 'Allergie fictive',
         'parametres': [
@@ -258,23 +261,43 @@ class FauxServeurPrestige extends ServeurJsonLocal {
   /// 4.10.1 : date de naissance du client fictif C1 ('' = absente), complétée par POST client/C1/identite.
   String naissanceC1 = '1980-01-01';
 
+  /// 4.10.2 : serveur avec la demande 58 (remplacer / effacer, capacité `naissanceModifiable`) ; faux = serveur ancien.
+  bool demande58 = true;
+
   /// Modules Réserve, Analyse posologie et Fiche client avec des données fictives (droits accordés si [droits]).
   void activerModules({bool droits = true}) {
     routesParDefaut.addAll({
       'GET /roles/est-admin': (_) => ReponseLocale({'authorize': droits}),
-      'GET /ordonnance-client/droits': (_) => ReponseLocale({'success': true, 'consulter': droits, 'modifier': droits}),
+      'GET /ordonnance-client/droits': (_) =>
+          ReponseLocale({'success': true, 'consulter': droits, 'modifier': droits, if (demande58) 'naissanceModifiable': droits}),
       'GET /ordonnance-client/clients': (_) => const ReponseLocale({
             'success': true,
             'data': [
               {'lgCLIENTID': 'C1', 'strFIRSTNAME': 'DEMO', 'strLASTNAME': 'Patient Fictif', 'strADRESSE': '', 'strTELEPHONE': '0100000000'}
             ]
           }),
-      'GET /client/C1/dossier': (_) => ReponseLocale(DonneesFictives.dossierClient(naissance: naissanceC1)),
+      'GET /client/C1/dossier': (_) => ReponseLocale(DonneesFictives.dossierClient(
+          naissance: naissanceC1, naissanceModifiable: demande58 ? droits : null)),
       // 4.10.1 : POST client/{id}/identite, règles de DossierClientService.completerIdentite (serveur a2bb8cc8) :
       // complète une date ABSENTE seulement, AAAA-MM-JJ, ni à venir ni avant 1900, droit de saisie.
       'POST /client/C1/identite': (r) {
         if (!droits) return const ReponseLocale({'success': false, 'message': 'Votre profil ne permet pas de saisir ou de modifier une ordonnance.'});
         final n = '${r.json['naissance'] ?? ''}'.trim();
+        // 4.10.2 — demande 58 (DossierClientService.remplacerNaissance, b5020735) : remplacer ou effacer.
+        if (demande58 && r.json['remplacer'] == true) {
+          if (n.isEmpty) {
+            naissanceC1 = '';
+            return const ReponseLocale({'success': true, 'message': 'Date de naissance effacée.', 'naissance': ''});
+          }
+          final x = RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(n) ? DateTime.tryParse(n) : null;
+          if (x == null || x.toIso8601String().substring(0, 10) != n) {
+            return const ReponseLocale({'success': false, 'message': 'La date de naissance n\'existe pas (JJ/MM/AAAA).'});
+          }
+          if (x.isAfter(DateTime.now())) return const ReponseLocale({'success': false, 'message': 'La date de naissance ne peut pas être dans le futur.'});
+          if (DateTime.now().year - x.year > 130) return const ReponseLocale({'success': false, 'message': 'La date de naissance donne plus de 130 ans.'});
+          naissanceC1 = n;
+          return ReponseLocale({'success': true, 'message': 'Date de naissance modifiée.', 'naissance': n});
+        }
         final d = RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(n) ? DateTime.tryParse(n) : null;
         if (d == null) return const ReponseLocale({'success': false, 'message': 'Date de naissance illisible : jj/mm/aaaa attendu.'});
         if (d.isAfter(DateTime.now())) return const ReponseLocale({'success': false, 'message': 'La date de naissance ne peut pas être dans le futur.'});

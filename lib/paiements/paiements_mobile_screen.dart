@@ -8,12 +8,19 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/providers/auth_provider.dart';
+import 'package:prestige_vente_app/borne/borne_config.dart';
+import 'package:prestige_vente_app/borne/borne_diagnostic.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/paiements/etat_mobile_money.dart';
 import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:provider/provider.dart';
 
 /// Groupes de l'écran.
 enum GroupePM { regulariser, recus, attente, echoues }
@@ -188,15 +195,23 @@ String paiementsSummary() => PaiementsMobileReglages.actif.value
     : 'Désactivé · QR du montant exact, confirmation automatique';
 
 /// Réglages › Paiements mobile money.
+/// 4.10.2 : ligne d'état sous l'option (retour du pharmacien du 31/10) : ce qui empêche le paiement d'être proposé —
+/// pour l'encaissement de cet appareil (compte connecté) et, si la borne est configurée, pour la borne (utilisateur
+/// borne, connexion d'essai à part). Capacités relues à chaque ouverture et à chaque changement de l'option.
 class PaiementsMobilePage extends StatefulWidget {
-  const PaiementsMobilePage({super.key});
+  /// Diagnostics remplaçables (tests).
+  final Future<DiagnosticMobileMoney> Function()? diagnosticAppareil;
+  final Future<DiagnosticMobileMoney?> Function()? diagnosticBorne;
+  const PaiementsMobilePage({super.key, this.diagnosticAppareil, this.diagnosticBorne});
 
   @override
   State<PaiementsMobilePage> createState() => _PaiementsMobilePageState();
 }
 
 class _PaiementsMobilePageState extends State<PaiementsMobilePage> {
-  List<String>? _ops;
+  DiagnosticMobileMoney? _appareil;
+  DiagnosticMobileMoney? _borne;
+  bool _verification = false;
 
   @override
   void initState() {
@@ -204,15 +219,60 @@ class _PaiementsMobilePageState extends State<PaiementsMobilePage> {
     _verifier();
   }
 
+  Future<DiagnosticMobileMoney> _diagAppareil() async {
+    final pm = PaiementsMobile.instance;
+    final api = pm.api;
+    final d = DroitsVente.instance;
+    final r = await diagnostiquerMobileMoney(
+      actif: PaiementsMobileReglages.actif.value,
+      horsLigne: pm.horsLigne(),
+      capacites: () async => api == null ? const VenteRefused('Paiement mobile money non disponible.', code: '404') : await api.capacites(),
+      droits: () async => d.connus ? d.droits : null,
+      compte: _login(),
+      borne: false,
+    );
+    // Cache des opérateurs de l'encaissement remis à jour (capacités relues).
+    if (PaiementsMobileReglages.actif.value) await pm.operateurs(rafraichir: true);
+    return r;
+  }
+
+  String _login() {
+    try {
+      return context.read<AuthProvider>().user?.login ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<DiagnosticMobileMoney?> _diagBorne() async {
+    final c = BorneReglages.courant.value;
+    if (c.login.trim().isEmpty || !PaiementsMobileReglages.actif.value) return null;
+    final ApiService api;
+    try {
+      api = context.read<ApiService>();
+    } catch (_) {
+      return null;
+    }
+    return TesteurBorne(baseUrl: api.dio.options.baseUrl).mobileMoney(c, actif: true);
+  }
+
   Future<void> _verifier() async {
-    final o = await PaiementsMobile.instance.operateurs(rafraichir: true);
-    if (mounted) setState(() => _ops = o);
+    setState(() => _verification = true);
+    final a = await (widget.diagnosticAppareil ?? _diagAppareil)();
+    if (!mounted) return;
+    setState(() => _appareil = a);
+    final b = await (widget.diagnosticBorne ?? _diagBorne)();
+    if (!mounted) return;
+    setState(() {
+      _borne = b;
+      _verification = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final actif = PaiementsMobileReglages.actif.value;
-    final cap = PaiementsMobile.instance.capacitesConnues;
+    final a = _appareil, b = _borne;
     return RubriquePage(title: 'Paiements mobile money', subtitle: paiementsSummary(), children: [
       Material(
         color: Colors.white,
@@ -231,13 +291,7 @@ class _PaiementsMobilePageState extends State<PaiementsMobilePage> {
           SwitchListTile(
             key: const ValueKey('pm-actif'),
             title: const Text('Proposer le paiement par QR mobile money'),
-            subtitle: Text(!actif
-                ? 'Désactivé'
-                : (_ops == null
-                    ? 'Vérification du serveur…'
-                    : (_ops!.isEmpty
-                        ? 'Le serveur ne propose pas de paiement mobile money (module absent ou non configuré).'
-                        : 'Opérateurs : ${_ops!.map((o) => nomOperateur[o] ?? o).join(', ')}${cap?.fournisseur == null ? '' : ' (${cap!.fournisseur})'}'))),
+            subtitle: Text(!actif ? 'Désactivé' : (_verification ? 'Vérification du serveur…' : 'Activé')),
             value: actif,
             onChanged: (v) async {
               await PaiementsMobileReglages.enregistrer(v);
@@ -245,6 +299,21 @@ class _PaiementsMobilePageState extends State<PaiementsMobilePage> {
               if (mounted) setState(() {});
             },
           ),
+          if (actif && a != null) LigneEtatMobileMoney(cle: 'pm-etat-appareil', titre: 'Encaissement sur cet appareil', d: a),
+          if (actif && b != null) LigneEtatMobileMoney(cle: 'pm-etat-borne', titre: 'Borne libre-service', d: b),
+          if (actif)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: TextButton.icon(
+                  key: const ValueKey('pm-verifier'),
+                  onPressed: _verification ? null : _verifier,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Vérifier à nouveau'),
+                ),
+              ),
+            ),
           ListTile(
             key: const ValueKey('pm-historique'),
             leading: const Icon(Icons.receipt_long, color: Pal.navy),

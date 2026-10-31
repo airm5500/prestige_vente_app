@@ -173,6 +173,9 @@
     "test/reseau/prestigepointage_reseau_test.dart": "reseau",
     "test/performance/prestigepointage_perf_test.dart": "performance",
     "test/fiche_naissance_e2e_test.dart": "e2e",
-    "test/reseau/fiche_naissance_reseau_test.dart": "reseau"
+    "test/reseau/fiche_naissance_reseau_test.dart": "reseau",
+    "test/mobile_money_etat_test.dart": "unitaires",
+    "test/mobile_money_etat_e2e_test.dart": "e2e",
+    "test/reseau/mobile_money_etat_reseau_test.dart": "reseau"
   }
 }
