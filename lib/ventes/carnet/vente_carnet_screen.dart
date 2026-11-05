@@ -25,6 +25,7 @@ import 'package:prestige_vente_app/ventes/carnet/carnet_history.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_products.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_steps.dart';
 import 'package:prestige_vente_app/ventes/common/vente_dialogs.dart';
+import 'package:prestige_vente_app/ventes/common/copies_ticket.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/common/vente_product_search.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
@@ -451,7 +452,8 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
           provisoire: provisoire,
         );
       } else {
-        await ReceiptService().printAssuranceSaleTicket(
+        // 4.10.3 : pause « Ticket suivant (i/N) » avant chaque copie suivante (au lieu de « Réimpression »).
+        await imprimerCopiesAvecPause(context, settings.numberOfTicketsAssurance, () => ReceiptService().printAssuranceSaleTicket(
           context: context,
           officine: officine,
           saleSummary: snap.summary,
@@ -463,9 +465,10 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
           isTestMode: settings.isTestPrintMode,
           paperWidth: settings.paperWidth,
           ticketCodeType: settings.ticketCodeType,
-          numberOfCopies: settings.numberOfTicketsAssurance,
+          numberOfCopies: 1,
           showQrCode: settings.showQrCodeOnSaleTicket,
-        );
+          confirmEachCopy: false,
+        ));
       }
     }
     if (!mounted) return;
