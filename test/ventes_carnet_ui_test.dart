@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
 import 'package:prestige_vente_app/api/models/ayant_droit.dart';
 import 'package:prestige_vente_app/api/models/client_assurance.dart';
+import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/payment_method_qr.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -292,7 +293,11 @@ class _Gw implements VenteGateway {
 }
 
 class _Auth extends AuthProvider {
-  _Auth() : super(ApiService(baseUrl: 'http://localhost'));
+  // 4.10.3 : officine fictive facultative (impression des tickets) ; null = comme avant (pas d'impression).
+  final Officine? _officine;
+  _Auth([this._officine]) : super(ApiService(baseUrl: 'http://localhost'));
+  @override
+  Officine? get officine => _officine;
   // Compte administrateur : le bouton « Présentation » (choix A/B/C) lui est réservé.
   @override
   bool get isAdmin => true;
@@ -306,12 +311,12 @@ void _phone(WidgetTester tester) {
   addTearDown(tester.view.reset);
 }
 
-Future<void> _open(WidgetTester tester, _Gw gw, {ListPresentation? style}) async {
+Future<void> _open(WidgetTester tester, _Gw gw, {ListPresentation? style, Officine? officine}) async {
   final settings = SettingsProvider();
   await settings.loadSettings();
   await tester.pumpWidget(MultiProvider(
     providers: [
-      ChangeNotifierProvider<AuthProvider>(create: (_) => _Auth()),
+      ChangeNotifierProvider<AuthProvider>(create: (_) => _Auth(officine)),
       ChangeNotifierProvider<SettingsProvider>.value(value: settings),
     ],
     child: MaterialApp(
@@ -658,5 +663,80 @@ void main() {
     expect(find.byType(StepsBar), findsOneWidget);
     expect(find.text('Bon & ayant droit'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  // 4.10.3 — retour du pharmacien : copies à la suite. Vente carnet validée → « Imprimer » → copies du réglage
+  // « Nombre de tickets (Assurance) » avec la pause « Ticket suivant (i/N) » avant chaque copie suivante (au lieu de
+  // l'ancien « Réimpression ») ; prévente carnet : un seul ticket, aucune pause. Aperçu du mode test.
+  group('copies du ticket (pause entre les copies)', () {
+    final pause = find.byKey(const ValueKey('ticket-suivant'));
+    final apercu = find.text('Aperçu du Ticket');
+    final officine = Officine(fullName: 'Adresse fictive', nomComplet: 'PHCIE FICTIVE');
+
+    Future<void> fermerApercu(WidgetTester tester) async {
+      expect(apercu, findsOneWidget);
+      expect(pause, findsNothing);
+      // Police de test Ahem : le ticket monospace dépasse sa boîte dans l'aperçu (pas sur l'appareil). Seule erreur tolérée.
+      final e = tester.takeException();
+      expect(e == null || '$e'.contains('RenderFlex overflowed'), isTrue, reason: '$e');
+      await tester.tap(find.text('Fermer'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<(int, _Gw)> vendre(WidgetTester tester, int n, {int? arret, bool prevente = false}) async {
+      SharedPreferences.setMockInitialValues({'number_of_tickets_assurance': n, 'is_test_print_mode': true, 'paper_width': 58});
+      _phone(tester);
+      final gw = _Gw();
+      await _open(tester, gw, officine: officine);
+      await _toProducts(tester);
+      await _addManual(tester, 'doli');
+      await tester.tap(prevente ? _prevente : _valider);
+      await tester.pumpAndSettle();
+      expect(find.text(prevente ? 'Prévente carnet enregistrée' : 'Vente carnet validée'), findsOneWidget);
+      await tester.tap(find.text('Imprimer'));
+      await tester.pumpAndSettle();
+      var copies = 0;
+      await fermerApercu(tester);
+      copies++;
+      for (var i = 2; i <= n && !prevente; i++) {
+        expect(pause, findsOneWidget, reason: 'pause avant la copie $i');
+        expect(find.text('Ticket suivant ($i/$n)'), findsOneWidget);
+        expect(find.text('Réimpression'), findsNothing, reason: 'ancien dialogue remplacé');
+        if (arret == i) {
+          await tester.tap(find.byKey(const ValueKey('ticket-suivant-arreter')));
+          await tester.pumpAndSettle();
+          break;
+        }
+        await tester.tap(find.byKey(const ValueKey('ticket-suivant-imprimer')));
+        await tester.pumpAndSettle();
+        await fermerApercu(tester);
+        copies++;
+      }
+      expect(pause, findsNothing);
+      expect(apercu, findsNothing);
+      expect(_clientField, findsOneWidget, reason: 'nouvelle vente');
+      expect(tester.takeException(), isNull);
+      return (copies, gw);
+    }
+
+    for (final n in [1, 2, 3]) {
+      testWidgets('vente carnet, $n copie(s) : $n aperçu(s), ${n - 1} pause(s)', (tester) async {
+        final (copies, gw) = await vendre(tester, n);
+        expect(copies, n);
+        expect(gw.clotureCalls, 1);
+      });
+    }
+
+    testWidgets('vente carnet, 3 copies, « Arrêter » à 2/3 : une seule copie', (tester) async {
+      expect((await vendre(tester, 3, arret: 2)).$1, 1);
+    });
+
+    testWidgets('vente carnet, 2 copies, « Arrêter » à 2/2 : une seule copie', (tester) async {
+      expect((await vendre(tester, 2, arret: 2)).$1, 1);
+    });
+
+    testWidgets('prévente carnet, réglage 3 copies : un seul ticket, aucune pause', (tester) async {
+      expect((await vendre(tester, 3, prevente: true)).$1, 1);
+    });
   });
 }

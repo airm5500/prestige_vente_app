@@ -176,6 +176,11 @@
     "test/reseau/fiche_naissance_reseau_test.dart": "reseau",
     "test/mobile_money_etat_test.dart": "unitaires",
     "test/mobile_money_etat_e2e_test.dart": "e2e",
-    "test/reseau/mobile_money_etat_reseau_test.dart": "reseau"
+    "test/reseau/mobile_money_etat_reseau_test.dart": "reseau",
+    "test/copies_ticket_test.dart": "unitaires",
+    "test/ventes_copies_ticket_e2e_test.dart": "e2e",
+    "test/reseau/ventes_copies_ticket_reseau_test.dart": "reseau",
+    "test/copies_ticket_ergonomie_test.dart": "ergonomie",
+    "test/copies_ticket_garde_test.dart": "non_regression"
   }
 }

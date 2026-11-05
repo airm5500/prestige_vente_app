@@ -851,4 +851,101 @@ void main() {
     expect(_enabled(tester, _valider), isTrue);
     expect(tester.takeException(), isNull);
   });
+
+  // 4.10.3 — retour du pharmacien : copies à la suite. Avant chaque copie suivante, pause « Ticket suivant (i/N) »
+  // [Arrêter] [Imprimer] ; jamais avant la copie 1, rien pour 1 copie ; « Arrêter » annule les copies restantes.
+  // Aperçu du mode test : une fenêtre « Aperçu du Ticket » par copie.
+  group('copies du ticket (pause entre les copies)', () {
+    final pause = find.byKey(const ValueKey('ticket-suivant'));
+    final apercu = find.text('Aperçu du Ticket');
+
+    Future<void> fermerApercu(WidgetTester tester) async {
+      expect(apercu, findsOneWidget);
+      // Police de test Ahem (chaque caractère aussi large que la taille de police) : le ticket monospace de 32
+      // colonnes dépasse sa boîte de 300 px dans l'aperçu ; sur l'appareil il y tient. Seule erreur tolérée.
+      final e = tester.takeException();
+      expect(e == null || '$e'.contains('RenderFlex overflowed'), isTrue, reason: '$e');
+      expect(pause, findsNothing);
+      await tester.tap(find.text('Fermer'));
+      await tester.pumpAndSettle();
+    }
+
+    /// Encaissement page (part client > 0) avec [n] copies ; [arret] : « Arrêter » à la pause arret/n.
+    Future<int> encaisser(WidgetTester tester, int n, {int? arret}) async {
+      SharedPreferences.setMockInitialValues({'enabled_payment_method_ids': ['1', '10'], 'number_of_tickets_assurance': n, 'is_test_print_mode': true, 'paper_width': 58});
+      _phone(tester);
+      final gw = _FakeGateway();
+      await _open(tester, gw, ListPresentation.dashboard);
+      await _toProducts(tester);
+      await _add(tester, 'doli');
+      await tester.tap(_valider);
+      await tester.pumpAndSettle();
+      expect(_text(tester, find.byKey(const ValueKey('encaissement-copies'))), '$n');
+      await tester.tap(find.text('Exact'));
+      await tester.pump();
+      await tester.ensureVisible(_pageValider);
+      await tester.pumpAndSettle();
+      await tester.tap(_pageValider);
+      await tester.pumpAndSettle();
+      var copies = 0;
+      await fermerApercu(tester);
+      copies++;
+      for (var i = 2; i <= n; i++) {
+        expect(pause, findsOneWidget, reason: 'pause avant la copie $i');
+        expect(find.text('Ticket suivant ($i/$n)'), findsOneWidget);
+        expect(find.text('Coupez le ticket, puis imprimez le suivant.'), findsOneWidget);
+        if (arret == i) {
+          await tester.tap(find.byKey(const ValueKey('ticket-suivant-arreter')));
+          await tester.pumpAndSettle();
+          break;
+        }
+        await tester.tap(find.byKey(const ValueKey('ticket-suivant-imprimer')));
+        await tester.pumpAndSettle();
+        await fermerApercu(tester);
+        copies++;
+      }
+      expect(pause, findsNothing);
+      expect(apercu, findsNothing);
+      expect(gw.clotures, hasLength(1));
+      expect(_clientField, findsOneWidget, reason: 'nouvelle vente');
+      expect(tester.takeException(), isNull);
+      return copies;
+    }
+
+    for (final n in [1, 2, 3]) {
+      testWidgets('vente assurance, $n copie(s) : $n aperçu(s), ${n - 1} pause(s)', (tester) async {
+        expect(await encaisser(tester, n), n);
+      });
+    }
+
+    testWidgets('vente assurance, 3 copies, « Arrêter » à 2/3 : une seule copie', (tester) async {
+      expect(await encaisser(tester, 3, arret: 2), 1);
+    });
+
+    testWidgets('vente assurance, 3 copies, « Arrêter » à 3/3 : deux copies', (tester) async {
+      expect(await encaisser(tester, 3, arret: 3), 2);
+    });
+
+    testWidgets('part client 0 F, 2 copies : copie 1, pause (2/2), copie 2', (tester) async {
+      SharedPreferences.setMockInitialValues({'enabled_payment_method_ids': ['1', '10'], 'number_of_tickets_assurance': 2, 'is_test_print_mode': true, 'paper_width': 58});
+      _phone(tester);
+      final gw = _FakeGateway()..clients = [_client(tps: [_ctp('TP1', 'MCI', 'CT1', 100, 1)])];
+      await _open(tester, gw, ListPresentation.dashboard);
+      await _toProducts(tester, ascoma: false);
+      await _add(tester, 'doli');
+      await tester.tap(_valider);
+      await tester.pumpAndSettle();
+      expect(_text(tester, find.byKey(const ValueKey('assurance-zero-copies'))), '2');
+      await tester.tap(find.byKey(const ValueKey('assurance-zero-valider')));
+      await tester.pumpAndSettle();
+      await fermerApercu(tester);
+      expect(find.text('Ticket suivant (2/2)'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('ticket-suivant-imprimer')));
+      await tester.pumpAndSettle();
+      await fermerApercu(tester);
+      expect(pause, findsNothing);
+      expect(gw.clotures, hasLength(1));
+      expect(tester.takeException(), isNull);
+    });
+  });
 }

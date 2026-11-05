@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/ventes/common/copies_ticket.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:provider/provider.dart';
 
@@ -151,7 +152,8 @@ class _ZeroDialogState extends State<_ZeroDialog> {
       );
 }
 
-/// Imprime [copies] tickets (prévente minimaliste ou vente détaillée) sans redemander à chaque copie.
+/// Imprime [copies] tickets (prévente minimaliste ou vente détaillée). Le nombre est choisi une fois ; 4.10.3 : pause
+/// « Ticket suivant (i/N) » avant chaque copie suivante, pour couper le ticket (copies_ticket.dart).
 Future<void> printAssuranceTicket(
   BuildContext context, {
   required bool prevente,
@@ -196,7 +198,7 @@ Future<void> printAssuranceTicket(
       provisoire: provisoire,
     );
   } else {
-    await ReceiptService().printAssuranceSaleTicket(
+    await imprimerCopiesAvecPause(context, copies, () => ReceiptService().printAssuranceSaleTicket(
       context: context,
       officine: officine,
       saleSummary: summary,
@@ -207,7 +209,7 @@ Future<void> printAssuranceTicket(
       currentUser: user,
       isTestMode: settings.isTestPrintMode,
       paperWidth: settings.paperWidth,
-      numberOfCopies: copies,
+      numberOfCopies: 1, // une copie par appel ; pause entre les copies ci-dessus
       showQrCode: settings.showQrCodeOnSaleTicket,
       ticketCodeType: settings.ticketCodeType,
       montantVerse: montantVerse,
@@ -216,6 +218,6 @@ Future<void> printAssuranceTicket(
       carnet: false,
       confirmEachCopy: false,
       reglements: reglements,
-    );
+    ));
   }
 }

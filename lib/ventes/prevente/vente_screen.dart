@@ -23,6 +23,7 @@ import 'package:prestige_vente_app/services/receipt_service.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/common/vente_dialogs.dart';
 import 'package:prestige_vente_app/ventes/common/vente_layout.dart';
+import 'package:prestige_vente_app/ventes/common/copies_ticket.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/common/vente_product_search.dart';
 import 'package:prestige_vente_app/ventes/core/pending_sale_store.dart';
@@ -408,8 +409,8 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
       if (officine == null) {
         showVenteSnack(context, 'Données officine manquantes : ticket non imprimé.', error: true);
       } else {
-        for (var i = 0; i < done.copies && mounted; i++) {
-          await ReceiptService().printSaleTicket(
+        // 4.10.3 : pause « Ticket suivant (i/N) » avant chaque copie suivante (copies_ticket.dart).
+        await imprimerCopiesAvecPause(context, done.copies, () => ReceiptService().printSaleTicket(
             context: context,
             officine: officine,
             saleSummary: summary,
@@ -424,8 +425,7 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
             monnaie: done.remis,
             reglements: ticketReglementsOf(done),
             provisoire: provisoire,
-          );
-        }
+          ));
       }
     }
     if (!mounted) return;
