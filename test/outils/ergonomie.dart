@@ -59,9 +59,7 @@ const Map<String, String> anomaliesErgonomie = {
   // 4.0.1 : sur Sunmi V2s / V3 et 360×640 dp, Automatique applique Compact (400 dp de large vus par l'interface) :
   // l'anomalie n'y apparaît plus. Elle reste sur les téléphones de 360 dp de large à la taille normale.
   'vente|clavier|Téléphone 1080×2400 (360×800 dp)|1.3': 'ANO-06 pied de vente déborde (360 dp, texte ×1,3)',
-  // ANO-07 : pastille du sens (SensBadge, lib/reserve/reserve_widgets.dart) déborde de 35 px dans la fenêtre de
-  // saisie de quantité sur 360 dp de large, texte agrandi à 130 %.
-  'reserve_quantites|clavier|Téléphone 1080×2400 (360×800 dp)|1.3': 'ANO-07 pastille du sens déborde (360 dp, texte ×1,3)',
+  // ANO-07 (pastille du sens, SensBadge) : corrigée en 4.11.0 (libellé qui passe à la ligne), contrôle « clavier » réactivé.
 };
 
 /// Identifiant de l'anomalie connue pour ce contrôle et cette configuration, ou null.

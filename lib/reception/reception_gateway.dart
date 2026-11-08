@@ -48,7 +48,32 @@ abstract class ReceptionGateway {
   Future<ReceptionResult> validate(String blId);
 }
 
-class DioReceptionGateway implements ReceptionGateway {
+/// 4.11.0 (plan du 08/11, demande 59) : terminer un BL incomplet en entrant SEULEMENT ce qui a été reçu, l'écart allant
+/// au rapport. Seulement si le serveur l'annonce (`clotureRecu` de `GET v1/reception/parametres`) ; sinon (serveur
+/// actuel), le BL incomplet reste ouvert : rien n'est jamais entré à la quantité commandée par ce chemin.
+abstract class ClotureRecuGateway {
+  Future<bool> clotureRecuDisponible();
+
+  /// `PUT v1/commande/validerbl/{id}?mode=RECU` : réponse `{success, msg, ecarts:[{cip, nom, commande, recu, manquant}]}`.
+  Future<ReceptionResult> validateRecu(String blId);
+}
+
+/// Écart d'une ligne entrée « au reçu » (réponse `ecarts` de la demande 59).
+typedef EcartBl = ({String cip, String nom, int commande, int recu, int manquant});
+
+/// Écarts renvoyés par la clôture « au reçu » (vide si absents).
+List<EcartBl> ecartsDe(ReceptionResult r) {
+  final l = r.data['ecarts'];
+  if (l is! List) return const [];
+  int n(Object? v) => v is num ? v.toInt() : int.tryParse('${v ?? ''}') ?? 0;
+  return [
+    for (final e in l)
+      if (e is Map)
+        (cip: '${e['cip'] ?? ''}', nom: '${e['nom'] ?? ''}', commande: n(e['commande']), recu: n(e['recu']), manquant: n(e['manquant'])),
+  ];
+}
+
+class DioReceptionGateway implements ReceptionGateway, ClotureRecuGateway {
   final Dio dio;
   DioReceptionGateway(this.dio);
 
@@ -226,6 +251,26 @@ class DioReceptionGateway implements ReceptionGateway {
     try {
       final r = await dio.put('/commande/validerbl/$blId');
       return _result(r.data, ok: 'Entrée en stock effectuée');
+    } catch (e) {
+      return _error(e);
+    }
+  }
+
+  @override
+  Future<bool> clotureRecuDisponible() async {
+    try {
+      final r = await dio.get('/reception/parametres');
+      return r.data is Map && (r.data as Map)['clotureRecu'] == true;
+    } catch (_) {
+      return false; // serveur sans la route ou sans la demande 59 : chemin désactivé
+    }
+  }
+
+  @override
+  Future<ReceptionResult> validateRecu(String blId) async {
+    try {
+      final r = await dio.put('/commande/validerbl/$blId', queryParameters: {'mode': 'RECU'});
+      return _result(r.data, ok: 'Entrée en stock effectuée (reçu)');
     } catch (e) {
       return _error(e);
     }

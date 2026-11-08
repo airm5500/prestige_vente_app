@@ -13,9 +13,10 @@ import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/screens/common/guided_capture_screen.dart';
+import 'package:prestige_vente_app/screens/common/lecture_lot_date.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_summary_screen.dart';
 import 'package:prestige_vente_app/services/datamatrix_parser.dart';
-import 'package:prestige_vente_app/services/label_text_parser.dart';
+import 'package:prestige_vente_app/services/saisie_peremption.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
@@ -26,6 +27,9 @@ typedef CodeCamera = Future<String?> Function(BuildContext context, {bool dataMa
 /// Photo guidée de l'étiquette -> lignes de texte (remplaçable pour les tests).
 typedef LabelCamera = Future<List<String>?> Function(BuildContext context);
 
+/// 4.11.0 : photo guidée -> lignes de texte ET codes lus sur la photo (remplaçable pour les tests).
+typedef EtiquetteCamera = Future<LectureEtiquette?> Function(BuildContext context);
+
 enum _Filter { todo, partial, done, all }
 
 class ReceptionBlScreen extends StatefulWidget {
@@ -34,6 +38,7 @@ class ReceptionBlScreen extends StatefulWidget {
   final ReceptionSettings settings;
   final CodeCamera? codeCamera;
   final LabelCamera? labelCamera;
+  final EtiquetteCamera? etiquetteCamera;
   final DateTime Function()? clock;
 
   /// Présentation (A, B, C) ; celle de l'appareil si non précisée.
@@ -46,6 +51,7 @@ class ReceptionBlScreen extends StatefulWidget {
     required this.settings,
     this.codeCamera,
     this.labelCamera,
+    this.etiquetteCamera,
     this.clock,
     this.presentation,
   });
@@ -82,6 +88,7 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
   final _lotFocus = FocusNode();
   final _dateFocus = FocusNode();
   String? _source; // d'où viennent le lot et la date
+  String? _dateError;
 
   /// D18 (4.3.1) : numéro de série et GTIN du dernier DataMatrix GS1 de la boîte scannée pour la ligne ouverte
   /// (AI 21 + AI 01) ; envoyés avec le lot, oubliés après l'enregistrement ou un refus. Jamais affichés ni journalisés.
@@ -96,6 +103,11 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
   @override
   void initState() {
     super.initState();
+    // 4.11.0 (plan du 08/11) : la quantité attendue est sélectionnée dès que le champ prend le focus (la frappe la
+    // remplace), comme dans « Mise à jour péremption ».
+    _qtyFocus.addListener(() {
+      if (_qtyFocus.hasFocus) _qty.selection = TextSelection(baseOffset: 0, extentOffset: _qty.text.length);
+    });
     DroitsVente.instance.addListener(_onDroits);
     loadPresentation();
     _load();
@@ -173,12 +185,12 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
   }
 
   Future<void> _cameraScan({bool dataMatrixOnly = false}) async {
+    // 4.11.0 : DataMatrix lot / date lu comme dans « Mise à jour péremption » (haute définition, zoom, code-barres
+    // sans lot ni date refusé sur l'image) : lib/screens/common/lecture_lot_date.dart.
     final camera = widget.codeCamera ??
-        (BuildContext ctx, {bool dataMatrixOnly = false}) => CameraScanScreen.open(
-              ctx,
-              title: dataMatrixOnly ? 'Scanner le DataMatrix (lot / date)' : 'Scanner le produit',
-              dataMatrixOnly: dataMatrixOnly,
-            );
+        (BuildContext ctx, {bool dataMatrixOnly = false}) => dataMatrixOnly
+            ? scannerLotDate(ctx)
+            : CameraScanScreen.open(ctx, title: 'Scanner le produit', produit: true, hauteDefinition: true);
     final value = await camera(context, dataMatrixOnly: dataMatrixOnly);
     if (value != null && mounted) await _onScan(value);
   }
@@ -299,6 +311,7 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
       _gtinSerie = null;
       _lotChoices = const [];
       _dateChoices = const [];
+      _dateError = null;
     });
     _focusNext();
   }
@@ -332,23 +345,76 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _current == null) return;
       if (_lot.text.isNotEmpty && (_date.text.isNotEmpty || !_peremptionRequired)) {
-        _qtyFocus.requestFocus();
-        _qty.selection = TextSelection(baseOffset: 0, extentOffset: _qty.text.length);
+        _focusQty();
       } else {
         _scanFocus.requestFocus();
       }
     });
   }
 
-  Future<void> _photoLabel() async {
-    final reader = widget.labelCamera ?? (ctx) => GuidedCaptureScreen.open(ctx);
-    final lines = await reader(context);
-    if (lines == null || !mounted) return;
-    final label = LabelTextParser.parse(lines);
-    if (label.lotCandidates.isEmpty && label.expiryCandidates.isEmpty) {
-      Constants.showSnackBar(context, 'Ni lot ni date lisibles. Cadrez uniquement LOT et EXP.', isError: true);
+  /// 4.11.0 : quantité attendue pré-sélectionnée (la frappe la remplace).
+  void _focusQty() {
+    _qtyFocus.requestFocus();
+    _qty.selection = TextSelection(baseOffset: 0, extentOffset: _qty.text.length);
+  }
+
+  /// 4.11.0 (plan du 08/11) : Entrée / « Suivant » / douchette dans le lot → péremption (ou quantité si la date est
+  /// déjà là).
+  void _lotSubmitted(String v) {
+    if (_lot.text.trim().isEmpty) {
+      _lotFocus.requestFocus();
       return;
     }
+    if (_date.text.trim().isEmpty || parseExpiryInput(_date.text) == null) {
+      _dateFocus.requestFocus();
+    } else {
+      _focusQty();
+    }
+  }
+
+  /// Entrée dans la péremption : date lue avec la règle de « Mise à jour péremption » (0128, 010128…), réécrite
+  /// JJ/MM/AAAA, puis quantité. Date illisible : message sous le champ, le curseur reste.
+  void _dateSubmitted(String v) {
+    final t = _date.text.trim();
+    if (t.isEmpty && !_peremptionRequired) {
+      _focusQty();
+      return;
+    }
+    final d = parseExpiryInput(t);
+    if (d == null) {
+      setState(() => _dateError = t.isEmpty ? 'Date de péremption obligatoire' : 'Date illisible : 0128, 010128 ou JJ/MM/AAAA');
+      _dateFocus.requestFocus();
+      return;
+    }
+    setState(() {
+      _dateError = null;
+      _date.text = _fmt.format(d);
+    });
+    _focusQty();
+  }
+
+  /// 4.11.0 : photo de l'étiquette par le chemin de « Mise à jour péremption » (capture guidée stable, DataMatrix de
+  /// la photo lu en priorité, sinon texte confirmé par l'opérateur) : lib/screens/common/lecture_lot_date.dart.
+  Future<void> _photoLabel() async {
+    final labelCamera = widget.labelCamera;
+    final r = await photoLotDate(
+      context,
+      lecteurEtiquette: widget.etiquetteCamera ??
+          (labelCamera == null
+              ? null
+              : (ctx) async {
+                  final l = await labelCamera(ctx);
+                  return l == null ? null : (lignes: l, codes: const <String>[]);
+                }),
+      reprendre: _photoLabel,
+    );
+    if (r == null || !mounted) return;
+    if (r.depuisDataMatrix) {
+      // Comme un scan : produit vérifié contre la ligne ouverte, lot et date repris.
+      await _onScan(r.brut);
+      return;
+    }
+    final label = r.donnees;
     // Code produit imprimé sur l'étiquette : il doit correspondre à la ligne ouverte.
     final current = _current;
     if (label.gtin != null && current != null) {
@@ -362,16 +428,10 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
           return;
         }
       } catch (_) {
-        // Vérification impossible hors connexion : l'opérateur confirme de toute façon les valeurs.
+        // Vérification impossible hors connexion : l'opérateur a confirmé les valeurs.
       }
     }
-    _applyLotDate(
-      label.lotCandidates,
-      label.expiryCandidates,
-      label.lotCandidates.length == 1 ? label.lotCandidates.first : null,
-      label.expiryCandidates.length == 1 ? label.expiryCandidates.first : null,
-      'Photo (vérifiez avec la boîte)',
-    );
+    _applyLotDate(label.lotCandidates, label.expiryCandidates, label.lot, label.expiry, 'Photo (vérifiée avec la boîte)');
   }
 
   Future<void> _submit() async {
@@ -858,7 +918,9 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
             focusNode: _lotFocus,
             textCapitalization: TextCapitalization.characters,
             decoration: _field('N° de lot'),
+            textInputAction: TextInputAction.next,
             onChanged: (v) => _interceptFieldScan(_lot, v),
+            onSubmitted: _lotSubmitted,
           ),
           if (_lotChoices.isNotEmpty)
             Wrap(spacing: 6, children: [
@@ -869,8 +931,14 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
             controller: _date,
             focusNode: _dateFocus,
             keyboardType: TextInputType.datetime,
-            decoration: _field('Péremption (JJ/MM/AAAA ou MM/AAAA)${_peremptionRequired ? ' *' : ''}'),
-            onChanged: (v) => _interceptFieldScan(_date, v),
+            textInputAction: TextInputAction.next,
+            decoration: _field('Péremption (JJ/MM/AAAA ou MM/AAAA)${_peremptionRequired ? ' *' : ''}')
+                .copyWith(helperText: aideSaisiePeremption, errorText: _dateError),
+            onChanged: (v) {
+              if (_dateError != null) setState(() => _dateError = null);
+              _interceptFieldScan(_date, v);
+            },
+            onSubmitted: _dateSubmitted,
           ),
           if (_dateChoices.isNotEmpty)
             Wrap(spacing: 6, children: [
@@ -886,6 +954,7 @@ class _ReceptionBlScreenState extends State<ReceptionBlScreen> with Presentation
                 keyboardType: TextInputType.number,
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 decoration: _field('Quantité (boîtes)'),
+                textInputAction: TextInputAction.done,
                 onChanged: (_) => setState(() {}),
                 onSubmitted: (_) => _submit(),
               ),

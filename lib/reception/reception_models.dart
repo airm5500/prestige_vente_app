@@ -59,9 +59,18 @@ class ReceptionOrder {
   final String ref;
   final String grossiste;
   final String date;
+
+  /// Quantité totale commandée (`int_NBRE_PRODUIT` : boîtes, pas des produits).
   final int products;
+
+  /// 4.11.0 (plan du 08/11) : nombre de LIGNES de la commande (`int_LINE`) ; null sur un serveur qui ne l'envoie pas.
+  final int? linesCount;
   final int amount;
   final String statut;
+
+  /// Nombre affiché dans les listes : les lignes (demande du pharmacien), les boîtes à défaut.
+  int get lines => linesCount ?? products;
+  String get linesLabel => linesCount == null ? (products > 1 ? 'boîtes' : 'boîte') : (lines > 1 ? 'lignes' : 'ligne');
 
   const ReceptionOrder({
     required this.id,
@@ -69,6 +78,7 @@ class ReceptionOrder {
     this.grossiste = '',
     this.date = '',
     this.products = 0,
+    this.linesCount,
     this.amount = 0,
     this.statut = '',
   });
@@ -86,6 +96,7 @@ class ReceptionOrder {
         grossiste: _str(j['str_GROSSISTE_LIBELLE']),
         date: _str(j['dt_CREATED']),
         products: _int(j['int_NBRE_PRODUIT']),
+        linesCount: j['int_LINE'] == null ? null : _int(j['int_LINE']),
         amount: _int(j['PRIX_ACHAT_TOTAL']),
         statut: _str(j['str_STATUT']),
       );

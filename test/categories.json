@@ -181,6 +181,12 @@
     "test/ventes_copies_ticket_e2e_test.dart": "e2e",
     "test/reseau/ventes_copies_ticket_reseau_test.dart": "reseau",
     "test/copies_ticket_ergonomie_test.dart": "ergonomie",
-    "test/copies_ticket_garde_test.dart": "non_regression"
+    "test/copies_ticket_garde_test.dart": "non_regression",
+    "test/saisie_peremption_test.dart": "unitaires",
+    "test/plan_0811_e2e_test.dart": "e2e",
+    "test/reseau/plan_0811_reseau_test.dart": "reseau",
+    "test/plan_0811_ergonomie_test.dart": "ergonomie",
+    "test/performance/plan_0811_perf_test.dart": "performance",
+    "test/plan_0811_garde_test.dart": "non_regression"
   }
 }

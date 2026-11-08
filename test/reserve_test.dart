@@ -5,6 +5,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/reserve/reserve_api.dart';
 import 'package:prestige_vente_app/reserve/reserve_models.dart';
@@ -60,7 +61,10 @@ class _FakeApi extends ReserveApi {
   ArticleReserve? article = const ArticleReserve(familleId: 'FA', cip: '3400000000001', nom: 'PRODUIT A', stockRayon: 2, stockReserve: 6, qteSuggeree: 4);
 
   @override
-  Future<List<EnteteSuggestion>> enAttente({int limit = 200}) async => attente;
+  Future<List<EnteteSuggestion>> enAttente({int limit = 200}) async {
+    lecturesAttente++;
+    return attente;
+  }
   @override
   Future<List<MotifReserve>> motifs(SensReserve sens) async => listeMotifs;
   @override
@@ -94,6 +98,22 @@ class _FakeApi extends ReserveApi {
 
   @override
   Future<ArticleReserve?> articleDuProduit({required String familleId, required String cip}) async => article;
+
+  /// 4.11.0 : recherche des produits suivis en réserve (saisie rapide) ; requêtes reçues.
+  List<ArticleReserve> catalogue = const [
+    ArticleReserve(familleId: 'FA', cip: '3400000000001', nom: 'PRODUIT A', stockRayon: 2, stockReserve: 6, qteSuggeree: 4),
+    ArticleReserve(familleId: 'FB', cip: '3400000000002', nom: 'PRODUIT B', stockRayon: 8, stockReserve: 12),
+    ArticleReserve(familleId: 'FC', cip: '3595583', nom: 'DOLIPRANE FICTIF', stockRayon: 1, stockReserve: 9),
+  ];
+  final recherches = <String>[];
+  int lecturesAttente = 0;
+  @override
+  Future<PageArticles> articles(String recherche, {String type = '', int start = 0, int limit = 30}) async {
+    recherches.add(recherche);
+    final q = recherche.toUpperCase();
+    final l = [for (final a in catalogue) if (a.cip == recherche || a.nom.startsWith(q)) a];
+    return PageArticles(l, l.length);
+  }
   @override
   Future<ResultatCreation> creer(SensReserve sens, int motifId, String commentaire, List<LignePanier> panier) {
     creations++;
@@ -464,6 +484,13 @@ void main() {
       await t.ensureVisible(creer);
       await t.tap(creer);
       await t.pumpAndSettle();
+      // 4.11.0 : confirmation du sens (texte du pharmacien), puis l'avertissement « déjà en attente ».
+      expect(find.byKey(const ValueKey('reserve-confirmer-sens')), findsOneWidget);
+      expect(find.textContaining('demande (suggestion) de sortie de la réserve, vous confirmez le sens ?'), findsOneWidget);
+      expect(find.byKey(const ValueKey('reserve-confirmer-sens-fleche')), findsOneWidget);
+      expect(find.text('Réserve → Rayon'), findsWidgets);
+      await t.tap(find.byKey(const ValueKey('reserve-confirmer-sens-oui')));
+      await t.pumpAndSettle();
       // une suggestion manuelle attend déjà : confirmation
       expect(find.text('Créer une nouvelle suggestion ?'), findsOneWidget);
       await t.tap(find.text('Créer quand même'));
@@ -488,6 +515,135 @@ void main() {
       await t.pumpAndSettle();
       expect(find.textContaining('n\'est pas suivi en réserve'), findsOneWidget);
       expect(find.byKey(const ValueKey('reserve-quantite')), findsNothing);
+    });
+  });
+
+  // 4.11.0 (plan du 08/11) : saisie manuelle des sorties de réserve, confirmation du sens, droit des suggestions.
+  group('4.11.0 : saisie manuelle et droit « Voir les suggestions »', () {
+    setUp(() => DroitsModules.instance.oublier());
+    tearDown(() => DroitsModules.instance.oublier());
+
+    Future<void> saisir(WidgetTester t, String texte) async {
+      final champ = find.byKey(const ValueKey('reserve-saisie'));
+      await t.tap(champ);
+      await t.enterText(champ, texte);
+      await t.testTextInput.receiveAction(TextInputAction.search);
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('scan / CIP → un produit → quantité → produit suivant (curseur revenu dans le champ)', (t) async {
+      await _taille(t, const Size(720, 1440));
+      final api = _FakeApi();
+      await t.pumpWidget(_app(ReservePanierScreen(sens: SensReserve.versRayon, api: api)));
+      await t.pumpAndSettle();
+      expect(find.text('Saisir un produit'), findsOneWidget);
+      await saisir(t, '3595583');
+      expect(find.byKey(const ValueKey('reserve-quantite')), findsOneWidget, reason: 'un seul produit : quantité tout de suite');
+      await t.enterText(find.byKey(const ValueKey('reserve-quantite')), '3');
+      await t.testTextInput.receiveAction(TextInputAction.done);
+      await t.pumpAndSettle();
+      expect(find.text('DOLIPRANE FICTIF'), findsOneWidget);
+      final champ = t.widget<TextField>(find.byKey(const ValueKey('reserve-saisie')));
+      expect(champ.focusNode!.hasFocus, isTrue, reason: 'produit suivant');
+      expect(champ.controller!.text, isEmpty);
+      // Nom : plusieurs résultats → choix.
+      await saisir(t, 'produit');
+      expect(find.byKey(const ValueKey('reserve-choix-produit')), findsOneWidget);
+      await t.tap(find.textContaining('PRODUIT B'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('reserve-quantite')), '2');
+      await t.tap(find.text('Valider'));
+      await t.pumpAndSettle();
+      expect(find.text('PRODUIT B'), findsOneWidget);
+      // DataMatrix : produit retrouvé par son GTIN.
+      api.recherches.clear();
+      await saisir(t, '0103400935955838' '17280131' '10LOT1');
+      expect(api.recherches.last, '3595583', reason: 'produit retrouvé par le GTIN du DataMatrix');
+      expect(find.byKey(const ValueKey('reserve-quantite')), findsOneWidget);
+      // Inconnu : message, rien d'ajouté.
+      await t.tap(find.text('Annuler'));
+      await t.pumpAndSettle();
+      await saisir(t, 'ZZZ');
+      expect(find.textContaining('Aucun produit suivi en réserve ne correspond à « ZZZ »'), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+
+    for (final sens in SensReserve.values) {
+      testWidgets('Créer : confirmation du sens ${sens.fleche} ; Annuler ne crée rien', (t) async {
+        await _taille(t, const Size(720, 1440));
+        final api = _FakeApi();
+        await t.pumpWidget(_app(ReservePanierScreen(sens: sens, api: api)));
+        await t.pumpAndSettle();
+        await saisir(t, '3400000000001');
+        await t.enterText(find.byKey(const ValueKey('reserve-quantite')), '1');
+        await t.tap(find.text('Valider'));
+        await t.pumpAndSettle();
+        final creer = find.byKey(const ValueKey('reserve-creer'));
+        await t.ensureVisible(creer);
+        await t.tap(creer);
+        await t.pumpAndSettle();
+        expect(find.byKey(const ValueKey('reserve-confirmer-sens')), findsOneWidget);
+        expect(
+            find.text(sens == SensReserve.versRayon
+                ? 'Vous allez créer une demande (suggestion) de sortie de la réserve, vous confirmez le sens ?'
+                : 'Vous allez créer une demande (suggestion) de rangement en réserve, vous confirmez le sens ?'),
+            findsOneWidget);
+        expect(t.widget<Text>(find.byKey(const ValueKey('reserve-confirmer-sens-fleche'))).data, sens.fleche);
+        expect(find.text('1 produit(s), 1 boîte(s)'), findsOneWidget);
+        await t.tap(find.byKey(const ValueKey('reserve-confirmer-sens-non')));
+        await t.pumpAndSettle();
+        expect(api.creations, 0);
+      });
+    }
+
+    testWidgets('sans le droit (voirSuggestions:false) : demande créée, jamais ouverte ; aucune lecture des suggestions', (t) async {
+      DroitsModules.instance.fixer(reserveDedie: true, reserveSuggestions: false);
+      await _taille(t, const Size(720, 1440));
+      final api = _FakeApi()..attente = [EnteteSuggestion.fromJson(_entete(id: 'M0', origine: 'MANUELLE'))];
+      await t.pumpWidget(_app(Builder(
+          builder: (c) => Scaffold(
+              body: ElevatedButton(
+                  onPressed: () => Navigator.of(c).push(MaterialPageRoute(builder: (_) => ReservePanierScreen(sens: SensReserve.versRayon, api: api))),
+                  child: const Text('Ouvrir'))))));
+      await t.tap(find.text('Ouvrir'));
+      await t.pumpAndSettle();
+      expect(api.lecturesAttente, 0, reason: 'le serveur refuserait la lecture');
+      expect(find.textContaining('Déjà en attente'), findsNothing);
+      await saisir(t, '3400000000001');
+      await t.enterText(find.byKey(const ValueKey('reserve-quantite')), '2');
+      await t.tap(find.text('Valider'));
+      await t.pumpAndSettle();
+      final creer = find.byKey(const ValueKey('reserve-creer'));
+      await t.ensureVisible(creer);
+      await t.tap(creer);
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('reserve-confirmer-sens-oui')));
+      await t.pump();
+      api.creation!.complete(const ResultatCreation(id: 'N1', ref: 'SR-RAY-9', lignes: 1));
+      await t.pumpAndSettle();
+      expect(api.creations, 1);
+      expect(api.ouvertures, 0, reason: 'jamais ouverte sans le droit');
+      expect(find.byType(ReserveTraitementScreen), findsNothing);
+      expect(find.byType(ReservePanierScreen), findsNothing, reason: 'retour à l\'écran précédent');
+      expect(find.text('Demande SR-RAY-9 créée : elle sera traitée par une personne habilitée.'), findsOneWidget);
+    });
+
+    testWidgets('écran Réserve sans le droit : onglet Automatique masqué, aucune lecture ; avec le droit : deux onglets', (t) async {
+      await _taille(t, const Size(720, 1440));
+      final api = _FakeApi();
+      DroitsModules.instance.fixer(reserveDedie: true, reserveSuggestions: false);
+      await t.pumpWidget(_app(ReserveScreen(api: api)));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('reserve-onglet-auto')), findsNothing);
+      expect(find.byKey(const ValueKey('reserve-sans-droit-suggestions')), findsOneWidget);
+      expect(find.byKey(const ValueKey('reserve-manuel-versRayon')), findsOneWidget, reason: 'la saisie manuelle reste possible');
+      expect(api.lecturesAttente, 0);
+      DroitsModules.instance.fixer(reserveDedie: true);
+      await t.pumpWidget(const SizedBox());
+      await t.pumpWidget(_app(ReserveScreen(api: api)));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('reserve-onglet-auto')), findsOneWidget, reason: 'champ absent (serveur actuel) : comme avant');
+      expect(api.lecturesAttente, 1);
     });
   });
 }

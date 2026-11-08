@@ -60,6 +60,7 @@ class DroitsModules extends ChangeNotifier {
   bool _adminLocal = false;
   bool? _adminServeur;
   bool? _reserveDedie;
+  bool? _reserveSuggestions;
   bool? _pososAnalyser;
   DroitsOrdonnances? _ordonnances;
   DateTime? _luA;
@@ -69,6 +70,10 @@ class DroitsModules extends ChangeNotifier {
   static const Duration validite = Duration(minutes: 5);
 
   bool get reserve => menuReserveVisible(adminLocal: _adminLocal, adminServeur: _adminServeur, droitDedie: _reserveDedie);
+
+  /// 4.11.0 (plan du 08/11, demande 60) : droit « Voir les suggestions de réserve » (`voirSuggestions` de
+  /// GET v1/reserve/droits). Champ absent (serveur sans la demande 60) : vrai, comportement d'avant.
+  bool get reserveSuggestions => _reserveSuggestions != false;
   DroitsOrdonnances? get ordonnances => _ordonnances;
   bool get ordonnancesConsulter => menuOrdonnancesVisible(_ordonnances);
   bool get ordonnancesModifier => saisieFicheClientAutorisee(_ordonnances);
@@ -92,6 +97,7 @@ class DroitsModules extends ChangeNotifier {
       _utilisateur = utilisateur;
       _adminServeur = null;
       _reserveDedie = null;
+      _reserveSuggestions = null;
       _pososAnalyser = null;
       _ordonnances = null;
       _luA = null;
@@ -116,18 +122,22 @@ class DroitsModules extends ChangeNotifier {
     }
 
     final admin = essai(() async => booleen((await client.get('/roles/est-admin'))['authorize']));
-    final dedie = essai(() async => booleen((await client.get('/reserve/droits'))['traiter']));
+    final droitsReserve = essai(() => client.get('/reserve/droits'));
+    final dedie = droitsReserve.then((j) => j == null ? null : booleen(j['traiter']));
+    final suggestions = droitsReserve.then((j) => j == null || !j.containsKey('voirSuggestions') ? null : booleen(j['voirSuggestions']));
     final ordo = essai(() async => DroitsOrdonnances.fromJson(await client.get('/ordonnance-client/droits')));
     // Demande 5 (4.3.0) : route absente sur un ancien serveur (404) → null, menu comme avant.
     final pos = essai(() async {
       final j = await client.get('/posos/droits');
       return j.containsKey('analyser') ? booleen(j['analyser']) : null;
     });
-    final a = await admin, d = await dedie, o = await ordo, p = await pos;
+    final a = await admin, d = await dedie, sg = await suggestions, o = await ordo, p = await pos;
     if (utilisateur != _utilisateur) return; // changement d'utilisateur pendant la lecture
     // Échec de lecture (réseau) : on garde ce qui était connu pour cet utilisateur.
     _adminServeur = a ?? _adminServeur;
     _reserveDedie = d ?? _reserveDedie;
+    // Champ absent (serveur sans la demande 60) : null, jamais l'ancienne valeur d'un autre serveur.
+    _reserveSuggestions = d != null ? sg : _reserveSuggestions;
     _pososAnalyser = p ?? _pososAnalyser;
     _ordonnances = o ?? _ordonnances;
     if (a != null || o != null) _luA = now;
@@ -140,6 +150,7 @@ class DroitsModules extends ChangeNotifier {
     _adminLocal = false;
     _adminServeur = null;
     _reserveDedie = null;
+    _reserveSuggestions = null;
     _pososAnalyser = null;
     _ordonnances = null;
     _luA = null;
@@ -150,11 +161,18 @@ class DroitsModules extends ChangeNotifier {
   /// Tests : fixe les droits sans serveur.
   @visibleForTesting
   void fixer(
-      {bool adminLocal = false, bool? adminServeur, bool? reserveDedie, bool? pososAnalyser, DroitsOrdonnances? ordonnances, String utilisateur = 'test'}) {
+      {bool adminLocal = false,
+      bool? adminServeur,
+      bool? reserveDedie,
+      bool? reserveSuggestions,
+      bool? pososAnalyser,
+      DroitsOrdonnances? ordonnances,
+      String utilisateur = 'test'}) {
     _utilisateur = utilisateur;
     _adminLocal = adminLocal;
     _adminServeur = adminServeur;
     _reserveDedie = reserveDedie;
+    _reserveSuggestions = reserveSuggestions;
     _pososAnalyser = pososAnalyser;
     _ordonnances = ordonnances;
     _luA = DateTime.now();

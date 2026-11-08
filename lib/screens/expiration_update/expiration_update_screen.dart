@@ -5,14 +5,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/providers/expiration_update_provider.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
 import 'package:prestige_vente_app/screens/common/guided_capture_screen.dart';
+import 'package:prestige_vente_app/screens/common/lecture_lot_date.dart';
+import 'package:prestige_vente_app/screens/common/lecture_lot_date.dart' as lecture show refusLotDate;
 import 'package:prestige_vente_app/services/datamatrix_parser.dart';
-import 'package:prestige_vente_app/services/label_text_parser.dart';
-import 'package:prestige_vente_app/services/ocr_service.dart';
+import 'package:prestige_vente_app/services/saisie_peremption.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/product_paging.dart';
@@ -35,19 +35,9 @@ class ExpirationUpdateScreen extends StatefulWidget {
   /// (comme la recherche de l'accueil, où le scan fonctionne : un EAN-13 commençant par 0 est vu comme UPC-A et
   /// était ignoré), haute définition + zoom automatique (petits DataMatrix illisibles en 640×480).
   static const scanProduit = (produit: true, hauteDefinition: true, aide: 'Code-barres ou DataMatrix de la boîte\nPlacez le code entièrement dans le cadre');
-  static const scanLotDate = (
-    produit: true,
-    hauteDefinition: true,
-    aide: 'Visez le petit carré (DataMatrix) de la boîte, à 10-15 cm.\nZoom ×2 en haut si le code est petit.',
-  );
-
-  /// Lot / date : un code lu sans lot ni date (EAN de la boîte) n'est plus ignoré en silence : message sur
-  /// l'image, la lecture continue jusqu'au DataMatrix.
-  static String? refusLotDate(String valeur) {
-    final d = DataMatrixParser.parse(valeur);
-    if (d != null && (d.lotCandidates.isNotEmpty || d.expiryCandidates.isNotEmpty || d.invalidExpiry)) return null;
-    return 'Code-barres lu, sans lot ni date. Visez le DataMatrix (petit carré).';
-  }
+  /// Lot / date : réglages et refus partagés avec la réception des BL (lib/screens/common/lecture_lot_date.dart).
+  static const scanLotDate = optionsScanLotDate;
+  static String? refusLotDate(String valeur) => lecture.refusLotDate(valeur);
 
   @override
   State<ExpirationUpdateScreen> createState() => _ExpirationUpdateScreenState();
@@ -279,75 +269,20 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
     await _onScan(scan);
   }
 
-  /// Photo de l'étiquette : capture guidée (cadre, netteté, lumière, recadrage) puis confirmation.
-  /// « Reprendre la photo » relance la capture.
+  /// Photo de l'étiquette : capture guidée (cadre, netteté, lumière, recadrage) puis confirmation, chemin partagé
+  /// avec la réception des BL (lib/screens/common/lecture_lot_date.dart). « Reprendre la photo » relance la capture.
   Future<void> _photoLabel() async {
-    while (true) {
-      if (!mounted) return;
-      List<String>? lines;
-      var codes = const <String>[];
-      setState(() => _readingLabel = true);
-      try {
-        if (widget.etiquetteReader != null || widget.labelReader == null) {
-          final r = await (widget.etiquetteReader ?? (ctx) => GuidedCaptureScreen.openEtiquette(ctx))(context);
-          lines = r?.lignes;
-          codes = r?.codes ?? const [];
-        } else {
-          lines = await widget.labelReader!(ImageSource.camera);
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(OcrService.friendlyError(e)),
-            backgroundColor: AppColors.error,
-            duration: const Duration(seconds: 6),
-          ));
-        }
-      }
-      if (!mounted) return;
-      setState(() => _readingLabel = false);
-      if (lines == null) return;
-
-      // 4.4.0 : DataMatrix de la boîte présent sur la photo → lot et date GS1, sûrs (comme un scan).
-      final dm = codes.where((c) => ExpirationUpdateScreen.refusLotDate(c) == null).map(DataMatrixParser.parse).whereType<DataMatrixData>().firstOrNull;
-      if (dm != null) {
-        Constants.showSnackBar(context, 'DataMatrix lu sur la photo : lot et date repris.');
-        await _onScan(dm);
-        return;
-      }
-
-      final label = LabelTextParser.parse(lines);
-      if (label.lotCandidates.isEmpty && label.expiryCandidates.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text('Ni lot ni date lisibles. Cadrez uniquement LOT et EXP, à plat et bien éclairés.'),
-          backgroundColor: AppColors.error,
-          duration: const Duration(seconds: 6),
-          action: SnackBarAction(label: 'Reprendre', textColor: Colors.white, onPressed: _photoLabel),
-        ));
-        return;
-      }
-
-      final confirmed = await showDialog<({String lot, DateTime? expiry, bool retake})>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => _LabelConfirmDialog(label: label),
-      );
-      if (confirmed == null || !mounted) return;
-      if (confirmed.retake) continue;
-
-      // Valeurs confirmées par l'opérateur : traitées comme un scan fiable.
-      final data = DataMatrixData(
-        raw: lines.join('\n'),
-        format: DataMatrixFormat.ocrLabel,
-        gtin: label.gtin,
-        lotCandidates: confirmed.lot.isEmpty ? const [] : [confirmed.lot],
-        lotCertain: confirmed.lot.isNotEmpty,
-        expiryCandidates: confirmed.expiry == null ? const [] : [confirmed.expiry!],
-        expiryCertain: confirmed.expiry != null,
-      );
-      await _onScan(data);
-      return;
-    }
+    final r = await photoLotDate(
+      context,
+      lecteurEtiquette: widget.etiquetteReader,
+      lecteurTexte: widget.etiquetteReader == null ? widget.labelReader : null,
+      occupe: (o) {
+        if (mounted) setState(() => _readingLabel = o);
+      },
+      reprendre: _photoLabel,
+    );
+    if (r == null || !mounted) return;
+    await _onScan(r.donnees);
   }
 
   /// Aide à la saisie du lot et de la date (dans le formulaire du produit affiché).
@@ -481,27 +416,14 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
     _searchController.selection = TextSelection(baseOffset: 0, extentOffset: _searchController.text.length);
   }
 
+  /// Règle de saisie partagée avec la réception des BL (lib/services/saisie_peremption.dart) : 0128, 010128,
+  /// 01012028 ou avec barres ; ici, en plus, une date passée est refusée.
   bool _formatAndValidateDate(String input) {
-    if (input.isEmpty) return false;
-    String digits = input.replaceAll(RegExp(r'[\/\-\s\.]'), '');
-    String day, month, year;
-    try {
-      if (digits.length == 4) { day = '01'; month = digits.substring(0, 2); year = '20${digits.substring(2, 4)}';
-      } else if (digits.length == 6) { day = digits.substring(0, 2); month = digits.substring(2, 4); year = '20${digits.substring(4, 6)}';
-      } else if (digits.length == 8) { day = digits.substring(0, 2); month = digits.substring(2, 4); year = digits.substring(4, 8);
-      } else { return false; }
-
-      final formattedDate = '$day/$month/$year';
-      final parsedDate = DateFormat('dd/MM/yyyy').parseLoose(formattedDate);
-      if (parsedDate.isBefore(DateTime.now().subtract(const Duration(days: 1)))) {
-        return false;
-      }
-      _dateController.text = formattedDate;
-      return true;
-    } catch (e) {
-      journalErreur('Date invalide', e);
-      return false;
-    }
+    final parsedDate = lireDatePeremption(input);
+    if (parsedDate == null) return false;
+    if (parsedDate.isBefore(DateTime.now().subtract(const Duration(days: 1)))) return false;
+    _dateController.text = formaterDatePeremption(parsedDate);
+    return true;
   }
 
   Future<void> _submitForm() async {
@@ -951,112 +873,6 @@ class _ExpirationUpdateScreenState extends State<ExpirationUpdateScreen> with Pr
           ),
         ),
       ),
-    );
-  }
-}
-
-
-/// Confirmation obligatoire des valeurs lues par photo : l'OCR peut se tromper
-/// (0/O, 1/I, 5/S...). Rien n'est enregistré sans validation de l'opérateur.
-class _LabelConfirmDialog extends StatefulWidget {
-  final LabelData label;
-  const _LabelConfirmDialog({required this.label});
-
-  @override
-  State<_LabelConfirmDialog> createState() => _LabelConfirmDialogState();
-}
-
-class _LabelConfirmDialogState extends State<_LabelConfirmDialog> {
-  static final _fmt = DateFormat('dd/MM/yyyy');
-  late final _lot = TextEditingController(text: widget.label.lotCandidates.isEmpty ? '' : widget.label.lotCandidates.first);
-  late final _date = TextEditingController(
-    text: widget.label.expiryCandidates.isEmpty ? '' : _fmt.format(widget.label.expiryCandidates.first),
-  );
-  String? _dateError;
-
-  @override
-  void dispose() {
-    _lot.dispose();
-    _date.dispose();
-    super.dispose();
-  }
-
-  void _confirm() {
-    final text = _date.text.trim();
-    DateTime? expiry;
-    if (text.isNotEmpty) {
-      try {
-        expiry = _fmt.parseStrict(text);
-      } catch (_) {
-        setState(() => _dateError = 'Format attendu : JJ/MM/AAAA');
-        return;
-      }
-    }
-    Navigator.of(context).pop((lot: _lot.text.trim().toUpperCase(), expiry: expiry, retake: false));
-  }
-
-  Widget _chips<T>(List<T> values, String Function(T) format, void Function(T) onTap) {
-    if (values.length < 2) return const SizedBox.shrink();
-    return Wrap(
-      spacing: 6,
-      children: [for (final v in values) ActionChip(label: Text(format(v)), onPressed: () => onTap(v))],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final label = widget.label;
-    final warn = TextStyle(color: Colors.orange.shade900, fontSize: 12);
-    return AlertDialog(
-      title: const Text('Vérifiez avec la boîte'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Comparez chaque caractère avec l\'emballage avant de valider.', style: TextStyle(fontSize: 13)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _lot,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(labelText: 'N° de Lot', border: OutlineInputBorder()),
-            ),
-            if (label.lotCandidates.isNotEmpty && !label.lotFromLabel)
-              Text('Lot proposé sans libellé "LOT" : à vérifier.', style: warn),
-            _chips<String>(label.lotCandidates, (v) => v, (v) => setState(() => _lot.text = v)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _date,
-              keyboardType: TextInputType.datetime,
-              decoration: InputDecoration(
-                labelText: 'Date de péremption (JJ/MM/AAAA)',
-                border: const OutlineInputBorder(),
-                errorText: _dateError,
-              ),
-            ),
-            if (label.expiryCandidates.isNotEmpty && !label.expiryFromLabel)
-              Text('Date déduite sans libellé "EXP" : à vérifier.', style: warn),
-            _chips<DateTime>(label.expiryCandidates, _fmt.format, (d) => setState(() => _date.text = _fmt.format(d))),
-            const SizedBox(height: 8),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: const Text('Texte lu sur la photo', style: TextStyle(fontSize: 13)),
-              children: [
-                for (final l in label.rawLines)
-                  Align(alignment: Alignment.centerLeft, child: Text(l, style: const TextStyle(fontSize: 12))),
-              ],
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop((lot: '', expiry: null, retake: true)),
-          child: const Text('Reprendre la photo'),
-        ),
-        ElevatedButton(onPressed: _confirm, child: const Text('Valider')),
-      ],
     );
   }
 }

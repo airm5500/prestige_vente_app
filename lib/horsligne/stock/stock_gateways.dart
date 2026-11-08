@@ -22,7 +22,7 @@ bool _lineMatches(Map<String, dynamic> l, String query) {
 
 final _fr = DateFormat('dd/MM/yyyy');
 
-class OfflineReceptionGateway implements ReceptionGateway {
+class OfflineReceptionGateway implements ReceptionGateway, ClotureRecuGateway {
   final ReceptionGateway online;
   final StockHorsLigne? _stock;
   OfflineReceptionGateway(this.online, {StockHorsLigne? stock}) : _stock = stock;
@@ -149,6 +149,21 @@ class OfflineReceptionGateway implements ReceptionGateway {
   Future<ReceptionResult> validate(String blId) async {
     if (!_off) return online.validate(blId);
     return const ReceptionResult(false, 'Entrée en stock : $kEnLigneUniquement.');
+  }
+
+  /// 4.11.0 (demande 59) : en ligne seulement, si la passerelle du serveur la propose.
+  @override
+  Future<bool> clotureRecuDisponible() async {
+    final o = online;
+    if (_off || o is! ClotureRecuGateway) return false;
+    return (o as ClotureRecuGateway).clotureRecuDisponible();
+  }
+
+  @override
+  Future<ReceptionResult> validateRecu(String blId) async {
+    final o = online;
+    if (_off || o is! ClotureRecuGateway) return const ReceptionResult(false, 'Entrée en stock : $kEnLigneUniquement.');
+    return (o as ClotureRecuGateway).validateRecu(blId);
   }
 }
 
