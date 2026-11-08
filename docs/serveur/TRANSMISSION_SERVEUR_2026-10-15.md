@@ -17,7 +17,7 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10)
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10), 59 et 60 (réception d'un BL incomplet, droit « Voir les suggestions de réserve », 08/11)
 3. Prestige Pharmacien : réponses et demandes 45 et 55 (péremptions courtes, 25/10)
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
@@ -457,6 +457,140 @@ ou seulement pour le client standard ? Dans le code de l'ordonnance, la date d'u
 
 ---
 
+### Plan du 08/11 (Prestige Mobile 4.11.0) — routes vérifiées dans le code (`274ee1ba`)
+
+Le reste du plan du 08/11 se fait sans le serveur, avec ces routes :
+- **Nombre de lignes des commandes** (Réception) : `int_LINE` de `GET v1/commande/list` et `GET v1/commande/list/passees`.
+  `int_NBRE_PRODUIT` y est la quantité totale.
+- **Réserve, saisie manuelle :** `POST v1/suggestion-reserve/creer {categorie, motifId, commentaire, items}`, qui
+  respecte `X-Client-Ref`.
+
+### Demande 59 — Réception BL : terminer un BL incomplet (entrer ce qui a été vu, écart au rapport) (P1, plan du 08/11)
+
+**Besoin (pharmacien) :**
+« saisie incomplète, permettre de continuer vu qu'on est censé saisir ce qu'on a vu à la réception ; la différence
+vient en rapport et on a la possibilité de créer un retour fournisseur en attente ».
+
+**Ce qui existe (vérifié, `CommandeServiceImpl.cloturerBonLivraison(id, avecEcart)`)**
+
+Route : `PUT v1/commande/validerbl/{id}?avecEcart=`.
+
+- **Sans `avecEcart`** :
+  - une ligne **commencée** dont les lots sont inférieurs à la quantité commandée est refusée
+    (`code: PRODUITS_NON_SAISIS`, produits nommés) ;
+  - une ligne **sans aucun lot** est entrée à la **quantité commandée** (`createTLot(..., int_QTE_CMDE)`). Cela crée
+    en stock des boîtes que personne n'a vues.
+- **Avec `avecEcart=true`** : le contrôle est **plus strict**. Les lignes sans lot sont aussi refusées. Le paramètre ne
+  permet donc pas de terminer un BL incomplet.
+- **Plus loin dans la boucle** : `cmde < int_QTE_CMDE` provoque un rollback et le refus « La réception de certains
+  produits n'a pas été faite ».
+
+Aujourd'hui, aucun chemin ne permet donc d'entrer en stock **seulement** ce qui a été reçu.
+
+**Demande : un mode « entrer le reçu » de la clôture**, sans changer les modes actuels :
+
+`PUT v1/commande/validerbl/{id}?mode=RECU` (nom libre ; `avecEcart` garde son sens actuel). Comportement :
+
+- **Lignes avec lots** : entrée de la **somme des lots** (UG comprises, comme aujourd'hui), même si elle est
+  inférieure à la quantité commandée. On écrit :
+  - `int_QTE_RECUE` = somme des lots ;
+  - `int_QTE_MANQUANT` = commandé − reçu ;
+  - `int_QTE_UG`.
+- **Lignes sans lot** : rien n'entre en stock (**0**, jamais la quantité commandée), et `int_QTE_MANQUANT` =
+  commandé.
+- **Péremption obligatoire** (`KEY_ACTIVATE_PEREMPTION_DATE`) : la règle actuelle s'applique aux lots saisis
+  seulement. Une ligne non reçue n'a pas de lot à contrôler.
+- **Droit** : `P_ENTREE_EN_STOCK`, comme aujourd'hui.
+- **Anti-doublon** : `X-Client-Ref`. Une seconde clôture du même BL est déjà refusée.
+- **Réponse** :
+  ```json
+  {success:true, msg, ecarts:[{detailId, cip, nom, commande, recu, ug, manquant}], totalManquant}
+  ```
+  `ecarts` liste les lignes où reçu < commandé. La liste est vide si le BL est complet.
+- **Journal** : « BL <ref> entré avec écart : n ligne(s), m boîte(s) manquante(s), par <utilisateur> ».
+- **Rapport** : l'écart doit se retrouver **dans les rapports qui existent déjà**. Ce sont les « produits en avoir »
+  de `GET v1/avoirs-bon/{bonId}` (et son PDF), et l'état de contrôle des achats. Ainsi le web et le mobile montrent
+  la même chose. Si `avoirs-bon` ne couvre pas les manquants, ajouter `GET v1/reception/{blId}/ecarts` qui renvoie
+  la même liste.
+
+**Capacité.** Ajouter `"clotureRecu": true` dans `GET v1/reception/parametres`. Sans ce champ, l'application garde
+le comportement actuel. Elle affiche quand même la liste des lignes incomplètes : elle permet de **quitter en
+laissant le BL ouvert** (rien n'est entré) et d'enregistrer une anomalie (`POST v1/reception/anomalies`, D13). Elle
+n'essaie jamais d'entrer un BL incomplet.
+
+**Retour fournisseur « en attente » des manquants : question à trancher (pharmacien et serveur).** Un retour
+fournisseur (`POST v1/retourfournisseur/new`, puis `mettre-en-attente`) **sort du stock** à la validation. Or les
+boîtes manquantes ne sont **jamais entrées**. Un retour classique les sortirait une seconde fois, et le stock
+deviendrait faux. Deux possibilités :
+- **(a)** Le retour des manquants est une **réclamation sans mouvement de stock**. On ajoute `motif: "MANQUANT"` ou un
+  indicateur `sansSortieStock: true` sur la création du retour en attente, depuis le BL (`blId`). La validation
+  n'enlève rien du stock et sert seulement à la réclamation et à l'avoir. **Recommandé.**
+- **(b)** Pas de retour pour les manquants : la réclamation passe par les avoirs du BL (`v1/avoirs-bon`). Le retour
+  fournisseur reste réservé aux boîtes **reçues** puis renvoyées (casse, péremption courte…).
+
+Dites-nous laquelle vous retenez. L'application proposera « Créer un retour en attente » après la clôture
+seulement si le serveur l'annonce, avec `"retourManquants": true` dans `GET v1/reception/parametres`.
+
+**Tests attendus (CLAUDE.md) :**
+- **Rapprochement** : la réponse `ecarts`, `avoirs-bon` (ou la route `ecarts`), l'état de contrôle et la base
+  (`int_QTE_RECUE`, `int_QTE_MANQUANT`, `t_lot`, stock) sont identiques.
+- **Bilan avant / après** : le stock augmente exactement de la somme des lots ; une ligne sans lot ne bouge rien ;
+  une seconde clôture ne change rien.
+- **Cohérence** : sur des BL tirés au hasard (lignes complètes, partielles, vides, avec UG), stock après = stock avant
+  + reçu, et manquant = commandé − reçu, jamais négatif.
+- **Non-régression** : les modes sans paramètre et `avecEcart=true` gardent exactement leur comportement.
+
+---
+
+### Demande 60 — Réserve : droit « Voir les suggestions de réserve » (onglet Suggestions et mobile) (P2, plan du 08/11)
+
+**Besoin (pharmacien) :**
+« ajouter un privilège sur l'onglet suggestion qui servira aussi sur le mobile ; celui qui n'a pas ce privilège ne
+pourra pas voir les suggestions sur le mobile ni donc ouvrir une suggestion créée ».
+
+**Ce qui existe (vérifié)**
+- Privilèges réserve dans les migrations :
+  - `P_SM_RESERVE` : le menu ;
+  - `P_TRAITER_RESERVE` : V7.0.9 ;
+  - `P_ANNULER_MOUVEMENT_RESERVE`.
+  - **Aucun** privilège ne contrôle la **lecture** des suggestions.
+- Lectures **sans droit** (session seule) :
+  - `GET v1/suggestion-reserve/liste` ;
+  - `en-attente` et `en-attente/count` ;
+  - `{id}` ;
+  - `produits` ;
+  - `{id}/compte-rendu`.
+- Écritures : `creer`, `ouvrir`, `traiter`… demandent `P_TRAITER_RESERVE` ou `P_SM_RESERVE`.
+- `GET v1/reserve/droits` renvoie `{success, traiter, annulerMouvement}`. L'application le lit déjà.
+
+**Demande**
+1. **Nouveau privilège** `P_RESERVE_SUGGESTION`, décrit « RÉSERVE - Voir et ouvrir les suggestions de réserve
+   (onglet Suggestions, mobile) ». Migration idempotente, comme V7.0.9. Les rôles qui ont déjà `P_SM_RESERVE` le
+   reçoivent, pour que personne ne perde ce qu'il voit aujourd'hui. Vous pouvez choisir un autre nom : l'application
+   ne lit que le booléen du point 3.
+2. **Contrôle serveur**, 403 `{interdit:true, msg:"Droit manquant : Voir les suggestions de réserve"}` sans le
+   privilège, sur :
+   - `liste`, `en-attente`, `en-attente/count`, `{id}`, `produits`, `{id}/compte-rendu` ;
+   - `{id}/ouvrir`, `{id}/traiter`, `{id}/reessayer`, lignes, suppression.
+   
+   Sur le web, l'onglet Suggestions et la cloche des suggestions sont masqués sans ce privilège.
+3. **Capacité mobile** : ajouter `"voirSuggestions": <bool>` dans `GET v1/reserve/droits`. Champ absent (serveur
+   actuel) : l'application garde le comportement actuel.
+4. **Création sans le privilège : question.** Un magasinier sans `P_RESERVE_SUGGESTION` (mais avec
+   `P_TRAITER_RESERVE` ou `P_SM_RESERVE`) peut-il **créer** une suggestion manuelle, une « demande de sortie », que
+   d'autres traiteront ? C'est ce que nous comprenons du plan.
+   - **Si oui** : `POST creer` reste permis et la réponse garde `{lg_SUGGESTION_RESERVE_ID, str_REF}`. L'application
+     affiche alors « Demande <ref> créée : elle sera traitée par une personne habilitée » et n'ouvre pas la
+     suggestion.
+   - **Si non** : `creer` demande aussi `P_RESERVE_SUGGESTION`.
+
+**Tests attendus :**
+- profil avec et sans le privilège, sur chaque route listée (200 / 403) ;
+- la migration donne le privilège aux rôles qui ont `P_SM_RESERVE`, et une seconde exécution ne change rien ;
+- rapprochement : `voirSuggestions` de `v1/reserve/droits` égale la présence du privilège en base.
+
+---
+
 ## 3. Prestige Pharmacien (`prestige_app`, 3.10.1+42)
 
 ### Réponses aux questions
@@ -669,5 +803,7 @@ Toujours attendu : `auteurId`, `auteurLogin`, `auteurNom` dans les 7 routes `ws/
 | 56 | Nom de l'appareil gardé par le serveur (`GET`/`PUT v1/appareil/nom`, empreinte SHA-256) | Mobile, PrestigePOS | P2 |
 | 57 | Borne de pointage sans compte : appareil enrôlé (`POST v1/rh/bornes`, `v1/borne-pointage/*` signés HMAC, retrait depuis le web) | Prestige Pointage, Mobile | P2 |
 | 58 | Fiche client : modifier ou effacer la date de naissance (`POST v1/ordonnance-client/client/{id}/identite` avec `remplacer`, capacité `naissanceModifiable`) | Mobile | P2 |
+| 59 | Réception BL : clôture « entrer le reçu » (`validerbl?mode=RECU`, réponse `ecarts`, capacité `clotureRecu`), écart au rapport, retour des manquants sans sortie de stock (question) | Mobile | P1 |
+| 60 | Réserve : privilège `P_RESERVE_SUGGESTION` (lecture et ouverture des suggestions, web et mobile), capacité `voirSuggestions` dans `GET v1/reserve/droits` | Mobile | P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.
