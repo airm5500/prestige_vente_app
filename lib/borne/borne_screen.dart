@@ -9,6 +9,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/ui/icones.dart';
 import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
@@ -728,7 +729,9 @@ class BorneScreenState extends State<BorneScreen> {
         SizedBox(width: 320, child: _panierLateral()),
       ]);
     }
-    return PopScope(
+    // 4.11.0 : écran CLIENT de la borne : tailles d'icônes d'origine (mise en page réglée en 1.8.1), jamais
+    // l'agrandissement des écrans de Prestige Mobile (lib/ui/icones.dart).
+    return SansEchelleIcones(child: PopScope(
       canPop: false,
       onPopInvokedWithResult: (_, __) {
         // Bouton retour neutralisé : dans la borne, il revient seulement à l'écran précédent de la borne.
@@ -752,7 +755,7 @@ class BorneScreenState extends State<BorneScreen> {
           ]),
         ),
       ),
-    );
+    ));
   }
 
   Widget _vue(double w) => switch (vue) {

@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/services/datamatrix_parser.dart';
+import 'package:prestige_vente_app/services/saisie_peremption.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ReceptionSettings {
@@ -53,28 +54,9 @@ class ReceptionSettings {
   return (queries: cleaned.isEmpty ? const <String>[] : [cleaned], dataMatrix: dm);
 }
 
-/// Date saisie à la main : JJ/MM/AAAA, JJ/MM/AA, JJMMAA, MM/AAAA ou MM/AA (fin du mois).
-DateTime? parseExpiryInput(String input) {
-  final t = input.trim().replaceAll(RegExp(r'[.\-\s]'), '/');
-  int year(String y) => y.length == 2 ? 2000 + int.parse(y) : int.parse(y);
-  DateTime? valid(int y, int m, int d) {
-    if (m < 1 || m > 12 || d < 1) return null;
-    final date = DateTime(y, m, d);
-    return date.month == m ? date : null;
-  }
-
-  var m = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})$').firstMatch(t);
-  if (m != null) return valid(year(m[3]!), int.parse(m[2]!), int.parse(m[1]!));
-  m = RegExp(r'^(\d{2})(\d{2})(\d{2})$').firstMatch(t);
-  if (m != null) return valid(year(m[3]!), int.parse(m[2]!), int.parse(m[1]!));
-  m = RegExp(r'^(\d{1,2})/(\d{2}|\d{4})$').firstMatch(t);
-  if (m != null) {
-    final y = year(m[2]!), mo = int.parse(m[1]!);
-    if (mo < 1 || mo > 12) return null;
-    return DateTime(y, mo + 1, 0); // dernier jour du mois
-  }
-  return null;
-}
+/// Date saisie à la main (4.11.0) : règle commune de « Mise à jour péremption » (lib/services/saisie_peremption.dart) :
+/// 0128 = 01/01/2028, 010128 = 01/01/2028, 01012028, JJ/MM/AAAA, JJ/MM/AA, MM/AAAA ou MM/AA (1er du mois).
+DateTime? parseExpiryInput(String input) => lireDatePeremption(input);
 
 enum LotIssueKind {
   // Bloquants

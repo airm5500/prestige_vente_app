@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:clock/clock.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/ui/icones.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -686,6 +687,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         body: corps,
         bottomNavigationBar: NavigationBar(
           key: const Key('accueil_barre_bas'),
+          // 4.11.0 : hauteur inchangée ; icônes du thème agrandies (30 / 32 dp), qui tiennent dans l'indicateur de 32 dp.
           height: 64,
           selectedIndex: _tab == 0 ? 0 : 2,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
@@ -964,7 +966,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
               decoration: BoxDecoration(color: t.couleur.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(10)),
               child: t.nombre != null
                   ? FittedBox(fit: BoxFit.scaleDown, child: Text('${t.nombre}', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: t.couleur)))
-                  : Icon(t.icon, color: t.couleur, size: 22),
+                  : Icon(t.icon, color: t.couleur, size: tailleIcone(context, 22)),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1150,7 +1152,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
                 child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(m.icon, color: m.color, size: 30),
+                  Icon(m.icon, color: m.color, size: tailleIcone(context, 30)),
                   const SizedBox(height: 6),
                   Flexible(
                     child: Text(m.short,
@@ -1248,7 +1250,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
               width: 40,
               height: 40,
               decoration: BoxDecoration(color: couleur.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
-              child: Icon(icon, color: couleur, size: 22),
+              child: Icon(icon, color: couleur, size: tailleIcone(context, 22)),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1375,7 +1377,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
                 width: 56,
                 height: 56,
                 decoration: BoxDecoration(color: couleur.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(16)),
-                child: Icon(icon, color: couleur, size: 30),
+                child: Icon(icon, color: couleur, size: tailleIcone(context, 30)),
               ),
               const SizedBox(width: 14),
               Expanded(

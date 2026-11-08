@@ -95,7 +95,8 @@ ThemeData themeCharte(ThemeData base) {
       surfaceTintColor: Colors.transparent,
       shadowColor: Colors.transparent,
       indicatorColor: Pal.amber,
-      iconTheme: WidgetStateProperty.resolveWith((s) => IconThemeData(color: sel(s) ? Pal.onAmber : Colors.white, size: 24)),
+      // 4.11.0 : taille des icônes du thème (agrandie sur tablette et terminal, lib/ui/icones.dart), 24 sinon.
+      iconTheme: WidgetStateProperty.resolveWith((s) => IconThemeData(color: sel(s) ? Pal.onAmber : Colors.white, size: base.iconTheme.size ?? 24)),
       labelTextStyle: WidgetStateProperty.resolveWith(
           (s) => TextStyle(fontSize: 12, height: 16 / 12, fontWeight: FontWeight.w500, letterSpacing: 0.5, color: sel(s) ? Colors.white : Pal.headerMuted)),
     ),

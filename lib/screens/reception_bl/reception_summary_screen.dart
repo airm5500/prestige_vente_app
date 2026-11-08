@@ -41,6 +41,9 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
   bool? _authorized;
   bool _validating = false;
 
+  /// 4.11.0 (demande 59) : le serveur sait entrer seulement ce qui a été reçu ; null = pas encore lu.
+  bool? _clotureRecu;
+
   DateTime _now() => (widget.clock ?? DateTime.now)();
 
   @override
@@ -51,7 +54,64 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
       widget.gateway.canValidate().then((v) {
         if (mounted) setState(() => _authorized = v);
       });
+      final g = widget.gateway;
+      if (g is ClotureRecuGateway) {
+        (g as ClotureRecuGateway).clotureRecuDisponible().then((v) {
+          if (mounted) setState(() => _clotureRecu = v);
+        });
+      }
     }
+  }
+
+  /// 4.11.0 (plan du 08/11) : BL incomplet entré « au reçu » : seulement les lots saisis entrent en stock, les lignes
+  /// non saisies n'entrent pas (0) ; l'écart (commandé − reçu) va au rapport.
+  Future<void> _validateRecu(ReceptionSummary s) async {
+    final ecarts = [...s.partial, ...s.notEntered];
+    final manquant = ecarts.fold<int>(0, (t, l) => t + (l.ordered - l.entered).clamp(0, l.ordered));
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        key: const Key('bl_cloture_recu_confirmation'),
+        title: const Text('Entrer ce qui a été reçu ?'),
+        content: Text([
+          'BL ${widget.bl.ref} — ${widget.bl.grossiste}',
+          '${s.enteredBoxes} boîte(s) reçue(s) sur ${s.orderedBoxes} commandée(s).',
+          '\nSeules les boîtes saisies entrent en stock. ${ecarts.length} ligne(s) en écart, $manquant boîte(s) manquante(s) : '
+              'l\'écart va au rapport du BL.',
+          '\nLe stock sera mis à jour : cette opération ne peut pas être annulée depuis le mobile.',
+        ].join('\n')),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Annuler')),
+          ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Entrer le reçu')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _validating = true);
+    final r = await (widget.gateway as ClotureRecuGateway).validateRecu(widget.bl.id);
+    if (!mounted) return;
+    setState(() => _validating = false);
+    final lignes = ecartsDe(r);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        key: const Key('bl_cloture_recu_resultat'),
+        icon: Icon(r.success ? Icons.check_circle : Icons.error, color: r.success ? Colors.green : Colors.red, size: 40),
+        title: Text(r.success ? 'Reçu entré en stock' : 'Entrée en stock refusée'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(r.message),
+            if (r.success && lignes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Text('Écart au rapport :', style: TextStyle(fontWeight: FontWeight.bold)),
+              for (final e in lignes) Text('${e.nom} — reçu ${e.recu}/${e.commande}, manquant ${e.manquant}'),
+            ],
+          ]),
+        ),
+        actions: [ElevatedButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+      ),
+    );
+    if (r.success && mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _validate(ReceptionSummary s) async {
@@ -104,6 +164,10 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
       if (requireDates && s.missingExpiry.isNotEmpty) 'Dates de péremption manquantes : Prestige refusera l\'entrée en stock.',
     ];
     final canValidateHere = widget.settings.terminalValidation && _authorized == true && blockedReasons.isEmpty;
+    // 4.11.0 (demande 59) : BL incomplet (lignes incomplètes ou non saisies) entré « au reçu » si le serveur le sait.
+    final incomplet = s.partial.isNotEmpty || s.notEntered.isNotEmpty;
+    final datesBloquent = requireDates && s.missingExpiry.any((l) => l.entered > 0);
+    final canRecuHere = widget.settings.terminalValidation && _authorized == true && _clotureRecu == true && incomplet && !datesBloquent;
 
     return PresentationScaffold(
       style: style,
@@ -200,6 +264,21 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
               Icons.event_note,
               [for (final l in s.missingExpiry) l.name],
             ),
+          if (incomplet)
+            _section(
+              'Écarts reçu / BL (${s.partial.length + s.notEntered.length})',
+              _clotureRecu == true
+                  ? '« Entrer le reçu » : seules les boîtes saisies entrent en stock ; l\'écart va au rapport du BL.'
+                  : 'Ce serveur Prestige n\'entre pas encore un BL incomplet : laissez-le ouvert (rien n\'est entré), '
+                      'complétez-le, ou corrigez les quantités du BL sur Prestige.',
+              Colors.orange.shade900,
+              Icons.difference_outlined,
+              [
+                for (final l in [...s.partial, ...s.notEntered])
+                  '${l.name} — reçu ${l.entered}/${l.ordered}, manquant ${(l.ordered - l.entered).clamp(0, l.ordered)}',
+              ],
+              cle: 'bl_ecarts',
+            ),
           if (s.notEntered.isEmpty && s.partial.isEmpty && s.shortExpiries.isEmpty && s.missingExpiry.isEmpty)
             const SoftCard(
               child: Row(children: [
@@ -230,6 +309,19 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
                 ),
               ),
               const SizedBox(height: 8),
+              if (canRecuHere) ...[
+                SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    key: const Key('bl_entrer_recu'),
+                    style: style == ListPresentation.guided ? amberButton : navyButton,
+                    icon: const Icon(Icons.difference_outlined),
+                    label: const Text('Entrer le reçu (écart au rapport)'),
+                    onPressed: _validating || HorsLigne.instance.offline ? null : () => _validateRecu(s),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
             ],
             SizedBox(
               height: 48,
@@ -253,7 +345,8 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
     );
   }
 
-  Widget _section(String title, String? note, Color color, IconData icon, List<String> rows) => Padding(
+  Widget _section(String title, String? note, Color color, IconData icon, List<String> rows, {String? cle}) => Padding(
+        key: cle == null ? null : Key(cle),
         padding: const EdgeInsets.only(bottom: 10),
         child: SoftCard(
           padding: EdgeInsets.zero,

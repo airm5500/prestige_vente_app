@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_bl_screen.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_home_screen.dart';
+import 'package:prestige_vente_app/services/saisie_peremption.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -113,6 +114,26 @@ class FakePrestige implements ReceptionGateway {
   }
 }
 
+/// 4.11.0 (demande 59) : serveur qui sait entrer seulement ce qui a été reçu.
+class FakePrestigeRecu extends FakePrestige implements ClotureRecuGateway {
+  bool disponible = true;
+  int recuCalls = 0;
+  @override
+  Future<bool> clotureRecuDisponible() async => disponible;
+  @override
+  Future<ReceptionResult> validateRecu(String blId) async {
+    recuCalls++;
+    return ReceptionResult(true, 'BL entré avec écart', {
+      'success': true,
+      'ecarts': [
+        for (final r in rows.values)
+          if (r.line.entered < r.line.ordered)
+            {'cip': r.line.code, 'nom': r.line.name, 'commande': r.line.ordered, 'recu': r.line.entered, 'manquant': r.line.ordered - r.line.entered},
+      ],
+    });
+  }
+}
+
 void main() {
   final now = DateTime(2026, 10, 10, 9);
 
@@ -120,8 +141,15 @@ void main() {
     test('dates saisies à la main', () {
       expect(parseExpiryInput('31/10/2027'), DateTime(2027, 10, 31));
       expect(parseExpiryInput('311027'), DateTime(2027, 10, 31));
-      expect(parseExpiryInput('08/2028'), DateTime(2028, 8, 31)); // jour absent -> fin du mois
-      expect(parseExpiryInput('02/28'), DateTime(2028, 2, 29));
+      // 4.11.0 (plan du 08/11) : règle de « Mise à jour péremption » : jour absent → 1er du mois, barres facultatives.
+      expect(parseExpiryInput('08/2028'), DateTime(2028, 8, 1));
+      expect(parseExpiryInput('02/28'), DateTime(2028, 2, 1));
+      expect(parseExpiryInput('0128'), DateTime(2028, 1, 1));
+      expect(parseExpiryInput('010128'), DateTime(2028, 1, 1));
+      expect(parseExpiryInput('01012028'), DateTime(2028, 1, 1));
+      expect(parseExpiryInput('1/1/28'), DateTime(2028, 1, 1));
+      expect(parseExpiryInput('310228'), isNull);
+      expect(parseExpiryInput('1328'), isNull);
       expect(parseExpiryInput('31/02/2027'), isNull);
       expect(parseExpiryInput('13/2027'), isNull);
     });
@@ -435,9 +463,113 @@ void main() {
       await scan(tester, '3595583');
       await tester.tap(find.text('Photo LOT/EXP'));
       await tester.pumpAndSettle();
+      // 4.11.0 : chemin de « Mise à jour péremption » : confirmation obligatoire des valeurs lues.
+      expect(find.text('Vérifiez avec la boîte'), findsOneWidget);
+      expect(field(tester, 'N° de lot'), '', reason: 'rien de repris avant la confirmation');
+      await tester.tap(find.text('Valider'));
+      await tester.pumpAndSettle();
       expect(field(tester, 'N° de lot'), 'K77B');
       expect(field(tester, 'Péremption (JJ/MM/AAAA ou MM/AAAA)'), '31/03/2028');
-      expect(find.textContaining('vérifiez avec la boîte'), findsOneWidget);
+      expect(find.textContaining('vérifiée avec la boîte'), findsOneWidget);
+    });
+
+    // 4.11.0 (plan du 08/11) : enchaînement des champs, péremption sans barres, quantité pré-sélectionnée.
+    testWidgets('4.11.0 : lot → Entrée → péremption « 0128 » → Entrée → quantité pré-sélectionnée → Entrée enregistre', (tester) async {
+      await pump(tester);
+      await scan(tester, '3595583');
+      expect(find.text('DOLIPRANE 1000MG CP'), findsOneWidget);
+      final lotField = find.widgetWithText(TextField, 'N° de lot');
+      final dateField = find.widgetWithText(TextField, 'Péremption (JJ/MM/AAAA ou MM/AAAA)');
+      final qtyField = find.widgetWithText(TextField, 'Quantité (boîtes)');
+      FocusNode focus(Finder f) => tester.widget<TextField>(f).focusNode!;
+      expect(find.text(aideSaisiePeremption), findsOneWidget, reason: 'aide sous le champ');
+      expect(tester.widget<TextField>(lotField).textInputAction, TextInputAction.next);
+      expect(tester.widget<TextField>(dateField).textInputAction, TextInputAction.next);
+      await tester.tap(lotField);
+      await tester.enterText(lotField, 'L77');
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pumpAndSettle();
+      expect(focus(dateField).hasFocus, isTrue, reason: 'lot validé → péremption');
+      await tester.enterText(dateField, '0128');
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pumpAndSettle();
+      expect(field(tester, 'Péremption (JJ/MM/AAAA ou MM/AAAA)'), '01/01/2028', reason: '0128 = 01/01/2028');
+      expect(focus(qtyField).hasFocus, isTrue, reason: 'péremption validée → quantité');
+      final q = tester.widget<TextField>(qtyField).controller!;
+      expect(q.text, '24');
+      expect(q.selection, const TextSelection(baseOffset: 0, extentOffset: 2), reason: 'quantité attendue pré-sélectionnée');
+      // La frappe remplace la sélection.
+      tester.testTextInput.updateEditingValue(const TextEditingValue(text: '20', selection: TextSelection.collapsed(offset: 2)));
+      await tester.pump();
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(server.addLotCalls.single, {'detail': 'd1', 'qty': 20, 'ug': 0, 'lot': 'L77', 'exp': DateTime(2028, 1, 1)});
+    });
+
+    testWidgets('4.11.0 : péremption « 010128 » acceptée ; date illisible : message sous le champ, curseur gardé', (tester) async {
+      await pump(tester);
+      await scan(tester, '3595583');
+      final dateField = find.widgetWithText(TextField, 'Péremption (JJ/MM/AAAA ou MM/AAAA)');
+      await tester.enterText(find.widgetWithText(TextField, 'N° de lot'), 'L1');
+      await tester.tap(dateField);
+      await tester.enterText(dateField, '3102');
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Date illisible'), findsOneWidget);
+      expect(tester.widget<TextField>(dateField).focusNode!.hasFocus, isTrue);
+      await tester.enterText(dateField, '010128');
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Date illisible'), findsNothing);
+      expect(field(tester, 'Péremption (JJ/MM/AAAA ou MM/AAAA)'), '01/01/2028');
+    });
+
+    testWidgets('4.11.0 : DataMatrix lu sur la PHOTO → lot et date sûrs, sans confirmation ; produit vérifié', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: ReceptionBlScreen(
+          bl: const ReceptionBl(id: 'bl1', ref: 'BL-778', grossiste: 'LABOREX'),
+          gateway: server,
+          settings: const ReceptionSettings(),
+          clock: () => now,
+          etiquetteCamera: (_) async => (lignes: const ['TEXTE ILLISIBLE'], codes: [dm(dolipraneGtin, '290630', 'PH7$gs')]),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await scan(tester, '3595583');
+      await tester.tap(find.text('Photo LOT/EXP'));
+      await tester.pumpAndSettle();
+      expect(find.text('Vérifiez avec la boîte'), findsNothing, reason: 'DataMatrix : valeurs sûres');
+      expect(field(tester, 'N° de lot'), 'PH7');
+      expect(field(tester, 'Péremption (JJ/MM/AAAA ou MM/AAAA)'), '30/06/2029');
+    });
+
+    testWidgets('4.11.0 : DataMatrix par la caméra : lecture « lot / date » de « Mise à jour péremption » demandée', (tester) async {
+      var demandeDm = false;
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: ReceptionBlScreen(
+          bl: const ReceptionBl(id: 'bl1', ref: 'BL-778', grossiste: 'LABOREX'),
+          gateway: server,
+          settings: const ReceptionSettings(),
+          clock: () => now,
+          codeCamera: (BuildContext _, {bool dataMatrixOnly = false}) async {
+            demandeDm = dataMatrixOnly;
+            return dm(dolipraneGtin, '281130', 'CAM1$gs');
+          },
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await scan(tester, '3595583');
+      await tester.tap(find.text('DataMatrix'));
+      await tester.pumpAndSettle();
+      expect(demandeDm, isTrue);
+      expect(field(tester, 'N° de lot'), 'CAM1');
+      expect(field(tester, 'Quantité (boîtes)'), '24');
     });
 
     testWidgets('bilan : ligne incomplète -> entrée en stock impossible ; complète -> validation', (tester) async {
@@ -466,6 +598,43 @@ void main() {
       expect(server.validateCalls, 1);
       expect(find.text('Entrée en stock effectuée'), findsOneWidget);
     });
+
+    // 4.11.0 (plan du 08/11, demande 59) : BL incomplet.
+    for (final dispo in [true, false]) {
+      testWidgets('4.11.0 : BL incomplet, serveur ${dispo ? 'avec' : 'SANS'} la clôture « au reçu »', (tester) async {
+        final recu = FakePrestigeRecu()
+          ..disponible = dispo
+          ..add('d1', 'DOLIPRANE 1000MG CP', '3595583', '3400935955838', 24)
+          ..add('d2', 'AUTRE PRODUIT', '3000000', '3400930000007', 10, entered: 4, lots: ['Z9']);
+        server = recu;
+        await pump(tester, settings: const ReceptionSettings(terminalValidation: true));
+        await tester.tap(find.text('Terminer et vérifier'));
+        await tester.pumpAndSettle();
+        // Rapport des écarts toujours visible : ce qui a été vu, ce qui manque.
+        expect(find.byKey(const Key('bl_ecarts')), findsOneWidget);
+        expect(find.text('AUTRE PRODUIT — reçu 4/10, manquant 6'), findsOneWidget);
+        expect(find.text('DOLIPRANE 1000MG CP — reçu 0/24, manquant 24'), findsOneWidget);
+        if (!dispo) {
+          expect(find.byKey(const Key('bl_entrer_recu')), findsNothing, reason: 'serveur actuel : jamais d\'entrée d\'un BL incomplet');
+          expect(find.textContaining('n\'entre pas encore un BL incomplet'), findsOneWidget);
+          expect(recu.recuCalls, 0);
+          return;
+        }
+        final bouton = find.byKey(const Key('bl_entrer_recu'));
+        await tester.ensureVisible(bouton);
+        await tester.tap(bouton);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('bl_cloture_recu_confirmation')), findsOneWidget);
+        expect(find.textContaining('Seules les boîtes saisies entrent en stock. 2 ligne(s) en écart, 30 boîte(s) manquante(s)'), findsOneWidget);
+        await tester.tap(find.text('Entrer le reçu'));
+        await tester.pumpAndSettle();
+        expect(recu.recuCalls, 1);
+        expect(recu.validateCalls, 0, reason: 'jamais la clôture classique (quantité commandée)');
+        expect(find.byKey(const Key('bl_cloture_recu_resultat')), findsOneWidget);
+        expect(find.text('Écart au rapport :'), findsOneWidget);
+        expect(find.text('AUTRE PRODUIT — reçu 4/10, manquant 6'), findsWidgets);
+      });
+    }
 
     testWidgets('sans le paramètre du terminal : seulement « Laisser pour validation sur Prestige »', (tester) async {
       await pump(tester);
@@ -529,6 +698,25 @@ void main() {
     await tester.tap(find.text('Bilan'));
     await tester.pumpAndSettle();
     expect(find.text('Bilan BL BL-778'), findsOneWidget);
+  });
+
+  testWidgets('4.11.0 : commandes à réceptionner : nombre de LIGNES (int_LINE), pas de produits', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
+    final server = FakePrestige()
+      ..orderList = [const ReceptionOrder(id: 'o1', ref: 'CMD-12', grossiste: 'COPHARMED', products: 48, linesCount: 3, amount: 45000, statut: 'passed')];
+    for (final style in ListPresentation.values) {
+      await tester.pumpWidget(MaterialApp(
+        key: ValueKey(style),
+        home: ReceptionHomeScreen(gateway: server, settings: const ReceptionSettings(), clock: () => now, presentation: style),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('48'), findsNothing, reason: '${style.label} : la quantité n\'est plus affichée comme des produits');
+      expect(find.textContaining('produit'), findsNothing, reason: style.label);
+      expect(find.textContaining('3'), findsWidgets);
+      expect(find.textContaining('ligne'), findsWidgets);
+    }
   });
 
   testWidgets('B : liste groupée par grossiste, total, « Créer BL »', (tester) async {

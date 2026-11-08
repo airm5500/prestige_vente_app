@@ -2,7 +2,7 @@ name: prestige_vente_app
 description: "Application de point de vente Prestige Vente"
 publish_to: 'none'
 
-version: 4.10.3+39
+version: 4.11.0+40
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

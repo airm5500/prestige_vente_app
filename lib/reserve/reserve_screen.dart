@@ -4,6 +4,7 @@
 // Parcours décidé avec le pharmacien : suggestion PUIS traitement (comme l'écran web), jamais de mouvement direct.
 // Menu réservé aux administrateurs (droit dédié quand le serveur l'exposera) : voir lib/droits/droits_modules.dart.
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/reserve/reserve_api.dart';
 import 'package:prestige_vente_app/reserve/reserve_models.dart';
 import 'package:prestige_vente_app/reserve/reserve_panier_screen.dart';
@@ -39,8 +40,20 @@ class _ReserveScreenState extends State<ReserveScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _charger());
   }
 
+  /// 4.11.0 (demande 60) : droit « Voir les suggestions de réserve » ; vrai sur un serveur qui ne l'annonce pas.
+  bool get _voirSuggestions => DroitsModules.instance.reserveSuggestions;
+
   Future<void> _charger() async {
     if (!mounted) return;
+    if (!_voirSuggestions) {
+      // Sans le droit, le serveur refuse la lecture : rien n'est demandé, aucune suggestion affichée.
+      setState(() {
+        _enAttente = const [];
+        _chargement = false;
+        _erreur = null;
+      });
+      return;
+    }
     setState(() {
       _chargement = true;
       _erreur = null;
@@ -143,8 +156,9 @@ class _ReserveScreenState extends State<ReserveScreen> {
     int total(OrigineSuggestion o) => _nombre(SensReserve.versReserve, o) + _nombre(SensReserve.versRayon, o);
     // Deux onglets dès l'ouverture : « Manuel » (à gauche, ouvert) et « Automatique » (à droite).
     // Mêmes cartes, mêmes écrans et mêmes routes qu'avant : seule la navigation change.
+    final voir = _voirSuggestions;
     return DefaultTabController(
-      length: 2,
+      length: voir ? 2 : 1,
       child: Scaffold(
         backgroundColor: Pal.page,
         body: Column(children: [
@@ -167,7 +181,7 @@ class _ReserveScreenState extends State<ReserveScreen> {
                 unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15),
                 tabs: [
                   _tab(const ValueKey('reserve-onglet-manuel'), 'Manuel', total(manuelle)),
-                  _tab(const ValueKey('reserve-onglet-auto'), 'Automatique', total(auto)),
+                  if (voir) _tab(const ValueKey('reserve-onglet-auto'), 'Automatique', total(auto)),
                 ],
               ),
             ),
@@ -197,8 +211,17 @@ class _ReserveScreenState extends State<ReserveScreen> {
                       nombre: _nombre(SensReserve.versRayon, manuelle),
                       onTap: () => _ouvrirPanier(SensReserve.versRayon),
                     ),
-                  ])
+                  ]),
+                  if (!voir)
+                    const Padding(
+                      key: ValueKey('reserve-sans-droit-suggestions'),
+                      padding: EdgeInsets.fromLTRB(4, 8, 4, 0),
+                      child: Text(
+                          'Vos demandes sont créées pour une personne habilitée : votre compte n\'a pas le droit « Voir les suggestions de réserve ».',
+                          style: TextStyle(fontSize: 13, color: Pal.muted)),
+                    ),
                 ]),
+                if (voir)
                 _onglet('reserve-liste-auto', [
                   _section('Suggestions automatiques', [
                     _carte(

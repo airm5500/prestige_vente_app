@@ -26,7 +26,8 @@ class SensBadge extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(iconeSens(sens), size: 15, color: c),
         const SizedBox(width: 4),
-        Text(sens.fleche, style: TextStyle(color: c, fontWeight: FontWeight.w700, fontSize: 12)),
+        // 4.11.0 : le libellé passe à la ligne plutôt que de déborder (ANO-07, fenêtres étroites, texte agrandi).
+        Flexible(child: Text(sens.fleche, style: TextStyle(color: c, fontWeight: FontWeight.w700, fontSize: 12))),
       ]),
     );
   }
@@ -191,3 +192,29 @@ class CarteSuggestion extends StatelessWidget {
         ),
       );
 }
+
+/// 4.11.0 (plan du 08/11) : confirmation du sens avant de créer une suggestion manuelle (texte du pharmacien).
+Future<bool?> confirmerSensSuggestion(BuildContext context, SensReserve sens, {required int produits, required int boites}) => showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        key: const ValueKey('reserve-confirmer-sens'),
+        title: const Text('Créer la suggestion ?'),
+        content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(sens == SensReserve.versRayon
+              ? 'Vous allez créer une demande (suggestion) de sortie de la réserve, vous confirmez le sens ?'
+              : 'Vous allez créer une demande (suggestion) de rangement en réserve, vous confirmez le sens ?'),
+          const SizedBox(height: 12),
+          SensBadge(sens),
+          const SizedBox(height: 6),
+          Text(sens.fleche, key: const ValueKey('reserve-confirmer-sens-fleche'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Pal.ink)),
+          const SizedBox(height: 4),
+          Text('$produits produit(s), $boites boîte(s)', style: const TextStyle(color: Pal.muted)),
+        ])),
+        actions: [
+          TextButton(key: const ValueKey('reserve-confirmer-sens-non'), onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          ElevatedButton(
+              key: const ValueKey('reserve-confirmer-sens-oui'), style: navyButton, onPressed: () => Navigator.pop(ctx, true), child: const Text('Oui, créer')),
+        ],
+      ),
+    );

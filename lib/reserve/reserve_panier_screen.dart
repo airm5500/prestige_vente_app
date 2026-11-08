@@ -7,6 +7,7 @@
 // l'envoi n'est jamais renvoyé automatiquement (relecture des suggestions en attente d'abord).
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/reserve/reserve_api.dart';
 import 'package:prestige_vente_app/reserve/reserve_models.dart';
 import 'package:prestige_vente_app/reserve/reserve_regles.dart';
@@ -15,6 +16,7 @@ import 'package:prestige_vente_app/reserve/reserve_widgets.dart';
 import 'package:prestige_vente_app/serveur/choix_produit.dart';
 import 'package:prestige_vente_app/serveur/client_prestige.dart';
 import 'package:prestige_vente_app/serveur/erreur_vue.dart';
+import 'package:prestige_vente_app/services/datamatrix_parser.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
 
@@ -46,6 +48,13 @@ class _ReservePanierScreenState extends State<ReservePanierScreen> {
   /// La dernière création a dépassé le délai après l'envoi : elle a peut-être abouti.
   bool _incertain = false;
 
+  /// 4.11.0 (plan du 08/11) : saisie rapide d'un produit (scan, CIP ou nom), puis quantité, puis produit suivant.
+  final _saisie = TextEditingController();
+  final _saisieFocus = FocusNode();
+
+  /// Droit « Voir les suggestions de réserve » (demande 60) ; vrai sur un serveur qui ne l'annonce pas.
+  bool get _voirSuggestions => DroitsModules.instance.reserveSuggestions;
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +64,8 @@ class _ReservePanierScreenState extends State<ReservePanierScreen> {
   @override
   void dispose() {
     _commentaire.dispose();
+    _saisie.dispose();
+    _saisieFocus.dispose();
     super.dispose();
   }
 
@@ -83,6 +94,7 @@ class _ReservePanierScreenState extends State<ReservePanierScreen> {
   }
 
   Future<void> _relireEnAttente({void Function(Object)? onErreur}) async {
+    if (!_voirSuggestions) return; // sans le droit, le serveur refuse la lecture des suggestions
     try {
       final l = await widget.api.enAttente();
       if (!mounted) return;
@@ -123,6 +135,69 @@ class _ReservePanierScreenState extends State<ReservePanierScreen> {
       return;
     }
     await _saisirQuantite(a);
+  }
+
+  /// 4.11.0 : saisie rapide (champ « Saisir un produit ») : douchette (DataMatrix ou code-barres), CIP ou début du nom,
+  /// cherchés parmi les produits suivis en réserve ; un seul → quantité tout de suite ; plusieurs → choix ; puis le
+  /// curseur revient dans le champ pour le produit suivant.
+  Future<void> _saisirCode(String texte) async {
+    final t = texte.trim();
+    if (t.isEmpty || _ajout || _envoi) return;
+    final dm = DataMatrixParser.parse(t);
+    final requetes = <String>{...?dm?.productSearchQueries, if (dm == null || dm.gtin == null) t}.toList();
+    setState(() => _ajout = true);
+    List<ArticleReserve> trouves = const [];
+    try {
+      for (final q in requetes) {
+        trouves = (await widget.api.articles(q, limit: 30)).articles;
+        if (trouves.isNotEmpty) break;
+      }
+    } catch (e) {
+      if (mounted) afficherErreur(context, e);
+      return;
+    } finally {
+      if (mounted) setState(() => _ajout = false);
+    }
+    if (!mounted) return;
+    if (trouves.isEmpty) {
+      afficherErreur(context, RefusMetier('Aucun produit suivi en réserve ne correspond à « $t ».'));
+      _remettreSaisie();
+      return;
+    }
+    final a = trouves.length == 1 ? trouves.single : await _choisirArticle(trouves);
+    if (!mounted) return;
+    if (a != null) {
+      _saisie.clear();
+      await _saisirQuantite(a);
+    }
+    _remettreSaisie();
+  }
+
+  void _remettreSaisie() {
+    if (!mounted) return;
+    _saisie.selection = TextSelection(baseOffset: 0, extentOffset: _saisie.text.length);
+    _saisieFocus.requestFocus();
+  }
+
+  Future<ArticleReserve?> _choisirArticle(List<ArticleReserve> l) => showDialog<ArticleReserve>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          key: const ValueKey('reserve-choix-produit'),
+          title: Text('${l.length} produits correspondent'),
+          children: [
+            for (final a in l)
+              SimpleDialogOption(
+                onPressed: () => Navigator.of(ctx).pop(a),
+                child: Text('${a.nom}\nCIP ${a.cip} · rayon ${a.stockRayon} · réserve ${a.stockReserve}'),
+              ),
+          ],
+        ),
+      );
+
+  Future<void> _scannerSaisie() async {
+    final code = await (widget.scanner ?? scannerCodeParDefaut)(context);
+    if (!mounted || code == null || code.trim().isEmpty) return;
+    await _saisirCode(code);
   }
 
   Future<void> _saisirQuantite(ArticleReserve a, {int? actuelle}) async {
@@ -181,6 +256,11 @@ class _ReservePanierScreenState extends State<ReservePanierScreen> {
       afficherErreur(context, const RefusMetier('Choisissez le motif du réappro (obligatoire).'));
       return;
     }
+    // 4.11.0 (plan du 08/11) : confirmation du sens avant toute création.
+    if (await confirmerSensSuggestion(context, _sens, produits: _panier.length, boites: _panier.fold<int>(0, (t, l) => t + l.quantite)) != true ||
+        !mounted) {
+      return;
+    }
     if (_aReprendre.isNotEmpty || _incertain) {
       final ok = await showDialog<bool>(
         context: context,
@@ -207,6 +287,17 @@ class _ReservePanierScreenState extends State<ReservePanierScreen> {
       if (r.ignorees > 0) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('${r.ref} créée : ${r.lignes} produit(s) retenu(s), ${r.ignorees} ignoré(s) par Prestige (doublon ou rien à déplacer).')));
+      }
+      if (!_voirSuggestions) {
+        // Demande 60 : sans le droit « Voir les suggestions de réserve », la demande n'est pas ouverte ici.
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          key: const ValueKey('reserve-demande-creee'),
+          content: Text('Demande ${r.ref} créée : elle sera traitée par une personne habilitée.'),
+        ));
+        setState(() {}); // panier vide : la sortie n'est plus confirmée
+        await WidgetsBinding.instance.endOfFrame;
+        if (mounted) Navigator.of(context).pop();
+        return;
       }
       await _ouvrirSuggestion(r.id);
     } on ServeurInjoignable catch (e) {
@@ -276,7 +367,7 @@ class _ReservePanierScreenState extends State<ReservePanierScreen> {
               padding: EdgeInsets.fromLTRB(16 + inset, 12, 16 + inset, 24),
               children: [
                 BandeauSens(_sens),
-                if (_aReprendre.isNotEmpty) ...[
+                if (_aReprendre.isNotEmpty && _voirSuggestions) ...[
                   const SizedBox(height: 14),
                   Text('Déjà en attente (${_aReprendre.length})',
                       style: const TextStyle(fontWeight: FontWeight.w700, color: Pal.ink)),
@@ -286,6 +377,31 @@ class _ReservePanierScreenState extends State<ReservePanierScreen> {
                     Padding(padding: const EdgeInsets.only(bottom: 8), child: CarteSuggestion(entete: s, onTap: () => _ouvrirSuggestion(s.id))),
                 ],
                 const SizedBox(height: 14),
+                // 4.11.0 : saisie rapide : douchette, CIP ou nom → quantité → produit suivant.
+                TextField(
+                  key: const ValueKey('reserve-saisie'),
+                  controller: _saisie,
+                  focusNode: _saisieFocus,
+                  enabled: !_envoi,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    labelText: 'Saisir un produit',
+                    hintText: 'Scannez, ou tapez le CIP ou le nom',
+                    filled: true,
+                    fillColor: Colors.white,
+                    prefixIcon: const Icon(Icons.add_box_outlined),
+                    suffixIcon: IconButton(
+                      key: const ValueKey('reserve-saisie-scanner'),
+                      tooltip: 'Scanner',
+                      iconSize: 28,
+                      onPressed: _ajout || _envoi ? null : _scannerSaisie,
+                      icon: const Icon(Icons.qr_code_scanner),
+                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onSubmitted: _saisirCode,
+                ),
+                const SizedBox(height: 10),
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   OutlinedButton.icon(
                     key: const ValueKey('reserve-rechercher'),

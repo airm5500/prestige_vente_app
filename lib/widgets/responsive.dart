@@ -7,6 +7,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/ui/icones.dart';
 
 enum WindowClass { compact, medium, expanded }
 
@@ -181,7 +182,9 @@ class ResponsiveTheme extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    // 4.11.0 (plan du 08/11) : icônes agrandies sur tablette et terminal (lib/ui/icones.dart) ; téléphone inchangé.
+    final f = EchelleIcones.of(context);
+    final theme = f == 1.0 ? Theme.of(context) : EchelleIcones.theme(Theme.of(context), f);
     final w = MediaQuery.sizeOf(context).width;
     if (Responsive.classOf(w) == WindowClass.compact) return Theme(data: theme, child: child);
     final side = math.max(40.0, (w - Responsive.dialogMaxWidth) / 2);

@@ -419,10 +419,10 @@ class _Reception implements ReceptionGateway {
 
   @override
   Future<List<ReceptionOrder>> orders() async => const [
-        ReceptionOrder(id: 'o1', ref: 'CMD-12', grossiste: 'COPHARMED', products: 3, amount: 45000, statut: 'passed'),
-        ReceptionOrder(id: 'o2', ref: 'CMD-13', grossiste: 'LABOREX', products: 5, amount: 72000, statut: 'passed'),
-        ReceptionOrder(id: 'o3', ref: 'CMD-14', grossiste: 'DPCI', products: 2, amount: 18000, statut: 'passed'),
-        ReceptionOrder(id: 'o4', ref: 'CMD-15', grossiste: 'TEDIS', products: 7, amount: 99000, statut: 'passed'),
+        ReceptionOrder(id: 'o1', ref: 'CMD-12', grossiste: 'COPHARMED', products: 3, linesCount: 3, amount: 45000, statut: 'passed'),
+        ReceptionOrder(id: 'o2', ref: 'CMD-13', grossiste: 'LABOREX', products: 5, linesCount: 5, amount: 72000, statut: 'passed'),
+        ReceptionOrder(id: 'o3', ref: 'CMD-14', grossiste: 'DPCI', products: 2, linesCount: 2, amount: 18000, statut: 'passed'),
+        ReceptionOrder(id: 'o4', ref: 'CMD-15', grossiste: 'TEDIS', products: 7, linesCount: 7, amount: 99000, statut: 'passed'),
       ];
 
   @override

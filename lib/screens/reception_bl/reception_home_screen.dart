@@ -453,7 +453,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
           ]),
           const SizedBox(height: 12),
           Row(children: [
-            Flexible(child: Figure('${o.products}', o.products > 1 ? 'produits' : 'produit')),
+            Flexible(child: Figure('${o.lines}', o.linesLabel)),
             const SizedBox(width: 18),
             Flexible(child: Figure(_money.format(o.amount), 'F HT')),
           ]),
@@ -612,7 +612,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(o.ref, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink)),
                   Text.rich(TextSpan(style: const TextStyle(fontSize: 13, color: Pal.muted), children: [
-                    TextSpan(text: '${_shortDate(o.date)} · ${o.products} produit(s) · '),
+                    TextSpan(text: '${_shortDate(o.date)} · ${o.lines} ${o.linesLabel} · '),
                     TextSpan(
                       text: o.statutLabel,
                       style: TextStyle(fontWeight: FontWeight.w500, color: o.passed ? const Color(0xFF1F4F8F) : const Color(0xFF8A5300)),
@@ -759,7 +759,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
           ]),
           const SizedBox(height: 14),
           Row(children: [
-            Expanded(child: _metricBox('${o.products}', o.products > 1 ? 'produits' : 'produit')),
+            Expanded(child: _metricBox('${o.lines}', o.linesLabel)),
             const SizedBox(width: 10),
             Expanded(child: _metricBox('${_money.format(o.amount)} F', 'montant HT')),
           ]),
@@ -782,7 +782,7 @@ class _ReceptionHomeScreenState extends State<ReceptionHomeScreen> with SingleTi
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(o.grossiste, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Pal.ink)),
-              Text('${o.ref} · ${o.products} produit(s) · ${_money.format(o.amount)} F', style: const TextStyle(fontSize: 13, color: Pal.muted)),
+              Text('${o.ref} · ${o.lines} ${o.linesLabel} · ${_money.format(o.amount)} F', style: const TextStyle(fontSize: 13, color: Pal.muted)),
             ]),
           ),
           IconButton.filled(
@@ -968,7 +968,7 @@ class _CreateBlScreenState extends State<_CreateBlScreen> {
       header: [
         if (style == ListPresentation.dashboard)
           Row(children: [
-            Expanded(child: KpiTile('${o.products}', 'produit(s)')),
+            Expanded(child: KpiTile('${o.lines}', o.linesLabel)),
             const SizedBox(width: 8),
             Expanded(flex: 2, child: KpiTile('${_money.format(o.amount)} F', 'montant de la commande')),
             const SizedBox(width: 8),
@@ -977,7 +977,7 @@ class _CreateBlScreenState extends State<_CreateBlScreen> {
       ],
       compactHeader: [
         LightFigures([
-          ('${o.products}', 'Produits', Pal.navy),
+          ('${o.lines}', o.linesCount == null ? 'Boîtes' : 'Lignes', Pal.navy),
           ('${_money.format(o.amount)} F', 'Montant', Pal.navy),
           (o.statutLabel, 'Statut', Pal.navy),
         ]),
@@ -990,7 +990,7 @@ class _CreateBlScreenState extends State<_CreateBlScreen> {
             if (style == ListPresentation.guided)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: Text('${o.grossiste} — ${o.products} produit(s), ${_money.format(o.amount)} F',
+                child: Text('${o.grossiste} — ${o.lines} ${o.linesLabel}, ${_money.format(o.amount)} F',
                     style: const TextStyle(fontWeight: FontWeight.w600, color: Pal.ink)),
               ),
             SoftCard(
