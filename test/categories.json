@@ -187,6 +187,14 @@
     "test/reseau/plan_0811_reseau_test.dart": "reseau",
     "test/plan_0811_ergonomie_test.dart": "ergonomie",
     "test/performance/plan_0811_perf_test.dart": "performance",
-    "test/plan_0811_garde_test.dart": "non_regression"
+    "test/plan_0811_garde_test.dart": "non_regression",
+    "test/manquants_bl_regles_test.dart": "unitaires",
+    "test/manquants_bl_test.dart": "ecrans",
+    "test/manquants_bl_integration_test.dart": "integration",
+    "test/manquants_bl_e2e_test.dart": "e2e",
+    "test/reseau/manquants_bl_reseau_test.dart": "reseau",
+    "test/manquants_bl_ergonomie_test.dart": "ergonomie",
+    "test/performance/manquants_bl_perf_test.dart": "performance",
+    "test/manquants_bl_garde_test.dart": "non_regression"
   }
 }

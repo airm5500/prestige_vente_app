@@ -6,9 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_ui.dart';
+import 'package:prestige_vente_app/reception/manquants_bl.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
+import 'package:prestige_vente_app/screens/reception_bl/bilan_recu_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
 class ReceptionSummaryScreen extends StatefulWidget {
@@ -44,6 +46,13 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
   /// 4.11.0 (demande 59) : le serveur sait entrer seulement ce qui a été reçu ; null = pas encore lu.
   bool? _clotureRecu;
 
+  /// 4.12.0 (demande 59) : le serveur sait relire les écarts et créer le retour des manquants ; null = pas encore lu.
+  bool? _retourManquants;
+
+  /// Clé `X-Client-Ref` de la clôture « au reçu » : la même pour chaque essai sur ce bilan (un délai dépassé puis un
+  /// nouvel essai n'entrent jamais deux fois ; un refus n'est pas gardé par le serveur).
+  final String _cleRecu = nouvelleCleClotureRecu();
+
   DateTime _now() => (widget.clock ?? DateTime.now)();
 
   @override
@@ -60,6 +69,11 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
           if (mounted) setState(() => _clotureRecu = v);
         });
       }
+      if (g is RetourManquantsGateway) {
+        (g as RetourManquantsGateway).retourManquantsDisponible().then((v) {
+          if (mounted) setState(() => _retourManquants = v);
+        });
+      }
     }
   }
 
@@ -67,7 +81,22 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
   /// non saisies n'entrent pas (0) ; l'écart (commandé − reçu) va au rapport.
   Future<void> _validateRecu(ReceptionSummary s) async {
     final ecarts = [...s.partial, ...s.notEntered];
-    final manquant = ecarts.fold<int>(0, (t, l) => t + (l.ordered - l.entered).clamp(0, l.ordered));
+    var nbEcarts = ecarts.length;
+    var manquant = ecarts.fold<int>(0, (t, l) => t + (l.ordered - l.entered).clamp(0, l.ordered));
+    // 4.12.0 : écarts PROVISOIRES calculés par Prestige sur les lots enregistrés (même règle que la clôture) ; en cas
+    // d'échec de lecture, le calcul de l'écran (4.11.0).
+    final mg = widget.gateway;
+    if (_retourManquants == true && mg is RetourManquantsGateway) {
+      setState(() => _validating = true);
+      final p = await (mg as RetourManquantsGateway).ecartsBl(widget.bl.id);
+      if (!mounted) return;
+      setState(() => _validating = false);
+      if (p.success && p.provisoire) {
+        nbEcarts = p.ecarts.length;
+        manquant = p.totalManquant;
+      }
+    }
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -76,7 +105,7 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
         content: Text([
           'BL ${widget.bl.ref} — ${widget.bl.grossiste}',
           '${s.enteredBoxes} boîte(s) reçue(s) sur ${s.orderedBoxes} commandée(s).',
-          '\nSeules les boîtes saisies entrent en stock. ${ecarts.length} ligne(s) en écart, $manquant boîte(s) manquante(s) : '
+          '\nSeules les boîtes saisies entrent en stock. $nbEcarts ligne(s) en écart, $manquant boîte(s) manquante(s) : '
               'l\'écart va au rapport du BL.',
           '\nLe stock sera mis à jour : cette opération ne peut pas être annulée depuis le mobile.',
         ].join('\n')),
@@ -88,30 +117,37 @@ class _ReceptionSummaryScreenState extends State<ReceptionSummaryScreen> with Pr
     );
     if (ok != true) return;
     setState(() => _validating = true);
-    final r = await (widget.gateway as ClotureRecuGateway).validateRecu(widget.bl.id);
+    final r = await (widget.gateway as ClotureRecuGateway).validateRecu(widget.bl.id, clientRef: _cleRecu);
     if (!mounted) return;
     setState(() => _validating = false);
-    final lignes = ecartsDe(r);
+    // 4.12.0 : aucune ligne n'a de lot : rien n'est entré, le BL reste ouvert (on reste sur le bilan).
+    if (estAucunRecu(r)) {
+      await afficherAucunRecu(context, r);
+      return;
+    }
+    if (!r.success) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          key: const Key('bl_cloture_recu_refus'),
+          icon: const Icon(Icons.error, color: Colors.red, size: 40),
+          title: const Text('Entrée en stock refusée'),
+          content: Text(r.message),
+          actions: [ElevatedButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+        ),
+      );
+      return;
+    }
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        key: const Key('bl_cloture_recu_resultat'),
-        icon: Icon(r.success ? Icons.check_circle : Icons.error, color: r.success ? Colors.green : Colors.red, size: 40),
-        title: Text(r.success ? 'Reçu entré en stock' : 'Entrée en stock refusée'),
-        content: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(r.message),
-            if (r.success && lignes.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              const Text('Écart au rapport :', style: TextStyle(fontWeight: FontWeight.bold)),
-              for (final e in lignes) Text('${e.nom} — reçu ${e.recu}/${e.commande}, manquant ${e.manquant}'),
-            ],
-          ]),
-        ),
-        actions: [ElevatedButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+      barrierDismissible: false,
+      builder: (ctx) => BilanRecuDialog(
+        bl: widget.bl,
+        resultat: r,
+        manquants: _retourManquants == true && mg is RetourManquantsGateway ? mg as RetourManquantsGateway : null,
       ),
     );
-    if (r.success && mounted) Navigator.of(context).pop(true);
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _validate(ReceptionSummary s) async {

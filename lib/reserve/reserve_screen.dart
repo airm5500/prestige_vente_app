@@ -187,7 +187,7 @@ class _ReserveScreenState extends State<ReserveScreen> {
             ),
           ),
           if (_chargement) const LinearProgressIndicator(minHeight: 2),
-          if (_erreur != null) BandeauErreur(erreur: _erreur!, onReessayer: _charger),
+          if (_erreur != null) BandeauErreur(erreur: _erreur!, onReessayer: estDroitManquant(_erreur) ? null : _charger),
           Expanded(
             child: TabBarView(
               children: [
@@ -306,7 +306,7 @@ class _ReserveListeScreenState extends State<ReserveListeScreen> {
     final liste = _liste;
     Widget corps;
     if (liste == null && _erreur != null) {
-      corps = ErreurVue(erreur: _erreur!, onReessayer: _charger);
+      corps = ErreurVue(erreur: _erreur!, onReessayer: estDroitManquant(_erreur) ? null : _charger);
     } else if (liste == null) {
       corps = const Center(child: CircularProgressIndicator());
     } else if (liste.isEmpty) {
@@ -337,7 +337,7 @@ class _ReserveListeScreenState extends State<ReserveListeScreen> {
           actions: [IconButton(tooltip: 'Actualiser', onPressed: _chargement ? null : _charger, icon: const Icon(Icons.refresh, color: Colors.white))],
         ),
         if (_chargement && liste != null) const LinearProgressIndicator(minHeight: 2),
-        if (_erreur != null && liste != null) BandeauErreur(erreur: _erreur!, onReessayer: _charger),
+        if (_erreur != null && liste != null) BandeauErreur(erreur: _erreur!, onReessayer: estDroitManquant(_erreur) ? null : _charger),
         Expanded(child: RefreshIndicator(onRefresh: _charger, child: corps)),
       ]),
     );

@@ -121,7 +121,7 @@ class FakePrestigeRecu extends FakePrestige implements ClotureRecuGateway {
   @override
   Future<bool> clotureRecuDisponible() async => disponible;
   @override
-  Future<ReceptionResult> validateRecu(String blId) async {
+  Future<ReceptionResult> validateRecu(String blId, {String? clientRef}) async {
     recuCalls++;
     return ReceptionResult(true, 'BL entré avec écart', {
       'success': true,

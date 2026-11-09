@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_horsligne.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
+import 'package:prestige_vente_app/reception/manquants_bl.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/retour/retour_gateway.dart';
@@ -22,7 +23,7 @@ bool _lineMatches(Map<String, dynamic> l, String query) {
 
 final _fr = DateFormat('dd/MM/yyyy');
 
-class OfflineReceptionGateway implements ReceptionGateway, ClotureRecuGateway {
+class OfflineReceptionGateway implements ReceptionGateway, ClotureRecuGateway, RetourManquantsGateway {
   final ReceptionGateway online;
   final StockHorsLigne? _stock;
   OfflineReceptionGateway(this.online, {StockHorsLigne? stock}) : _stock = stock;
@@ -160,10 +161,33 @@ class OfflineReceptionGateway implements ReceptionGateway, ClotureRecuGateway {
   }
 
   @override
-  Future<ReceptionResult> validateRecu(String blId) async {
+  Future<ReceptionResult> validateRecu(String blId, {String? clientRef}) async {
     final o = online;
     if (_off || o is! ClotureRecuGateway) return const ReceptionResult(false, 'Entrée en stock : $kEnLigneUniquement.');
-    return (o as ClotureRecuGateway).validateRecu(blId);
+    return (o as ClotureRecuGateway).validateRecu(blId, clientRef: clientRef);
+  }
+
+  /// 4.12.0 (demande 59) : écarts et retour des manquants, en ligne seulement (jamais mis dans la file d'envoi :
+  /// le retour suit une clôture qui est elle-même en ligne seulement).
+  @override
+  Future<bool> retourManquantsDisponible() async {
+    final o = online;
+    if (_off || o is! RetourManquantsGateway) return false;
+    return (o as RetourManquantsGateway).retourManquantsDisponible();
+  }
+
+  @override
+  Future<EcartsBl> ecartsBl(String blId) async {
+    final o = online;
+    if (_off || o is! RetourManquantsGateway) return EcartsBl.refus('Écarts du BL : $kEnLigneUniquement.');
+    return (o as RetourManquantsGateway).ecartsBl(blId);
+  }
+
+  @override
+  Future<RetourManquants> creerRetourManquants(String blId, {required String clientRef}) async {
+    final o = online;
+    if (_off || o is! RetourManquantsGateway) return RetourManquants.refus('Retour des manquants : $kEnLigneUniquement.');
+    return (o as RetourManquantsGateway).creerRetourManquants(blId, clientRef: clientRef);
   }
 }
 
