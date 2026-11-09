@@ -789,6 +789,48 @@ Toujours attendu : `auteurId`, `auteurLogin`, `auteurNom` dans les 7 routes `ws/
 3. **48** : sans le droit → 403 ; inventaire clôturé → 409 ; sans session → 401.
 4. **49** : `3400935955838` → `ok`.
 
+### Demande 61 — Suites des demandes 59 et 60 (P1 pour le point 1, P2 pour les autres)
+
+**1. Fusion et déploiement (P1)**
+
+Les deux branches ne sont pas fusionnées dans `claude/new-session-xm8ptu`. Tant qu'elles ne le sont pas et que les
+migrations `V7.2.60`, `V7.2.61` et `V7.2.70` ne sont pas passées sur le poste de l'officine, l'application ne
+propose aucune de ces fonctions.
+
+Conséquence de la migration `V7.2.70` manquante : toutes les routes de lecture et d'action des suggestions répondent
+403 à tout le monde, alors que la clôture tolère l'absence du droit en base. Demande : appliquer la même tolérance
+aux routes (droit absent de la base = pas de contrôle, comme pour la clôture), ou garantir que `V7.2.70` passe avec
+le code.
+
+Sur les actions, le contrôle du droit passe aussi avant celui de la session. Une requête sans session doit répondre
+401, pas 403.
+
+**2. Retour des manquants abandonné (P2)**
+
+`POST v1/reception/{blId}/retour-manquants` cherche un retour existant en excluant seulement les retours supprimés
+(`delete`). Un retour des manquants **abandonné** (`is_Abandoned`) est donc renvoyé avec `deja:true`, et on ne peut
+plus jamais réclamer les manquants de ce BL.
+
+Demande : un retour abandonné ne compte plus ; un nouvel appel crée un nouveau retour. Le refus (`is_Refused`)
+reste, lui, renvoyé avec `deja:true`, puisqu'il se corrige.
+
+**3. Réponse `deja:true` (P2)**
+
+La réponse `deja:true` ne contient ni `lignes` ni `totalManquant`. Demande : la même forme que la création
+(`{success, deja, retourId, ref, statut, lignes, totalManquant, route, msg}`).
+
+**4. Notices contradictoires (P2)**
+
+La notice de la demande 60 dit que la fenêtre « Réserve après entrée » n'est pas traitée. Pourtant, la branche de
+la demande 59 renvoie déjà `reserve: []` sans le droit. Dites-nous laquelle fait foi après la fusion. Le mobile ne
+lit pas ce champ, donc ce point ne le concerne pas.
+
+**Tests attendus :**
+- un retour abandonné puis un nouvel appel → un nouveau retour (`deja:false`) ;
+- `deja:true` → mêmes champs que la création ;
+- sans session → 401 sur toutes les routes de `suggestion-reserve` ;
+- base sans `P_RESERVE_SUGGESTION` → comportement d'avant la demande 60.
+
 ---
 
 ## 5. Récapitulatif des nouvelles demandes
@@ -813,5 +855,6 @@ Toujours attendu : `auteurId`, `auteurLogin`, `auteurNom` dans les 7 routes `ws/
 | 58 | Fiche client : modifier ou effacer la date de naissance (`POST v1/ordonnance-client/client/{id}/identite` avec `remplacer`, capacité `naissanceModifiable`) | Mobile | P2 |
 | 59 | Réception BL : clôture « entrer le reçu » (`validerbl?mode=RECU`, réponse `ecarts`, capacité `clotureRecu`), écart au rapport, retour des manquants sans sortie de stock (option a retenue) | Mobile | P1 |
 | 60 | Réserve : privilège `P_RESERVE_SUGGESTION` (lecture et ouverture des suggestions, web et mobile), capacité `voirSuggestions` dans `GET v1/reserve/droits` | Mobile | P2 |
+| 61 | Suites 59/60 : fusion des branches et migrations, tolérance sans `V7.2.70`, 401 avant 403, retour des manquants abandonné, forme de `deja:true` | Mobile | P1 / P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.
