@@ -518,18 +518,26 @@ le comportement actuel. Elle affiche quand même la liste des lignes incomplète
 laissant le BL ouvert** (rien n'est entré) et d'enregistrer une anomalie (`POST v1/reception/anomalies`, D13). Elle
 n'essaie jamais d'entrer un BL incomplet.
 
-**Retour fournisseur « en attente » des manquants : question à trancher (pharmacien et serveur).** Un retour
+**Retour fournisseur « en attente » des manquants : le pharmacien a choisi l'option (a) le 08/11.** Un retour
 fournisseur (`POST v1/retourfournisseur/new`, puis `mettre-en-attente`) **sort du stock** à la validation. Or les
 boîtes manquantes ne sont **jamais entrées**. Un retour classique les sortirait une seconde fois, et le stock
-deviendrait faux. Deux possibilités :
-- **(a)** Le retour des manquants est une **réclamation sans mouvement de stock**. On ajoute `motif: "MANQUANT"` ou un
-  indicateur `sansSortieStock: true` sur la création du retour en attente, depuis le BL (`blId`). La validation
-  n'enlève rien du stock et sert seulement à la réclamation et à l'avoir. **Recommandé.**
-- **(b)** Pas de retour pour les manquants : la réclamation passe par les avoirs du BL (`v1/avoirs-bon`). Le retour
-  fournisseur reste réservé aux boîtes **reçues** puis renvoyées (casse, péremption courte…).
+deviendrait faux.
 
-Dites-nous laquelle vous retenez. L'application proposera « Créer un retour en attente » après la clôture
-seulement si le serveur l'annonce, avec `"retourManquants": true` dans `GET v1/reception/parametres`.
+**Décision : le retour des manquants est une réclamation sans mouvement de stock.**
+- **Création :** un retour en attente créé depuis le BL (`blId`), avec `motif: "MANQUANT"` ou un indicateur
+  `sansSortieStock: true`. Les lignes et quantités sont celles de `ecarts`.
+- **Validation :** elle n'enlève **rien** du stock. Elle sert seulement à la réclamation et à l'avoir.
+- **Retours classiques :** le retour fournisseur habituel (boîtes reçues puis renvoyées : casse, péremption
+  courte…) ne change pas.
+- **Route :** par exemple `POST v1/reception/{blId}/retour-manquants`, qui renvoie `{success, retourId, ref}` et
+  respecte `X-Client-Ref`. Un second appel sur le même BL renvoie le retour déjà créé. Le nom de la route est
+  libre ; donnez-le dans la réponse.
+- **Capacité :** l'application proposera « Créer un retour en attente » après la clôture seulement si le serveur
+  l'annonce, avec `"retourManquants": true` dans `GET v1/reception/parametres`.
+- **Tests :**
+  - le stock ne bouge pas à la création ni à la validation ;
+  - le retour est visible sur le web comme les autres retours en attente, avec le motif « Manquant » ;
+  - un second appel ne crée pas de doublon.
 
 **Tests attendus (CLAUDE.md) :**
 - **Rapprochement** : la réponse `ecarts`, `avoirs-bon` (ou la route `ecarts`), l'état de contrôle et la base
@@ -576,13 +584,13 @@ pourra pas voir les suggestions sur le mobile ni donc ouvrir une suggestion cré
    Sur le web, l'onglet Suggestions et la cloche des suggestions sont masqués sans ce privilège.
 3. **Capacité mobile** : ajouter `"voirSuggestions": <bool>` dans `GET v1/reserve/droits`. Champ absent (serveur
    actuel) : l'application garde le comportement actuel.
-4. **Création sans le privilège : question.** Un magasinier sans `P_RESERVE_SUGGESTION` (mais avec
-   `P_TRAITER_RESERVE` ou `P_SM_RESERVE`) peut-il **créer** une suggestion manuelle, une « demande de sortie », que
-   d'autres traiteront ? C'est ce que nous comprenons du plan.
-   - **Si oui** : `POST creer` reste permis et la réponse garde `{lg_SUGGESTION_RESERVE_ID, str_REF}`. L'application
-     affiche alors « Demande <ref> créée : elle sera traitée par une personne habilitée » et n'ouvre pas la
-     suggestion.
-   - **Si non** : `creer` demande aussi `P_RESERVE_SUGGESTION`.
+4. **Création sans le privilège : permise (décision du pharmacien du 08/11).** Un magasinier sans
+   `P_RESERVE_SUGGESTION`, mais avec `P_TRAITER_RESERVE` ou `P_SM_RESERVE`, **peut créer** une suggestion manuelle
+   (« demande de sortie » ou « rangement en réserve ») que d'autres traiteront.
+   - `POST creer` reste soumis aux droits actuels, **pas** à `P_RESERVE_SUGGESTION`.
+   - La réponse garde `{lg_SUGGESTION_RESERVE_ID, str_REF}`.
+   - L'application affiche « Demande <ref> créée : elle sera traitée par une personne habilitée » et n'ouvre pas la
+     suggestion. Les routes de lecture et d'ouverture lui répondent 403.
 
 **Tests attendus :**
 - profil avec et sans le privilège, sur chaque route listée (200 / 403) ;
@@ -803,7 +811,7 @@ Toujours attendu : `auteurId`, `auteurLogin`, `auteurNom` dans les 7 routes `ws/
 | 56 | Nom de l'appareil gardé par le serveur (`GET`/`PUT v1/appareil/nom`, empreinte SHA-256) | Mobile, PrestigePOS | P2 |
 | 57 | Borne de pointage sans compte : appareil enrôlé (`POST v1/rh/bornes`, `v1/borne-pointage/*` signés HMAC, retrait depuis le web) | Prestige Pointage, Mobile | P2 |
 | 58 | Fiche client : modifier ou effacer la date de naissance (`POST v1/ordonnance-client/client/{id}/identite` avec `remplacer`, capacité `naissanceModifiable`) | Mobile | P2 |
-| 59 | Réception BL : clôture « entrer le reçu » (`validerbl?mode=RECU`, réponse `ecarts`, capacité `clotureRecu`), écart au rapport, retour des manquants sans sortie de stock (question) | Mobile | P1 |
+| 59 | Réception BL : clôture « entrer le reçu » (`validerbl?mode=RECU`, réponse `ecarts`, capacité `clotureRecu`), écart au rapport, retour des manquants sans sortie de stock (option a retenue) | Mobile | P1 |
 | 60 | Réserve : privilège `P_RESERVE_SUGGESTION` (lecture et ouverture des suggestions, web et mobile), capacité `voirSuggestions` dans `GET v1/reserve/droits` | Mobile | P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.

@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.11.0+40** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.12.0+41** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -53,7 +53,9 @@ depuis la fiche client (4.10.1+37, voir `docs/NOTE_VERSION_4.10.1.md`) + date de
 « Ticket suivant (i/N) » entre les copies du ticket de vente (4.10.3+39, voir `docs/NOTE_VERSION_4.10.3.md`) + plan du
 08/11 : réception BL (lignes, saisie enchaînée, péremption sans barres, lot / date comme « Mise à jour péremption »,
 BL incomplet), saisie manuelle de la réserve et droit des suggestions, icônes agrandies sur tablette et terminal
-(4.11.0+40, voir `docs/NOTE_VERSION_4.11.0.md`).
+(4.11.0+40, voir `docs/NOTE_VERSION_4.11.0.md`) + demandes 59 et 60 livrées par le serveur : clôture « au reçu »
+(`AUCUN_RECU`, `X-Client-Ref`), retour en attente des manquants sans sortie de stock, droit « Voir les suggestions de
+réserve » sur 403 (4.12.0+41, voir `docs/NOTE_VERSION_4.12.0.md`).
 
 **Prestige Pointage** (borne de pointage sans compte, `com.dici.prestigepointage`, même dépôt, saveur Android
 `pointage`) a sa **propre** version, dans `android/app/prestigepointage-version.properties` (`nomVersion`,

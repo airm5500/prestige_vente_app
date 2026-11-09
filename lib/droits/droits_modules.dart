@@ -144,6 +144,15 @@ class DroitsModules extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 4.12.0 (demande 60) : le serveur a refusé une route des suggestions de réserve faute du droit « Voir les
+  /// suggestions de réserve » (403 `interdit`, jamais une déconnexion) : les suggestions ne sont plus proposées, comme
+  /// avec `voirSuggestions: false`, jusqu'à la prochaine lecture des droits.
+  void suggestionsRefusees() {
+    if (_reserveSuggestions == false) return;
+    _reserveSuggestions = false;
+    notifyListeners();
+  }
+
   /// Déconnexion / changement de serveur.
   void oublier() {
     _utilisateur = null;

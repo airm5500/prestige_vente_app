@@ -361,7 +361,7 @@ class _ReservePanierScreenState extends State<ReservePanierScreen> {
         body: Column(children: [
           NavyHeader(title: _sens == SensReserve.versReserve ? 'Ranger en réserve' : 'Regarnir le rayon', subtitle: '${_sens.fleche} · ${_sens.nomPrestige} manuel'),
           if (_chargement || _ajout) const LinearProgressIndicator(minHeight: 2),
-          if (_erreurChargement != null) BandeauErreur(erreur: _erreurChargement!, onReessayer: _charger),
+          if (_erreurChargement != null) BandeauErreur(erreur: _erreurChargement!, onReessayer: estDroitManquant(_erreurChargement) ? null : _charger),
           Expanded(
             child: ListView(
               padding: EdgeInsets.fromLTRB(16 + inset, 12, 16 + inset, 24),

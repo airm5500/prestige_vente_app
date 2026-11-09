@@ -3,6 +3,8 @@
 // « gestion des lots » du BL) : aucune modification du serveur n'est nécessaire.
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/horsligne/client_ref.dart';
+import 'package:prestige_vente_app/reception/manquants_bl.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
@@ -54,12 +56,26 @@ abstract class ReceptionGateway {
 abstract class ClotureRecuGateway {
   Future<bool> clotureRecuDisponible();
 
-  /// `PUT v1/commande/validerbl/{id}?mode=RECU` : réponse `{success, msg, ecarts:[{cip, nom, commande, recu, manquant}]}`.
-  Future<ReceptionResult> validateRecu(String blId);
+  /// `PUT v1/commande/validerbl/{id}?mode=RECU` (droit P_ENTREE_EN_STOCK) : réponse `{success, mode:"RECU", msg,
+  /// ecarts:[{detailId, cip, nom, commande, recu, ug, manquant}], totalManquant, reserve}` ; refus `code:"AUCUN_RECU"`
+  /// (aucune ligne n'a de lot : rien n'entre, le BL reste ouvert).
+  /// 4.12.0 : [clientRef] = en-tête `X-Client-Ref` (même clé = même réponse, rien n'est rejoué ; un refus n'est pas
+  /// gardé par le serveur, la même clé peut donc resservir après un refus).
+  Future<ReceptionResult> validateRecu(String blId, {String? clientRef});
 }
 
 /// Écart d'une ligne entrée « au reçu » (réponse `ecarts` de la demande 59).
 typedef EcartBl = ({String cip, String nom, int commande, int recu, int manquant});
+
+/// 4.12.0 : refus de la clôture « au reçu » quand aucune ligne du BL n'a de lot (rien n'entre, le BL reste ouvert).
+const String codeAucunRecu = 'AUCUN_RECU';
+
+/// Message affiché pour le refus [codeAucunRecu].
+const String messageAucunRecu = 'Aucune boîte n\'a été saisie sur ce BL : rien n\'est entré en stock et le BL reste ouvert. '
+    'Saisissez les lots reçus, ou laissez le BL pour validation sur Prestige.';
+
+/// Vrai pour le refus [codeAucunRecu].
+bool estAucunRecu(ReceptionResult r) => !r.success && '${r.data['code'] ?? ''}' == codeAucunRecu;
 
 /// Écarts renvoyés par la clôture « au reçu » (vide si absents).
 List<EcartBl> ecartsDe(ReceptionResult r) {
@@ -73,7 +89,7 @@ List<EcartBl> ecartsDe(ReceptionResult r) {
   ];
 }
 
-class DioReceptionGateway implements ReceptionGateway, ClotureRecuGateway {
+class DioReceptionGateway implements ReceptionGateway, ClotureRecuGateway, RetourManquantsGateway {
   final Dio dio;
   DioReceptionGateway(this.dio);
 
@@ -256,23 +272,64 @@ class DioReceptionGateway implements ReceptionGateway, ClotureRecuGateway {
     }
   }
 
+  /// Lecture en cours de `GET v1/reception/parametres` : les deux capacités, demandées ensemble par le bilan, ne font
+  /// qu'UN appel (rien n'est gardé ensuite : un serveur mis à jour est relu au bilan suivant).
+  Future<Map<String, dynamic>>? _parametres;
+
+  Future<Map<String, dynamic>> _lireParametres() => _parametres ??= () async {
+        try {
+          final r = await dio.get('/reception/parametres');
+          return r.data is Map ? Map<String, dynamic>.from(r.data as Map) : const <String, dynamic>{};
+        } catch (_) {
+          return const <String, dynamic>{}; // serveur sans la route ou injoignable : capacités absentes
+        }
+      }()
+          .whenComplete(() => _parametres = null);
+
   @override
   Future<bool> clotureRecuDisponible() async {
+    final p = await _lireParametres();
+    return p['clotureRecu'] == true; // serveur sans la route ou sans la demande 59 : chemin désactivé
+  }
+
+  @override
+  Future<ReceptionResult> validateRecu(String blId, {String? clientRef}) async {
     try {
-      final r = await dio.get('/reception/parametres');
-      return r.data is Map && (r.data as Map)['clotureRecu'] == true;
-    } catch (_) {
-      return false; // serveur sans la route ou sans la demande 59 : chemin désactivé
+      final r = await dio.put('/commande/validerbl/$blId',
+          queryParameters: {'mode': 'RECU'}, options: clientRef == null ? null : Options(headers: {enteteClientRef: clientRef}));
+      return _result(r.data, ok: 'Entrée en stock effectuée (reçu)');
+    } catch (e) {
+      return _error(e);
     }
   }
 
   @override
-  Future<ReceptionResult> validateRecu(String blId) async {
+  Future<bool> retourManquantsDisponible() async => (await _lireParametres())['retourManquants'] == true;
+
+  @override
+  Future<EcartsBl> ecartsBl(String blId) async {
     try {
-      final r = await dio.put('/commande/validerbl/$blId', queryParameters: {'mode': 'RECU'});
-      return _result(r.data, ok: 'Entrée en stock effectuée (reçu)');
+      final r = await dio.get('/reception/${Uri.encodeComponent(blId)}/ecarts');
+      return EcartsBl.fromJson(r.data);
+    } on DioException catch (e) {
+      return EcartsBl.refus(_error(e).message, code: codeDe(e.response?.data), status: e.response?.statusCode);
     } catch (e) {
-      return _error(e);
+      return EcartsBl.refus(_error(e).message);
+    }
+  }
+
+  @override
+  Future<RetourManquants> creerRetourManquants(String blId, {required String clientRef}) async {
+    try {
+      final r = await dio.post('/reception/${Uri.encodeComponent(blId)}/retour-manquants',
+          options: Options(headers: {enteteClientRef: clientRef}));
+      return RetourManquants.fromJson(r.data);
+    } on DioException catch (e) {
+      final interdit = refusDeDroit(e.response?.statusCode, e.response?.data);
+      if (interdit != null) return RetourManquants.refus(interdit, interdit: true, status: 403);
+      return RetourManquants.refus(_error(e).message, code: codeDe(e.response?.data), status: e.response?.statusCode);
+    } catch (e) {
+      return RetourManquants.refus(_error(e).message);
     }
   }
 }

@@ -12,14 +12,37 @@
 //   PUT  suggestion-reserve/{id}/traiter | reessayer                          DÉPLACE LE STOCK, renvoie le compte rendu
 //   GET  roles/est-admin                                                      {authorize} : profil administrateur
 // Aucun mouvement direct (assort / reassort) : décision du pharmacien, tout passe par une suggestion.
+// 4.12.0 (demande 60) : sans le droit P_RESERVE_SUGGESTION, toutes les routes ci-dessus sauf `creer` et `motifs`
+// répondent 403 {interdit:true, msg:"Droit manquant : Voir les suggestions de réserve"} : message du serveur affiché,
+// jamais de déconnexion, et les suggestions ne sont plus proposées (DroitsModules.suggestionsRefusees).
+import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/reserve/reserve_models.dart';
 import 'package:prestige_vente_app/reserve/reserve_regles.dart';
 import 'package:prestige_vente_app/serveur/client_prestige.dart';
 import 'package:prestige_vente_app/serveur/json_tolerant.dart';
 
+/// 4.12.0 (demande 60) : refus 403 `interdit` du droit « Voir les suggestions de réserve » (et non « Traiter la
+/// réserve », contrôlé avant lui sur les actions).
+bool refusVoirSuggestions(Object e) =>
+    e is ErreurHttp && e.droitManquant && (e.detail ?? '').toLowerCase().contains('suggestions de réserve');
+
+/// Refus d'un droit (403 `interdit`) : « Réessayer » n'y changerait rien.
+bool estDroitManquant(Object? e) => e is ErreurHttp && e.droitManquant;
+
 class ReserveApi {
   final ClientPrestige client;
   ReserveApi(this.client);
+
+  /// Route des suggestions soumise au droit « Voir les suggestions de réserve » : un refus de ce droit est constaté
+  /// (les suggestions ne sont plus proposées), puis relancé tel quel pour l'affichage.
+  Future<T> _voir<T>(Future<T> Function() appel) async {
+    try {
+      return await appel();
+    } catch (e) {
+      if (refusVoirSuggestions(e)) DroitsModules.instance.suggestionsRefusees();
+      rethrow;
+    }
+  }
 
   /// Produits suivis en réserve. [type] : '' (tous), 'REAPPRO' (rayon au-dessus du seuil réserve),
   /// 'REASSORT_RAYON' (rayon sous le seuil mini et réserve > 0).
@@ -55,7 +78,7 @@ class ReserveApi {
 
   /// Suggestions encore à traiter sur l'emplacement de l'utilisateur.
   Future<List<EnteteSuggestion>> enAttente({int limit = 200}) async {
-    final j = await client.get('/suggestion-reserve/en-attente', {'limit': limit});
+    final j = await _voir(() => client.get('/suggestion-reserve/en-attente', {'limit': limit}));
     return [for (final o in objets(j['results'])) EnteteSuggestion.fromJson(o)]..removeWhere((s) => s.id.isEmpty);
   }
 
@@ -68,7 +91,8 @@ class ReserveApi {
     return r;
   }
 
-  Future<SuggestionOuverte> ouvrir(String id) async => SuggestionOuverte.fromJson(await client.put('/suggestion-reserve/${Uri.encodeComponent(id)}/ouvrir'));
+  Future<SuggestionOuverte> ouvrir(String id) async =>
+      SuggestionOuverte.fromJson(await _voir(() => client.put('/suggestion-reserve/${Uri.encodeComponent(id)}/ouvrir')));
 
   /// Libère le verrou (sans erreur : appelé en quittant l'écran).
   Future<void> liberer(String id) async {
@@ -82,19 +106,20 @@ class ReserveApi {
   /// Enregistre la quantité retenue d'une ligne (> 0 ; pour retirer une ligne : [retirerLigne]).
   Future<int> majQuantite(String detailId, int quantite) async {
     if (quantite <= 0) throw const RefusMetier('La quantité doit être supérieure à 0.');
-    final j = await client.put('/suggestion-reserve/ligne/${Uri.encodeComponent(detailId)}/quantite', {'int_QTE': quantite});
+    final j = await _voir(() => client.put('/suggestion-reserve/ligne/${Uri.encodeComponent(detailId)}/quantite', {'int_QTE': quantite}));
     return entier(j['int_QTE_RETENUE']) ?? quantite;
   }
 
   Future<void> retirerLigne(String detailId, {String motif = 'Retirée depuis le mobile'}) async {
-    await client.delete('/suggestion-reserve/ligne/${Uri.encodeComponent(detailId)}', {'motif': motif});
+    await _voir(() => client.delete('/suggestion-reserve/ligne/${Uri.encodeComponent(detailId)}', {'motif': motif}));
   }
 
   /// Traitement : déplace réellement le stock (sûr en cas de double envoi côté serveur : les lignes déjà
   /// traitées sont exclues).
-  Future<CompteRendu> traiter(String id) async => CompteRendu.fromJson(await client.put('/suggestion-reserve/${Uri.encodeComponent(id)}/traiter'));
+  Future<CompteRendu> traiter(String id) async =>
+      CompteRendu.fromJson(await _voir(() => client.put('/suggestion-reserve/${Uri.encodeComponent(id)}/traiter')));
 
   /// Rejoue seulement les lignes en échec.
   Future<CompteRendu> reessayer(String id) async =>
-      CompteRendu.fromJson(await client.put('/suggestion-reserve/${Uri.encodeComponent(id)}/reessayer'));
+      CompteRendu.fromJson(await _voir(() => client.put('/suggestion-reserve/${Uri.encodeComponent(id)}/reessayer')));
 }

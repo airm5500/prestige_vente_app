@@ -217,7 +217,7 @@ class _ReserveTraitementScreenState extends State<ReserveTraitementScreen> {
     final e = s?.entete;
     final Widget corps;
     if (s == null && _erreur != null) {
-      corps = ErreurVue(erreur: _erreur!, onReessayer: _ouvrir);
+      corps = ErreurVue(erreur: _erreur!, onReessayer: estDroitManquant(_erreur) ? null : _ouvrir);
     } else if (s == null) {
       corps = const Center(child: CircularProgressIndicator());
     } else if (_compteRendu != null) {
@@ -241,7 +241,7 @@ class _ReserveTraitementScreenState extends State<ReserveTraitementScreen> {
             ],
           ),
           if ((_chargement && s != null) || (_occupe && !_confirmation)) const LinearProgressIndicator(minHeight: 2),
-          if (_erreur != null && s != null) BandeauErreur(erreur: _erreur!, onReessayer: _ouvrir),
+          if (_erreur != null && s != null) BandeauErreur(erreur: _erreur!, onReessayer: estDroitManquant(_erreur) ? null : _ouvrir),
           if (s != null && !s.modifiable && _compteRendu == null) _bandeauLecture(s),
           Expanded(child: corps),
           if (s != null) _pied(s),
