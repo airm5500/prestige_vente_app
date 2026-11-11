@@ -6,6 +6,9 @@
 //    après entrée » côté mobile) ;
 //  - demande 60 : 403 du droit « Voir les suggestions de réserve » constaté sur les routes de lecture et d'action,
 //    jamais sur `creer` ni `motifs` ; « Réessayer » masqué sur un droit manquant.
+// 4.12.1 : seul un retour `is_Abandoned` laisse le bouton (tout autre statut bloque) ; nouvelle X-Client-Ref seulement
+// pour une création qui suit une réponse obtenue (jamais pour un nouvel essai) ; plus de texte « à valider » unique
+// pour tous les statuts ; aucune référence ni quantité de retour dans les journaux.
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -33,6 +36,22 @@ void main() {
     }
     final hl = _lire('lib/horsligne/stock/stock_gateways.dart');
     expect(hl, contains("if (_off || o is! RetourManquantsGateway) return RetourManquants.refus('Retour des manquants : \$kEnLigneUniquement.');"));
+  });
+
+  test('4.12.1 : seul un retour abandonné laisse le bouton ; clé renouvelée après une réponse seulement', () {
+    final m = _lire('lib/reception/manquants_bl.dart');
+    expect(m, contains("const statutRetourAbandonne = 'is_Abandoned';"));
+    expect(m, contains('bool get abandonne => statut == statutRetourAbandonne;'));
+    final d = _lire('lib/screens/reception_bl/bilan_recu_dialog.dart');
+    expect(d, contains('(retour == null || retour.abandonne) && !_interdit'));
+    expect(d, isNot(contains('_retour == null &&')), reason: 'l\'ancienne condition masquait le bouton pour un abandonné');
+    expect(d, isNot(contains('à valider dans « Retour fournisseur »')), reason: 'texte selon le statut (RetourExistant.texte)');
+    expect(RegExp(r'^ +_cle = nouvelleCleRetourManquants\(\);', multiLine: true).allMatches(d), hasLength(1), reason: 'clé renouvelée à un seul endroit');
+    expect(d, contains('if (_cleUsee) {\n      _cle = nouvelleCleRetourManquants();'));
+    expect(d, contains('if (r.success) {\n        _cleUsee = true;'), reason: 'clé usée seulement par une réponse obtenue');
+    for (final f in ['lib/reception/manquants_bl.dart', 'lib/screens/reception_bl/bilan_recu_dialog.dart']) {
+      expect(_lire(f), isNot(matches(RegExp(r'\b(print|debugPrint|journal\w*)\('))), reason: '$f : rien de journalisé');
+    }
   });
 
   test('aucune suggestion proposée à partir de `reserve` de la clôture', () {

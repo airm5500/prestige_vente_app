@@ -6,6 +6,13 @@
 //    v1/reception/{blId}/retour-manquants, X-Client-Ref gardée pour un nouvel essai) ; retour déjà créé → sa référence,
 //    plus de bouton ; droit manquant (403) → message du serveur, plus de bouton, jamais de déconnexion ;
 //  - sans la capacité : exactement la fenêtre de 4.11.0 (écarts au rapport, OK).
+// 4.12.1 (serveur du 11/11, réponse à la demande 61) :
+//  - un retour ABANDONNÉ ne bloque plus : « Retour <ref> abandonné… » et le bouton est reproposé ; le retour créé
+//    remplace l'abandonné à l'affichage ;
+//  - texte selon le statut : en attente (à valider), refusé (à corriger), validé (traité), abandonné ;
+//  - `lignes` / `totalManquant` du retour affichés s'ils sont donnés ;
+//  - X-Client-Ref : la même pour chaque essai, une NOUVELLE pour une création après un abandon (une clé qui a déjà
+//    obtenu une réponse ferait rejouer cette réponse par le serveur).
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/reception/manquants_bl.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart';
@@ -37,8 +44,10 @@ class _BilanRecuDialogState extends State<BilanRecuDialog> {
   bool _messageOk = false;
 
   /// Clé `X-Client-Ref` du retour : la même pour chaque essai de cette fenêtre (un délai dépassé puis un nouvel essai ne
-  /// créent jamais deux retours).
-  final String _cle = nouvelleCleRetourManquants();
+  /// créent jamais deux retours). Une clé qui a obtenu une réponse du serveur est usée : une nouvelle création (après
+  /// un abandon) en prend une nouvelle, sinon le serveur rejouerait l'ancienne réponse.
+  String _cle = nouvelleCleRetourManquants();
+  bool _cleUsee = false;
 
   @override
   void initState() {
@@ -62,6 +71,10 @@ class _BilanRecuDialogState extends State<BilanRecuDialog> {
   }
 
   Future<void> _creer() async {
+    if (_cleUsee) {
+      _cle = nouvelleCleRetourManquants();
+      _cleUsee = false;
+    }
     setState(() {
       _envoi = true;
       _message = null;
@@ -71,8 +84,12 @@ class _BilanRecuDialogState extends State<BilanRecuDialog> {
     setState(() {
       _envoi = false;
       _message = r.texte;
-      _messageOk = r.success;
-      if (r.success) _retour = RetourExistant(retourId: r.retourId, ref: r.ref, statut: r.statut);
+      _messageOk = r.success && !r.retour.abandonne;
+      if (r.success) {
+        _cleUsee = true;
+        // Le retour créé (ou relu) remplace l'éventuel retour abandonné.
+        _retour = r.retour;
+      }
       // Droit manquant, ou rien à retourner : le bouton disparaît (le serveur a tranché).
       if (r.interdit) _interdit = true;
       if (!r.success && (r.code == 'AUCUN_MANQUANT' || r.code == 'BL_NON_ENTRE_AU_RECU' || r.code == 'BL_INCONNU')) _interdit = true;
@@ -82,7 +99,9 @@ class _BilanRecuDialogState extends State<BilanRecuDialog> {
   @override
   Widget build(BuildContext context) {
     final r = widget.resultat;
-    final proposer = widget.manquants != null && _total > 0 && _retour == null && !_interdit;
+    final retour = _retour;
+    // Un retour abandonné ne compte plus : il ne bloque pas une nouvelle création.
+    final proposer = widget.manquants != null && _total > 0 && (retour == null || retour.abandonne) && !_interdit;
     return AlertDialog(
       key: const Key('bl_cloture_recu_resultat'),
       icon: const Icon(Icons.check_circle, color: Colors.green, size: 40),
@@ -101,16 +120,14 @@ class _BilanRecuDialogState extends State<BilanRecuDialog> {
                 child: Text('Total manquant : $_total boîte(s).', key: const Key('bl_total_manquant'), style: const TextStyle(fontWeight: FontWeight.w600)),
               ),
           ],
-          if (_retour != null)
+          if (retour != null)
             Padding(
               key: const Key('bl_retour_manquants_existant'),
               padding: const EdgeInsets.only(top: 10),
               child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Icon(Icons.assignment_return_outlined, size: 20, color: Colors.green),
+                Icon(Icons.assignment_return_outlined, size: 20, color: _couleurStatut(retour)),
                 const SizedBox(width: 6),
-                Expanded(
-                  child: Text('${_retour!.libelle} : à valider dans « Retour fournisseur » sur Prestige ; rien ne sort du stock.'),
-                ),
+                Expanded(child: Text(retour.texte)),
               ]),
             ),
           if (_message != null)
@@ -138,6 +155,12 @@ class _BilanRecuDialogState extends State<BilanRecuDialog> {
     );
   }
 }
+
+Color _couleurStatut(RetourExistant r) => switch (r.statut) {
+      statutRetourAbandonne => Colors.grey,
+      'is_Refused' => Colors.orange.shade800,
+      _ => Colors.green,
+    };
 
 /// Fenêtre du refus `AUCUN_RECU` : rien n'est entré, le BL reste ouvert.
 Future<void> afficherAucunRecu(BuildContext context, ReceptionResult r) => showDialog<void>(

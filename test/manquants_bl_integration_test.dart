@@ -3,6 +3,8 @@
 //  - en ligne : capacités, écarts, clôture au reçu et retour des manquants passent au serveur, X-Client-Ref compris ;
 //  - hors ligne : rien n'est envoyé ni mis dans la file d'envoi (clôture et retour en ligne seulement), capacités
 //    absentes (aucun bouton), message « en ligne uniquement ».
+// 4.12.1 (serveur du 11/11) : retour abandonné relu par les écarts (lignes / totalManquant), création d'un nouveau
+// retour (deja:false), puis deja:true de même forme ; le tout en ligne, rien dans la file d'envoi.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
@@ -68,6 +70,39 @@ void main() {
         expect((await g.creerRetourManquants('BL1', clientRef: 'BLM-int-1')).ref, 'RF-0001');
         expect(srv.recuesSur('/reception/BL1/retour-manquants').single.clientRef, 'BLM-int-1');
         expect(stock.queue.ops, isEmpty, reason: 'rien dans la file d\'envoi');
+      }));
+
+  test('4.12.1 : retour abandonné relu, nouveau retour créé, puis deja:true de même forme', () => avecVraiHttp(() async {
+        srv.routes['GET /reception/BL1/ecarts'] = (_) => FauxServeurPrestige.ok({
+              'success': true,
+              'mode': 'RECU',
+              'ecarts': [
+                {'detailId': 'D1', 'cip': '3595583', 'nom': 'PRODUIT FICTIF', 'commande': 4, 'recu': 1, 'ug': 0, 'manquant': 3}
+              ],
+              'totalManquant': 3,
+              'retourManquants': {'retourId': 'R0', 'ref': 'RF-0000', 'statut': 'is_Abandoned', 'lignes': 1, 'totalManquant': 3}
+            });
+        var appels = 0;
+        srv.routes['POST /reception/BL1/retour-manquants'] = (_) => FauxServeurPrestige.ok({
+              'success': true,
+              'deja': appels++ > 0,
+              'retourId': 'R1',
+              'ref': 'RF-0001',
+              'statut': 'is_Waiting',
+              'lignes': 1,
+              'totalManquant': 3,
+              'route': 'POST v1/reception/{blId}/retour-manquants',
+              'msg': 'ok'
+            });
+        final g = gw();
+        final e = await g.ecartsBl('BL1');
+        expect((e.retour!.ref, e.retour!.abandonne, e.retour!.lignes, e.retour!.totalManquant), ('RF-0000', true, 1, 3));
+        final c = await g.creerRetourManquants('BL1', clientRef: 'BLM-int-3');
+        expect((c.deja, c.ref, c.retour.abandonne), (false, 'RF-0001', false));
+        final d = await g.creerRetourManquants('BL1', clientRef: 'BLM-int-4');
+        expect(d.texte, 'Retour RF-0001 déjà créé (en attente de validation ; 1 ligne(s), 3 boîte(s)).');
+        expect(srv.recuesSur('/reception/BL1/retour-manquants').map((q) => q.clientRef), ['BLM-int-3', 'BLM-int-4']);
+        expect(stock.queue.ops, isEmpty);
       }));
 
   test('hors ligne : capacités absentes, rien envoyé, rien dans la file', () => avecVraiHttp(() async {

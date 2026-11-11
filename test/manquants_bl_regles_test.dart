@@ -7,6 +7,9 @@
 //  - PUT validerbl?mode=RECU : refus `AUCUN_RECU` reconnu ; totalManquant lu (ou somme des lignes) ;
 //  - demande 60 : 403 « Droit manquant : Voir les suggestions de réserve » reconnu (et pas « Traiter la réserve ») ;
 //    droit constaté → suggestions plus proposées, sans toucher au reste.
+// 4.12.1 (serveur du 11/11) : retour abandonné (ne bloque plus), texte selon le statut, `lignes` / `totalManquant` de
+// `retourManquants` et de `deja:true` lus s'ils sont présents (absents : serveur plus ancien, comme 4.12.0) ; `deja:true`
+// d'un abandonné (serveur ancien) signalé.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/reception/manquants_bl.dart';
@@ -110,6 +113,75 @@ void main() {
       expect(a, isNot(b));
       expect(a, startsWith('BLM-'));
       expect(nouvelleCleClotureRecu(), startsWith('BLR-'));
+    });
+  });
+
+  group('4.12.1 : retour abandonné, statuts, lignes et totalManquant (serveur du 11/11)', () {
+    test('écarts : retourManquants abandonné (le plus récent) avec lignes et totalManquant', () {
+      final e = EcartsBl.fromJson({
+        'success': true,
+        'mode': 'RECU',
+        'ecarts': [_ligne],
+        'totalManquant': 3,
+        'retourManquants': {'retourId': 'R1', 'ref': 'RF-0001', 'statut': 'is_Abandoned', 'lignes': 1, 'totalManquant': 3},
+      });
+      final r = e.retour!;
+      expect((r.abandonne, r.lignes, r.totalManquant), (true, 1, 3));
+      expect(r.texte, 'Retour RF-0001 abandonné sur Prestige : il ne compte plus.');
+    });
+
+    test('serveur plus ancien : lignes / totalManquant absents → null, libellé de 4.12.0', () {
+      final r = RetourExistant.fromJson({'retourId': 'R1', 'ref': 'RF-0001', 'statut': 'is_Waiting'})!;
+      expect((r.lignes, r.totalManquant, r.abandonne), (null, null, false));
+      expect(r.libelle, 'Retour RF-0001 (en attente de validation)');
+      expect(r.texte, 'Retour RF-0001 (en attente de validation) : à valider dans « Retour fournisseur » sur Prestige ; rien ne sort du stock.');
+      final illisible = RetourExistant.fromJson({'retourId': 'R1', 'ref': 'RF-0001', 'statut': 'is_Waiting', 'lignes': 'x', 'totalManquant': null})!;
+      expect((illisible.lignes, illisible.totalManquant), (null, null));
+      expect(RetourExistant.fromJson({'retourId': 'R1', 'ref': 'RF-1', 'lignes': '2', 'totalManquant': 5.0})!.lignes, 2, reason: 'nombre en texte toléré');
+    });
+
+    test('texte selon le statut : en attente, en saisie, refusé, validé, abandonné, inconnu', () {
+      RetourExistant r(String statut) => RetourExistant(retourId: 'R1', ref: 'RF-0001', statut: statut, lignes: 2, totalManquant: 8);
+      expect(r('is_Waiting').texte, 'Retour RF-0001 (en attente de validation ; 2 ligne(s), 8 boîte(s)) : à valider dans « Retour fournisseur » sur Prestige ; rien ne sort du stock.');
+      expect(r('is_Process').texte, contains('à valider dans « Retour fournisseur »'));
+      expect(r('is_Refused').texte, 'Retour RF-0001 (refusé ; 2 ligne(s), 8 boîte(s)) : à corriger dans « Retour fournisseur » sur Prestige ; rien ne sort du stock.');
+      expect(r('enable').texte, 'Retour RF-0001 (validé ; 2 ligne(s), 8 boîte(s)) : traité dans « Retour fournisseur » sur Prestige ; rien n\'est sorti du stock.');
+      expect(r('is_Abandoned').texte, 'Retour RF-0001 abandonné sur Prestige : il ne compte plus.');
+      expect(r('statut_futur').texte, contains('à valider'), reason: 'statut inconnu : texte de 4.12.0');
+      for (final s in ['is_Waiting', 'is_Process', 'is_Refused', 'enable', 'statut_futur']) {
+        expect(r(s).abandonne, isFalse, reason: '$s bloque une nouvelle création');
+      }
+    });
+
+    test('deja:true de même forme que la création : lignes et totalManquant lus et affichés', () {
+      final r = RetourManquants.fromJson({
+        'success': true,
+        'deja': true,
+        'retourId': 'R1',
+        'ref': 'RF-0001',
+        'statut': 'is_Refused',
+        'lignes': 2,
+        'totalManquant': 8,
+        'route': 'POST v1/reception/{blId}/retour-manquants',
+        'msg': 'existe déjà',
+      });
+      expect((r.deja, r.lignes, r.totalManquant), (true, 2, 8));
+      expect(r.texte, 'Retour RF-0001 déjà créé (refusé ; 2 ligne(s), 8 boîte(s)).');
+      expect((r.retour.ref, r.retour.statut, r.retour.lignes, r.retour.totalManquant), ('RF-0001', 'is_Refused', 2, 8));
+    });
+
+    test('création après un abandon (deja:false) : nouveau retour, en attente', () {
+      final r = RetourManquants.fromJson(
+          {'success': true, 'deja': false, 'retourId': 'R2', 'ref': 'RF-0002', 'statut': 'is_Waiting', 'lignes': 1, 'totalManquant': 3, 'msg': 'créé'});
+      expect(r.texte, startsWith('Retour RF-0002 créé, en attente de validation'));
+      expect(r.retour.abandonne, isFalse);
+    });
+
+    test('serveur ancien : deja:true d\'un retour abandonné → signalé, aucun retour créé', () {
+      final r = RetourManquants.fromJson({'success': true, 'deja': true, 'retourId': 'R1', 'ref': 'RF-0001', 'statut': 'is_Abandoned'});
+      expect(r.texte, 'Retour RF-0001 abandonné : aucun nouveau retour n\'a été créé (serveur Prestige à mettre à jour).');
+      expect(r.retour.abandonne, isTrue);
+      expect((r.retour.lignes, r.retour.totalManquant), (null, null));
     });
   });
 

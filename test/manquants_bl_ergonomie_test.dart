@@ -2,6 +2,8 @@
 // ×1,0 et ×1,3. Fenêtre du résultat « au reçu » avec le bilan relu, le total manquant et « Créer un retour en attente
 // des manquants », puis la référence du retour ; fenêtre du refus AUCUN_RECU. Aucune erreur de rendu, boutons
 // entièrement visibles, cibles tactiles ≥ 48 dp (de l'interface). Données FICTIVES.
+// 4.12.1 : retour précédent abandonné → mention « Retour <ref> abandonné… » ET bouton reproposé, tous deux visibles ;
+// puis le nouveau retour (avec lignes et boîtes) à la place de l'abandonné.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/reception/manquants_bl.dart';
@@ -78,6 +80,37 @@ void main() {
         await t.pumpAndSettle();
         expect(find.byKey(const Key('bl_retour_manquants_message')), findsOneWidget);
         expect(t.takeException(), isNull, reason: '$nom : retour créé');
+      });
+
+      testWidgets('4.12.1 : retour abandonné, bouton reproposé, nouveau retour — $nom', (t) async {
+        taille.appliquer(t);
+        t.platformDispatcher.textScaleFactorTestValue = texte;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        final g = FakeManquants()
+          ..reponseRecu = const ReceptionResult(true, 'BL entré en stock avec écart : 2 ligne(s), 14 boîte(s) manquante(s)', {'success': true, 'totalManquant': 14})
+          ..apres = const EcartsBl(
+              success: true,
+              mode: 'RECU',
+              ecarts: _ecarts,
+              totalManquant: 14,
+              retour: RetourExistant(retourId: 'R0', ref: 'RF-0000', statut: 'is_Abandoned', lignes: 2, totalManquant: 14))
+          ..reponsesRetour.add(const RetourManquants(success: true, retourId: 'R1', ref: 'RF-0001', statut: 'is_Waiting', lignes: 2, totalManquant: 14));
+        await _bilan(t, g);
+        final mention = find.text('Retour RF-0000 abandonné sur Prestige : il ne compte plus.');
+        expect(mention, findsOneWidget);
+        final creer = find.byKey(const Key('bl_retour_manquants'));
+        _visible(t, creer, '$nom : « Créer un retour » visible avec la mention de l\'abandon');
+        _visible(t, find.text('OK'), '$nom : OK visible');
+        expect(t.takeException(), isNull, reason: '$nom : abandonné');
+        final h = t.ensureSemantics();
+        await expectLater(t, meetsGuideline(ciblesTactiles(facteurEcran(t))), reason: '$nom : cibles ≥ 48 dp');
+        h.dispose();
+        await t.tap(creer);
+        await t.pumpAndSettle();
+        expect(mention, findsNothing);
+        expect(find.textContaining('RF-0001 (en attente de validation ; 2 ligne(s), 14 boîte(s))'), findsOneWidget);
+        _visible(t, find.text('OK'), '$nom : OK visible après la création');
+        expect(t.takeException(), isNull, reason: '$nom : nouveau retour');
       });
 
       testWidgets('refus AUCUN_RECU — $nom', (t) async {

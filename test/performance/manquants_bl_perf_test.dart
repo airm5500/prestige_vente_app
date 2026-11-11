@@ -3,6 +3,8 @@
 //  - requêtes de la clôture au reçu avec la capacité : 1 lecture des écarts avant (provisoire), 1 clôture, 1 relecture
 //    après, 1 création de retour ; SANS la capacité : aucune requête de plus qu'en 4.11.0 ;
 //  - fenêtre du résultat avec 500 lignes en écart : affichée en moins de 2 s, sans erreur.
+// 4.12.1 : retour abandonné → même nombre de requêtes que sans retour (2 lectures, 1 clôture, 1 création) ; retour
+// refusé → aucune création ; lecture des retours (lignes / totalManquant) : 100 000 en moins de 1 s.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/reception/manquants_bl.dart';
@@ -63,6 +65,43 @@ void main() {
     await t.pumpAndSettle();
     expect((avec.ecartsLus.length, avec.recuRefs.length, avec.retourRefs.length), (2, 1, 1));
   });
+
+  test('4.12.1 : 100 000 retours (lignes, totalManquant, statut) lus et mis en texte en moins de 1 s', () {
+    const statuts = ['is_Waiting', 'is_Refused', 'enable', 'is_Abandoned'];
+    final sw = Stopwatch()..start();
+    var abandonnes = 0;
+    for (var i = 0; i < 100000; i++) {
+      final r = RetourExistant.fromJson({'retourId': 'R$i', 'ref': 'RF-$i', 'statut': statuts[i % 4], 'lignes': i % 7, 'totalManquant': i % 30})!;
+      if (r.abandonne) abandonnes++;
+      if (r.texte.isEmpty) fail('texte vide');
+    }
+    sw.stop();
+    expect(abandonnes, 25000);
+    expect(sw.elapsedMilliseconds, lessThan(1000), reason: '${sw.elapsedMilliseconds} ms');
+  });
+
+  for (final (statut, creations) in [('is_Abandoned', 1), ('is_Refused', 0)]) {
+    testWidgets('4.12.1 : requêtes avec un retour $statut : $creations création(s)', (t) async {
+      final g = FakeManquants()
+        ..reponseRecu = const ReceptionResult(true, 'ok', {'success': true, 'totalManquant': 8})
+        ..apres = EcartsBl(
+            success: true,
+            mode: 'RECU',
+            totalManquant: 8,
+            ecarts: const [LigneEcart(nom: 'X', commande: 8, recu: 0, manquant: 8)],
+            retour: RetourExistant(retourId: 'R0', ref: 'RF-0', statut: statut))
+        ..reponsesRetour.add(const RetourManquants(success: true, ref: 'RF-1', statut: 'is_Waiting'));
+      await _parcours(t, g);
+      final b = find.byKey(const Key('bl_retour_manquants'));
+      if (creations > 0) {
+        await t.tap(b);
+        await t.pumpAndSettle();
+      } else {
+        expect(b, findsNothing);
+      }
+      expect((g.ecartsLus.length, g.recuRefs.length, g.retourRefs.length), (2, 1, creations), reason: 'lecture provisoire + relecture, 1 clôture');
+    });
+  }
 
   testWidgets('requêtes : SANS la capacité, 1 clôture seulement (comme 4.11.0)', (t) async {
     final sans = FakeManquants()

@@ -7,6 +7,9 @@
 //  - GET v1/reception/{blId}/ecarts : PROVISOIRE, RECU avec retour existant, 404 BL_INCONNU ;
 //  - POST v1/reception/{blId}/retour-manquants : X-Client-Ref, création, deja:true, 409 BL_NON_ENTRE_AU_RECU,
 //    409 AUCUN_MANQUANT, 404 BL_INCONNU, 403 interdit (jamais de déconnexion), serveur coupé ;
+//  - 4.12.1 (serveur du 11/11) : retourManquants abandonné / refusé avec lignes et totalManquant, ou sans (serveur
+//    ancien) ; POST après un abandon → deja:false (nouveau retour) ; deja:true de même forme que la création ;
+//    deja:true d'un abandonné (serveur ancien) signalé ; X-Client-Ref transmise telle quelle à chaque appel ;
 //  - demande 60 : 403 « Voir les suggestions de réserve » sur en-attente / ouvrir → ErreurHttp droit manquant, jamais
 //    SessionExpiree, droit constaté ; « Traiter la réserve » ne retire pas les suggestions ; creer et motifs permis.
 import 'package:flutter_test/flutter_test.dart';
@@ -154,6 +157,54 @@ void main() {
         expect((x.success, x.interdit), (false, false));
         expect(x.texte, isNotEmpty);
         await srv.retablir();
+      }));
+
+  test('4.12.1 : retourManquants abandonné / refusé / sans lignes (serveur ancien), en vrai HTTP', () => avecVraiHttp(() async {
+        var retour = <String, Object?>{'retourId': 'R0', 'ref': 'RF-0000', 'statut': 'is_Abandoned', 'lignes': 1, 'totalManquant': 3};
+        srv.routes['GET /reception/BL1/ecarts'] =
+            (_) => FauxServeurPrestige.ok({'success': true, 'mode': 'RECU', 'ecarts': [_ligne], 'totalManquant': 3, 'retourManquants': retour});
+        final a = (await gw().ecartsBl('BL1')).retour!;
+        expect((a.abandonne, a.lignes, a.totalManquant), (true, 1, 3));
+        expect(a.texte, 'Retour RF-0000 abandonné sur Prestige : il ne compte plus.');
+
+        retour = {'retourId': 'R0', 'ref': 'RF-0000', 'statut': 'is_Refused', 'lignes': '1', 'totalManquant': '3'};
+        final r = (await gw().ecartsBl('BL1')).retour!;
+        expect((r.abandonne, r.lignes, r.totalManquant), (false, 1, 3));
+        expect(r.texte, contains('à corriger dans « Retour fournisseur » sur Prestige'));
+
+        retour = {'retourId': 'R0', 'ref': 'RF-0000', 'statut': 'enable'};
+        final v = (await gw().ecartsBl('BL1')).retour!;
+        expect((v.lignes, v.totalManquant, v.libelle), (null, null, 'Retour RF-0000 (validé)'));
+      }));
+
+  test('4.12.1 : POST après un abandon (deja:false), deja:true de même forme, abandonné d\'un serveur ancien', () => avecVraiHttp(() async {
+        final corps = <String, Object?>{
+          'success': true,
+          'deja': false,
+          'retourId': 'R1',
+          'ref': 'RF-0001',
+          'statut': 'is_Waiting',
+          'lignes': 1,
+          'totalManquant': 3,
+          'route': 'POST v1/reception/{blId}/retour-manquants',
+          'msg': 'Retour des manquants RF-0001 créé'
+        };
+        srv.routes['POST /reception/BL1/retour-manquants'] = (_) => FauxServeurPrestige.ok(Map.of(corps));
+        final c = await gw().creerRetourManquants('BL1', clientRef: 'BLM-fictif-10');
+        expect((c.success, c.deja, c.ref, c.retour.abandonne), (true, false, 'RF-0001', false));
+
+        corps['deja'] = true;
+        corps['statut'] = 'is_Refused';
+        final d = await gw().creerRetourManquants('BL1', clientRef: 'BLM-fictif-11');
+        expect((d.deja, d.lignes, d.totalManquant), (true, 1, 3));
+        expect(d.texte, 'Retour RF-0001 déjà créé (refusé ; 1 ligne(s), 3 boîte(s)).');
+
+        srv.routes['POST /reception/BL1/retour-manquants'] =
+            (_) => FauxServeurPrestige.ok({'success': true, 'deja': true, 'retourId': 'R0', 'ref': 'RF-0000', 'statut': 'is_Abandoned', 'msg': '…'});
+        final x = await gw().creerRetourManquants('BL1', clientRef: 'BLM-fictif-12');
+        expect(x.texte, contains('aucun nouveau retour n\'a été créé'));
+        expect(srv.recuesSur('/reception/BL1/retour-manquants').map((q) => q.clientRef), ['BLM-fictif-10', 'BLM-fictif-11', 'BLM-fictif-12']);
+        expect(srv.connexions, 1);
       }));
 
   group('demande 60 : routes des suggestions de réserve', () {
