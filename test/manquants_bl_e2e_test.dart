@@ -7,6 +7,11 @@
 //  2. refus AUCUN_RECU : message clair, BL laissé ouvert (bilan toujours affiché) ;
 //  3. profil sans droit retours fournisseur : 403 → message du droit, aucune déconnexion ;
 //  4. serveur qui n'annonce que clotureRecu (4.11.0) : aucun bouton, aucune lecture des écarts.
+// 4.12.1 (serveur du 11/11) :
+//  5. retour des manquants précédent ABANDONNÉ (relu par les écarts) : « Retour RF-E2E-0 abandonné », bouton
+//     reproposé, POST → nouveau retour RF-E2E-1 (deja:false) qui remplace l'abandonné à l'affichage ;
+//  6. retour précédent REFUSÉ (avec lignes / totalManquant) : « à corriger dans Retour fournisseur », aucun bouton,
+//     aucun POST.
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -34,7 +39,7 @@ const _ecarts = [
   {'detailId': 'D2', 'cip': '3000000', 'nom': 'PRODUIT FICTIF DEUX', 'commande': 10, 'recu': 4, 'ug': 0, 'manquant': 6},
 ];
 
-enum _Cas { complet, aucunRecu, sansDroitRetour, serveur4110 }
+enum _Cas { complet, aucunRecu, sansDroitRetour, serveur4110, retourAbandonne, retourRefuse }
 
 AppE2E _app(_Cas cas) {
   final app = AppE2E(serveur: FauxServeurPrestige(comptes: {DonneesFictives.admin: DonneesFictives.motDePasseAdmin}));
@@ -61,7 +66,11 @@ AppE2E _app(_Cas cas) {
         'provisoire': !clos,
         'ecarts': _ecarts,
         'totalManquant': 30,
-        'retourManquants': null
+        'retourManquants': switch (cas) {
+          _Cas.retourAbandonne => {'retourId': 'R0', 'ref': 'RF-E2E-0', 'statut': 'is_Abandoned', 'lignes': 2, 'totalManquant': 30},
+          _Cas.retourRefuse => {'retourId': 'R0', 'ref': 'RF-E2E-0', 'statut': 'is_Refused', 'lignes': 2, 'totalManquant': 30},
+          _ => null,
+        }
       });
   s.routes['PUT /commande/validerbl/BL1'] = (r) {
     if (r.query['mode'] != 'RECU') return const ReponseLocale({'success': false, 'msg': 'mode attendu'});
@@ -135,16 +144,27 @@ void main() {
         expect(find.byKey(const Key('bl_cloture_recu_resultat')), findsOneWidget);
         expect(find.byKey(const Key('bl_retour_manquants')), findsNothing);
         expect(app.serveur.recuesSur('/reception/BL1/ecarts'), isEmpty);
+      } else if (cas == _Cas.retourRefuse) {
+        expect(app.serveur.recuesSur('/reception/BL1/ecarts'), hasLength(2));
+        expect(find.textContaining('Retour RF-E2E-0 (refusé ; 2 ligne(s), 30 boîte(s)) : à corriger dans « Retour fournisseur »'), findsOneWidget);
+        expect(find.byKey(const Key('bl_retour_manquants')), findsNothing, reason: 'un retour refusé bloque toujours');
+        expect(app.serveur.recuesSur('/reception/BL1/retour-manquants'), isEmpty);
+        await t.tap(find.text('OK'));
+        await app.attendre(t, const Duration(seconds: 2));
       } else {
         expect(app.serveur.recuesSur('/reception/BL1/ecarts'), hasLength(2), reason: 'bilan relu après la clôture');
+        if (cas == _Cas.retourAbandonne) {
+          expect(find.text('Retour RF-E2E-0 abandonné sur Prestige : il ne compte plus.'), findsOneWidget);
+        }
         final creer = find.byKey(const Key('bl_retour_manquants'));
         expect(creer, findsOneWidget);
         await t.tap(creer);
         await app.attendre(t, const Duration(seconds: 2));
         final p = app.serveur.recuesSur('/reception/BL1/retour-manquants').single;
         expect(p.clientRef, startsWith('BLM-'));
-        if (cas == _Cas.complet) {
+        if (cas == _Cas.complet || cas == _Cas.retourAbandonne) {
           expect(find.textContaining('Retour RF-E2E-1 créé, en attente de validation'), findsOneWidget);
+          expect(find.textContaining('RF-E2E-0'), findsNothing, reason: 'le nouveau retour remplace l\'abandonné');
           expect(creer, findsNothing);
         } else {
           expect(find.text('Droit manquant : Retours fournisseur'), findsOneWidget);

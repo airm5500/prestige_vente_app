@@ -9,6 +9,9 @@
 //  - sans la capacité : aucun bouton, aucune relecture, fenêtre de 4.11.0 ;
 //  - réserve : 403 « Voir les suggestions de réserve » → « Droit manquant », pas de « Réessayer », pas de
 //    déconnexion, suggestions plus proposées.
+// 4.12.1 (serveur du 11/11) : retour existant ABANDONNÉ → « Retour <ref> abandonné », bouton reproposé, le retour créé
+// le remplace ; refusé / validé / en attente → pas de bouton, texte selon le statut ; lignes et total du retour
+// affichés s'ils sont donnés ; X-Client-Ref : même clé à chaque essai, NOUVELLE clé pour une création après un abandon.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/droits/droits_modules.dart';
@@ -263,6 +266,103 @@ void main() {
       await _entrerLeRecu(t);
       expect(g.recuCalls, 1);
       expect(find.byKey(const Key('bl_cloture_recu_resultat')), findsOneWidget);
+      expect(find.byKey(const Key('bl_retour_manquants')), findsNothing);
+    });
+  });
+
+  group('4.12.1 : retour abandonné et statuts (serveur du 11/11)', () {
+    FakeManquants avecRetour(RetourExistant r) => FakeManquants()
+      ..reponseRecu = ReceptionResult(true, 'ok', _reponseRecu())
+      ..apres = EcartsBl(success: true, mode: 'RECU', ecarts: _ecartsServeur, totalManquant: 8, retour: r);
+
+    testWidgets('retour abandonné : mention, bouton reproposé, le retour créé remplace l\'abandonné', (t) async {
+      final g = avecRetour(const RetourExistant(retourId: 'R9', ref: 'RF-0009', statut: 'is_Abandoned', lignes: 2, totalManquant: 8))
+        ..reponsesRetour.add(const RetourManquants(success: true, retourId: 'R10', ref: 'RF-0010', statut: 'is_Waiting', lignes: 2, totalManquant: 8));
+      await _bilan(t, g);
+      await _entrerLeRecu(t);
+      expect(find.text('Retour RF-0009 abandonné sur Prestige : il ne compte plus.'), findsOneWidget);
+      expect(find.textContaining('à valider'), findsNothing, reason: 'un abandonné n\'est pas « à valider »');
+      final creer = find.byKey(const Key('bl_retour_manquants'));
+      expect(creer, findsOneWidget, reason: 'un retour abandonné ne bloque pas');
+      await t.tap(creer);
+      await t.pumpAndSettle();
+      expect(g.retourRefs.single, startsWith('BLM-'));
+      expect(find.textContaining('Retour RF-0010 créé, en attente de validation'), findsOneWidget);
+      expect(find.textContaining('RF-0009'), findsNothing, reason: 'le nouveau retour remplace l\'ancien à l\'affichage');
+      expect(find.text('Retour RF-0010 (en attente de validation ; 2 ligne(s), 8 boîte(s)) : à valider dans « Retour fournisseur » sur Prestige ; rien ne sort du stock.'),
+          findsOneWidget);
+      expect(creer, findsNothing, reason: 'nouveau retour en attente : un seul par BL');
+    });
+
+    testWidgets('retour abandonné : délai dépassé puis nouvel essai → MÊME clé', (t) async {
+      final g = avecRetour(const RetourExistant(retourId: 'R9', ref: 'RF-0009', statut: 'is_Abandoned'))
+        ..reponsesRetour.addAll([
+          RetourManquants.refus('Le serveur ne répond pas.'),
+          const RetourManquants(success: true, retourId: 'R10', ref: 'RF-0010', statut: 'is_Waiting'),
+        ]);
+      await _bilan(t, g);
+      await _entrerLeRecu(t);
+      await t.tap(find.byKey(const Key('bl_retour_manquants')));
+      await t.pumpAndSettle();
+      expect(find.text('Le serveur ne répond pas.'), findsOneWidget);
+      expect(find.textContaining('RF-0009 abandonné'), findsOneWidget, reason: 'l\'abandonné reste affiché tant que rien n\'est créé');
+      await t.tap(find.byKey(const Key('bl_retour_manquants')));
+      await t.pumpAndSettle();
+      expect(g.retourRefs, hasLength(2));
+      expect(g.retourRefs.toSet(), hasLength(1), reason: 'même tentative : même X-Client-Ref');
+      expect(find.textContaining('Retour RF-0010 créé'), findsOneWidget);
+    });
+
+    testWidgets('serveur ancien (deja:true d\'un abandonné) : signalé, bouton reproposé avec une NOUVELLE clé', (t) async {
+      final g = avecRetour(const RetourExistant(retourId: 'R9', ref: 'RF-0009', statut: 'is_Abandoned'))
+        ..reponsesRetour.addAll([
+          const RetourManquants(success: true, deja: true, retourId: 'R9', ref: 'RF-0009', statut: 'is_Abandoned'),
+          const RetourManquants(success: true, retourId: 'R10', ref: 'RF-0010', statut: 'is_Waiting'),
+        ]);
+      await _bilan(t, g);
+      await _entrerLeRecu(t);
+      await t.tap(find.byKey(const Key('bl_retour_manquants')));
+      await t.pumpAndSettle();
+      expect(find.text('Retour RF-0009 abandonné : aucun nouveau retour n\'a été créé (serveur Prestige à mettre à jour).'), findsOneWidget);
+      final m = t.widget<Text>(find.byKey(const Key('bl_retour_manquants_message')));
+      expect(m.style?.color, Colors.red.shade800, reason: 'rien n\'a été créé');
+      expect(find.byKey(const Key('bl_retour_manquants')), findsOneWidget);
+      await t.tap(find.byKey(const Key('bl_retour_manquants')));
+      await t.pumpAndSettle();
+      expect(g.retourRefs, hasLength(2));
+      expect(g.retourRefs[1], isNot(g.retourRefs[0]), reason: 'création après un abandon : nouvelle clé (sinon la réponse serait rejouée)');
+      expect(g.retourRefs[1], startsWith('BLM-'));
+      expect(find.textContaining('Retour RF-0010 créé'), findsOneWidget);
+      expect(find.byKey(const Key('bl_retour_manquants')), findsNothing);
+    });
+
+    for (final (statut, attendu) in [
+      ('is_Waiting', 'à valider dans « Retour fournisseur » sur Prestige'),
+      ('is_Process', 'à valider dans « Retour fournisseur » sur Prestige'),
+      ('is_Refused', 'à corriger dans « Retour fournisseur » sur Prestige'),
+      ('enable', 'traité dans « Retour fournisseur » sur Prestige'),
+    ]) {
+      testWidgets('retour existant $statut : pas de bouton, « $attendu »', (t) async {
+        final g = avecRetour(RetourExistant(retourId: 'R9', ref: 'RF-0009', statut: statut));
+        await _bilan(t, g);
+        await _entrerLeRecu(t);
+        expect(find.byKey(const Key('bl_retour_manquants')), findsNothing, reason: '$statut bloque toujours');
+        expect(find.textContaining(attendu), findsOneWidget);
+        expect(find.textContaining('abandonné'), findsNothing);
+        expect(g.retourRefs, isEmpty);
+      });
+    }
+
+    testWidgets('deja:true d\'un retour refusé (nouvelle forme) : lignes et total affichés, plus de bouton', (t) async {
+      final g = FakeManquants()
+        ..reponseRecu = ReceptionResult(true, 'ok', _reponseRecu())
+        ..reponsesRetour.add(const RetourManquants(success: true, deja: true, retourId: 'R1', ref: 'RF-0001', statut: 'is_Refused', lignes: 2, totalManquant: 8));
+      await _bilan(t, g);
+      await _entrerLeRecu(t);
+      await t.tap(find.byKey(const Key('bl_retour_manquants')));
+      await t.pumpAndSettle();
+      expect(find.text('Retour RF-0001 déjà créé (refusé ; 2 ligne(s), 8 boîte(s)).'), findsOneWidget);
+      expect(find.textContaining('à corriger dans « Retour fournisseur »'), findsOneWidget);
       expect(find.byKey(const Key('bl_retour_manquants')), findsNothing);
     });
   });
