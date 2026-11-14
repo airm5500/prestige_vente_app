@@ -497,17 +497,17 @@ void main() {
             venteId: 'V1',
             summary: summary,
             typeReglementId: '1',
-            clientId: 'especes',
+            clientId: '', // 4.13.0 : aucun client rattaché → clientId null, comme le poste
             userVendeurId: 'U1',
             montantRecu: 15000,
             montantRemis: 2500,
           );
           expect(r.isOk, isTrue);
           expect(received.single['path'], '/api/vente/cloturer/vno');
-          // Corps attendu : exactement celui envoyé avant le paiement multiple.
+          // Corps attendu : celui envoyé avant le paiement multiple ; 4.13.0 : clientId null sans client (avant : nom du mode).
           expect(received.single['body'], jsonDecode(jsonEncode({
             "banque": "",
-            "clientId": "especes",
+            "clientId": null,
             "commentaire": "",
             "data": summary.toJson(),
             "devis": false,
@@ -537,7 +537,7 @@ void main() {
             venteId: 'V1',
             summary: summary,
             reglements: [(typeReglementId: '1', montant: 5000, montantVerse: 10000), (typeReglementId: '10', montant: 7500, montantVerse: null)],
-            clientId: 'wave',
+            clientId: 'CLI-FICTIF-1', // 4.13.0 : lgCLIENTID du client rattaché
             userVendeurId: 'U1',
             montantRecu: 17500,
             montantRemis: 5000,
@@ -553,7 +553,7 @@ void main() {
           expect(body['montantRecu'], 17500);
           expect(body['montantRemis'], 5000);
           expect(body['montantPaye'], 12500);
-          expect(body['clientId'], 'wave');
+          expect(body['clientId'], 'CLI-FICTIF-1');
         }));
 
     test('somme ≠ net, 3 modes ou doublon : refus SANS requête', () => real(() async {
@@ -661,7 +661,7 @@ void main() {
       expect(m.reglements, [(typeReglementId: '1', montant: 5000, montantVerse: 10000), (typeReglementId: '10', montant: 7500, montantVerse: null)]);
       expect(m.recu, 17500);
       expect(m.remis, 5000);
-      expect(m.clientId, 'wave'); // mode principal
+      expect(m.clientId, ''); // 4.13.0 : aucun client rattaché (avant : nom du mode principal)
       expect(done?.reglements.length, 2);
       expect(done?.method.id, '10');
       expect(tester.takeException(), isNull);

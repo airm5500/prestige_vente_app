@@ -230,6 +230,8 @@ class VenteController extends ChangeNotifier {
     _changes = 0;
     _netAt = -1;
     _finished = false;
+    _client = null;
+    _clientNonLu = null;
     _notify();
   }
 
@@ -241,6 +243,7 @@ class VenteController extends ChangeNotifier {
     return _run(() async {
       await _reload();
       await _remember();
+      await _lireClient(id);
     });
   }
 
@@ -457,7 +460,7 @@ class VenteController extends ChangeNotifier {
         return r;
       });
 
-  /// « Encaisser » : même enchaînement qu'avant (client = mode de règlement, puis clôture).
+  /// « Encaisser » : clôture (cloturer/vno) avec le client RATTACHÉ à la vente, ou aucun.
   /// [expectedChanges] : le panier confirmé par le vendeur ne doit pas avoir changé.
   Future<VenteResult<ClotureOk>> encaisser({
     required PaymentMethod method,
@@ -467,7 +470,6 @@ class VenteController extends ChangeNotifier {
     int? montantRemis,
   }) =>
       _cloturer(
-        principal: method,
         expectedChanges: expectedChanges,
         close: (id, clientId) => gateway.cloturerVno(
           venteId: id,
@@ -492,9 +494,7 @@ class VenteController extends ChangeNotifier {
     final reglements = reglementsDe(lignes);
     final invalid = reglementsInvalides(reglements, _summary.montantNet);
     if (invalid != null) return Future.value(VenteRefused(invalid));
-    final principal = lignes.reduce((a, b) => b.montant > a.montant ? b : a).method;
     return _cloturer(
-      principal: principal,
       expectedChanges: expectedChanges,
       close: (id, clientId) => gateway.cloturerVnoReglements(
         venteId: id,
@@ -508,9 +508,12 @@ class VenteController extends ChangeNotifier {
     );
   }
 
-  /// Clôture (un ou plusieurs modes) : client = mode principal, puis clôture ; réponse perdue → relecture.
+  /// Clôture (un ou plusieurs modes) ; réponse perdue → relecture.
+  /// 4.13.0 : plus d'appel « client = nom du mode de règlement » avant la clôture (il aurait remplacé, ou tenté de
+  /// remplacer, le client choisi ; le serveur l'ignorait : « Client inconnu : le client de la vente est inchangé »).
+  /// Le mode de règlement part dans la clôture (typeRegleId, reglements) ; `clientId` = le client rattaché
+  /// (lgCLIENTID reçu du serveur) ou rien, comme le poste.
   Future<VenteResult<ClotureOk>> _cloturer({
-    required PaymentMethod principal,
     required int expectedChanges,
     required Future<VenteResult<Map<String, dynamic>>> Function(String venteId, String clientId) close,
   }) =>
@@ -523,10 +526,7 @@ class VenteController extends ChangeNotifier {
         if (_finished) return const VenteOk((dejaCloturee: true));
         if (expectedChanges != _changes) return const VenteRefused('Le panier a changé : vérifiez le total puis encaissez à nouveau.');
         if (_cartError != null || !netUpToDate) return const VenteRefused('Net à payer non à jour : touchez « Réessayer » puis encaissez.');
-        final clientId = principal.name.toLowerCase().replaceAll(' ', '').replaceAll('é', 'e');
-        // Comme l'original : le résultat de l'association du client n'est pas bloquant.
-        await gateway.updateClient(id, clientId);
-        final r = await close(id, clientId);
+        final r = await close(id, _client?.id ?? '');
         if (r.isOk) {
           await _finish();
           return const VenteOk((dejaCloturee: false));
@@ -556,6 +556,100 @@ class VenteController extends ChangeNotifier {
   }
 
   bool get finished => _finished;
+
+  // ---------------------------------------------------------------------------
+  // 4.13.0 — client de la vente comptant (facultatif)
+  // ---------------------------------------------------------------------------
+
+  ClientVente? _client;
+  String? _clientNonLu;
+
+  /// Client rattaché à la vente sur le serveur (affiché seulement après la confirmation du serveur).
+  ClientVente? get client => _client;
+
+  /// Relecture du client de la vente reprise impossible (message) ; null sinon.
+  String? get clientNonLu => _clientNonLu;
+
+  ClientVenteGateway? get _clients => gateway is ClientVenteGateway ? gateway as ClientVenteGateway : null;
+
+  /// Zone Client proposée : passerelle capable, vente créée sur le serveur, en ligne (la recherche est en ligne),
+  /// vente pas terminée. Une vente hors ligne n'a jamais de zone Client.
+  bool get clientDisponible => _clients != null && _venteId != null && _hl == null && !serveurHorsLigne && !_finished;
+
+  /// Reprise d'une vente : client lu avec la vente (GET ventestats/{id}, champ `client`), comme le poste.
+  Future<void> _lireClient(String id) async {
+    if (_clients == null || _hl != null) return;
+    final r = await gateway.fullSale(id);
+    if (id != _venteId) return;
+    if (r case VenteOk(:final value)) {
+      final type = '${value['lgTYPEVENTEID'] ?? '1'}';
+      _client = type == '1' ? ClientVente.depuisJson(value['client']) : null;
+      _clientNonLu = null;
+    } else {
+      _clientNonLu = r.message ?? 'Client de la vente non relu.';
+    }
+    _notify();
+  }
+
+  /// « Réessayer » la relecture du client de la vente.
+  Future<void> relireClient() {
+    final id = _venteId;
+    if (id == null) return Future.value();
+    return _run(() => _lireClient(id));
+  }
+
+  /// Recherche (lecture seule, hors file) : à partir de 3 caractères ou d'un numéro de 4 chiffres.
+  Future<VenteResult<List<ClientVente>>> rechercherClients(String texte) async {
+    final g = _clients;
+    if (g == null) return const VenteRefused('Recherche de client indisponible.');
+    if (serveurHorsLigne) return const VenteRefused(messageClientHorsLigne);
+    if (!rechercheClientPossible(texte)) return const VenteRefused(messageClientRecherche);
+    return g.rechercherClientsVente(texte);
+  }
+
+  static const messageClientHorsLigne = 'Serveur hors ligne : la recherche de client se fait en ligne.';
+  static const messageClientRecherche = 'Tapez au moins 3 lettres, ou 4 chiffres du numéro.';
+
+  /// Choisir un client : rattachement immédiat ; le client n'est retenu qu'après `success:true`.
+  /// Échec : message du serveur, client précédent gardé.
+  Future<VenteResult<void>> choisirClient(ClientVente c) => _rattacher(c);
+
+  /// Retirer le client (clientId:null) ; échec : client gardé.
+  Future<VenteResult<void>> retirerClient() => _rattacher(null);
+
+  Future<VenteResult<void>> _rattacher(ClientVente? c) => _run(() async {
+        final g = _clients;
+        final id = _venteId;
+        if (g == null || id == null) return const VenteRefused('Aucune vente en cours : ajoutez d\'abord un article.');
+        if (_hl != null || serveurHorsLigne) return const VenteRefused(messageClientHorsLigne);
+        if (_finished) return const VenteRefused('Vente déjà terminée.');
+        final epoch = _epoch;
+        final r = await g.rattacherClientVente(id, c?.id);
+        if (epoch != _epoch || id != _venteId) return const VenteRefused('Vente changée : client non associé.');
+        if (r.isOk) {
+          _client = c;
+          _clientNonLu = null;
+          _notify();
+          return const VenteOk(null);
+        }
+        if (r.uncertain) {
+          // Réponse perdue : relire le client de la vente (jamais d'affichage sans confirmation).
+          await _lireClient(id);
+          if (_clientNonLu == null && _client?.id == c?.id) return const VenteOk(null);
+          return VenteFailed('${r.message ?? ''} Client non confirmé : vérifiez la vente.'.trim());
+        }
+        return r;
+      });
+
+  /// « Nouveau client » : création (POST client/add/lambda), puis rattachement. Renvoie le client créé (même si le
+  /// rattachement échoue : on le rattache ensuite par [choisirClient], sans le recréer).
+  Future<VenteResult<ClientVente>> creerClient({required String nom, required String prenom, required String telephone}) async {
+    final g = _clients;
+    if (g == null || _venteId == null) return const VenteRefused('Aucune vente en cours : ajoutez d\'abord un article.');
+    if (serveurHorsLigne || _hl != null) return const VenteRefused(messageClientHorsLigne);
+    if (nom.trim().isEmpty && prenom.trim().isEmpty) return const VenteRefused('Le nom ou le prénom du client est obligatoire.');
+    return _run(() => g.creerClientVente(nom: nom, prenom: prenom, telephone: telephone));
+  }
 
   // ---------------------------------------------------------------------------
   // Modes de paiement / liste

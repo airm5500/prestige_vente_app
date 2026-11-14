@@ -63,7 +63,6 @@ class CatalogueFictif {
       if (s.statutVentes.containsKey(id)) s.statutVentes[id] = 'is_Closed';
       return FauxServeurPrestige.ok({'success': true}, delai: delaiCloture);
     };
-    s.routes['POST /vente/update/client'] = (_) => FauxServeurPrestige.ok({'success': true});
     if (preventes > 0) {
       final liste = [for (var i = 1; i <= preventes; i++) preventeFictive(i)];
       s.routes['GET /ventestats/preventes'] = (_) => FauxServeurPrestige.ok({'data': liste, 'total': liste.length});

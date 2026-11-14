@@ -156,7 +156,67 @@ abstract class VenteGateway {
   });
 }
 
-class DioVenteGateway implements VenteGateway, ClientRefGateway {
+/// 4.13.0 — client d'une vente comptant (« client rapide » du poste, route v1/client/lambda).
+/// [nom] = strFIRSTNAME, [prenom] = strLASTNAME, [telephone] = strADRESSE (le poste l'affiche comme « Téléphone »).
+/// Données personnelles : jamais écrites dans un journal (ni nom, ni téléphone, ni texte cherché).
+class ClientVente {
+  final String id;
+  final String nom;
+  final String prenom;
+  final String telephone;
+  const ClientVente({required this.id, required this.nom, required this.prenom, this.telephone = ''});
+
+  static String _t(Object? v) => v == null || '$v' == 'null' ? '' : '$v'.trim();
+
+  /// Client lu dans une réponse du serveur ; null sans identifiant (un nom seul ne se rattache pas).
+  static ClientVente? depuisJson(Object? j) {
+    if (j is! Map) return null;
+    final id = _t(j['lgCLIENTID']);
+    if (id.isEmpty) return null;
+    return ClientVente(id: id, nom: _t(j['strFIRSTNAME']), prenom: _t(j['strLASTNAME']), telephone: _t(j['strADRESSE']));
+  }
+
+  /// « NOM Prénom » (ou « Client » si le serveur n'a renvoyé aucun nom).
+  String get nomComplet {
+    final n = '$nom $prenom'.trim();
+    return n.isEmpty ? 'Client' : n;
+  }
+
+  /// Ne jamais afficher ni journaliser l'objet entier par erreur.
+  @override
+  String toString() => 'ClientVente(…)';
+}
+
+/// 4.13.0 — client d'une vente COMPTANT : recherche, création rapide, rattachement immédiat à la vente.
+/// Interface à part (comme [ClientRefGateway]) : une passerelle qui ne l'implémente pas n'affiche pas la zone Client.
+abstract class ClientVenteGateway {
+  /// GET v1/client/lambda?query= (nom, prénom, « nom prénom » ou numéro).
+  Future<VenteResult<List<ClientVente>>> rechercherClientsVente(String texte);
+
+  /// POST v1/client/add/lambda : refus du serveur → son `msg` tel quel.
+  Future<VenteResult<ClientVente>> creerClientVente({required String nom, required String prenom, required String telephone});
+
+  /// POST v1/vente/update/client {venteId, clientId} ; [clientId] null = retirer le client.
+  /// Seul un `lgCLIENTID` reçu du serveur est envoyé (jamais un nom de mode de règlement).
+  Future<VenteResult<void>> rattacherClientVente(String venteId, String? clientId);
+}
+
+/// Réponse `success:true` du serveur pour un identifiant inconnu : le client de la vente n'a PAS changé.
+bool clientInchangeDe(Object? body) {
+  if (body is! Map) return false;
+  final m = '${body['msg'] ?? ''}'.toLowerCase();
+  return m.contains('client inconnu') || m.contains('inchang');
+}
+
+/// Recherche de client lancée à partir de 3 caractères, ou d'un numéro de 4 chiffres (espaces ignorés).
+bool rechercheClientPossible(String texte) {
+  final t = texte.trim();
+  final chiffres = t.replaceAll(RegExp(r'[\s.\-]'), '');
+  if (chiffres.isNotEmpty && RegExp(r'^\+?\d+$').hasMatch(chiffres)) return chiffres.replaceAll('+', '').length >= 4;
+  return t.replaceAll(RegExp(r'\s+'), ' ').length >= 3;
+}
+
+class DioVenteGateway implements VenteGateway, ClientRefGateway, ClientVenteGateway {
   final ApiService _api;
 
   /// H4 : clé client envoyée (en-tête `X-Client-Ref`) sur la création de la vente (1ᵉʳ article) ; null = aucune.
@@ -429,12 +489,63 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
     }
   }
 
+  /// 4.13.0 : plus appelée à l'encaissement (l'application y envoyait le nom du mode de règlement).
+  /// Le client d'une vente comptant passe par [rattacherClientVente], avec un `lgCLIENTID` reçu du serveur.
   @override
-  Future<VenteResult<void>> updateClient(String venteId, String clientId) async => _void(await _call(
-        () => _dio.post('/vente/update/client', data: {"clientId": clientId, "venteId": venteId}),
-        what: 'associer le client',
-        write: true,
-      ));
+  Future<VenteResult<void>> updateClient(String venteId, String clientId) => rattacherClientVente(venteId, clientId);
+
+  // ---------------------------------------------------------------------------
+  // 4.13.0 — client d'une vente comptant
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<VenteResult<List<ClientVente>>> rechercherClientsVente(String texte) async {
+    final r = await _call(() => _dio.get('/client/lambda', queryParameters: {'query': texte.trim()}), what: 'rechercher le client');
+    if (r is! VenteOk) return r.map((_) => <ClientVente>[]);
+    final body = r.value;
+    final data = body is Map ? body['data'] : null;
+    if (body is! Map || (data != null && data is! List)) return const VenteFailed('Réponse inattendue du serveur (recherche de client).');
+    return VenteOk([
+      for (final e in (data as List?) ?? const [])
+        if (ClientVente.depuisJson(e) case final c?) c,
+    ]);
+  }
+
+  @override
+  Future<VenteResult<ClientVente>> creerClientVente({required String nom, required String prenom, required String telephone}) async {
+    final r = await _call(
+      () => _dio.post('/client/add/lambda', data: {
+        "strFIRSTNAME": nom.trim(),
+        "strLASTNAME": prenom.trim(),
+        "strADRESSE": telephone.trim(),
+        // Type « client standard » (6), comme le formulaire du poste : la recherche v1/client/lambda ne trouve que lui.
+        "lgTYPECLIENTID": "6",
+      }),
+      what: 'créer le client',
+      write: true,
+    );
+    if (r is! VenteOk) return r.map((_) => throw StateError('inutilisé'));
+    final body = r.value;
+    final c = body is Map ? ClientVente.depuisJson(body['data']) : null;
+    if (body is! Map || body['success'] != true) return const VenteRefused('Le serveur n\'a pas confirmé la création du client.');
+    if (c == null) return const VenteFailed('Client créé sans identifiant renvoyé : cherchez-le avant de le recréer.', maybeApplied: true);
+    return VenteOk(c);
+  }
+
+  @override
+  Future<VenteResult<void>> rattacherClientVente(String venteId, String? clientId) async {
+    final r = await _call(
+      () => _dio.post('/vente/update/client', data: {"venteId": venteId, "clientId": clientId}),
+      what: clientId == null ? 'retirer le client' : 'associer le client',
+      write: true,
+    );
+    // « Client inconnu : le client de la vente est inchangé » (success:true) : rien n'a changé, le dire.
+    if (r case VenteOk(:final value) when clientId != null && clientInchangeDe(value)) {
+      final m = '${(value as Map)['msg'] ?? ''}'.trim();
+      return VenteRefused(m.isEmpty ? 'Client inconnu : le client de la vente est inchangé.' : m);
+    }
+    return _void(r);
+  }
 
   @override
   Future<VenteResult<Map<String, dynamic>>> cloturerVno({
@@ -479,7 +590,9 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway {
   }) =>
       {
         "banque": "",
-        "clientId": clientId,
+        // 4.13.0 : client RATTACHÉ à la vente (lgCLIENTID reçu du serveur) ou null, comme le poste ; jamais le nom
+        // du mode de règlement (envoyé avant 4.13.0, sans effet sur le serveur : client inconnu ignoré).
+        "clientId": clientId.isEmpty ? null : clientId,
         "commentaire": "",
         "data": summary.toJson(),
         "devis": false,

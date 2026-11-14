@@ -499,15 +499,15 @@ class FileVentesHL extends ChangeNotifier {
             '« Renvoyer » pour clôturer au net du serveur.';
         if (!v.acceptes.contains(m)) return verifier(m);
       }
-      // Comme en ligne : client = nom du mode, résultat non bloquant.
-      await gw.updateClient(venteId, v.modeNom.toLowerCase().replaceAll(' ', '').replaceAll('é', 'e'));
+      // 4.13.0 : plus d'association « client = nom du mode de règlement » (le client d'une vente se choisit en ligne ;
+      // celui d'une vente commencée en ligne reste tel quel sur le serveur : clientId vide = client inchangé).
       v = await _save(v.copyWith(etape: EtapeHL.finEnvoyee));
       final recu = max(v.montantRecu ?? netServeur, netServeur);
       final r = await gw.cloturerVno(
         venteId: venteId,
         summary: summary,
         typeReglementId: '1',
-        clientId: v.modeNom.toLowerCase().replaceAll(' ', '').replaceAll('é', 'e'),
+        clientId: '',
         userVendeurId: v.userId,
         montantRecu: recu,
         montantRemis: recu - netServeur,

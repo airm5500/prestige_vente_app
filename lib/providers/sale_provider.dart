@@ -202,11 +202,11 @@ class SaleProvider with ChangeNotifier {
   Future<Map<String, dynamic>> cloturerVente(PaymentMethod paymentMethod, User currentUser, {int? montantRecu, int? montantRemis}) async {
     if (_currentVenteId == null) return {"success": false, "msg": "ID manquant"};
     _setLoading(true);
-    final clientId = paymentMethod.name.toLowerCase().replaceAll(' ', '').replaceAll('é', 'e');
-    await _apiService.updateClientForSale(_currentVenteId!, clientId);
+    // 4.13.0 : plus d'association « client = nom du mode de règlement » avant la clôture (sans effet sur le serveur,
+    // elle aurait remplacé le client choisi) ; le mode part dans la clôture. Ancienne interface : aucun client choisi.
     final result = await _apiService.cloturerVente(
       venteId: _currentVenteId!, summary: _saleSummary, typeReglementId: paymentMethod.id,
-      clientId: clientId, userVendeurId: currentUser.userId, montantRecu: montantRecu, montantRemis: montantRemis,
+      clientId: '', userVendeurId: currentUser.userId, montantRecu: montantRecu, montantRemis: montantRemis,
     );
     _setLoading(false);
     return result;

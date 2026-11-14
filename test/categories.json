@@ -195,6 +195,14 @@
     "test/reseau/manquants_bl_reseau_test.dart": "reseau",
     "test/manquants_bl_ergonomie_test.dart": "ergonomie",
     "test/performance/manquants_bl_perf_test.dart": "performance",
-    "test/manquants_bl_garde_test.dart": "non_regression"
+    "test/manquants_bl_garde_test.dart": "non_regression",
+    "test/client_vente_regles_test.dart": "unitaires",
+    "test/client_vente_test.dart": "ecrans",
+    "test/client_vente_integration_test.dart": "integration",
+    "test/client_vente_e2e_test.dart": "e2e",
+    "test/reseau/client_vente_reseau_test.dart": "reseau",
+    "test/client_vente_ergonomie_test.dart": "ergonomie",
+    "test/performance/client_vente_perf_test.dart": "performance",
+    "test/client_vente_garde_test.dart": "non_regression"
   }
 }
