@@ -190,8 +190,10 @@ void main() {
       await app.attendre(t, const Duration(seconds: 3));
     });
     expect(find.text('Le panier est vide'), findsOneWidget, reason: 'vente encaissée, panier vidé');
-    // Modes de règlement (1) + QR des modes (1), client de la vente (1), clôture (1), liste des préventes (1).
-    mesurer('Requêtes — encaissement d\'une vente', rs.length, seuil: 5, unite: 'requêtes', detail: detailRequetes(rs));
+    // Modes de règlement (1) + QR des modes (1), clôture (1), liste des préventes (1). 4.13.0 : plus de « client de la
+    // vente » (POST vente/update/client avec le nom du mode de règlement) : 4 au lieu de 5.
+    expect(rs.where((r) => r.chemin.endsWith('/vente/update/client')), isEmpty);
+    mesurer('Requêtes — encaissement d\'une vente', rs.length, seuil: 4, unite: 'requêtes', detail: detailRequetes(rs));
     expect(c.clotures, 1, reason: 'une seule clôture');
     expect(app.serveur.statutVentes['V-1'], 'is_Closed');
     expect(t.takeException(), isNull);

@@ -443,7 +443,7 @@ void main() {
       expect(e.srv.sales['V2']!.map((l) => (l.lgFAMILLEID, l.intQUANTITY)), [('P2', 2), ('P3', 1)]);
       expect(e.srv.terminerCalls, 2);
       expect(e.srv.clotures.single, (recu: 10000, remis: 3700, net: 6300));
-      expect(e.srv.clients.single, 'especes');
+      expect(e.srv.clients, isEmpty); // 4.13.0 : plus de « client = nom du mode » à l'envoi
       expect(e.hl.ventesEnAttente.value, isNull);
     });
 

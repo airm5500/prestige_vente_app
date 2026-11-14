@@ -433,7 +433,7 @@ void main() {
     expect(find.textContaining('Vente encaissée'), findsOneWidget);
 
     expect(gw.clotureCalls, 1);
-    expect(gw.clients, ['espèces']); // même règle qu'avant (seul « é » est remplacé)
+    expect(gw.clients, isEmpty); // 4.13.0 : plus de « client = nom du mode de règlement » avant la clôture
     expect(gw.statut['V1'], 'is_Closed');
     expect(find.text('Le panier est vide'), findsOneWidget);
     expect(await PendingSaleStore.load(VenteMenu.prevente), isNull);
@@ -631,7 +631,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Vente encaissée'), findsOneWidget);
     expect(gw.clotureCalls, 1);
-    expect(gw.clients, ['wave']);
+    expect(gw.clients, isEmpty); // 4.13.0 : le mode part dans la clôture, jamais dans le client
     expect(tester.takeException(), isNull);
   });
 
