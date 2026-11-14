@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/ui/icones.dart';
 import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
+import 'package:prestige_vente_app/borne/borne_client.dart';
 import 'package:prestige_vente_app/borne/borne_config.dart';
 import 'package:prestige_vente_app/borne/borne_kiosque.dart';
 import 'package:prestige_vente_app/borne/borne_panier.dart';
@@ -26,7 +27,9 @@ import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
 import 'package:prestige_vente_app/horsligne/server_monitor.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
+import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
+import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_input.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
@@ -34,7 +37,7 @@ import 'package:prestige_vente_app/widgets/sortie_kiosque.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
-enum BorneVue { accueil, resultats, fiche, panier, ecarts, ticket, operateur, mobile }
+enum BorneVue { accueil, resultats, fiche, panier, ecarts, ticket, operateur, mobile, client }
 
 class BorneScreen extends StatefulWidget {
   final BorneService service;
@@ -135,6 +138,11 @@ class BorneScreenState extends State<BorneScreen> {
   int _rechercheNo = 0;
   List<BorneProduit> _vedettes = const [];
 
+  /// PrestigePOS 1.11.0 : client facultatif de la vente (en ligne) ; oublié à chaque retour à l'accueil.
+  late final BorneClientEtat clientVente = BorneClientEtat(
+      widget.service.gateway is ClientVenteGateway ? widget.service.gateway as ClientVenteGateway : null)
+    ..addListener(_refresh);
+
   BorneVerification? _verif;
   bool _validation = false;
   String? _erreurValidation;
@@ -195,6 +203,7 @@ class BorneScreenState extends State<BorneScreen> {
       t?.cancel();
     }
     _attente?.dispose();
+    clientVente.dispose();
     panier.dispose();
     _recherche.dispose();
     _focus.dispose();
@@ -330,6 +339,7 @@ class BorneScreenState extends State<BorneScreen> {
     _opChoisi = null;
     panier.vider();
     widget.service.lotsScannes.clear(); // 4.9.0 : lots GS1 du client précédent oubliés
+    clientVente.vider(); // 1.11.0 : ni nom, ni téléphone, ni résultat du client précédent
     _recherche.clear();
     _focus.unfocus();
     if (!mounted) return;
@@ -573,7 +583,7 @@ class BorneScreenState extends State<BorneScreen> {
   }
 
   Future<void> _creer(List<BorneLigne> lignes) async {
-    final r = await widget.service.creerPrevente(lignes);
+    final r = await widget.service.creerPrevente(lignes, client: clientVente.choisi);
     if (!mounted) return;
     if (r is! VenteOk<BornePrevente>) {
       setState(() {
@@ -603,6 +613,7 @@ class BorneScreenState extends State<BorneScreen> {
     _inactif?.cancel();
     panier.vider();
     widget.service.lotsScannes.clear(); // 4.9.0 : lots GS1 du client précédent oubliés
+    clientVente.vider(); // 1.11.0 : le nom n'est plus affiché une fois la prévente créée
     setState(() {
       _prevente = p;
       _ticket = ticket;
@@ -645,6 +656,7 @@ class BorneScreenState extends State<BorneScreen> {
     _inactif?.cancel();
     panier.vider();
     widget.service.lotsScannes.clear(); // 4.9.0 : lots GS1 du client précédent oubliés
+    clientVente.vider(); // 1.11.0 : nom oublié dès la création de la prévente
     final a = AttentePaiement(pm.api!,
         intervalle: widget.intervallePaiement, delai: Duration(minutes: pm.capacitesConnues?.expirationMin ?? 10));
     a.addListener(() => _onAttente(p, op));
@@ -671,7 +683,14 @@ class BorneScreenState extends State<BorneScreen> {
     }
     if (a.statut == StatutPM.paye && vue == BorneVue.mobile) {
       _imprimerTicket(
-          BornePrevente(venteId: p.venteId, reference: p.reference, total: a.paiement!.montant, lignes: p.lignes, at: p.at),
+          BornePrevente(
+              venteId: p.venteId,
+              reference: p.reference,
+              total: a.paiement!.montant,
+              lignes: p.lignes,
+              at: p.at,
+              clientAssocie: p.clientAssocie,
+              clientRefus: p.clientRefus),
           payePar: nomOperateur[op] ?? op);
       return;
     }
@@ -771,6 +790,11 @@ class BorneScreenState extends State<BorneScreen> {
         BorneVue.ticket => _ticketVue(),
         BorneVue.operateur => _operateurVue(),
         BorneVue.mobile => _mobileVue(),
+        BorneVue.client => BorneClientVue(
+            etat: clientVente,
+            onActivite: activite,
+            onRetour: () => setState(() => vue = BorneVue.panier),
+          ),
       };
 
   Widget _indisponible() => Center(
@@ -1364,6 +1388,19 @@ class BorneScreenState extends State<BorneScreen> {
         child: SafeArea(
           top: false,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
+            // 1.11.0 : client facultatif (en ligne seulement).
+            if (clientVente.disponible && !indisponible && !panier.vide) ...[
+              BorneClientZone(
+                etat: clientVente,
+                enabled: !_validation,
+                onActivite: activite,
+                onOuvrir: () {
+                  activite();
+                  setState(() => vue = BorneVue.client);
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
             _total(),
             if (_erreurValidation != null)
               Padding(
@@ -1568,6 +1605,15 @@ class BorneScreenState extends State<BorneScreen> {
                     child: Text('Ticket non imprimé : $_echecImpression\nPhotographiez cet écran ou notez le numéro.',
                         textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: Color(0xFF7C2D12))),
                   ),
+                ],
+                if (p.clientAssocie) ...[
+                  const SizedBox(height: 6),
+                  const Text('Votre nom est associé à la vente.',
+                      key: ValueKey('borne-client-associe'), textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Color(0xFF166534), fontWeight: FontWeight.w700)),
+                ] else if (p.clientRefus != null) ...[
+                  const SizedBox(height: 6),
+                  Text('Nom non associé : ${venteMessage(p.clientRefus)}',
+                      key: const ValueKey('borne-client-refus'), textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Color(0xFFB45309))),
                 ],
                 const SizedBox(height: 10),
                 const Text('N° de prévente', style: TextStyle(fontSize: 16, color: Pal.muted)),

@@ -60,15 +60,22 @@ void main() {
     }
   });
 
-  test('borne libre-service : jamais de zone Client', () {
+  // PrestigePOS 1.11.0 (décision du pharmacien du 14/11) : la borne a SA zone Client (lib/borne/borne_client.dart),
+  // jamais celle de l'écran de vente ; elle est vidée à chaque retour à l'accueil et à la création de la prévente.
+  test('borne libre-service : sa propre zone Client, vidée à l\'accueil et à la création', () {
     for (final d in ['lib/borne', 'lib/prestigepos']) {
       if (!Directory(d).existsSync()) continue;
       for (final f in Directory(d).listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'))) {
         final c = f.readAsStringSync();
-        expect(c, isNot(contains('client_vente.dart')), reason: f.path);
+        expect(c, isNot(contains('prevente/client_vente.dart')), reason: f.path);
         expect(c, isNot(contains('ClientVenteZone')), reason: f.path);
-        expect(c, isNot(contains('rattacherClientVente')), reason: f.path);
       }
+    }
+    final ecran = _lire('lib/borne/borne_screen.dart');
+    expect(RegExp(r'clientVente\.vider\(\)').allMatches(ecran).length, greaterThanOrEqualTo(3), reason: 'accueil, ticket, mobile money');
+    final zone = _lire('lib/borne/borne_client.dart');
+    for (final x in ['debugPrint', 'print(', 'journalErreur', 'JournalTerminal', 'noterAction']) {
+      expect(zone, isNot(contains(x)), reason: 'borne_client.dart : $x');
     }
   });
 

@@ -60,7 +60,14 @@ class BornePrevente {
   final int total;
   final List<SaleItemDetail> lignes;
   final DateTime at;
-  const BornePrevente({required this.venteId, required this.reference, required this.total, required this.lignes, required this.at});
+
+  /// PrestigePOS 1.11.0 : client choisi à la borne rattaché à la prévente (success:true du serveur).
+  final bool clientAssocie;
+
+  /// Rattachement du client refusé ou en échec : message du serveur (la prévente reste valable, sans client).
+  final String? clientRefus;
+  const BornePrevente(
+      {required this.venteId, required this.reference, required this.total, required this.lignes, required this.at, this.clientAssocie = false, this.clientRefus});
 
   /// Numéro affiché en GRAND : la fin de la référence (ex. « 0042 » de « 20261011000042 »), sinon la référence.
   String get numero {
@@ -160,7 +167,9 @@ class BorneService {
   // ---------------------------------------------------------------------------
 
   /// Crée la prévente (lignes déjà vérifiées et acceptées par le client).
-  Future<VenteResult<BornePrevente>> creerPrevente(List<BorneLigne> lignes, {String utilisateur = ''}) => _queue.run(() async {
+  /// PrestigePOS 1.11.0 : [client] (facultatif, choisi à la borne) est rattaché dès que la prévente existe, avant de la
+  /// terminer (POST v1/vente/update/client) ; un refus n'empêche pas la prévente (message gardé pour le ticket).
+  Future<VenteResult<BornePrevente>> creerPrevente(List<BorneLigne> lignes, {String utilisateur = '', ClientVente? client}) => _queue.run(() async {
         if (lignes.isEmpty) return const VenteRefused('Le panier est vide.');
         final cle = nouvelleCle();
         var gw = gateway;
@@ -191,6 +200,14 @@ class BorneService {
           return r.map((_) => throw StateError('inutilisé'));
         }
         final id = venteId!;
+        var clientAssocie = false;
+        String? clientRefus;
+        final clients = gateway is ClientVenteGateway ? gateway as ClientVenteGateway : null;
+        if (client != null && clients != null) {
+          final rc = await clients.rattacherClientVente(id, client.id);
+          clientAssocie = rc.isOk;
+          if (!rc.isOk) clientRefus = rc.message ?? 'Client non associé à la vente.';
+        }
         final net = await gateway.netVno(id);
         final fin = await gateway.terminerPrevente(id);
         if (!fin.isOk && !fin.uncertain) {
@@ -227,6 +244,8 @@ class BorneService {
                         strREF: reference),
                 ],
           at: DateTime.now(),
+          clientAssocie: clientAssocie,
+          clientRefus: clientRefus,
         );
         _journal(lignes, p, ResultatJournal.ok, cle: cle);
         return VenteOk(p);

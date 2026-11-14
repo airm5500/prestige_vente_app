@@ -67,7 +67,7 @@ jobs:
           echo "::notice title=Version de l'APK::$apk"
 
       # Saveurs Android : Flutter nomme l'APK « app-mobile-release.apk » ; l'artefact garde le nom d'origine
-      # « app-release.apk ». Identité et permissions relevées pour la comparaison avec 4.12.1+42 (job suivant).
+      # « app-release.apk ». Identité et permissions relevées pour la comparaison avec 4.13.0+43 (job suivant).
       - name: APK Prestige Mobile (nom d'origine) et permissions
         shell: bash
         run: |
@@ -95,13 +95,13 @@ jobs:
           retention-days: 30
 
   # Non-régression de Prestige Mobile : l'APK construit ici a le MÊME applicationId, le même nom, la même version
-  # et EXACTEMENT les mêmes permissions que celui de la version de référence 4.12.1+42 (Prestige Mobile avant sa fusion dans PrestigePOS).
+  # et EXACTEMENT les mêmes permissions que celui de la version de référence 4.13.0+43 (Prestige Mobile avant sa fusion dans PrestigePOS).
   prestige-mobile-identique:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      REFERENCE_MOBILE: 64e5f5796a839a69cf9588433ef8930137d0741c  # 4.12.1+42, avant la fusion dans PrestigePOS
+      REFERENCE_MOBILE: 43f21df7849991e6f44906731898f6b5ea109271  # 4.13.0+43, avant la fusion dans PrestigePOS
     steps:
       - uses: actions/checkout@v4
         with:
@@ -116,7 +116,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: APK de référence (4.12.1+42)
+      - name: APK de référence (4.13.0+43)
         run: flutter build apk --release
       - uses: actions/download-artifact@v4
         with:
