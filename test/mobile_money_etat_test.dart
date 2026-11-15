@@ -56,11 +56,13 @@ void main() {
     expect(deux.message, contains('n\'a pas le droit de clôturer'), reason: 'les deux obstacles signalés');
   });
 
-  test('sans droit de clôture : compte de la borne nommé ; compte de l\'appareil', () async {
+  // 4.13.1 (retour du pharmacien du 15/11) : borne sans droit de clôture → PROPOSÉ, sans clôture automatique.
+  test('sans droit de clôture : borne → proposé sans clôture automatique, compte nommé ; appareil → droit manquant', () async {
     final b = await diag(droits: const {'P_SM_VENTE'});
-    expect(b.etat, EtatMobileMoney.sansDroit);
-    expect(b.message,
-        'Mobile Money activé, mais le compte de la borne « borne.pos » n\'a pas le droit de clôturer : donnez-lui P_SM_CLOTURER_CAISSE (ou P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE).');
+    expect(b.etat, EtatMobileMoney.proposeSansCloture);
+    expect(b.propose, isTrue);
+    expect(b.message, startsWith('Proposé au client : Orange Money, Wave. Le compte de la borne « borne.pos » n\'a pas le droit de terminer une vente'));
+    expect(b.message, contains('la caisse termine la vente payée'));
     for (final d in ['P_SM_DEPOT_EXTENSION', 'P_BT_MODIFICATION_DE_VENTE']) {
       expect((await diag(droits: {d})).etat, EtatMobileMoney.propose, reason: d);
     }

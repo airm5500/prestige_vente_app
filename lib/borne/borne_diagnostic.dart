@@ -52,9 +52,9 @@ class DiagnosticBorne {
 /// Titre et message de l'étape « droit de clôture » (4.5.1).
 const titreDroitCloture = 'Paiement mobile money';
 const titreModuleMobileMoney = 'Module Mobile Money';
-const messageSansDroitCloture = 'Utilisateur borne sans droit de clôture : paiement mobile désactivé '
-    '(le client reçoit son ticket pour la caisse). Droit à donner au profil : P_SM_CLOTURER_CAISSE, '
-    'P_SM_DEPOT_EXTENSION ou P_BT_MODIFICATION_DE_VENTE.';
+const messageSansDroitCloture = 'Utilisateur borne sans droit de clôture : paiement mobile proposé SANS clôture '
+    'automatique (la caisse termine la vente payée). Pour la clôture automatique, droit à donner au profil : '
+    'P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION ou P_BT_MODIFICATION_DE_VENTE.';
 
 class TesteurBorne {
   final String baseUrl;

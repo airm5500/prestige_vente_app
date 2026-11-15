@@ -17,7 +17,7 @@ import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
-enum EtatMobileMoney { desactive, horsLigne, serveurAncien, sansCompte, sansDroit, propose, erreur }
+enum EtatMobileMoney { desactive, horsLigne, serveurAncien, sansCompte, sansDroit, propose, proposeSansCloture, erreur }
 
 class DiagnosticMobileMoney {
   final EtatMobileMoney etat;
@@ -40,7 +40,8 @@ class DiagnosticMobileMoney {
   const DiagnosticMobileMoney(this.etat,
       {this.operateurs = const [], this.compte = '', this.borne = true, this.droitManquantAussi = false, this.detail = ''});
 
-  bool get propose => etat == EtatMobileMoney.propose;
+  /// Proposé au client (4.13.1 : aussi à la borne sans droit de clôture, la caisse termine alors la vente payée).
+  bool get propose => etat == EtatMobileMoney.propose || etat == EtatMobileMoney.proposeSansCloture;
 
   static const messageDesactive = 'Désactivé : le client paie à la caisse (ticket de prévente).';
   static const messageHorsLigne = 'Serveur injoignable : impossible de vérifier.';
@@ -60,6 +61,10 @@ class DiagnosticMobileMoney {
         EtatMobileMoney.sansCompte => droitManquantAussi ? '$messageSansCompte\n$_messageSansDroit' : messageSansCompte,
         EtatMobileMoney.sansDroit => _messageSansDroit,
         EtatMobileMoney.propose => 'Proposé au client : ${operateurs.map((o) => nomOperateur[o] ?? o).join(', ')}.',
+        EtatMobileMoney.proposeSansCloture => 'Proposé au client : ${operateurs.map((o) => nomOperateur[o] ?? o).join(', ')}. '
+            'Le compte de la borne « $compte » n\'a pas le droit de terminer une vente : le paiement est confirmé, puis la '
+            'caisse termine la vente payée (ticket « PAYÉE »). Pour la clôture automatique, donnez-lui P_SM_CLOTURER_CAISSE '
+            '(ou P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE).',
         EtatMobileMoney.erreur => 'Vérification impossible${detail.isEmpty ? '' : ' : ${detail.endsWith('.') ? detail.substring(0, detail.length - 1) : detail}'}.',
       };
 }
@@ -99,7 +104,11 @@ Future<DiagnosticMobileMoney> diagnostiquerMobileMoney({
   if (ops.isEmpty) {
     return DiagnosticMobileMoney(EtatMobileMoney.sansCompte, compte: compte, borne: borne, droitManquantAussi: !droit);
   }
-  if (!droit) return DiagnosticMobileMoney(EtatMobileMoney.sansDroit, operateurs: ops, compte: compte, borne: borne);
+  // 4.13.1 : à la borne, le paiement est proposé sans clôture automatique (le serveur n'exige le droit que pour
+  // cloturer:true). Ailleurs (encaissement de l'appli), il faut toujours le droit de terminer une vente.
+  if (!droit) {
+    return DiagnosticMobileMoney(borne ? EtatMobileMoney.proposeSansCloture : EtatMobileMoney.sansDroit, operateurs: ops, compte: compte, borne: borne);
+  }
   return DiagnosticMobileMoney(EtatMobileMoney.propose, operateurs: ops, compte: compte, borne: borne);
 }
 

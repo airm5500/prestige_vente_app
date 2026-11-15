@@ -20,6 +20,10 @@ class BorneTicket {
 
   /// B3 : vente payée par mobile money (nom de l'opérateur) ; null : prévente à payer en caisse.
   final String? payePar;
+
+  /// 4.13.1 : payée SANS clôture automatique (utilisateur borne sans le droit de terminer une vente) : la caisse
+  /// termine la vente.
+  final bool aTerminer;
   const BorneTicket({
     required this.officine,
     required this.prevente,
@@ -27,14 +31,16 @@ class BorneTicket {
     this.codeType = 'QR_CODE',
     this.largeur = 58,
     this.payePar,
+    this.aTerminer = false,
   });
 
   static const String invitation = 'Présentez ce ticket à la caisse';
   static const String invitationPayee = 'Présentez ce ticket au comptoir pour récupérer vos produits';
+  static const String invitationPayeeATerminer = 'Payé : présentez ce ticket à la caisse, qui termine la vente';
 
   bool get paye => payePar != null;
   String get titre => paye ? 'VENTE BORNE - PAYEE' : 'PRE-VENTE BORNE';
-  String get invitationTexte => paye ? invitationPayee : invitation;
+  String get invitationTexte => paye ? (aTerminer ? invitationPayeeATerminer : invitationPayee) : invitation;
 
   String get date => DateFormat('dd/MM/yyyy HH:mm').format(prevente.at);
 

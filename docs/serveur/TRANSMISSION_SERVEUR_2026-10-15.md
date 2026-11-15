@@ -17,7 +17,7 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10), 59 et 60 (réception d'un BL incomplet, droit « Voir les suggestions de réserve », 08/11)
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10), 59 et 60 (réception d'un BL incomplet, droit « Voir les suggestions de réserve », 08/11), 62 (client des ventes comptant, paiement mobile money de la borne, 15/11)
 3. Prestige Pharmacien : réponses et demandes 45 et 55 (péremptions courtes, 25/10)
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
@@ -831,6 +831,69 @@ lit pas ce champ, donc ce point ne le concerne pas.
 - sans session → 401 sur toutes les routes de `suggestion-reserve` ;
 - base sans `P_RESERVE_SUGGESTION` → comportement d'avant la demande 60.
 
+### Demande 62 — Client des ventes comptant et paiement mobile money de la borne (P2 ; P1 pour le point 3)
+
+Code lu en lecture seule : `integration/recette-2026-10-29` (810d114a), `plan0911` (238d5a86), `main` (4cf690f2).
+Applications : Prestige Mobile 4.13.1+44, PrestigePOS 1.11.1+30.
+
+**1. Recherche d'un client par son numéro (P2)**
+
+`POST v1/client/add/lambda` range le téléphone dans `strADRESSE` (`ClientServiceImpl.createClient` :
+`tc.setStrADRESSE(...)`, `strTELEPHONE` jamais rempli). Mais `GET v1/client/lambda?query=` ne cherche les numéros que
+dans `strTELEPHONE` (`ClientServiceImpl.findClientLambda` : `cb.like(sansSeparateurs(cb, root.get(TClient_.strTELEPHONE)),
+numero)`, motif de `RechercheClient.motifChiffres`). Un client créé depuis le poste (fenêtre « client rapide »), le
+téléphone ou la borne n'est donc **jamais retrouvé par son numéro**, alors qu'il l'est par son nom.
+
+Demande (recommandée) : à la création rapide, recopier aussi le numéro dans `strTELEPHONE` quand `strADRESSE`
+ressemble à un numéro (même règle que `SalesServiceImpl.telephoneVente` : chiffres, `+`, espaces, points, tirets,
+au moins 6 chiffres), et rattraper les fiches existantes (type 6, `strTELEPHONE` vide, `strADRESSE` numérique). Si vous
+préférez ne pas toucher aux fiches : chercher aussi dans `strADRESSE` (même `sansSeparateurs`, mêmes conditions).
+La première option garde une seule source pour le téléphone (ventes, ordonnancier, SMS) ; la seconde suffit à la
+recherche.
+
+**2. Type du client rapide (P2)**
+
+Le pharmacien a confirmé que les applications envoient `lgTYPECLIENTID: "6"` (client standard) à la création,
+comme le formulaire du poste. Sans type, `createClient` pose `new TTypeClient(null)` : le client est créé sans type
+(ou la création échoue selon la base) et `findClientLambda` (filtre `lgTYPECLIENTID = STANDART_CLIENT_ID`) ne le
+trouve pas. Demande : **type 6 par défaut** quand `lgTYPECLIENTID` est absent ou vide (`controleClientRapide` /
+`createClient`).
+
+**3. Paiement mobile money de la borne avec un compte borne au profil prévente (P1)**
+
+Constat (retour du pharmacien du 15/11) : l'option des applications « Proposer le paiement mobile money » était
+active, mais la borne ne le proposait pas. Le serveur n'a **aucun droit ni paramètre propre** à la validation par
+mobile money : `PaiementsMobileRessource.creer` exige, pour `cloturer:true`, le droit « Terminer une vente »
+(`Constant.PRIVILEGES_CLOTURE_VENTE` : P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE), que le
+compte de la borne (profil prévente) n'a pas — et qu'on ne veut pas lui donner (il ouvrirait la caisse et les autres
+clôtures).
+
+Depuis Prestige Mobile 4.13.1 / PrestigePOS 1.11.1, la borne propose le mobile money à ce compte avec
+`cloturer:false` (permis par le serveur) : le client paie, la vente reste une **prévente payée**, terminée au
+comptoir. Demandes :
+
+- a. un droit dédié, par exemple `P_BORNE_PAIEMENT_MOBILE` (« Clôturer une vente payée par mobile money »), accepté
+  par `creer` pour `cloturer:true` **en plus** de `PRIVILEGES_CLOTURE_VENTE`, et la clôture automatique
+  (`PaiementsMobileService.cloturer`) faite pour ce compte ; il figure dans `GET v1/user/droits` comme les autres
+  (les applications l'utiliseront dès qu'il apparaît : `cloturer:true` si ce droit OU « Terminer une vente ») ;
+- b. tant que la vente n'est pas clôturée : que le poste montre, dans « Préventes à encaisser », qu'une prévente est
+  **déjà payée** par mobile money (montant, opérateur, n° de paiement) et la termine avec ce mode, sans redemander
+  l'argent — dites-nous si c'est déjà le cas ;
+- c. dans la clôture automatique, `clientId` reçoit le code de l'opérateur (`op.code()`, ex. « wave ») : même défaut
+  que celui corrigé dans les applications (sans effet, client inconnu). Demande : envoyer le client de la vente
+  (`tp.getClient()`) ou rien, pour que le client rattaché à la borne garde nom et téléphone sur la vente.
+
+**Tests attendus :**
+- `POST v1/client/add/lambda {strFIRSTNAME, strLASTNAME, strADRESSE:"07 00 00 99 99"}` → retrouvé par
+  `GET v1/client/lambda?query=0700` et par `?query=07000099` ; fiche existante rattrapée retrouvée de même ;
+- création sans `lgTYPECLIENTID` → client de type 6, retrouvé par son nom ; type inconnu → toujours refusé ;
+- compte avec `P_BORNE_PAIEMENT_MOBILE` seul : `cloturer:true` accepté, vente clôturée à la confirmation ; sans aucun
+  des droits : `cloturer:true` → 403 `interdit`, `cloturer:false` → paiement créé (inchangé) ;
+- `GET v1/user/droits` du compte borne → contient `P_BORNE_PAIEMENT_MOBILE` ;
+- prévente payée par mobile money (`cloturer:false`) → signalée payée au poste, terminée avec le mode de l'opérateur,
+  une seule fois ;
+- clôture automatique d'une vente avec un client rattaché → `lg_CLIENT_ID` et nom du client gardés.
+
 ---
 
 ## 5. Récapitulatif des nouvelles demandes
@@ -856,5 +919,6 @@ lit pas ce champ, donc ce point ne le concerne pas.
 | 59 | Réception BL : clôture « entrer le reçu » (`validerbl?mode=RECU`, réponse `ecarts`, capacité `clotureRecu`), écart au rapport, retour des manquants sans sortie de stock (option a retenue) | Mobile | P1 |
 | 60 | Réserve : privilège `P_RESERVE_SUGGESTION` (lecture et ouverture des suggestions, web et mobile), capacité `voirSuggestions` dans `GET v1/reserve/droits` | Mobile | P2 |
 | 61 | Suites 59/60 : fusion des branches et migrations, tolérance sans `V7.2.70`, 401 avant 403, retour des manquants abandonné, forme de `deja:true` | Mobile | P1 / P2 |
+| 62 | Client rapide : numéro cherchable (`strTELEPHONE` rempli à la création, ou recherche dans `strADRESSE`), type 6 par défaut ; borne : droit dédié pour clôturer une vente payée par mobile money, prévente payée signalée au poste, `clientId` de la clôture automatique | Mobile, PrestigePOS | P1 / P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.

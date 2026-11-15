@@ -151,10 +151,19 @@ class BorneScreenState extends State<BorneScreen> {
   // B3 : mobile money.
   List<String> _opsMobile = const [];
 
-  /// 4.5.1 : opérateurs PROPOSÉS au client. Le paiement mobile money de la borne clôture la vente (`cloturer:true`) :
-  /// sans droit de terminer une vente pour l'utilisateur borne (GET v1/user/droits), il n'est pas proposé (seul le
-  /// ticket pour la caisse reste). Droits inconnus (serveur ancien) : comme avant.
-  List<String> get _opsProposes => DroitsVente.instance.cloturerPaiementMobile ? _opsMobile : const [];
+  /// Opérateurs PROPOSÉS au client (réglage « Proposer le paiement mobile money » actif, serveur avec compte de
+  /// paiement). 4.13.1 (retour du pharmacien du 15/11) : plus réservés à un utilisateur borne qui a le droit de
+  /// terminer une vente. Le serveur (PaiementsMobileRessource.creer) n'exige ce droit QUE pour `cloturer:true` ;
+  /// sans lui, le paiement est créé avec `cloturer:false` : le client paie, la vente reste une prévente payée que la
+  /// caisse termine (ticket « PAYÉE », voir [_clotureAuto]).
+  List<String> get _opsProposes => _opsMobile;
+
+  /// Clôture automatique de la vente à la confirmation du paiement : seulement avec le droit de terminer une vente
+  /// (P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE ; droits inconnus : comme avant).
+  bool get _clotureAuto => DroitsVente.instance.cloturerPaiementMobile;
+
+  /// Le paiement en cours a été demandé avec la clôture automatique.
+  bool _clotureLancee = true;
 
   /// 4.5.1 : message affiché avec le ticket (paiement mobile refusé faute de droit).
   String? _avisTicket;
@@ -602,14 +611,15 @@ class BorneScreenState extends State<BorneScreen> {
     await _imprimerTicket(p);
   }
 
-  Future<void> _imprimerTicket(BornePrevente p, {String? payePar, String? avis}) async {
+  Future<void> _imprimerTicket(BornePrevente p, {String? payePar, String? avis, bool aTerminer = false}) async {
     final ticket = BorneTicket(
         officine: widget.officine,
         prevente: p,
         discret: cfg.ticketDiscret,
         codeType: widget.codeType,
         largeur: widget.largeurTicket,
-        payePar: payePar);
+        payePar: payePar,
+        aTerminer: aTerminer);
     _inactif?.cancel();
     panier.vider();
     widget.service.lotsScannes.clear(); // 4.9.0 : lots GS1 du client précédent oubliés
@@ -666,7 +676,8 @@ class BorneScreenState extends State<BorneScreen> {
       _validation = false;
       vue = BorneVue.mobile;
     });
-    a.demarrer(venteId: p.venteId, operateur: op, cloturer: true);
+    _clotureLancee = _clotureAuto;
+    a.demarrer(venteId: p.venteId, operateur: op, cloturer: _clotureLancee);
   }
 
   void _onAttente(BornePrevente p, String op) {
@@ -691,7 +702,8 @@ class BorneScreenState extends State<BorneScreen> {
               at: p.at,
               clientAssocie: p.clientAssocie,
               clientRefus: p.clientRefus),
-          payePar: nomOperateur[op] ?? op);
+          payePar: nomOperateur[op] ?? op,
+          aTerminer: !_clotureLancee);
       return;
     }
     setState(() {});

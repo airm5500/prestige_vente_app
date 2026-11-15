@@ -2,10 +2,13 @@
 // clôture `cloturer:true` sous la session de l'utilisateur borne ; l'espèce donne un ticket de prévente pour la caisse) :
 //  - droits de l'utilisateur borne lus (GET v1/user/droits) à la connexion de la borne, avec l'en-tête
 //    X-Prestige-Utilisateur ;
-//  - sans droit de clôture : « PAYER PAR MOBILE MONEY » n'est pas proposé, seul le ticket pour la caisse reste ;
+//  - 4.13.1 (retour du pharmacien du 15/11, « option mobile money active mais toujours un ticket pour la caisse ») :
+//    sans droit de clôture (profil prévente), « PAYER PAR MOBILE MONEY » EST proposé ; le paiement est créé avec
+//    `cloturer:false` (le serveur n'exige le droit que pour cloturer:true) ; payé → ticket « PAYÉE » « la caisse
+//    termine la vente » ; avec le droit : `cloturer:true` comme avant ;
 //  - 403 interdit pendant un paiement mobile money : « Paiement mobile indisponible, rendez-vous à la caisse avec votre
 //    ticket », ticket de prévente imprimé, vente gardée, aucune nouvelle tentative, borne toujours connectée ;
-//  - « Tester la borne » : « Utilisateur borne sans droit de clôture : paiement mobile désactivé ».
+//  - « Tester la borne » : « Utilisateur borne sans droit de clôture : paiement mobile proposé SANS clôture automatique ».
 // Données fictives uniquement.
 import 'dart:convert';
 
@@ -32,8 +35,10 @@ import 'outils/app_e2e.dart';
 /// Faux module de paiement : capacités (Wave), création refusée faute de droit si [refuser].
 class _Pm implements PaiementsMobileApi {
   bool refuser = false;
+  bool payer = false;
   int creations = 0;
   int statuts = 0;
+  final List<bool> cloturers = [];
 
   @override
   Future<VenteResult<CapacitesPM>> capacites() async => const VenteOk(CapacitesPM(operateurs: ['wave'], fournisseur: 'simulateur'));
@@ -41,6 +46,7 @@ class _Pm implements PaiementsMobileApi {
   @override
   Future<VenteResult<PaiementMobile>> creer({required String venteId, required String operateur, int? part, bool cloturer = false, required String cle}) async {
     creations++;
+    cloturers.add(cloturer);
     if (refuser) return const VenteRefused('Droit manquant : terminer une vente.', code: VenteRefused.codeInterdit);
     return VenteOk(PaiementMobile(
         id: 'PM1', venteId: venteId, reference: 'R', montant: 3000, operateur: operateur, statut: StatutPM.enAttente, lien: 'simulateur://PM1', clotureAuto: cloturer));
@@ -49,7 +55,8 @@ class _Pm implements PaiementsMobileApi {
   @override
   Future<VenteResult<PaiementMobile>> statut(String id) async {
     statuts++;
-    return const VenteOk(PaiementMobile(id: 'PM1', venteId: 'V1', reference: 'R', montant: 3000, operateur: 'wave', statut: StatutPM.enAttente, lien: ''));
+    return VenteOk(PaiementMobile(
+        id: 'PM1', venteId: 'V1', reference: 'R', montant: 3000, operateur: 'wave', statut: payer ? StatutPM.paye : StatutPM.enAttente, lien: ''));
   }
 
   @override
@@ -101,12 +108,12 @@ Future<void> _avancer(WidgetTester t, Duration d) async {
   }
 }
 
-Future<(_Gw, _Imp)> _borne(WidgetTester t, _Pm pm) async {
+Future<(_Gw, _Imp)> _borne(WidgetTester t, _Pm pm, {bool actif = true}) async {
   t.view.physicalSize = const Size(720, 1520);
   t.view.devicePixelRatio = 2;
   addTearDown(t.view.reset);
   SharedPreferences.setMockInitialValues({});
-  PaiementsMobileReglages.actif.value = true;
+  PaiementsMobileReglages.actif.value = actif;
   addTearDown(() => PaiementsMobileReglages.actif.value = false);
   BorneKiosque.instance = KiosqueSimule();
   final gw = _Gw(), imp = _Imp();
@@ -140,25 +147,67 @@ void main() {
   tearDown(() => DroitsVente.instance.oublier());
 
   group('Écran de la borne', () {
-    testWidgets('utilisateur borne sans droit de clôture : mobile money non proposé, ticket pour la caisse seul', (t) async {
+    // Cas signalé par le pharmacien le 15/11 : compte borne au profil PRÉVENTE + option mobile money active.
+    testWidgets('profil prévente + option active : mobile money PROPOSÉ, cloturer:false, ticket « PAYÉE » à terminer en caisse', (t) async {
       DroitsVente.instance.fixer({'P_SM_VENTE'}, utilisateur: 'U-borne.accueil');
-      final pm = _Pm();
-      await _borne(t, pm);
+      final pm = _Pm()..payer = true;
+      final (gw, imp) = await _borne(t, pm);
       expect(find.byKey(const ValueKey('borne-payer')), findsOneWidget);
-      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsNothing);
+      final mobile = find.byKey(const ValueKey('borne-payer-mobile'));
+      expect(mobile, findsOneWidget, reason: 'bouton visible (bogue du 15/11)');
+      await t.ensureVisible(mobile);
+      await t.pump();
+      await t.tap(mobile);
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('borne-operateur-wave')));
+      await _avancer(t, const Duration(seconds: 6));
+      expect(pm.cloturers, [false], reason: 'sans le droit : jamais cloturer:true (refusé par le serveur)');
+      expect(gw.terminees, 1);
+      expect(imp.tickets, hasLength(1));
+      expect(imp.tickets.single.paye, isTrue);
+      expect(imp.tickets.single.aTerminer, isTrue);
+      expect(imp.tickets.single.invitationTexte, BorneTicket.invitationPayeeATerminer);
+      expect(find.byKey(const ValueKey('borne-avis-ticket')), findsNothing);
       expect(t.takeException(), isNull);
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 1));
     });
 
-    testWidgets('droits relus en cours de route (retour au premier plan) : le choix disparaît sans écran cassé', (t) async {
+    testWidgets('avec le droit de clôture : cloturer:true, ticket « PAYÉE » habituel (inchangé)', (t) async {
+      DroitsVente.instance.fixer({'P_SM_CLOTURER_CAISSE'}, utilisateur: 'U-borne.accueil');
+      final pm = _Pm()..payer = true;
+      final (_, imp) = await _borne(t, pm);
+      final mobile = find.byKey(const ValueKey('borne-payer-mobile'));
+      await t.ensureVisible(mobile);
+      await t.pump();
+      await t.tap(mobile);
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('borne-operateur-wave')));
+      await _avancer(t, const Duration(seconds: 6));
+      expect(pm.cloturers, [true]);
+      expect(imp.tickets.single.aTerminer, isFalse);
+      expect(imp.tickets.single.invitationTexte, BorneTicket.invitationPayee);
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets('option « Proposer le paiement mobile money » désactivée : seul « Payer en caisse »', (t) async {
+      DroitsVente.instance.fixer({'P_SM_CLOTURER_CAISSE'}, utilisateur: 'U-borne.accueil');
+      await _borne(t, _Pm(), actif: false);
+      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsNothing);
+      expect(find.byKey(const ValueKey('borne-payer')), findsOneWidget);
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets('droits relus en cours de route (retour au premier plan) : le choix reste, sans écran cassé', (t) async {
       DroitsVente.instance.fixer({'P_SM_CLOTURER_CAISSE'}, utilisateur: 'U-borne.accueil');
       await _borne(t, _Pm());
       await t.pump();
       expect(find.byKey(const ValueKey('borne-payer-mobile')), findsOneWidget, reason: 'avec le droit : proposé comme avant');
       DroitsVente.instance.fixer({'P_SM_VENTE'}, utilisateur: 'U-borne.accueil');
       await t.pump();
-      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsNothing);
+      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsOneWidget, reason: '4.13.1 : proposé, sans clôture automatique');
       expect(find.byKey(const ValueKey('borne-payer')), findsOneWidget);
       expect(t.takeException(), isNull);
       await t.pumpWidget(const SizedBox());
@@ -207,11 +256,11 @@ void main() {
           return d;
         });
 
-    test('sans droit de clôture : « Utilisateur borne sans droit de clôture : paiement mobile désactivé »', () async {
+    test('sans droit de clôture : « … paiement mobile proposé SANS clôture automatique »', () async {
       final d = await tester(['P_SM_VENTE']);
       final e = d.etapes.firstWhere((e) => e.titre == titreDroitCloture);
       expect(e.etat, EtatEtapeBorne.attention);
-      expect(e.detail, startsWith('Utilisateur borne sans droit de clôture : paiement mobile désactivé'));
+      expect(e.detail, startsWith('Utilisateur borne sans droit de clôture : paiement mobile proposé SANS clôture automatique'));
       expect(d.ok, isTrue, reason: 'la borne fonctionne (ticket pour la caisse)');
     });
 
@@ -222,7 +271,7 @@ void main() {
   });
 
   group('Borne dans l\'application (e2e)', () {
-    testWidgets('connexion de la borne : droits de l\'utilisateur borne lus avec son en-tête ; mobile money masqué sans le droit', (t) async {
+    testWidgets('connexion de la borne : droits lus avec son en-tête ; profil prévente + option active → mobile money proposé', (t) async {
       TailleEcran.telephone360x800.appliquer(t);
       final avantSecrets = BorneReglages.secrets;
       BorneReglages.secrets = MemoireBorneSecrets('Borne#2026');
@@ -269,7 +318,7 @@ void main() {
       await t.tap(find.byKey(const ValueKey('borne-voir-panier')));
       await app.attendre(t, const Duration(milliseconds: 500));
       expect(find.byKey(const ValueKey('borne-payer')), findsOneWidget);
-      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsNothing);
+      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsOneWidget, reason: 'cas du pharmacien du 15/11');
       expect(t.takeException(), isNull);
       await app.fermer(t);
     });
