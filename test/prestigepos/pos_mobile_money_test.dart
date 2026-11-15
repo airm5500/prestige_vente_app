@@ -49,7 +49,8 @@ void main() {
   for (final (nom, cap, droits, attendu) in [
     ('serveur sans module (404)', null, _cloture, 'Serveur sans module Mobile Money (version ancienne).'),
     ('aucun compte de paiement', _vide, _cloture, 'n\'a pas de compte de paiement configuré (agrégateur)'),
-    ('utilisateur borne sans droit de clôture', _ok, const ['P_SM_VENTE'], 'le compte de la borne « $loginBorne » n\'a pas le droit de clôturer'),
+    // 1.11.1 (retour du pharmacien du 15/11) : proposé, sans clôture automatique.
+    ('utilisateur borne sans droit de clôture', _ok, const ['P_SM_VENTE'], 'Proposé au client : Orange Money, Wave. Le compte de la borne « $loginBorne » n\'a pas le droit de terminer une vente'),
     ('tout bon', _ok, _cloture, 'Proposé au client : Orange Money, Wave.'),
   ]) {
     testWidgets('Administration › Paiement mobile money : $nom', (t) async {
@@ -111,7 +112,7 @@ void main() {
     await app.toucher(t, 'pos-suivant');
     await app.attendre(t);
     expect(await app.attendreQue(t, find.byKey(const ValueKey('pos-mobile-money-etat'))), isTrue);
-    expect(_etat(t), contains('n\'a pas le droit de clôturer'));
+    expect(_etat(t), contains('n\'a pas le droit de terminer une vente : le paiement est confirmé, puis la caisse termine'));
     await app.toucher(t, 'pos-mobile-money');
     await app.attendre(t);
     expect(find.byKey(const ValueKey('pos-mobile-money-etat')), findsNothing, reason: 'option décochée : aucune ligne');
