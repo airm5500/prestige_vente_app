@@ -9,6 +9,7 @@ import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_controller.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_frame.dart';
+import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
 import 'package:prestige_vente_app/ventes/common/vente_dialogs.dart';
 import 'package:prestige_vente_app/ventes/common/vente_layout.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
@@ -105,6 +106,9 @@ class CarnetProductsStep extends StatelessWidget {
                     onRetryAll: onRetryAll,
                     onTerminerHorsLigne: paying || c.finished ? null : onTerminerHorsLigne)),
           ),
+          // 4.14.0 : remise de la vente (en ligne, vente créée, compte autorisé) ; masquée clavier ouvert.
+          if ((c.remiseDisponible || c.remiseId != null) && MediaQuery.viewInsetsOf(context).bottom == 0)
+            RemiseVenteZone(hote: c, enabled: !paying),
           Expanded(
             child: CarnetCart(onDone: _focus, style: frame.style, unsaved: unsaved, retrying: retrying, onRetry: onRetry, onDrop: onDrop),
           ),

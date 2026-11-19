@@ -31,6 +31,7 @@ import 'package:prestige_vente_app/ventes/core/vente_input.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
 
 enum CarnetStep { clientSearch, bonAndAyantDroit, productSearch }
 
@@ -44,10 +45,12 @@ class CarnetRestore {
   final AyantDroit ayantDroit;
   final List<String> activeCompteTps;
   final Map<String, String> bons;
-  const CarnetRestore({required this.venteId, required this.client, required this.ayantDroit, required this.activeCompteTps, required this.bons});
+  /// 4.14.0 : remise posée sur la vente (lgREMISEID de ventestats/{id}) ; null : inconnue ou aucune.
+  final String? remiseId;
+  const CarnetRestore({required this.venteId, required this.client, required this.ayantDroit, required this.activeCompteTps, required this.bons, this.remiseId});
 }
 
-class CarnetController extends ChangeNotifier {
+class CarnetController extends ChangeNotifier with RemiseVenteVoMixin {
   static const String natureVenteId = '1'; // PRESCRIPTION
   static const String typeVenteId = '3'; // CARNET
   static const String typeClientId = '2'; // client carnet
@@ -234,6 +237,31 @@ class CarnetController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  // 4.14.0 — remise (lib/ventes/common/remise_vente.dart)
+  @override
+  Object get passerelleRemise => gateway;
+  @override
+  String? get venteIdRemise => _venteId;
+  @override
+  bool get remiseHorsLigne => _hl != null || serveurHorsLigne;
+  @override
+  bool get remiseTerminee => _finished;
+  @override
+  int get remiseEpoch => _epoch;
+  @override
+  int get remiseDuNet => hasCart && netUpToDate ? (_summary?.remise ?? 0) : 0;
+  @override
+  Future<T> remiseDansLaFile<T>(Future<T> Function() op) => _run(op);
+  @override
+  Future<void> apresRemise() async {
+    _changes++;
+    _notify();
+    await _reload();
+    await _remember();
+  }
+  @override
+  Future<VenteResult<Map<String, dynamic>>> relireVentePourRemise(String id) => gateway.fullSale(id);
+
   Future<T> _run<T>(Future<T> Function() op) async {
     _working++;
     _notify();
@@ -273,6 +301,7 @@ class CarnetController extends ChangeNotifier {
     _changes = 0;
     _netAt = -1;
     _finished = false;
+    remiseEtat.vider();
     _notify();
   }
 
@@ -853,7 +882,10 @@ class CarnetController extends ChangeNotifier {
         );
       }
     }
-    return CarnetRestore(venteId: venteId, client: tpClient, ayantDroit: ad, activeCompteTps: tps, bons: bons);
+    final remise = '${data['lgREMISEID'] ?? ''}'.trim();
+    return CarnetRestore(
+        venteId: venteId, client: tpClient, ayantDroit: ad, activeCompteTps: tps, bons: bons,
+        remiseId: remise.isEmpty || remise == 'null' || remise == '0' ? null : remise);
   }
 
   /// Reprend une vente existante (mémorisée ou depuis l'historique) : client, ayant droit, bons, panier, net.
@@ -867,6 +899,7 @@ class CarnetController extends ChangeNotifier {
     _ayantDroits = _withSelf(c, [...c.ayantDroits, r.ayantDroit]);
     _ayantDroit = _ayantDroits.where((a) => a.lgAYANTSDROITSID == r.ayantDroit.lgAYANTSDROITSID).firstOrNull ?? _ayantDroits.first;
     _venteId = r.venteId;
+    remiseEtat.id = r.remiseId;
     _changes = 1;
     final bonsOk = _activeTps.every((tp) => (_bons[tp.compteTp] ?? '').isNotEmpty);
     _step = bonsOk ? CarnetStep.productSearch : CarnetStep.bonAndAyantDroit;

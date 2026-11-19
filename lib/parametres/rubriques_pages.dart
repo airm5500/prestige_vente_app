@@ -17,6 +17,7 @@ import 'package:prestige_vente_app/ordonnances/o4/partage_o4.dart';
 import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
 import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee_screen.dart';
 import 'package:prestige_vente_app/parametres/parametres_logic.dart';
+import 'package:prestige_vente_app/parametres/largeur_ticket_reglage.dart';
 import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
 import 'package:prestige_vente_app/parametres/parametres_widgets.dart';
 import 'package:prestige_vente_app/parametres/taille_ecran_reglage.dart';
@@ -142,7 +143,8 @@ class _ImpressionPageState extends State<ImpressionPage> {
       ]),
       children: [
         const SectionLabel('Largeur du ticket'),
-        Segmented<int>(options: const [(58, '58 mm'), (80, '80 mm')], value: s.paperWidth, onChanged: s.setPaperWidth),
+        // 4.14.0 : largeur imposée par l'imprimante intégrée ; page de test.
+        const ChoixLargeurTicket(),
         const SectionLabel('Type de code sur le ticket'),
         Segmented<String>(
           options: const [('QR_CODE', 'QR code'), ('BARCODE', 'Code-barres')],

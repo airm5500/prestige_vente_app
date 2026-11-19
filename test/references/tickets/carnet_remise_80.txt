@@ -1,0 +1,31 @@
+   PHARMACIE FICTIVE DU TEST
+                 Dr TEST Fictif
+------------------------------------------------
+                  VENTE CARNET
+Vendeur : Vendeur Fictif
+------------------------------------------------
+Client : CLIENT FICTIF Test
+Matricule assuré :                  MAT-FICT-001
+Bénéficiaire : BENEFICIAIRE FICTIF
+Bon N° :                             BON-FICT-12
+Part du client :                         0 F CFA
+CARNET FICTIF [100%] :              39 630 F CFA
+------------------------------------------------
+PRODUIT FICTIF A 500MG CPR B/20
+1 x 1 500                                  1 500
+PRODUIT FICTIF B SIROP
+2 x 2 350                                  4 700
+PRODUIT FICTIF C AU NOM TRES LONG POUR LE TEST
+DE COUPURE 1000MG COMPRIMES EFFERVESCENTS B/40
+3 x 12 500                                37 500
+------------------------------------------------
+3 lignes - 6 articles
+Total                               43 700 F CFA
+*                                  - 4 070 F CFA
+Pris sur le carnet                  39 630 F CFA
+NET À PAYER              0 F CFA
+Règlement                                 CARNET
+------------------------------------------------
+                19/11/2026 10:42
+[CODE]
+                 20261119000047

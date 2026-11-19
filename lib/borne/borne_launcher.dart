@@ -147,7 +147,7 @@ class _BorneHoteState extends State<BorneHote> {
       service: _service,
       config: _config,
       monitor: HorsLigne.instance.monitor,
-      imprimante: SunmiBorneImprimante(modeTest: settings.isTestPrintMode),
+      imprimante: SunmiBorneImprimante(modeTest: settings.isTestPrintMode, dio: _api.dio),
       kiosque: BorneKiosque.instance,
       adminCheck: PinCodeDialog.show,
       connexion: _connexion,

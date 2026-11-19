@@ -203,6 +203,15 @@
     "test/reseau/client_vente_reseau_test.dart": "reseau",
     "test/client_vente_ergonomie_test.dart": "ergonomie",
     "test/performance/client_vente_perf_test.dart": "performance",
-    "test/client_vente_garde_test.dart": "non_regression"
+    "test/client_vente_garde_test.dart": "non_regression",
+    "test/ticket_vente_serveur_test.dart": "unitaires",
+    "test/remise_vente_test.dart": "ecrans",
+    "test/remise_ticket_vo_test.dart": "ecrans",
+    "test/remise_ticket_integration_test.dart": "integration",
+    "test/remise_ticket_e2e_test.dart": "e2e",
+    "test/reseau/remise_ticket_reseau_test.dart": "reseau",
+    "test/remise_ticket_ergonomie_test.dart": "ergonomie",
+    "test/performance/remise_ticket_perf_test.dart": "performance",
+    "test/remise_ticket_garde_test.dart": "non_regression"
   }
 }

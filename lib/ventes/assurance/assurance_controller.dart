@@ -30,6 +30,7 @@ import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart' show VenteController;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
 
 enum AssuranceStep { clientSearch, bonAndAyantDroit, productSearch }
 
@@ -50,7 +51,7 @@ typedef AssuranceClotureOk = ({bool dejaCloturee});
 /// Reprise d'une prévente : ce qui n'a pas pu être retrouvé (vide = tout retrouvé).
 typedef AssuranceResume = ({List<String> missing});
 
-class AssuranceController extends ChangeNotifier {
+class AssuranceController extends ChangeNotifier with RemiseVenteVoMixin {
   final VenteGateway gateway;
 
   /// Vendeur (comme l'original : identifiant de l'utilisateur connecté, '' si inconnu).
@@ -281,6 +282,30 @@ class AssuranceController extends ChangeNotifier {
   /// Attend la fin des opérations en cours.
   Future<void> idle() => _queue.idle();
 
+  // 4.14.0 — remise (lib/ventes/common/remise_vente.dart)
+  @override
+  Object get passerelleRemise => gateway;
+  @override
+  String? get venteIdRemise => _venteId;
+  @override
+  bool get remiseHorsLigne => _hl != null || serveurHorsLigne;
+  @override
+  bool get remiseTerminee => _finished;
+  @override
+  int get remiseEpoch => _epoch;
+  @override
+  int get remiseDuNet => hasCart && netUpToDate ? (_summary?.remise ?? 0) : 0;
+  @override
+  Future<T> remiseDansLaFile<T>(Future<T> Function() op) => _run(op);
+  @override
+  Future<void> apresRemise() async {
+    _changed();
+    await _reload();
+    await _remember();
+  }
+  @override
+  Future<VenteResult<Map<String, dynamic>>> relireVentePourRemise(String id) => gateway.fullSale(id);
+
   // ---------------------------------------------------------------------------
   // Vente
   // ---------------------------------------------------------------------------
@@ -307,6 +332,7 @@ class AssuranceController extends ChangeNotifier {
     _netAt = -1;
     _finished = false;
     _couvertureMessage = null;
+    remiseEtat.vider();
     _notify();
   }
 
@@ -993,6 +1019,7 @@ class AssuranceController extends ChangeNotifier {
 
     reset();
     final missing = <String>[];
+    lireRemiseDe(data);
     _client = client;
     _venteId = venteId;
     _reference = parsed.reference;

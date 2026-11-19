@@ -2,10 +2,14 @@
 // Ticket de la borne : numéro de prévente en GRAND, code (QR ou code-barres) de la RÉFÉRENCE —
 // le caissier la retrouve dans « Préventes à encaisser » en la scannant dans la recherche —,
 // produits (sauf ticket discret), total, « Présentez ce ticket à la caisse », date/heure.
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/borne/borne_service.dart';
+import 'package:prestige_vente_app/services/impression_ticket.dart';
+import 'package:prestige_vente_app/services/largeur_ticket.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/services/ticket_serveur.dart';
 import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 
@@ -37,6 +41,16 @@ class BorneTicket {
   static const String invitation = 'Présentez ce ticket à la caisse';
   static const String invitationPayee = 'Présentez ce ticket au comptoir pour récupérer vos produits';
   static const String invitationPayeeATerminer = 'Payé : présentez ce ticket à la caisse, qui termine la vente';
+
+  /// 4.14.0 : le même ticket composé pour une autre largeur (imprimante intégrée de 58 mm).
+  BorneTicket aLargeur(int mm) => mm == largeur
+      ? this
+      : BorneTicket(officine: officine, prevente: prevente, discret: discret, codeType: codeType, largeur: mm, payePar: payePar, aTerminer: aTerminer);
+
+  /// 4.14.0 : le ticket de prévente du serveur (GET v1/vente/ticket/prevente/{id}/image) remplace ce ticket seulement
+  /// pour une prévente à payer en caisse, hors « ticket discret » (l'image du serveur porte les produits) : un ticket
+  /// payé ou discret garde le gabarit de la borne.
+  bool get serveurPossible => !paye && !discret && prevente.venteId.isNotEmpty;
 
   bool get paye => payePar != null;
   String get titre => paye ? 'VENTE BORNE - PAYEE' : 'PRE-VENTE BORNE';
@@ -84,14 +98,34 @@ abstract class BorneImprimante {
   Future<bool> imprimer(BorneTicket ticket);
 }
 
+/// 4.14.0 : images du ticket de prévente dessiné par le serveur, ou null (route absente, refus, réseau : gabarit
+/// de la borne, comme avant). La borne ne pose jamais de question : en cas d'échec, ticket à l'écran.
+Future<List<TicketImage>?> ticketBorneServeur(Dio? dio, BorneTicket t) async {
+  if (dio == null || !t.serveurPossible) return null;
+  if (TicketServeur.etat(dio.options.baseUrl) == EtatRouteTicket.absente) return null;
+  final r = await TicketServeur.lire(dio, type: TypeTicketServeur.prevente, id: t.prevente.venteId, largeur: t.largeur);
+  return r is TicketsServeur ? r.tickets : null;
+}
+
 class SunmiBorneImprimante implements BorneImprimante {
   /// Mode test d'impression (Réglages › Impression) : pas d'impression, affichage plein écran.
   final bool modeTest;
-  const SunmiBorneImprimante({this.modeTest = false});
+
+  /// 4.14.0 : client de la session de la borne (ticket du serveur) ; null : gabarit de la borne seulement.
+  final Dio? dio;
+  const SunmiBorneImprimante({this.modeTest = false, this.dio});
 
   @override
-  Future<bool> imprimer(BorneTicket t) async {
+  Future<bool> imprimer(BorneTicket ticket) async {
     if (modeTest) return false;
+    // 4.14.0 : largeur de l'imprimante intégrée imposée (un réglage 80 mm sur un terminal de 58 mm coupait les lignes).
+    final t = ticket.aLargeur(await LargeurTicket.pourImpression(ticket.largeur));
+    final images = await ticketBorneServeur(dio, t);
+    if (images != null) {
+      final echec = await ImpressionTicket.imprimeur(images);
+      if (echec == null) return true;
+      return false;
+    }
     return ReceiptService().printBorneTicket(
       officine: t.officine,
       numero: t.prevente.numero,

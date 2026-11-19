@@ -23,11 +23,12 @@ import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
 
 /// Résultat de l'encaissement : [dejaCloturee] = le serveur indique une vente déjà clôturée.
 typedef ClotureOk = ({bool dejaCloturee});
 
-class VenteController extends ChangeNotifier {
+class VenteController extends ChangeNotifier implements RemiseVenteHote {
   final VenteGateway gateway;
   VenteController({required this.gateway});
 
@@ -232,6 +233,7 @@ class VenteController extends ChangeNotifier {
     _finished = false;
     _client = null;
     _clientNonLu = null;
+    _remise.vider();
     _notify();
   }
 
@@ -241,9 +243,13 @@ class VenteController extends ChangeNotifier {
     _venteId = id;
     _changes = 1;
     return _run(() async {
+      // 4.14.0 : la vente est relue AVANT le net (une seule lecture, client et remise) : le net d'une vente remisée
+      // part avec sa remise (sans elle, net/vno remet la remise à 0 sur le serveur).
+      final vente = _clients != null || _remises != null ? await gateway.fullSale(id) : null;
+      if (vente != null) _lireRemise(vente);
       await _reload();
       await _remember();
-      await _lireClient(id);
+      await _lireClient(id, deja: vente);
     });
   }
 
@@ -255,7 +261,7 @@ class VenteController extends ChangeNotifier {
     final id = _venteId;
     if (id == null) return;
     final at = _changes;
-    final results = await Future.wait([gateway.saleDetails(id), gateway.netVno(id)]);
+    final results = await Future.wait([gateway.saleDetails(id), _netVno(id)]);
     final details = results[0] as VenteResult<List<SaleItemDetail>>;
     final net = results[1] as VenteResult<SaleSummary>;
     if (id != _venteId) return;
@@ -577,9 +583,9 @@ class VenteController extends ChangeNotifier {
   bool get clientDisponible => _clients != null && _venteId != null && _hl == null && !serveurHorsLigne && !_finished;
 
   /// Reprise d'une vente : client lu avec la vente (GET ventestats/{id}, champ `client`), comme le poste.
-  Future<void> _lireClient(String id) async {
+  Future<void> _lireClient(String id, {VenteResult<Map<String, dynamic>>? deja}) async {
     if (_clients == null || _hl != null) return;
-    final r = await gateway.fullSale(id);
+    final r = deja ?? await gateway.fullSale(id);
     if (id != _venteId) return;
     if (r case VenteOk(:final value)) {
       final type = '${value['lgTYPEVENTEID'] ?? '1'}';
@@ -650,6 +656,91 @@ class VenteController extends ChangeNotifier {
     if (nom.trim().isEmpty && prenom.trim().isEmpty) return const VenteRefused('Le nom ou le prénom du client est obligatoire.');
     return _run(() => g.creerClientVente(nom: nom, prenom: prenom, telephone: telephone));
   }
+
+  // ---------------------------------------------------------------------------
+  // 4.14.0 — remise de la vente (lib/ventes/common/remise_vente.dart)
+  // ---------------------------------------------------------------------------
+
+  final RemiseVenteEtat _remise = RemiseVenteEtat();
+
+  RemiseVenteGateway? get _remises => gateway is RemiseVenteGateway ? gateway as RemiseVenteGateway : null;
+
+  /// Net comptant : avec la remise choisie (sinon le serveur la remettrait à 0).
+  Future<VenteResult<SaleSummary>> _netVno(String id) {
+    final g = _remises;
+    return g != null && _remise.id != null ? g.netVnoRemise(id, _remise.id) : gateway.netVno(id);
+  }
+
+  void _lireRemise(VenteResult<Map<String, dynamic>> vente) {
+    if (vente case VenteOk(:final value)) {
+      final id = '${value['lgREMISEID'] ?? ''}'.trim();
+      _remise.id = id.isEmpty || id == 'null' || id == '0' ? null : id;
+      _remise.nom = null;
+    }
+  }
+
+  @override
+  bool get remiseDisponible =>
+      _remises != null && _venteId != null && _hl == null && !serveurHorsLigne && !_finished && remiseAutorisee(DroitsVente.instance);
+
+  @override
+  String? get remiseId => _remise.id;
+
+  @override
+  String? get remiseNom => _remise.nom;
+
+  @override
+  int get montantRemise => hasCart && netUpToDate ? _summary.remise : 0;
+
+  @override
+  Future<VenteResult<List<RemiseOption>>> remisesProposees() async {
+    final g = _remises;
+    if (g == null) return const VenteRefused('Remise indisponible.');
+    if (serveurHorsLigne || _hl != null) return const VenteRefused(messageRemiseHorsLigne);
+    return _remise.liste(g);
+  }
+
+  static const messageRemiseHorsLigne = 'Serveur hors ligne : la remise se choisit en ligne.';
+
+  @override
+  Future<VenteResult<void>> choisirRemise(RemiseOption r) => _poserRemise(r);
+
+  @override
+  Future<VenteResult<void>> retirerRemise() => _poserRemise(null);
+
+  /// POST vente/remise puis net relu avec la remise ; rien n'est affiché avant `success:true`.
+  Future<VenteResult<void>> _poserRemise(RemiseOption? r) => _run(() async {
+        final g = _remises;
+        final id = _venteId;
+        if (g == null || id == null) return const VenteRefused('Aucune vente en cours : ajoutez d\'abord un article.');
+        if (_hl != null || serveurHorsLigne) return const VenteRefused(messageRemiseHorsLigne);
+        if (_finished) return const VenteRefused('Vente déjà terminée.');
+        if (!remiseAutorisee(DroitsVente.instance)) return const VenteRefused('Remise réservée aux comptes autorisés.', code: VenteRefused.codeInterdit);
+        final epoch = _epoch;
+        var res = await g.appliquerRemise(id, r?.id);
+        if (epoch != _epoch || id != _venteId) return const VenteRefused('Vente changée : remise non appliquée.');
+        if (res is VenteRefused<void> && res.interdit) {
+          remiseRefuseeParServeur();
+          _notify();
+          return res;
+        }
+        if (res.uncertain) {
+          // Réponse perdue : la remise de la vente est relue sur le serveur (jamais affichée sans confirmation).
+          final v = await gateway.fullSale(id);
+          if (v case VenteOk(:final value)) {
+            final lu = '${value['lgREMISEID'] ?? ''}'.trim();
+            final attendu = r?.id ?? '';
+            if ((lu == 'null' ? '' : lu) == attendu) res = const VenteOk(null);
+          }
+        }
+        if (!res.isOk) return res;
+        _remise.id = r?.id;
+        _remise.nom = r?.nom;
+        _changed();
+        await _reload();
+        await _remember();
+        return const VenteOk(null);
+      });
 
   // ---------------------------------------------------------------------------
   // Modes de paiement / liste

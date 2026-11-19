@@ -1,0 +1,37 @@
+PHARMACIE FICTIVE DU
+        TEST
+         Dr TEST Fictif
+--------------------------------
+        VENTE ASSURANCE
+Vendeur : Vendeur Fictif
+--------------------------------
+Client : CLIENT FICTIF Test
+Matricule assuré :  MAT-FICT-001
+Bénéficiaire : BENEFICIAIRE
+FICTIF
+Bon N° :             BON-FICT-77
+Part du client :        11 890 F
+ORGANISME FICTIF UN
+[70%] :                 30 590 F
+--------------------------------
+PRODUIT FICTIF A 500MG CPR B/20
+1 x 1 500                  1 500
+PRODUIT FICTIF B SIROP
+2 x 2 350                  4 700
+PRODUIT FICTIF C AU NOM TRES
+LONG POUR LE TEST DE COUPURE
+1000MG COMPRIMES EFFERVESCENTS
+B/40
+3 x 12 500                37 500
+--------------------------------
+3 lignes - 6 articles
+Total                   43 700 F
+*                      - 1 220 F
+NET      11 890 F CFA
+Règlement                ESPECES
+Espèces versées         15 000 F
+Monnaie rendue           3 110 F
+--------------------------------
+         19/11/26 10:42
+[CODE]
+         20261119000046
