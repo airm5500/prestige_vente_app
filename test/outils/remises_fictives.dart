@@ -135,7 +135,7 @@ class RemisesFictives {
 
   /// PNG noir et blanc de [largeur] × [hauteur] points (bandes, sans texte).
   static Uint8List pngFictif(int largeur, int hauteur) {
-    final i = img.Image(width: largeur, height: hauteur, numChannels: 1);
+    final i = img.Image(width: largeur, height: hauteur);
     img.fill(i, color: img.ColorUint8.rgb(255, 255, 255));
     for (var y = 0; y < hauteur; y += 8) {
       img.drawLine(i, x1: 0, y1: y, x2: largeur - 1, y2: y, color: img.ColorUint8.rgb(0, 0, 0));
