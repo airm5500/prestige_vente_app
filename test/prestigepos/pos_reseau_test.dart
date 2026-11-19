@@ -38,6 +38,11 @@ void main() {
       expect(await app.attendreQue(t, find.byKey(const ValueKey('borne-numero')), max: Duration(seconds: secondes * 12 + 10)), isTrue);
       expect(app.serveur.ventes.length, ventesAvant + 1, reason: 'une seule prévente malgré les appuis répétés');
       expect(find.byKey(const ValueKey('borne-indisponible')), findsNothing, reason: 'serveur lent ≠ serveur injoignable');
+      // 1.12.0 : le ticket de prévente est d'abord demandé au serveur (route image, une fois par 30 min) : avec un
+      // serveur lent, l'impression suit sa réponse (404 aujourd'hui → ticket de la borne).
+      for (var i = 0; i < secondes * 2 + 10 && app.pont.envois.isEmpty; i++) {
+        await app.attendre(t, const Duration(milliseconds: 500));
+      }
       expect(app.pont.envois.length, 1);
       await app.fermer(t);
     });

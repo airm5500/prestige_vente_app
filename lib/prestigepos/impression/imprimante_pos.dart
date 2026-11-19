@@ -5,12 +5,16 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
+
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/borne/borne_service.dart';
 import 'package:prestige_vente_app/borne/borne_ticket.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/impression/ticket_escpos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/transports.dart';
+import 'package:prestige_vente_app/services/largeur_ticket.dart';
+import 'package:prestige_vente_app/services/ticket_serveur.dart';
 import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
 
 /// Détection de l'imprimante intégrée Sunmi (remplaçable dans les tests).
@@ -24,7 +28,7 @@ Future<bool> detecterSunmi() async {
   }
 }
 
-class ImprimantePos implements BorneImprimante, BorneImprimanteDiagnostic {
+class ImprimantePos implements BorneImprimante, BorneImprimanteDiagnostic, BorneImprimanteServeur {
   /// Réglages lus à chaque impression (un changement dans l'administration s'applique au ticket suivant).
   final ImprimanteConfig Function() config;
   final DetecteurSunmi sunmi;
@@ -43,6 +47,15 @@ class ImprimantePos implements BorneImprimante, BorneImprimanteDiagnostic {
   })  : config = config ?? (() => ImprimanteReglages.courant.value),
         sunmi = sunmi ?? detecterSunmi,
         imprimanteSunmi = imprimanteSunmi ?? const SunmiBorneImprimante();
+
+  /// 1.12.0 : client de la session de la borne (ticket de prévente dessiné par le serveur) ; null : gabarit de la borne.
+  Dio? _dio;
+
+  @override
+  set dioServeur(Dio? dio) => _dio = dio;
+
+  /// Lecture des images du serveur (remplaçable dans les tests).
+  Future<List<TicketImage>?> Function(Dio? dio, BorneTicket t) imagesServeur = ticketBorneServeur;
 
   bool? _sunmiPresent;
   String? _echec;
@@ -108,6 +121,13 @@ class ImprimantePos implements BorneImprimante, BorneImprimanteDiagnostic {
         if (!ok) _echec = 'imprimante Sunmi indisponible (papier, capot ouvert ?).';
         return ok;
       default:
+        // 1.12.0 : ticket de prévente du serveur (image à la largeur de l'imprimante) s'il existe ; sinon gabarit.
+        final t = ticket.aLargeur(LargeurTicket.valide(c.papier));
+        final images = await imagesServeur(_dio, t);
+        if (images != null) {
+          final octets = TicketEscPos.images(images, c);
+          if (octets != null) return _envoyer(c, octets);
+        }
         return _envoyer(c, TicketEscPos.ticket(ticket, c));
     }
   }

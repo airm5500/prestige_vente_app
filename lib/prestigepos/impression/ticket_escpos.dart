@@ -5,9 +5,12 @@
 // référence, « Présentez ce ticket à la caisse », date.
 import 'dart:typed_data';
 
+import 'package:image/image.dart' as img;
+
 import 'package:prestige_vente_app/borne/borne_ticket.dart';
 import 'package:prestige_vente_app/prestigepos/impression/escpos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
+import 'package:prestige_vente_app/services/ticket_serveur.dart';
 
 class TicketEscPos {
   TicketEscPos._();
@@ -53,6 +56,31 @@ class TicketEscPos {
       ..avancer(4);
     if (c.coupe) e.couper();
     return e.octets;
+  }
+
+  /// 1.12.0 : tickets dessinés par le serveur (PNG 1 bit, 384 / 576 points) en raster GS v 0, dans l'ordre, une coupe
+  /// entre deux tickets si l'imprimante coupe. null : image illisible ou plus large que le papier (gabarit local).
+  static Uint8List? images(List<TicketImage> tickets, ImprimanteConfig c) {
+    final e = EscPos(papier: c.papier, jeu: c.jeu)..initialiser();
+    for (final t in tickets) {
+      final m = matricePng(t.png, e.points);
+      if (m == null) return null;
+      e
+        ..aligner(0)
+        ..image(m)
+        ..avancer(4);
+      if (c.coupe) e.couper();
+    }
+    return e.octets;
+  }
+
+  /// Matrice noir / blanc d'un PNG (seuil 50 %), null si illisible ou plus large que [points].
+  static List<List<bool>>? matricePng(Uint8List png, int points) {
+    final i = img.decodePng(png);
+    if (i == null || i.width > points) return null;
+    return [
+      for (var y = 0; y < i.height; y++) [for (var x = 0; x < i.width; x++) img.getLuminanceNormalized(i.getPixel(x, y)) < 0.5],
+    ];
   }
 
   /// Ticket d'essai (« Test d'impression ») : largeur, accents, QR.

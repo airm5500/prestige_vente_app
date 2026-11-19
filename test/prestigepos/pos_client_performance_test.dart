@@ -50,8 +50,9 @@ void main() {
     final sans = await _payer(t, app);
     expect(sans.where((r) => r.contains('/client')), isEmpty, reason: '$sans');
     final avec = await _payer(t, app, client: 'CL-FICT-1');
-    final metier = [for (final r in avec) if (!r.contains('capacites')) r];
-    final metierSans = [for (final r in sans) if (!r.contains('capacites')) r];
+    // 1.12.0 : la route image du ticket (absente : 404) n'est demandée qu'une fois par 30 min : hors comparaison.
+    final metier = [for (final r in avec) if (!r.contains('capacites') && !r.endsWith('/image')) r];
+    final metierSans = [for (final r in sans) if (!r.contains('capacites') && !r.endsWith('/image')) r];
     mesurer('PrestigePOS — payer avec client : requêtes en plus', metier.length - metierSans.length, seuil: 1, unite: 'requêtes', detail: avec.join(', '));
     expect(avec.where((r) => r == 'POST /vente/update/client'), hasLength(1));
     expect([...metier]..remove('POST /vente/update/client'), metierSans);
