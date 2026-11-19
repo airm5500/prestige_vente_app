@@ -6,17 +6,22 @@
 //  - P_REMISE_VENTE lu dans user/droits ; 403 « Droit manquant : Remise sur une vente » ;
 //  - vente/remise : `data` (comptant) = net de net/vno ; pas de `data` en assurance ; refus {success:false, msg} ;
 //  - "0" : sans remise (fiche du client retirée) sur la demande 63 ; sur l'intégration d'aujourd'hui, "0" est écrit tel
-//    quel et la fiche reste appliquée (d'où null tant que le serveur n'est pas prouvé).
+//    quel et la fiche reste appliquée (d'où null tant que le serveur n'est pas prouvé) ;
+//  - serveur DÉPLOYÉ en officine le 19/11 (integration/recette-2026-10-29 à 76aa5fc1 = demandes 62 ET 63) : tickets
+//    comptant, assurance / crédit et prévente par l'image du serveur, remise selon P_REMISE_VENTE, "0" pour sans
+//    remise, droit de la borne et prévente payée au comptoir actifs.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/paiements/prevente_payee.dart';
 import 'package:prestige_vente_app/services/impression_ticket.dart';
 import 'package:prestige_vente_app/services/ticket_serveur.dart';
 import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 
+import 'outils/demande62_fictive.dart';
 import 'outils/demande63_fictive.dart';
 import 'outils/faux_serveur_prestige.dart';
 import 'outils/parcours_vente.dart';
@@ -200,6 +205,59 @@ void main() {
           expect(d63.lgRemise[a], '0');
           expect(d63.remiseAppliquee(a), 'REM-FICT-5', reason: '"0" ne retire rien sur l\'ancien serveur');
           expect(remiseIdEnvoye(null, DroitsVente.instance), isNull, reason: 'serveur non prouvé : null, comme 4.15.0');
+        }));
+  });
+
+  group('Serveur déployé en officine le 19/11 (76aa5fc1 : demandes 62 et 63)', () {
+    Future<Demande62Fictive> deploye(List<String> droits) => avecVraiHttp(() async {
+          srv = FauxServeurPrestige();
+          CatalogueFictif(srv, nombre: 5);
+          rf = RemisesFictives(srv);
+          final d62 = Demande62Fictive(srv);
+          d63 = Demande63Fictive(srv, rf);
+          await srv.demarrer();
+          await connecter(droits: droits);
+          await DroitsVente.instance.actualiser(api.dio, utilisateur: DonneesFictives.login);
+          return d62;
+        });
+
+    test('tickets comptant (vno), assurance / crédit (vo) et prévente : image du serveur, convertie en 1 bit', () => avecVraiHttp(() async {
+          await deploye(['P_SM_VENTE', 'P_SM_CLOTURER_CAISSE', droitRemise]);
+          final id = await vente(terminee: true);
+          for (final (type, n) in [(TypeTicketServeur.vno, 1), (TypeTicketServeur.vo, 2), (TypeTicketServeur.prevente, 1)]) {
+            for (final (mm, points) in [(58, 384), (80, 576)]) {
+              final r = await TicketServeur.lire(api.dio, type: type, id: id, largeur: mm);
+              expect(r, isA<TicketsServeur>(), reason: '$type $mm');
+              final t = (r as TicketsServeur).tickets;
+              expect(t, hasLength(n));
+              expect(ImpressionTicket.rasters(t, points), isNotNull, reason: '$type $mm');
+            }
+          }
+          expect(TicketServeur.etat(api.dio.options.baseUrl), EtatRouteTicket.presente);
+        }));
+
+    test('remise selon P_REMISE_VENTE ; « sans remise » envoyé en "0" et appliqué', () => avecVraiHttp(() async {
+          await deploye(['P_SM_VENTE', 'P_SM_CLOTURER_CAISSE', droitRemise]);
+          final d = DroitsVente.instance;
+          expect((remiseAutorisee(d), sansRemiseParZero(d), remiseIdEnvoye(null, d)), (true, true, '0'));
+          final id = await vente();
+          d63.ventesVo.add(id);
+          d63.remiseFiche[id] = 'REM-FICT-5';
+          expect((await gw.appliquerRemise(id, remiseIdEnvoye(RemiseOption.sansRemise, d))).isOk, isTrue);
+          expect(d63.remiseAppliquee(id), isNull);
+          // même serveur, compte dont le rôle n'a plus le droit : zone masquée dès la lecture des droits
+          srv.droitsComptes = {'autre.compte': ['P_SM_VENTE']};
+          d.fixer({'P_SM_VENTE'}, utilisateur: 'autre.compte');
+          expect(remiseAutorisee(d), isFalse);
+        }));
+
+    test('demande 62 active : droit de la borne lu ; prévente payée signalée au comptoir', () => avecVraiHttp(() async {
+          final d62 = await deploye(['P_SM_VENTE', droitBorne, droitRemise]);
+          final d = DroitsVente.instance;
+          expect((d.bornePaiementMobile, d.cloturerPaiementMobile, d.terminerVente), (true, true, false));
+          final id = d62.preventeDeLaBorne();
+          final v = (await gw.fullSale(id)).valueOrNull!;
+          expect(PreventePayee.depuisVente(v), isNotNull);
         }));
   });
 }

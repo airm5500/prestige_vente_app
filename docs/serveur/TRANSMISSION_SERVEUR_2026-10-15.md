@@ -897,7 +897,9 @@ comptoir. Demandes :
 État au 16/11 (intégration 1991fe41) : non traité — createClient remplit seulement strADRESSE (ClientServiceImpl.java:109,164), findClientLambda cherche dans strTELEPHONE (:255), type sans défaut (:110,:165), PaiementsMobileRessource inchangé.
 
 **État au 19/11 : traitée sur `correctif/demande62-1911` (fb0a3cc2), en attente de fusion** dans
-`integration/recette-2026-10-29` (l'officine n'en dispose pas encore). Code vérifié en lecture seule ; applications
+`integration/recette-2026-10-29` (l'officine n'en dispose pas encore).
+**Mise à jour du 19/11 (soir)** : fusionnée dans `integration/recette-2026-10-29` (76aa5fc1, avec la demande 63) et
+déployée en officine ; contrat inchangé (vérifié). Code vérifié en lecture seule ; applications
 Prestige Mobile 4.15.0+46 et PrestigePOS 1.13.0+32, qui ne l'utilisent que si le serveur le fournit :
 
 - points 1 et 2 : recherche aussi dans `strADRESSE` (fiches non reprises), type 6 par défaut — rien à changer dans les
@@ -981,6 +983,11 @@ envoient donc la remise choisie à chaque calcul du net. À garder tel quel ; si
 
 **État au 19/11 : traitée sur `correctif/demande63-1911` (bb6b4604), en attente de fusion** dans
 `integration/recette-2026-10-29` (l'officine n'en dispose pas encore ; date de déploiement à fixer par le pharmacien).
+**Mise à jour du 19/11 (soir) : fusionnée** avec la demande 62 dans `integration/recette-2026-10-29` à 76aa5fc1 et
+**déployée en officine** (WAR `prestige-officine-2026-11-19-76aa5fc1b`). Contrat vérifié inchangé après la fusion
+(`Constant.java` garde `P_BORNE_PAIEMENT_MOBILE` et `P_REMISE_VENTE`). Les applications gardent la détection et le
+gabarit local en repli 404 / 405 (autres officines, sauvegardes plus anciennes) ; retrait du gabarit prévu dans une
+version suivante.
 Code vérifié en lecture seule (`git diff o/integ...o/d63`, notice `REPONSE_DEMANDE63_2026-11-19.md`) ; applications
 Prestige Mobile 4.15.1+47 et PrestigePOS 1.13.1+33, qui ne l'utilisent que si le serveur le fournit (sinon tout reste
 comme en 4.15.0 / 1.13.0) :
