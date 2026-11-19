@@ -3,6 +3,8 @@
 //    existe) envoyé en raster GS v 0 à la largeur de l'imprimante, coupe entre deux tickets ; route absente, image
 //    illisible ou trop large, ticket payé ou discret : gabarit de la borne inchangé ;
 //  - la borne ne propose jamais de remise ; la caisse a la remise de Prestige Mobile (fusion).
+// 1.13.1 (demande 63) : PNG du serveur en NIVEAUX DE GRIS (un canal) converti en 1 bit par la conversion partagée :
+// fond blanc gardé (l'ancienne lecture rendait tout noir), mêmes octets que Prestige Mobile.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -16,6 +18,10 @@ import 'package:prestige_vente_app/prestigepos/impression/ticket_escpos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/transports.dart';
 import 'package:prestige_vente_app/services/ticket_serveur.dart';
 
+import 'package:image/image.dart' as img;
+import 'package:prestige_vente_app/services/ticket_1bit.dart';
+
+import '../outils/demande63_fictive.dart';
 import '../outils/remises_fictives.dart';
 import 'escpos_test.dart' show ticketType;
 
@@ -56,6 +62,29 @@ void main() {
       expect(m, hasLength(9));
       expect(m.first, hasLength(384));
     });
+  });
+
+  group('1.13.1 : PNG gris du serveur (demande 63)', () {
+    for (final (papier, points) in [(58, 384), (80, 576)]) {
+      test('$papier mm : PNG gris à un canal → raster de $points points, fond blanc, mêmes octets que Prestige Mobile', () {
+        final png = Demande63Fictive.ticketGris(points, qr: 'REF-FICT-000123');
+        final g = img.decodePng(png)!;
+        expect(g.numChannels, 1);
+        final c = ImprimanteConfig(type: TypeImprimante.reseau, hote: '127.0.0.1', papier: papier);
+        final o = TicketEscPos.images([TicketImage(modele: 'PREVENTE', png: png, largeurPoints: points, hauteurPoints: g.height)], c)!;
+        expect(_rasters(o), [(points ~/ 8, g.height)]);
+        final m = TicketEscPos.matricePng(png, points)!;
+        final noirs = m.fold<int>(0, (a, l) => a + l.where((p) => p).length);
+        expect(noirs, lessThan(points * g.height ~/ 4), reason: 'fond blanc (pas un rectangle noir)');
+        final r = Ticket1Bit.depuisPng(png, largeurMax: points)!;
+        expect(noirs, r.pointsNoirs);
+        // ancienne lecture (1.12.0) : luminance de la bibliothèque sur un PNG gris → presque tout noir
+        final ancien = [for (var y = 0; y < g.height; y++) for (var x = 0; x < g.width; x++) img.getLuminanceNormalized(g.getPixel(x, y)) < 0.5]
+            .where((p) => p)
+            .length;
+        expect(ancien, greaterThan(points * g.height * 9 ~/ 10));
+      });
+    }
   });
 
   group('ImprimantePos : ticket du serveur avant le gabarit', () {

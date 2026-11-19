@@ -5,11 +5,10 @@
 // référence, « Présentez ce ticket à la caisse », date.
 import 'dart:typed_data';
 
-import 'package:image/image.dart' as img;
-
 import 'package:prestige_vente_app/borne/borne_ticket.dart';
 import 'package:prestige_vente_app/prestigepos/impression/escpos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
+import 'package:prestige_vente_app/services/ticket_1bit.dart';
 import 'package:prestige_vente_app/services/ticket_serveur.dart';
 
 class TicketEscPos {
@@ -58,8 +57,11 @@ class TicketEscPos {
     return e.octets;
   }
 
-  /// 1.12.0 : tickets dessinés par le serveur (PNG 1 bit, 384 / 576 points) en raster GS v 0, dans l'ordre, une coupe
-  /// entre deux tickets si l'imprimante coupe. null : image illisible ou plus large que le papier (gabarit local).
+  /// 1.12.0 : tickets dessinés par le serveur (384 / 576 points) en raster GS v 0, dans l'ordre, une coupe entre deux
+  /// tickets si l'imprimante coupe. null : image illisible ou plus large que le papier (gabarit local).
+  /// 1.13.1 (demande 63) : le PNG du serveur est en NIVEAUX DE GRIS ; conversion en 1 bit partagée avec Prestige Mobile
+  /// (lib/services/ticket_1bit.dart, seuil 128). Avant, un PNG gris à un canal sortait entièrement noir (la luminance
+  /// de la bibliothèque `image` y lit vert et bleu à 0).
   static Uint8List? images(List<TicketImage> tickets, ImprimanteConfig c) {
     final e = EscPos(papier: c.papier, jeu: c.jeu)..initialiser();
     for (final t in tickets) {
@@ -74,14 +76,9 @@ class TicketEscPos {
     return e.octets;
   }
 
-  /// Matrice noir / blanc d'un PNG (seuil 50 %), null si illisible ou plus large que [points].
-  static List<List<bool>>? matricePng(Uint8List png, int points) {
-    final i = img.decodePng(png);
-    if (i == null || i.width > points) return null;
-    return [
-      for (var y = 0; y < i.height; y++) [for (var x = 0; x < i.width; x++) img.getLuminanceNormalized(i.getPixel(x, y)) < 0.5],
-    ];
-  }
+  /// Matrice noir / blanc d'un PNG (gris, couleur ou transparent ; seuil 128), null si illisible ou plus large que
+  /// [points].
+  static List<List<bool>>? matricePng(Uint8List png, int points) => Ticket1Bit.depuisPng(png, largeurMax: points)?.matrice();
 
   /// Ticket d'essai (« Test d'impression ») : largeur, accents, QR.
   static Uint8List essai(ImprimanteConfig c, {String officine = '', DateTime? at}) {
