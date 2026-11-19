@@ -3,10 +3,16 @@
 Version de PrestigePOS construite avec Prestige Mobile **4.15.1+47** (code partagé ; détail :
 `docs/NOTE_VERSION_4.15.1.md`).
 
-## Demande 63 (serveur `correctif/demande63-1911`, bb6b4604, pas encore fusionnée)
+## Demande 63 (serveur `correctif/demande63-1911`, bb6b4604)
 
-Chaque nouveauté ne s'active que si le serveur la fournit. Avec le serveur d'aujourd'hui, PrestigePOS se comporte
-comme en 1.13.0.
+Fusionnée avec la demande 62 dans `integration/recette-2026-10-29` (76aa5fc1) et **déployée en officine le 19/11**.
+Contrats vérifiés inchangés. Avec ce serveur, la caisse et la borne impriment l'image du serveur (chemin normal). La
+remise suit `P_REMISE_VENTE`, « sans remise » part en `"0"`, et la demande 62 est active (droit de la borne, prévente
+payée au comptoir).
+
+La détection du serveur est gardée : une autre officine ou une sauvegarde plus ancienne peut tourner sans les
+demandes 62 et 63. PrestigePOS se comporte alors comme en 1.13.0. Le gabarit local reste le repli 404 / 405 ; son
+retrait est prévu dans une version suivante.
 
 ### Ticket dessiné par le serveur
 
@@ -15,7 +21,8 @@ comme en 1.13.0.
   - imprimante externe (Bluetooth, USB, réseau) : `TicketEscPos.images` ;
   - imprimante intégrée Sunmi : même conversion (`ImpressionTicket.imprimerSunmi`).
 - **Correction** : la lecture de la 1.12.0 (`getLuminanceNormalized`) rendait un PNG gris à un canal entièrement noir
-  sur l'imprimante externe. Sans effet en officine jusqu'ici : la route n'existe pas encore sur le serveur.
+  sur l'imprimante externe. **Urgent depuis le déploiement du 19/11** : une borne PrestigePOS 1.12.0 / 1.13.0 avec
+  une imprimante externe imprimerait un rectangle noir pour un ticket de prévente du serveur. Installer la 1.13.1.
 - Borne : ticket de prévente du serveur quand la route existe, sinon gabarit de la borne (inchangé). La borne ne pose
   jamais de question.
 
@@ -37,5 +44,5 @@ Le pharmacien a confirmé le 19/11 le changement de la 1.13.0 (« vente terminé
 - `test/prestigepos/pos_ticket_serveur_test.dart` : PNG gris du serveur en 58 / 80 mm → raster de 384 / 576 points,
   fond blanc gardé, mêmes points que Prestige Mobile ; l'ancienne lecture (tout noir) est reproduite.
 - Tests de Prestige Mobile 4.15.1 (demande 63) dans la suite de la CI.
-- Référence CI de Prestige Mobile : 4.15.1+47 (66dd96a).
+- Référence CI de Prestige Mobile : 4.15.1+47 (46707c0).
 - `pos_version_test` : 1.13.1+33.
