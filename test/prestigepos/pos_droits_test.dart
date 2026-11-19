@@ -1,10 +1,11 @@
 // PrestigePOS 1.3.1 — sécurité des ventes (Prestige Mobile 4.5.1, demande du serveur du 19/10/2026), application
 // ENTIÈRE contre le faux serveur Prestige en mémoire (données fictives) :
 //  - droits de l'utilisateur borne lus à la connexion de la borne (GET v1/user/droits), en-tête X-Prestige-Utilisateur ;
-//  - 1.11.1 (retour du pharmacien du 15/11) : compte borne au PROFIL PRÉVENTE + option « Proposer le paiement mobile
-//    money » active → « PAYER PAR MOBILE MONEY » visible ; paiement créé avec cloturer:false ; payé → ticket
-//    « VENTE BORNE - PAYEE » imprimé, « présentez ce ticket à la caisse, qui termine la vente » ; avec le droit :
-//    cloturer:true (inchangé) ;
+//  - 1.11.1 (retour du pharmacien du 15/11) : compte borne au profil prévente → mobile money avec cloturer:false ;
+//    1.13.2 (Prestige Mobile 4.15.2, demande 64, règle du pharmacien du 19/11 : « s'il paye par mobile money la vente
+//    est validée ») : sans droit de clôture, « PAYER PAR MOBILE MONEY » n'est PLUS proposé ; jamais cloturer:false ;
+//    avec le droit : cloturer:true (inchangé) ; caisse de la borne fermée sur un serveur avec la demande 64 → refus
+//    avant paiement, ticket de prévente, « payez à la caisse » ;
 //  - 403 interdit pendant le paiement mobile : « Paiement mobile indisponible, rendez-vous à la caisse avec votre
 //    ticket », ticket de prévente imprimé (Bluetooth), une seule demande, borne toujours connectée ;
 //  - 409 « session changée » branché sur le redémarrage de PrestigePOS.
@@ -22,7 +23,7 @@ import 'pos_e2e_test.dart' show attendreBorne, tablettePortrait;
 /// Faux module de paiement, règles de la branche serveur de la demande 62 : `cloturer:true` accepté avec « Terminer une
 /// vente » ou (si [d62]) P_BORNE_PAIEMENT_MOBILE, sinon 403 avant toute création ; clôture automatique faite à la
 /// confirmation seulement si la caisse du compte de la borne est ouverte ([caisseOuverte]).
-PosE2E _app({required List<String> droitsBorne, bool refuserPaiement = false, bool paye = false, bool d62 = false, bool caisseOuverte = true}) {
+PosE2E _app({required List<String> droitsBorne, bool refuserPaiement = false, bool paye = false, bool d62 = false, bool caisseOuverte = true, bool d64 = false}) {
   final app = PosE2E();
   var auto = false;
   app.serveur.routes['GET /paiements-mobile/PM1'] = (_) => FauxServeurPrestige.ok({
@@ -47,6 +48,13 @@ PosE2E _app({required List<String> droitsBorne, bool refuserPaiement = false, bo
     final cloturer = r.json['cloturer'] == true;
     final droit = droitsBorne.any(DroitsVente.terminerVenteDroits.contains) || (d62 && droitsBorne.contains(DroitsVente.bornePaiementMobileDroit));
     if (refuserPaiement || (cloturer && !droit)) return FauxServeurPrestige.interdit('Droit manquant : terminer une vente.');
+    // Demande 64 : contrôles de la clôture AVANT toute création (caisse du compte de la borne fermée → refus, champ message).
+    if (d64 && cloturer && !caisseOuverte) {
+      return FauxServeurPrestige.ok({
+        'success': false,
+        'message': 'Paiement mobile money impossible : la caisse de la borne est fermée. Le client paie à la caisse.'
+      });
+    }
     auto = cloturer;
     return FauxServeurPrestige.ok({
       'success': true,
@@ -69,7 +77,7 @@ void main() {
     UtilisateurSession.id = null;
   });
 
-  testWidgets('cas du pharmacien (15/11) : profil prévente + option active → mobile money visible, cloturer:false, ticket PAYÉE', (t) async {
+  testWidgets('profil prévente + option active : 1.13.2, mobile money NON proposé (plus de cloturer:false), payer en caisse', (t) async {
     tablettePortrait(t);
     final app = _app(droitsBorne: ['P_SM_VENTE'], paye: true);
     await app.preparer(configure: true, prefs: {'paiements_mobile_actif_v1': true});
@@ -81,16 +89,9 @@ void main() {
     expect(DroitsVente.instance.cloturerPaiementMobile, isFalse);
     await _panier(t, app);
     expect(find.byKey(const ValueKey('borne-payer')), findsOneWidget);
-    expect(find.byKey(const ValueKey('borne-payer-mobile')), findsOneWidget, reason: 'bogue du 15/11 : le bouton doit être visible');
-    await app.toucher(t, 'borne-payer-mobile');
-    await app.toucher(t, 'borne-operateur-wave');
-    expect(await app.attendreQue(t, find.byKey(const ValueKey('borne-numero'))), isTrue, reason: 'payé → ticket');
-    final demande = app.serveur.recues.where((r) => r.methode == 'POST' && r.chemin.endsWith('/paiements-mobile')).single;
-    expect(demande.json['cloturer'], isFalse, reason: 'sans le droit : jamais cloturer:true (403 du serveur)');
-    final ticket = app.ticketsTexte().last;
-    expect(ticket, contains('VENTE BORNE - PAYEE'));
-    expect(ticket, contains('PAYE PAR WAVE'));
-    expect(ticket, contains('PAYEE, presentez ce ticket a la caisse'), reason: '4.15.0 : PAYÉE tant que la vente n\'est pas terminée');
+    expect(find.byKey(const ValueKey('borne-payer-mobile')), findsNothing,
+        reason: 'règle du pharmacien du 19/11 : payer à la borne termine la vente ; sans droit de clôture, pas de paiement');
+    expect(app.serveur.recues.where((r) => r.methode == 'POST' && r.chemin.endsWith('/paiements-mobile')), isEmpty);
     expect(t.takeException(), isNull);
     await app.fermer(t);
   });
@@ -142,7 +143,29 @@ void main() {
     await app.fermer(t);
   });
 
-  testWidgets('demande 62 : droit retiré sur le serveur (403 à cloturer:true) → une nouvelle demande cloturer:false', (t) async {
+  // 1.13.2 (demande 64) : sur un serveur avec la demande 64, la caisse fermée est refusée AVANT tout paiement.
+  testWidgets('demande 64 : droit de la borne, caisse fermée → refus avant paiement, aucun QR, ticket de prévente', (t) async {
+    tablettePortrait(t);
+    final app = _app(droitsBorne: ['P_SM_VENTE', 'P_BORNE_PAIEMENT_MOBILE'], paye: true, d62: true, d64: true, caisseOuverte: false);
+    await app.preparer(configure: true, prefs: {'paiements_mobile_actif_v1': true});
+    await app.lancer(t);
+    await attendreBorne(t, app);
+    await _panier(t, app);
+    await app.toucher(t, 'borne-payer-mobile');
+    await app.toucher(t, 'borne-operateur-wave');
+    expect(await app.attendreQue(t, find.byKey(const ValueKey('borne-numero'))), isTrue);
+    expect(find.byKey(const ValueKey('pm-qr')), findsNothing);
+    expect(find.text(BorneScreen.avisMobileIndisponible), findsOneWidget);
+    final demandes = app.serveur.recues.where((r) => r.methode == 'POST' && r.chemin.endsWith('/paiements-mobile')).toList();
+    expect(demandes.map((r) => r.json['cloturer']), [true], reason: 'une seule demande, jamais cloturer:false');
+    expect(app.serveur.recues.where((r) => r.chemin.endsWith('/paiements-mobile/PM1')), isEmpty, reason: 'aucun paiement à suivre');
+    final ticket = app.ticketsTexte().last;
+    expect(ticket, isNot(contains('PAYEE')), reason: 'ticket de PRÉVENTE pour la caisse');
+    expect(t.takeException(), isNull);
+    await app.fermer(t);
+  });
+
+  testWidgets('demande 62 : droit retiré sur le serveur (403 à cloturer:true) → 1.13.2 : aucune demande cloturer:false, ticket de prévente', (t) async {
     tablettePortrait(t);
     final app = _app(droitsBorne: ['P_SM_VENTE', 'P_BORNE_PAIEMENT_MOBILE'], paye: true);
     await app.preparer(configure: true, prefs: {'paiements_mobile_actif_v1': true});
@@ -153,8 +176,9 @@ void main() {
     await app.toucher(t, 'borne-operateur-wave');
     expect(await app.attendreQue(t, find.byKey(const ValueKey('borne-numero'))), isTrue);
     final demandes = app.serveur.recues.where((r) => r.methode == 'POST' && r.chemin.endsWith('/paiements-mobile')).toList();
-    expect(demandes.map((r) => r.json['cloturer']), [true, false]);
-    expect(app.ticketsTexte().last, contains('PAYEE, presentez ce ticket a la caisse'));
+    expect(demandes.map((r) => r.json['cloturer']), [true]);
+    expect(find.text(BorneScreen.avisMobileIndisponible), findsOneWidget);
+    expect(app.ticketsTexte().last, isNot(contains('PAYEE')));
     await app.fermer(t);
   });
 

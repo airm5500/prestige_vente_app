@@ -49,8 +49,8 @@ void main() {
   for (final (nom, cap, droits, attendu) in [
     ('serveur sans module (404)', null, _cloture, 'Serveur sans module Mobile Money (version ancienne).'),
     ('aucun compte de paiement', _vide, _cloture, 'n\'a pas de compte de paiement configuré (agrégateur)'),
-    // 1.11.1 (retour du pharmacien du 15/11) : proposé, sans clôture automatique.
-    ('utilisateur borne sans droit de clôture', _ok, const ['P_SM_VENTE'], 'Proposé au client : Orange Money, Wave. Le compte de la borne « $loginBorne » n\'a pas le droit de terminer une vente'),
+    // 1.11.1 : proposé sans clôture automatique ; 1.13.2 (demande 64, règle du pharmacien) : NON proposé.
+    ('utilisateur borne sans droit de clôture', _ok, const ['P_SM_VENTE'], 'Mobile Money activé, mais le compte de la borne « $loginBorne » ne peut pas terminer une vente'),
     ('tout bon', _ok, _cloture, 'Proposé au client : Orange Money, Wave.'),
   ]) {
     testWidgets('Administration › Paiement mobile money : $nom', (t) async {
@@ -112,7 +112,8 @@ void main() {
     await app.toucher(t, 'pos-suivant');
     await app.attendre(t);
     expect(await app.attendreQue(t, find.byKey(const ValueKey('pos-mobile-money-etat'))), isTrue);
-    expect(_etat(t), contains('n\'a pas le droit de terminer une vente : le paiement est confirmé, puis la caisse termine'));
+    // 1.13.2 (demande 64) : sans droit de clôture, le paiement n'est plus proposé à la borne.
+    expect(_etat(t), contains('ne peut pas terminer une vente : paiement mobile money non proposé au client'));
     await app.toucher(t, 'pos-mobile-money');
     await app.attendre(t);
     expect(find.byKey(const ValueKey('pos-mobile-money-etat')), findsNothing, reason: 'option décochée : aucune ligne');
@@ -131,7 +132,7 @@ void main() {
     await app.lancer(t);
     await attendreBorne(t, app);
     await _pageAdmin(t, app);
-    expect(_etat(t), contains('pas le droit de clôturer'), reason: 'les deux obstacles');
+    expect(_etat(t), contains('ne peut pas terminer une vente'), reason: 'les deux obstacles (1.13.2 : texte de la borne)');
     final r = t.getRect(find.byKey(const ValueKey('pos-mobile-money-etat')));
     expect(r.right, lessThanOrEqualTo(t.view.physicalSize.width / t.view.devicePixelRatio + 0.5));
     expect(t.takeException(), isNull);
