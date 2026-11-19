@@ -12,7 +12,7 @@
 // | Paiement mobile money avec clôture (`cloturer:true`)       | les mêmes, ou P_BORNE_PAIEMENT_MOBILE (4.15.0, demande 62)         |
 // | Terminer une vente en dépôt                                | P_SM_VENTEDEPOT, P_SM_DEPOT_EXTENSION, P_SM_CLOTURER_CAISSE       |
 // | Annuler une vente                                          | P_BT_ANNULER_VENTE (aucun écran de l'application n'annule une vente) |
-// | Remise sur une vente (4.14.0, POST v1/vente/remise)          | 4.15.0 : tout compte qui a un écran de vente, comme le web ; un 403 la masque |
+// | Remise sur une vente (4.14.0, POST v1/vente/remise)          | 4.15.1 : P_REMISE_VENTE si le serveur le connaît (demande 63), sinon comme 4.15.0 |
 // « Terminer la prévente » reste ouvert à tous.
 //
 // REPLI (serveur sans la route, 404 / 405, ou droits jamais lus) : comportement d'avant la 4.5.1, tout est affiché ;
@@ -36,6 +36,15 @@ class DroitsVente extends ChangeNotifier {
   /// « Terminer une vente ». Il ne donne PAS « Terminer une vente » (aucun bouton d'encaissement ordinaire). Un serveur
   /// sans la demande 62 ne le connaît pas : il n'est dans la liste de personne, rien ne change.
   static const bornePaiementMobileDroit = 'P_BORNE_PAIEMENT_MOBILE';
+
+  /// 4.15.1 (réponse du serveur à la demande 63, correctif/demande63-1911) : « Remise sur une vente », contrôlé par
+  /// POST v1/vente/remise (403 `interdit` sans lui). Donné à tous les rôles à la migration ; un serveur sans la
+  /// demande 63 ne le connaît pas (il n'est dans la liste de personne) : voir remiseAutorisee (remise_vente.dart).
+  static const remiseVenteDroit = 'P_REMISE_VENTE';
+
+  /// Droits apparus avec une version du serveur : présents dans une liste, ils prouvent que CE serveur les contrôle
+  /// (noté comme un 403 `interdit` constaté, gardé jusqu'au changement de serveur, quel que soit le compte).
+  static const droitsPreuveServeur = {remiseVenteDroit};
 
   /// 4.6.0 (décision 12) : scanner et saisir les lots d'un BL, créer un BL (`commande/add-lot`, `commande/creerbl`).
   static const scannerBlDroit = 'P_BL_MOBILE_SCANNER';
@@ -93,6 +102,7 @@ class DroitsVente extends ChangeNotifier {
 
   /// Changement de serveur (et tests) : contrôles constatés oubliés (ils appartiennent au serveur, pas au compte).
   void oublierControles() {
+    _refus.clear();
     if (_controles.isEmpty) return;
     _controles.clear();
     notifyListeners();
@@ -106,6 +116,20 @@ class DroitsVente extends ChangeNotifier {
     if (_controles.add(droit)) notifyListeners();
   }
 
+  /// 4.15.1 : droits refusés (403 `interdit`) au compte connecté pendant cette session ; oubliés au changement de
+  /// compte et à la déconnexion (les contrôles constatés, eux, appartiennent au serveur).
+  final Set<String> _refus = {};
+
+  /// 4.15.1 : [droit] refusé au compte connecté (403 `interdit` reçu pendant la session).
+  bool refuse(String droit) => _refus.contains(droit);
+
+  /// 4.15.1 : 403 `interdit` reçu pour [droit] : refusé à ce compte, et contrôlé par ce serveur.
+  void refusConstate(String droit) {
+    final a = _refus.add(droit);
+    final b = _controles.add(droit);
+    if (a || b) notifyListeners();
+  }
+
   /// Profil prévente seulement : droits connus, sans droit de terminer une vente.
   bool get preventeSeule => connus && !terminerVente;
 
@@ -114,6 +138,7 @@ class DroitsVente extends ChangeNotifier {
   Future<void> actualiser(Dio dio, {required String utilisateur}) {
     if (utilisateur != _utilisateur) {
       _utilisateur = utilisateur;
+      _refus.clear();
       _droits = null;
       _routeAbsente = false;
       _profil = '';
@@ -141,6 +166,7 @@ class DroitsVente extends ChangeNotifier {
         _droits = {for (final d in j['droits'] as List) if (d != null && '$d'.isNotEmpty) '$d'};
         _profil = '${j['profil'] ?? ''}';
         _routeAbsente = false;
+        _controles.addAll(_droits!.where(droitsPreuveServeur.contains));
         notifyListeners();
       } else if (s == 404 || s == 405 || s == 501) {
         // Serveur ancien : repli documenté (tout est affiché, le serveur reste juge).
@@ -157,6 +183,7 @@ class DroitsVente extends ChangeNotifier {
   /// Déconnexion, changement de compte, changement de serveur.
   void oublier() {
     _utilisateur = null;
+    _refus.clear();
     _droits = null;
     _routeAbsente = false;
     _profil = '';
@@ -167,9 +194,11 @@ class DroitsVente extends ChangeNotifier {
   /// Tests : fixe les droits sans serveur ([droits] null = repli).
   @visibleForTesting
   void fixer(Set<String>? droits, {String utilisateur = 'test'}) {
+    if (utilisateur != _utilisateur) _refus.clear();
     _utilisateur = utilisateur;
     _droits = droits;
     _routeAbsente = droits == null;
+    if (droits != null) _controles.addAll(droits.where(droitsPreuveServeur.contains));
     notifyListeners();
   }
 }

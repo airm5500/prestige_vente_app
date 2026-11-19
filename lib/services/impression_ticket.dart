@@ -8,10 +8,22 @@
 // Échec d'impression locale (papier, capot, Bluetooth) : le motif est affiché, la vente reste telle quelle (jamais
 // annulée ni recréée), « Réimprimer » rappelle la route. Réseau coupé alors que le serveur dessine les tickets :
 // « Ticket non imprimé : réseau indisponible » et « Réimprimer ».
+//
+// 4.15.1 (réponse du serveur à la demande 63) :
+//  - le PNG du serveur est en niveaux de gris : converti en 1 bit (lib/services/ticket_1bit.dart, seuil) et envoyé
+//    en raster `GS v 0` à l'imprimante intégrée Sunmi (et par PrestigePOS aux imprimantes externes) ;
+//  - 400 (type de ticket inconnu du serveur) : gabarit local, comme en 4.15.0 (rien n'est montré : défaut de
+//    l'application, le ticket local reste juste) ;
+//  - 200 `success:false` (vente inconnue ou non terminée pour le serveur) : décision SÛRE, le message du serveur est
+//    affiché tel quel, avec « Réimprimer » (nouvel essai : la vente peut être en cours d'écriture), « Ticket de
+//    l'application » (gabarit local, choisi par le vendeur qui voit le motif) et « Fermer » (aucun ticket). Jamais de
+//    ticket local imprimé en silence pour une vente que le serveur dit inconnue ou non terminée. Aperçu (mode test)
+//    et borne (aucune question) : gabarit local, comme avant.
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/services/largeur_ticket.dart';
+import 'package:prestige_vente_app/services/ticket_1bit.dart';
 import 'package:prestige_vente_app/services/ticket_serveur.dart';
 import 'package:provider/provider.dart';
 import 'package:sunmi_printer_plus/enums.dart';
@@ -77,6 +89,16 @@ class ImpressionTicket {
       switch (r) {
         case RouteTicketAbsente():
           return false;
+        case TicketRefuseVente(:final message):
+          if (apercu) return false;
+          switch (await _refusVente(context, message)) {
+            case _ChoixRefus.reimprimer:
+              break;
+            case _ChoixRefus.ticketLocal:
+              return false;
+            case _ChoixRefus.fermer:
+              return true;
+          }
         case TicketRefuse():
           return false;
         case TicketReseauIndisponible():
@@ -130,6 +152,41 @@ class ImpressionTicket {
     return r == true;
   }
 
+  /// 4.15.1 : 200 `success:false` de la route image : message du serveur tel quel et choix du vendeur.
+  static Future<_ChoixRefus> _refusVente(BuildContext context, String message) async {
+    final r = await showDialog<_ChoixRefus>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        key: const ValueKey('ticket-refuse-serveur'),
+        title: const Text('Ticket non imprimé'),
+        content: Text('Le serveur n\'a pas rendu le ticket : $message'),
+        actions: [
+          TextButton(
+            key: const ValueKey('ticket-refuse-fermer'),
+            style: TextButton.styleFrom(minimumSize: const Size(64, 48)),
+            onPressed: () => Navigator.of(ctx).pop(_ChoixRefus.fermer),
+            child: const Text('Fermer'),
+          ),
+          TextButton(
+            key: const ValueKey('ticket-refuse-local'),
+            style: TextButton.styleFrom(minimumSize: const Size(64, 48)),
+            onPressed: () => Navigator.of(ctx).pop(_ChoixRefus.ticketLocal),
+            child: const Text('Ticket de l\'application'),
+          ),
+          ElevatedButton.icon(
+            key: const ValueKey('ticket-reimprimer'),
+            style: ElevatedButton.styleFrom(minimumSize: const Size(96, 48)),
+            onPressed: () => Navigator.of(ctx).pop(_ChoixRefus.reimprimer),
+            icon: const Icon(Icons.print, size: 18),
+            label: const Text('Réimprimer'),
+          ),
+        ],
+      ),
+    );
+    return r ?? _ChoixRefus.fermer;
+  }
+
   /// Mode test d'impression : les images du serveur à l'écran.
   static Future<void> _apercu(BuildContext context, List<TicketImage> tickets) => showDialog<void>(
         context: context,
@@ -161,18 +218,34 @@ class ImpressionTicket {
         _ => null,
       };
 
-  /// Imprimante intégrée Sunmi : chaque image telle quelle (largeur exacte du rouleau), coupe entre deux tickets.
+  /// 4.15.1 : tickets du serveur en raster 1 bit (`GS v 0`) pour une imprimante de [points] points ; null si une
+  /// image est illisible ou plus large que le papier (motif dans [motif]).
+  static List<Raster1Bit>? rasters(List<TicketImage> tickets, int points) {
+    final out = <Raster1Bit>[];
+    for (final t in tickets) {
+      final r = Ticket1Bit.depuisPng(t.png, largeurMax: points);
+      if (r == null) return null;
+      out.add(r);
+    }
+    return out;
+  }
+
+  /// Imprimante intégrée Sunmi : chaque image convertie en 1 bit (4.15.1), envoyée en raster `GS v 0`, largeur exacte
+  /// du rouleau, coupe entre deux tickets.
   static Future<String?> imprimerSunmi(List<TicketImage> tickets) async {
     try {
       if (await SunmiPrinter.bindingPrinter() != true) return 'imprimante non connectée.';
       final motif = motifSunmi(await SunmiPrinter.getPrinterStatus());
       if (motif != null) return motif;
-      if (await LargeurTicket.integree() == null) return 'aucune imprimante intégrée sur cet appareil.';
+      final mm = await LargeurTicket.integree();
+      if (mm == null) return 'aucune imprimante intégrée sur cet appareil.';
+      final images = rasters(tickets, LargeurTicket.points(mm));
+      if (images == null) return 'image du ticket illisible ou plus large que le papier.';
       await SunmiPrinter.initPrinter();
-      for (var i = 0; i < tickets.length; i++) {
+      for (var i = 0; i < images.length; i++) {
         await SunmiPrinter.startTransactionPrint(true);
         await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
-        await SunmiPrinter.printImage(tickets[i].png);
+        await SunmiPrinter.printRawData(images[i].gsV0());
         await SunmiPrinter.lineWrap(3);
         await SunmiPrinter.cut();
         await SunmiPrinter.exitTransactionPrint(true);
@@ -183,3 +256,5 @@ class ImpressionTicket {
     }
   }
 }
+
+enum _ChoixRefus { reimprimer, ticketLocal, fermer }

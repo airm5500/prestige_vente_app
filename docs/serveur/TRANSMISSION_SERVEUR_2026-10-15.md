@@ -979,6 +979,42 @@ envoient donc la remise choisie à chaque calcul du net. À garder tel quel ; si
 `test/remise_ticket_vo_test.dart`, `test/remise_ticket_integration_test.dart`, `test/remise_ticket_e2e_test.dart`,
 `test/reseau/remise_ticket_reseau_test.dart`.
 
+**État au 19/11 : traitée sur `correctif/demande63-1911` (bb6b4604), en attente de fusion** dans
+`integration/recette-2026-10-29` (l'officine n'en dispose pas encore ; date de déploiement à fixer par le pharmacien).
+Code vérifié en lecture seule (`git diff o/integ...o/d63`, notice `REPONSE_DEMANDE63_2026-11-19.md`) ; applications
+Prestige Mobile 4.15.1+47 et PrestigePOS 1.13.1+33, qui ne l'utilisent que si le serveur le fournit (sinon tout reste
+comme en 4.15.0 / 1.13.0) :
+
+- point 1 : route `GET v1/vente/ticket/{vno|vo|prevente}/{id}/image` lue à sa forme exacte (`dpi` en plus, ignoré) ;
+  pas de `vo-combine` (retiré des applications) ; 400 → gabarit local ; 200 `{success:false}` → message affiché tel
+  quel avec « Réimprimer », « Ticket de l'application », « Fermer » ; 404 / 405 → gabarit local ;
+- point 2 : `P_REMISE_VENTE` lu dans `GET v1/user/droits` ; 403 « Droit manquant : Remise sur une vente » affiché tel
+  quel ; zone Remise masquée seulement quand les droits sont lus ET que le serveur est prouvé (droit vu dans une liste,
+  403, réponse JSON de la route image, `data` de `vente/remise`) — jamais sur la seule absence du droit ;
+- point 3 : « Retirer » et « SANS REMISE » envoient `remiseId:"0"` à un serveur prouvé, `null` sinon ;
+- point 5 : refus `{success:false, msg}` affichés tels quels ; `data` du comptant utilisé (pas de second `net/vno`) ;
+  `net/assurance` relu pour l'assurance / le carnet.
+
+Remarques :
+- **Image en niveaux de gris, pas 1 bit** (`TYPE_BYTE_GRAY`, texte lissé), contrairement à la demande : les
+  applications la convertissent en 1 bit (seuil 128, sans tramage, testé sur le texte et le QR) avant `GS v 0`, Sunmi
+  compris. Si vous préférez fournir le 1 bit vous-mêmes, dites-le : la conversion d'un PNG déjà noir et blanc ne change
+  rien.
+- Bord : `BORD_IMAGE = 1` est en unités du dessin (1/72 pouce), soit ≈ 2,8 points d'imprimante à 203 dpi de chaque
+  côté, pas 1 point ; sans effet pour les applications (largeur totale exacte 384 / 576).
+- `success:false` des ventes inconnues ou non terminées : « Ticket introuvable : » suivi du message brut de l'exception
+  Java, affiché tel quel au vendeur ; un message rédigé (comme pour `vente/remise`) serait plus clair.
+- Sur l'intégration d'aujourd'hui, `remiseId:"0"` est accepté (`success:true`), écrit tel quel dans `lg_REMISE_ID` et
+  ne retire pas la remise de la fiche (et `VenteDTO.remiseDepot` vaut alors 0 au lieu de null) : les applications ne
+  l'envoient donc qu'à un serveur prouvé. `ventestats/{id}` relit une vente « 0 » avec `lgREMISEID` vide (remise de la
+  vente nulle) : géré.
+- `data` de `vente/remise` vient de `shownetpayVno(vente)` : mêmes montants que `net/vno`, mais sans
+  `lgPREENREGISTREMENTID` ni `strREF` au premier niveau, et la variante « sans remise » ne remet pas `intPRICEOTHER`
+  comme le fait `net/vno` ; sans effet pour les applications.
+- `GET v1/user/droits` ne liste que les droits de la session : aucun moyen direct de savoir si le serveur connaît
+  `P_REMISE_VENTE` pour un compte qui ne l'a pas. Une capacité (par exemple `remiseVente:true` dans
+  `GET v1/app-vente/capacites`) permettrait de masquer la zone dès la connexion au lieu d'attendre un 403.
+
 ---
 
 ## 5. Récapitulatif des nouvelles demandes

@@ -286,6 +286,34 @@ class VenteController extends ChangeNotifier implements RemiseVenteHote {
     _notify();
   }
 
+  /// 4.15.1 : panier relu, net déjà rendu par vente/remise (`data` : même calcul que net/vno).
+  Future<void> _reloadAvecNet(SaleSummary net) async {
+    if (_hl != null) return;
+    final id = _venteId;
+    if (id == null) return;
+    final at = _changes;
+    final details = await gateway.saleDetails(id);
+    if (id != _venteId) return;
+    if (details case VenteOk(:final value)) {
+      _items = value;
+      _cartError = null;
+    } else {
+      _cartError = details.message ?? 'Panier non relu.';
+    }
+    _summary = SaleSummary(
+      montant: net.montant,
+      remise: net.remise,
+      montantNet: net.montantNet,
+      marge: net.marge,
+      montantTva: net.montantTva,
+      venteId: _summary.venteId.isNotEmpty ? _summary.venteId : id,
+      reference: _summary.reference,
+    );
+    _netError = null;
+    _netAt = at;
+    _notify();
+  }
+
   void _changed() {
     _changes++;
     _notify();
@@ -745,7 +773,19 @@ class VenteController extends ChangeNotifier implements RemiseVenteHote {
         if (_finished) return const VenteRefused('Vente déjà terminée.');
         if (!remiseAutorisee(DroitsVente.instance)) return const VenteRefused('Remise réservée aux comptes autorisés.', code: VenteRefused.codeInterdit);
         final epoch = _epoch;
-        var res = await g.appliquerRemise(id, r?.id);
+        // 4.15.1 (demande 63) : « sans remise » = "0" sur un serveur qui le connaît, null sinon (comme 4.15.0) ;
+        // net rendu par vente/remise (`data`) : pas de second appel à net/vno.
+        final envoye = remiseIdEnvoye(r, DroitsVente.instance);
+        final gn = gateway is RemiseVenteNetGateway ? gateway as RemiseVenteNetGateway : null;
+        SaleSummary? netRendu;
+        VenteResult<void> res;
+        if (gn != null) {
+          final x = await gn.appliquerRemiseNet(id, envoye);
+          if (x case VenteOk(:final value)) netRendu = value;
+          res = x.map((_) {});
+        } else {
+          res = await g.appliquerRemise(id, envoye);
+        }
         if (epoch != _epoch || id != _venteId) return const VenteRefused('Vente changée : remise non appliquée.');
         if (res is VenteRefused<void> && res.interdit) {
           remiseRefuseeParServeur();
@@ -756,16 +796,20 @@ class VenteController extends ChangeNotifier implements RemiseVenteHote {
           // Réponse perdue : la remise de la vente est relue sur le serveur (jamais affichée sans confirmation).
           final v = await gateway.fullSale(id);
           if (v case VenteOk(:final value)) {
-            final lu = '${value['lgREMISEID'] ?? ''}'.trim();
-            final attendu = r?.id ?? '';
-            if ((lu == 'null' ? '' : lu) == attendu) res = const VenteOk(null);
+            if (remiseRelueEgale(value['lgREMISEID'], envoye)) res = const VenteOk(null);
           }
         }
         if (!res.isOk) return res;
-        _remise.id = r?.id;
-        _remise.nom = r?.nom;
+        _remise.id = remiseIdRetenue(envoye);
+        _remise.nom = _remise.id == null ? null : r?.nom;
         _changed();
-        await _reload();
+        if (netRendu != null) {
+          // Seul un serveur avec la demande 63 rend `data` : il connaît le droit et « 0 ».
+          DroitsVente.instance.controleConstate(droitRemiseVente);
+          await _reloadAvecNet(netRendu);
+        } else {
+          await _reload();
+        }
         await _remember();
         return const VenteOk(null);
       });

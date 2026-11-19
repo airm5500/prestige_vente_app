@@ -217,7 +217,7 @@ bool rechercheClientPossible(String texte) {
   return t.replaceAll(RegExp(r'\s+'), ' ').length >= 3;
 }
 
-class DioVenteGateway implements VenteGateway, ClientRefGateway, ClientVenteGateway, RemiseVenteGateway {
+class DioVenteGateway implements VenteGateway, ClientRefGateway, ClientVenteGateway, RemiseVenteGateway, RemiseVenteNetGateway {
   final ApiService _api;
 
   /// H4 : clé client envoyée (en-tête `X-Client-Ref`) sur la création de la vente (1ᵉʳ article) ; null = aucune.
@@ -510,6 +510,22 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway, ClientVenteGate
   Future<VenteResult<void>> appliquerRemise(String venteId, String? remiseId) async => _void(
         await _call(() => _dio.post('/vente/remise', data: {"remiseId": remiseId, "venteId": venteId}), what: 'appliquer la remise', write: true),
       );
+
+  /// 4.15.1 (demande 63, point 5) : même appel, avec le net d'une vente comptant quand le serveur le rend (`data`,
+  /// identique à celui de net/vno) ; null sans `data` (serveur ancien, assurance / carnet).
+  @override
+  Future<VenteResult<SaleSummary?>> appliquerRemiseNet(String venteId, String? remiseId) async {
+    final r = await _call(() => _dio.post('/vente/remise', data: {"remiseId": remiseId, "venteId": venteId}), what: 'appliquer la remise', write: true);
+    final v = _void(r);
+    if (v is! VenteOk) return v.map((_) => null);
+    final data = (r as VenteOk).value['data'];
+    if (data is! Map || data['montantNet'] == null) return const VenteOk(null);
+    try {
+      return VenteOk(SaleSummary.fromNetResponse({'data': Map<String, dynamic>.from(data), 'lgPREENREGISTREMENTID': venteId}));
+    } catch (_) {
+      return const VenteOk(null);
+    }
+  }
 
   @override
   Future<VenteResult<SaleSummary>> netVnoRemise(String venteId, String? remiseId) async {
