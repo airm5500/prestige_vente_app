@@ -4,6 +4,7 @@
 // bandes C ; ancien panier gardé si la relecture échoue), bandeau d'état et pied fixe : répartition
 // toujours visible (Total, part de chaque TP, Part client ; « Calcul… » pendant le recalcul automatique),
 // « PRÉVENTE » et « ENCAISSER X F » / « VALIDER (0 F) », désactivés tant que le net n'est pas à jour.
+import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
@@ -102,6 +103,9 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
             constraints: BoxConstraints(maxHeight: box.maxHeight / 2),
             child: SingleChildScrollView(child: AssuranceStatusBanner(controller: c, onTerminerHorsLigne: locked ? null : widget.onTerminerHorsLigne)),
           ),
+          // 4.14.0 : remise de la vente (en ligne, vente créée, compte autorisé) ; masquée clavier ouvert.
+          if ((c.remiseDisponible || c.remiseId != null) && MediaQuery.viewInsetsOf(context).bottom == 0)
+            RemiseVenteZone(hote: c, enabled: !locked),
           Expanded(
             child: VenteCartList(
               source: CartSource(

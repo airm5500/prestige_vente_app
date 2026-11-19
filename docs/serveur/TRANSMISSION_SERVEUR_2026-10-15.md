@@ -17,7 +17,7 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10), 59 et 60 (réception d'un BL incomplet, droit « Voir les suggestions de réserve », 08/11), 62 (client des ventes comptant, paiement mobile money de la borne, 15/11)
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10), 59 et 60 (réception d'un BL incomplet, droit « Voir les suggestions de réserve », 08/11), 62 (client des ventes comptant, paiement mobile money de la borne, 15/11), 63 (ticket dessiné par le serveur, remise sur les ventes, 19/11)
 3. Prestige Pharmacien : réponses et demandes 45 et 55 (péremptions courtes, 25/10)
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
@@ -894,6 +894,72 @@ comptoir. Demandes :
   une seule fois ;
 - clôture automatique d'une vente avec un client rattaché → `lg_CLIENT_ID` et nom du client gardés.
 
+État au 16/11 (intégration 1991fe41) : non traité — createClient remplit seulement strADRESSE (ClientServiceImpl.java:109,164), findClientLambda cherche dans strTELEPHONE (:255), type sans défaut (:110,:165), PaiementsMobileRessource inchangé.
+
+### Demande 63 — Ticket 58 / 80 mm dessiné par le serveur et remise sur les ventes du mobile (P1 pour les points 1 et 2, P2 pour les autres)
+
+Code lu en lecture seule le 19/11/2026 : `integration/recette-2026-10-29` (f0282bf0, et 1991fe41 envoyé en officine),
+`main` (4cf690f2), `claude/ticket-finalisation` (8b510a5b), `plan/14112026` (eacb21a3) et la `SalesRessource` de toutes
+les branches du dépôt. Applications : Prestige Mobile 4.14.0+45, PrestigePOS 1.12.0+31.
+
+**1. Route de l'image du ticket : absente du serveur (P1)**
+
+La demande de la session principale du 19/11 (« ticket 58 mm (terminal) et 80 mm (tablette), identique au web »)
+décrit `GET v1/vente/ticket/{type}/{id}/image?largeur=58|80&dpi=203`
+→ `{success, largeur, tickets:[{modele, png, largeurPoints, hauteurPoints}]}`. **Aucune branche ne l'a** :
+`SalesRessource` n'a que `ticket/vno`, `ticket/vno/{id}`, `ticket/prevente/{id}`, `ticket/vo`, `ticket/vo/{id}` (qui
+impriment sur l'imprimante du serveur) et les aperçus JSON `ticket/vo/{id}/apercu`, `apercu-combine`,
+`ticket/vo/apercu-cloture`, `ticket/vno/{id}/apercu` ; seul `ModeleTicketRessource.apercu` dessine une image PNG
+(exemple, pas une vente). Les applications 4.14.0 / 1.12.0 appellent déjà la route (type `vno`, `vo`, `prevente`) :
+404 / 405 → gabarit local corrigé (pas de régression), réponse conforme → impression des PNG telles quelles. Demandes :
+
+- a. créer la route comme décrite (lecture seule, rien vers le spouleur, 401 / 403 `interdit` / `success:false`) ;
+- b. type `prevente` : le ticket de prévente avec son QR code (`TicketPrevente`, `ModeleTicket.PREVENTE`) ;
+- c. vente au comptant différée et ventes à crédit (carnet) : même route (types `vno` / `vo`), le règlement différé
+  n'est pas imprimé par les applications ;
+- d. dites-nous la date de déploiement en officine : le gabarit local du mobile sera alors retiré (une seule mise en
+  page), comme le demande la session principale.
+
+**2. Remise sur une vente : aucun droit dédié (P1)**
+
+`POST v1/vente/remise {venteId, remiseId}` (`RemiseServiceImpl.addRemise`) n'est contrôlée que par la session : tout
+compte connecté peut remiser une vente, au poste comme depuis une application. Les applications 4.14.0 proposent la
+remise (mêmes choix que le web, `GET v1/common/remises-client`) aux comptes qui peuvent **terminer une vente**
+(repli prudent), ou à un droit dédié s'il apparaît. Demande : un droit `P_REMISE_VENTE` (« Remise sur une vente »)
+contrôlé par `vente/remise` (403 `interdit` sans le droit) et listé dans `GET v1/user/droits`. Les applications le
+lisent déjà.
+
+**3. Retrait d'une remise quand le client a une remise sur sa fiche (P2)**
+
+`SalesNetComputingServiceImpl.calcule` prend `op.getRemise()`, **à défaut `op.getClient().getRemise()`** : après
+`vente/remise {remiseId:null}`, la remise de la fiche du client s'applique de nouveau à la vente assurance / carnet.
+Le vendeur ne peut donc pas retirer la remise d'un client qui en a une. Dites-nous si c'est voulu (règle de
+l'officine) ; sinon, une façon de dire « sans remise » pour la vente (par exemple `remiseId:"0"`).
+
+**4. net/vno sans `remiseId` efface la remise de la vente (P2, information)**
+
+`shownetpayVno(SalesParams)` remet `intPRICEREMISE` à 0 quand `remiseId` est vide (audit VC-06) ; les applications
+envoient donc la remise choisie à chaque calcul du net. À garder tel quel ; signalez-nous tout changement.
+
+**5. Réponse de `vente/remise` (P2)**
+
+`addRemise` répond toujours `success:true` (même pour un `remiseId` inconnu : la remise devient nulle) et
+`{success:false, msg:"Erreur::: L'Opération n'a pas aboutie"}` pour une vente inconnue. Demande : refuser un
+`remiseId` inconnu et une vente déjà clôturée avec un message clair, et renvoyer le net recalculé
+(`data` de `net/vno` ou `net/assurance`) pour éviter le second appel.
+
+**Tests attendus :**
+- `GET v1/vente/ticket/vno/{id}/image?largeur=58` → un PNG de 384 points ; `largeur=80` → 576 ; `largeur=57` → 384 ;
+  `largeur=100` → 576 ; `type=vo` d'une vente assurance à deux organismes → tickets dans l'ordre d'impression ;
+  `type=prevente` → QR dans l'image ; rien en base, rien vers l'imprimante du serveur ;
+- compte sans `P_REMISE_VENTE` : `vente/remise` → 403 `interdit` ; avec : `success:true` ; `GET v1/user/droits` le liste ;
+- vente assurance d'un client avec remise sur sa fiche, `remiseId` « sans remise » → remise 0 ;
+- `vente/remise` avec un `remiseId` inconnu ou sur une vente clôturée → `success:false` et message.
+
+**Tests côté applications (faux serveur, contrat ci-dessus) :** `test/ticket_vente_serveur_test.dart`,
+`test/remise_ticket_vo_test.dart`, `test/remise_ticket_integration_test.dart`, `test/remise_ticket_e2e_test.dart`,
+`test/reseau/remise_ticket_reseau_test.dart`.
+
 ---
 
 ## 5. Récapitulatif des nouvelles demandes
@@ -920,5 +986,6 @@ comptoir. Demandes :
 | 60 | Réserve : privilège `P_RESERVE_SUGGESTION` (lecture et ouverture des suggestions, web et mobile), capacité `voirSuggestions` dans `GET v1/reserve/droits` | Mobile | P2 |
 | 61 | Suites 59/60 : fusion des branches et migrations, tolérance sans `V7.2.70`, 401 avant 403, retour des manquants abandonné, forme de `deja:true` | Mobile | P1 / P2 |
 | 62 | Client rapide : numéro cherchable (`strTELEPHONE` rempli à la création, ou recherche dans `strADRESSE`), type 6 par défaut ; borne : droit dédié pour clôturer une vente payée par mobile money, prévente payée signalée au poste, `clientId` de la clôture automatique | Mobile, PrestigePOS | P1 / P2 |
+| 63 | Ticket : route `GET v1/vente/ticket/{type}/{id}/image` absente de toutes les branches (à créer, date de déploiement) ; remise : droit `P_REMISE_VENTE` dans `vente/remise` et `GET v1/user/droits`, retrait d'une remise quand la fiche du client en a une, refus d'un `remiseId` inconnu, net renvoyé | Mobile, PrestigePOS | P1 / P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.

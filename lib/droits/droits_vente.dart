@@ -12,6 +12,7 @@
 // | Paiement mobile money avec clôture (`cloturer:true`)       | les mêmes                                                         |
 // | Terminer une vente en dépôt                                | P_SM_VENTEDEPOT, P_SM_DEPOT_EXTENSION, P_SM_CLOTURER_CAISSE       |
 // | Annuler une vente                                          | P_BT_ANNULER_VENTE (aucun écran de l'application n'annule une vente) |
+// | Remise sur une vente (4.14.0, POST v1/vente/remise)          | P_REMISE_VENTE (demande 63) ; repli : les droits de « Terminer une vente » |
 // « Terminer la prévente » reste ouvert à tous.
 //
 // REPLI (serveur sans la route, 404 / 405, ou droits jamais lus) : comportement d'avant la 4.5.1, tout est affiché ;
@@ -86,6 +87,9 @@ class DroitsVente extends ChangeNotifier {
     _controles.clear();
     notifyListeners();
   }
+
+  /// [droit] contrôlé par le serveur pendant cette session (403 `interdit` reçu).
+  bool controle(String droit) => _controles.contains(droit);
 
   /// Le serveur a refusé une route faute de [droit] (403 `interdit`) : il le contrôle.
   void controleConstate(String droit) {

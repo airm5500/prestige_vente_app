@@ -229,7 +229,9 @@ void main() {
           .map((k, v) => MapEntry('$k', [for (final l in v as List) '$l']));
       final actuels = await tousLesTicketsParDefaut(t);
       expect(actuels.keys.toSet(), reference.keys.toSet());
-      for (final k in reference.keys) {
+      // 4.14.0 : les tickets de VENTE encaissée (« vente », « vente-assurance ») ont la mise en page du serveur
+      // (test/ticket_vente_serveur_test.dart) ; les tickets de PRÉVENTE restent ceux de la 4.1.0, appel par appel.
+      for (final k in reference.keys.where((k) => k.startsWith('prevente'))) {
         expect(actuels[k], reference[k], reason: k);
       }
     });

@@ -883,7 +883,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('encaissement-valider')));
       await tester.pumpAndSettle();
-      expect(find.text('PROVISOIRE — HL-0002'), findsOneWidget);
+      // 4.14.0 : ticket de vente mis en page comme le serveur, caractères d'une colonne (« — » imprimé « - »).
+      expect(find.text('PROVISOIRE - HL-0002'), findsOneWidget);
       tester.takeException(); // aperçu d'origine du ticket de vente plus large que 360 px (antérieur, hors ligne non concerné)
       await tester.tap(find.text('Fermer'));
       await tester.pumpAndSettle();

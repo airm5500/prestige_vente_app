@@ -96,9 +96,11 @@ void main() {
 
   testWidgets('Photos de contrôle : filtre « Seulement les pointages sans photo » mémorisé (sortie, retour, redémarrage)', (t) async {
     TailleEcran.sunmiV2s.appliquer(t);
-    await registre.ajouter(id: 'P1', employeId: 'E1', employeNom: 'TEST Employé A', lu: DateTime(2026, 10, 16, 8, 2), sens: 'Entrée', resultat: PhotoPrise(img.encodeJpg(img.Image(width: 8, height: 8))));
+    // Dates récentes (photos conservées 30 jours) : des dates fixes du 16/10 étaient effacées à partir du 15/11.
+    final hier = DateTime.now().subtract(const Duration(days: 1));
+    await registre.ajouter(id: 'P1', employeId: 'E1', employeNom: 'TEST Employé A', lu: DateTime(hier.year, hier.month, hier.day, 8, 2), sens: 'Entrée', resultat: PhotoPrise(img.encodeJpg(img.Image(width: 8, height: 8))));
     await registre.ajouter(
-        id: 'P2', employeId: 'E2', employeNom: 'TEST Employé B', lu: DateTime(2026, 10, 16, 8, 5), sens: 'Entrée',
+        id: 'P2', employeId: 'E2', employeNom: 'TEST Employé B', lu: DateTime(hier.year, hier.month, hier.day, 8, 5), sens: 'Entrée',
         resultat: const PhotoAbsente(MotifSansPhoto.delaiDepasse, 'caméra frontale non ouverte en 10 s'));
     final app = AppE2E();
     await app.preparer();

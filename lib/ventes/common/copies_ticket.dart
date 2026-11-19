@@ -9,6 +9,7 @@
 // dialogue « Ticket suivant (i/N) — Coupez le ticket, puis imprimez le suivant. » [Arrêter] [Imprimer] (Imprimer par
 // défaut) ; Arrêter (ou le retour Android) annule les copies restantes ; rien quand N = 1.
 import 'package:flutter/material.dart';
+import 'package:prestige_vente_app/services/impression_ticket.dart';
 
 /// Dialogue de pause avant la copie [numero] (2..[total]). true = imprimer ; false = arrêter.
 Future<bool> confirmerTicketSuivant(BuildContext context, int numero, int total) async {
@@ -43,8 +44,11 @@ Future<bool> confirmerTicketSuivant(BuildContext context, int numero, int total)
 /// Renvoie le nombre de copies imprimées.
 Future<int> imprimerCopiesAvecPause(BuildContext context, int copies, Future<void> Function() imprimer) async {
   var faites = 0;
+  // 4.14.0 : ticket dessiné par le serveur → le serveur décide du nombre d'exemplaires (aucune copie ajoutée).
+  ImpressionTicket.debutCopies();
   for (var i = 0; i < copies; i++) {
     if (!context.mounted) break;
+    if (i > 0 && ImpressionTicket.copiesParServeur) break;
     if (i > 0 && !await confirmerTicketSuivant(context, i + 1, copies)) break;
     if (!context.mounted) break;
     await imprimer();

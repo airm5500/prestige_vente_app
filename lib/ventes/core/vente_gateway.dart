@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
+import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
@@ -216,7 +217,7 @@ bool rechercheClientPossible(String texte) {
   return t.replaceAll(RegExp(r'\s+'), ' ').length >= 3;
 }
 
-class DioVenteGateway implements VenteGateway, ClientRefGateway, ClientVenteGateway {
+class DioVenteGateway implements VenteGateway, ClientRefGateway, ClientVenteGateway, RemiseVenteGateway {
   final ApiService _api;
 
   /// H4 : clé client envoyée (en-tête `X-Client-Ref`) sur la création de la vente (1ᵉʳ article) ; null = aucune.
@@ -481,6 +482,39 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway, ClientVenteGate
   @override
   Future<VenteResult<SaleSummary>> netVno(String venteId) async {
     final r = await _call(() => _dio.post('/vente/net/vno', data: {"venteId": venteId, "checkUg": false}), what: 'calculer le net');
+    if (r is! VenteOk) return r.map((_) => throw StateError('inutilisé'));
+    try {
+      return VenteOk(SaleSummary.fromNetResponse(Map<String, dynamic>.from(r.value as Map)));
+    } catch (e) {
+      return VenteFailed('Net illisible : $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4.14.0 — remise de la vente (contrat du web, lib/ventes/common/remise_vente.dart)
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<VenteResult<List<RemiseOption>>> remisesVente() async {
+    final r = await _call(() => _dio.get('/common/remises-client'), what: 'lire les remises');
+    if (r is! VenteOk) return r.map((_) => <RemiseOption>[]);
+    final body = r.value;
+    final data = body is Map ? body['data'] : null;
+    if (data is! List) return const VenteFailed('Réponse inattendue du serveur (remises).');
+    return VenteOk([for (final e in data) RemiseOption.depuisJson(e)].whereType<RemiseOption>().toList());
+  }
+
+  @override
+  Future<VenteResult<void>> appliquerRemise(String venteId, String? remiseId) async => _void(
+        await _call(() => _dio.post('/vente/remise', data: {"remiseId": remiseId, "venteId": venteId}), what: 'appliquer la remise', write: true),
+      );
+
+  @override
+  Future<VenteResult<SaleSummary>> netVnoRemise(String venteId, String? remiseId) async {
+    final r = await _call(
+      () => _dio.post('/vente/net/vno', data: {"remiseId": remiseId, "venteId": venteId, "checkUg": false}),
+      what: 'calculer le net',
+    );
     if (r is! VenteOk) return r.map((_) => throw StateError('inutilisé'));
     try {
       return VenteOk(SaleSummary.fromNetResponse(Map<String, dynamic>.from(r.value as Map)));

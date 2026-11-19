@@ -397,7 +397,19 @@ class _CarnetViewState extends State<_CarnetView> with PresentationAware {
   ({AssuranceSaleSummary summary, List<SaleItemDetail> items, ClientAssurance client, AyantDroit ayantDroit})? _snapshot(CarnetController c) {
     final s = c.summary, cl = c.client, ad = c.ayantDroit;
     if (s == null || cl == null || ad == null) return null;
-    return (summary: s, items: List.of(c.items), client: cl, ayantDroit: ad);
+    // 4.14.0 : identifiant et référence de la vente gardés pour le ticket (ticket du serveur, code du ticket local).
+    final ref = s.reference.isNotEmpty ? s.reference : (c.items.where((i) => i.strREF.isNotEmpty).firstOrNull?.strREF ?? '');
+    final summary = AssuranceSaleSummary(
+      montant: s.montant,
+      remise: s.remise,
+      montantNet: s.montantNet,
+      montantTp: s.montantTp,
+      marge: s.marge,
+      tierspayants: s.tierspayants,
+      reference: ref,
+      venteId: s.venteId.isNotEmpty ? s.venteId : (c.venteId ?? ''),
+    );
+    return (summary: summary, items: List.of(c.items), client: cl, ayantDroit: ad);
   }
 
   Future<void> _afterFinish({
