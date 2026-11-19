@@ -1,30 +1,40 @@
 // lib/services/ticket_serveur.dart
 // 4.14.0 — Ticket DESSINÉ PAR LE SERVEUR (demande de la session principale du 19/11/2026, « ticket 58 mm (terminal) et
-// 80 mm (tablette), identique au web ») :
-//   GET v1/vente/ticket/{type}/{id}/image?largeur=58|80&dpi=203   type = vno | vo | vo-combine | prevente
-//   → {success, largeur, tickets:[{modele, png (base64), largeurPoints, hauteurPoints}]}
-// Chaque PNG (noir et blanc, largeur exacte 384 ou 576 points) est imprimé tel quel, dans l'ordre, avec une coupe entre
-// deux tickets ; le serveur décide du nombre d'exemplaires (le mobile n'en ajoute pas). Lecture seule côté serveur.
+// 80 mm (tablette), identique au web »).
+//
+// 4.15.1 — Contrat VÉRIFIÉ dans le code du serveur (réponse à la demande 63, correctif/demande63-1911, bb6b4604,
+// pas encore fusionnée ; le serveur de l'officine n'a pas la route) :
+//   GET v1/vente/ticket/{type}/{id}/image?largeur=58|80&dpi=203   type = vno | vo | prevente (PAS de « vo-combine » :
+//   la route vo renvoie tous les tickets de la vente dans l'ordre d'impression, deux organismes compris)
+//   → {success:true, largeur:58|80, dpi, tickets:[{modele, png (base64), largeurPoints, hauteurPoints}]}
+// Chaque PNG est en NIVEAUX DE GRIS (fond blanc, texte lissé), largeur exacte 384 ou 576 points à 203 dpi : il est
+// converti en 1 bit par l'application (lib/services/ticket_1bit.dart) puis imprimé dans l'ordre, une coupe entre deux
+// tickets ; le serveur décide du nombre d'exemplaires (le mobile n'en ajoute pas). Lecture seule côté serveur.
+// Refus du serveur : 401 sans session ; type inconnu → 400 {success:false, msg} ; vente inconnue ou non terminée
+// → 200 {success:false, msg} ; jamais de 403 (la réimpression du poste n'exige que la session).
 //
 // Le mobile n'appelle JAMAIS `POST v1/vente/ticket/vno` ni `ticket/vo` : ces routes impriment sur l'imprimante du
 // serveur (caisse). Vérifié le 19/11 : aucun appel dans l'application.
 //
-// RÈGLE DE NON-RÉGRESSION (prioritaire sur la demande, qui retire le gabarit local) : la route n'existe encore sur
-// aucune branche du serveur (lu le 19/11 : integration/recette-2026-10-29 f0282bf0 et toutes les branches). Tant
-// qu'un serveur répond 404 / 405 (route absente), le ticket est imprimé avec le gabarit local corrigé
-// (lib/services/ticket_texte.dart). Retrait du gabarit local : quand la route sera confirmée déployée en officine.
+// RÈGLE DE NON-RÉGRESSION : tant qu'un serveur répond 404 / 405 (route absente : serveur de l'officine aujourd'hui),
+// le ticket est imprimé avec le gabarit local (lib/services/ticket_texte.dart), comme en 4.15.0. Date de déploiement
+// de la route en officine : pas encore fixée par le serveur.
 //
 // États de la route, par adresse de serveur, gardés en mémoire :
 //  - inconnue : on essaie ; 404 / 405 → absente (gabarit local) ; réseau → gabarit local (rien n'a jamais été dessiné
 //    par ce serveur, le ticket local est celui d'avant) ;
-//  - présente (le serveur a déjà rendu une image) : en cas de panne réseau, PAS de ticket recomposé (il ne serait pas
-//    celui du web) : « Ticket non imprimé : réseau indisponible » et « Réimprimer » ;
+//  - présente (le serveur a répondu en JSON sur la route : tickets, 400 ou 200 `success:false`) : en cas de panne
+//    réseau, PAS de ticket recomposé (il ne serait pas celui du web) : « Ticket non imprimé : réseau indisponible »
+//    et « Réimprimer » ;
 //  - absente : gabarit local sans nouvel essai pendant [delaiNouvelEssai] (le serveur peut être mis à jour).
+// Une réponse JSON de la route prouve aussi que le serveur a la demande 63 (droit P_REMISE_VENTE contrôlé, « 0 » =
+// sans remise) : noté dans DroitsVente (lib/ventes/common/remise_vente.dart).
 // Aucun texte de ticket, aucun nom de client ni de patient n'est écrit dans un journal.
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:prestige_vente_app/services/largeur_ticket.dart';
 
 /// Type de ticket demandé au serveur.
@@ -32,11 +42,8 @@ enum TypeTicketServeur {
   /// Vente comptant.
   vno('vno'),
 
-  /// Vente assurance, carnet, dépôt.
+  /// Vente assurance, carnet, dépôt (tous les tickets de la vente, dans l'ordre d'impression).
   vo('vo'),
-
-  /// Vente mixte (assurance + comptant).
-  voCombine('vo-combine'),
 
   /// Ticket de prévente (QR code dans l'image).
   prevente('prevente');
@@ -78,6 +85,17 @@ class RouteTicketAbsente extends ReponseTicketServeur {
 class TicketRefuse extends ReponseTicketServeur {
   final String message;
   const TicketRefuse(this.message);
+}
+
+/// 4.15.1 : 200 `{success:false, msg}` de la route (vente inconnue ou non terminée, aucun ticket) : [message] du
+/// serveur tel quel.
+class TicketRefuseVente extends TicketRefuse {
+  const TicketRefuseVente(super.message);
+}
+
+/// 4.15.1 : 400 `{success:false, msg}` (type de ticket inconnu du serveur) : gabarit local.
+class TicketTypeInconnu extends TicketRefuse {
+  const TicketTypeInconnu(super.message);
 }
 
 /// Réseau indisponible (aucune réponse).
@@ -123,6 +141,12 @@ class TicketServeur {
     }
   }
 
+  /// La route a répondu en JSON : elle existe (état « présente ») et le serveur a la demande 63.
+  static void _routeRepond(String serveur) {
+    _noter(serveur, EtatRouteTicket.presente);
+    DroitsVente.instance.controleConstate(DroitsVente.remiseVenteDroit);
+  }
+
   @visibleForTesting
   static void oublier() {
     _etats.clear();
@@ -151,6 +175,11 @@ class TicketServeur {
         return TicketRefuse(msg.isEmpty ? 'Accès refusé : ticket du serveur non disponible pour ce compte.' : msg);
       }
       if (code == 401) return const TicketRefuse('Session expirée : reconnectez-vous puis réimprimez.');
+      if (code == 400 && body is Map && body['success'] == false) {
+        _routeRepond(serveur);
+        final msg = '${body['msg'] ?? ''}'.trim();
+        return TicketTypeInconnu(msg.isEmpty ? 'Type de ticket inconnu du serveur.' : msg);
+      }
       if (code != 200) {
         if (code == 502 || code == 503 || code == 504) return const TicketReseauIndisponible();
         return TicketRefuse('Erreur du serveur (code $code) : ticket non lu.');
@@ -158,6 +187,10 @@ class TicketServeur {
       if (body is! Map) return const TicketRefuse('Réponse inattendue du serveur (ticket).');
       if (body['success'] != true) {
         final msg = '${body['msg'] ?? body['message'] ?? ''}'.trim();
+        if (body['success'] == false) {
+          _routeRepond(serveur);
+          return TicketRefuseVente(msg.isEmpty ? 'Le serveur n\'a pas rendu le ticket.' : msg);
+        }
         return TicketRefuse(msg.isEmpty ? 'Le serveur n\'a pas rendu le ticket.' : msg);
       }
       final lus = <TicketImage>[];
@@ -183,7 +216,7 @@ class TicketServeur {
         ));
       }
       if (lus.isEmpty) return const TicketRefuse('Le serveur n\'a rendu aucun ticket.');
-      _noter(serveur, EtatRouteTicket.presente);
+      _routeRepond(serveur);
       return TicketsServeur(int.tryParse('${body['largeur'] ?? ''}') ?? mm, lus);
     } on DioException catch (e) {
       // Réponse reçue mais illisible (JSON tronqué) : refus (gabarit local) ; aucune réponse : réseau.

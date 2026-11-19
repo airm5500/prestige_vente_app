@@ -20,6 +20,25 @@
 //    le serveur reste juge : un 403 `interdit` la masque pour la session. La borne ne propose jamais de remise ;
 //  - hors ligne : aucune route ; la remise n'est pas proposée hors ligne (elle n'est appliquée qu'après la réponse
 //    du serveur).
+//
+// 4.15.1 — Réponse du serveur à la demande 63 (correctif/demande63-1911, bb6b4604, vérifiée dans le code, PAS encore
+// fusionnée ; le serveur de l'officine ne l'a pas) :
+//  - droit P_REMISE_VENTE « Remise sur une vente » : POST v1/vente/remise (et v2) → 403 {interdit:true, msg:"Droit
+//    manquant : Remise sur une vente"} sans lui ; listé par GET v1/user/droits ; la migration le donne à TOUS les
+//    rôles existants, le pharmacien le retire ensuite par rôle. Règle de l'application (remiseAutorisee) : droits
+//    connus ET serveur qui connaît le droit → remise seulement aux comptes qui l'ont. « Serveur qui connaît le droit »
+//    n'est jamais déduit de son absence (un serveur ancien ne le donne à personne) ; il est prouvé par : le droit
+//    présent dans la liste d'un compte de ce serveur, un 403 `interdit` sur la remise, une réponse JSON de la route
+//    image du ticket (route de la même branche), ou `data` dans la réponse de vente/remise d'une vente comptant.
+//    Sans preuve : règle de 4.15.0 (tout compte qui a un écran de vente ; un 403 la masque pour la session) ;
+//  - « sans remise » : vente/remise {remiseId:"0"} retire la remise de CETTE vente, y compris celle de la fiche du
+//    client (assurance / carnet : net, clôture, base) ; remiseId null ou vide garde l'ancien sens (la fiche
+//    s'applique). « Retirer » et « SANS REMISE » envoient "0" seulement quand le serveur est prouvé (ci-dessus) ;
+//    sinon null, comme en 4.15.0 : sur l'intégration d'aujourd'hui (f0282bf0), "0" serait écrit tel quel dans
+//    lg_REMISE_ID sans retirer la remise de la fiche (RemiseServiceImpl.addRemise, calcul du net inchangé) ;
+//  - réponse : remise inconnue, vente terminée, annulée ou inconnue → {success:false, msg} (vente non touchée) :
+//    message affiché tel quel, remise non affichée ; comptant : `data` = net recalculé (celui de net/vno) → pas de
+//    second appel à net/vno ; sans `data` (serveur ancien, assurance / carnet) : net relu comme avant.
 // Aucun nom de client ni texte saisi n'est écrit dans un journal.
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -35,6 +54,9 @@ class RemiseOption {
   final String nom;
   final String code;
   const RemiseOption({required this.id, required this.nom, this.code = ''});
+
+  /// 4.15.1 : « SANS REMISE » de la liste du serveur, proposé seulement quand le serveur connaît "0".
+  static const RemiseOption sansRemise = RemiseOption(id: idSansRemise, nom: 'SANS REMISE');
 
   static RemiseOption? depuisJson(Object? j) {
     if (j is! Map) return null;
@@ -63,19 +85,55 @@ abstract class RemiseVenteGateway {
   Future<VenteResult<SaleSummary>> netVnoRemise(String venteId, String? remiseId);
 }
 
-/// Droit dédié demandé au serveur (demande 63). Absent de GET v1/user/droits aujourd'hui.
-const String droitRemiseVente = 'P_REMISE_VENTE';
+/// 4.15.1 : POST v1/vente/remise qui rend aussi le net d'une vente comptant (`data`, demande 63 point 5) ; null :
+/// réponse sans `data` (serveur ancien, assurance / carnet). Interface à part (passerelles de test inchangées).
+abstract class RemiseVenteNetGateway {
+  Future<VenteResult<SaleSummary?>> appliquerRemiseNet(String venteId, String? remiseId);
+}
 
-/// La remise peut être proposée à ce compte. 4.15.0 (décision du pharmacien du 19/11) : à tout compte qui a un écran de
-/// vente, prévente comprise, comme le web (4.14.0 la réservait aux comptes qui terminent une vente) ; jamais si le
-/// serveur l'a refusée (403 `interdit`) pendant la session, sauf droit dédié présent.
+/// Droit dédié (demande 63, serveur correctif/demande63-1911). Absent de GET v1/user/droits sur un serveur ancien.
+const String droitRemiseVente = DroitsVente.remiseVenteDroit;
+
+/// 4.15.1 : identifiant « sans remise » de vente/remise (demande 63, point 3).
+const String idSansRemise = '0';
+
+/// La remise peut être proposée à ce compte.
+///  - droit P_REMISE_VENTE dans la liste : oui ;
+///  - droits connus et serveur qui contrôle le droit (demande 63 prouvée) : non (le pharmacien l'a retiré au rôle) ;
+///  - sinon, règle de 4.15.0 (décision du pharmacien du 19/11) : à tout compte qui a un écran de vente, prévente
+///    comprise, comme le web ; jamais si le serveur l'a refusée (403 `interdit`) à ce compte pendant la session.
 bool remiseAutorisee(DroitsVente d) {
   if (d.droits.contains(droitRemiseVente)) return true;
-  return !d.controle(droitRemiseVente);
+  if (d.connus) return !d.controle(droitRemiseVente);
+  return !d.refuse(droitRemiseVente);
+}
+
+/// 4.15.1 : le serveur connaît « sans remise » = "0" (demande 63 prouvée, voir l'en-tête).
+bool sansRemiseParZero(DroitsVente d) => d.controle(droitRemiseVente);
+
+/// 4.15.1 : remiseId envoyé à vente/remise pour [r] (null = retirer la remise choisie) : "0" pour « sans remise » sur
+/// un serveur qui le connaît, null sinon (sens d'avant : la fiche du client s'applique).
+String? remiseIdEnvoye(RemiseOption? r, DroitsVente d) {
+  if (r != null && r.id != idSansRemise) return r.id;
+  return sansRemiseParZero(d) ? idSansRemise : null;
+}
+
+/// 4.15.1 : remise gardée sur la vente après succès ("0" ou null : aucune remise choisie).
+String? remiseIdRetenue(String? envoye) => envoye == null || envoye == idSansRemise ? null : envoye;
+
+/// 4.15.1 : remise relue (lgREMISEID de ventestats/{id}) après une réponse perdue = remise envoyée. « Sans remise »
+/// ("0") se relit vide : ventestats lit l'identifiant de la remise de la vente (aucune), pas la colonne brute.
+bool remiseRelueEgale(Object? lu, String? envoye) {
+  String n(Object? v) {
+    final t = '${v ?? ''}'.trim();
+    return t == 'null' || t == idSansRemise ? '' : t;
+  }
+
+  return n(lu) == n(envoye);
 }
 
 /// 403 `interdit` reçu sur la remise : masquée pour la session (le serveur la contrôle).
-void remiseRefuseeParServeur() => DroitsVente.instance.controleConstate(droitRemiseVente);
+void remiseRefuseeParServeur() => DroitsVente.instance.refusConstate(droitRemiseVente);
 
 /// État de la remise d'une vente, partagé par les trois contrôleurs.
 class RemiseVenteEtat {
@@ -137,7 +195,9 @@ class RemiseVenteZone extends StatelessWidget {
       showVenteFailure(context, liste);
       return;
     }
-    if (liste.value.isEmpty) {
+    // 4.15.1 : « SANS REMISE » (retire aussi la remise de la fiche du client) quand le serveur connaît "0".
+    final options = [...liste.value, if (sansRemiseParZero(DroitsVente.instance)) RemiseOption.sansRemise];
+    if (options.isEmpty) {
       showVenteSnack(context, 'Aucune remise n\'est définie sur le serveur.');
       return;
     }
@@ -160,7 +220,7 @@ class RemiseVenteZone extends StatelessWidget {
             ),
             Flexible(
               child: ListView(shrinkWrap: true, children: [
-                for (final o in liste.value)
+                for (final o in options)
                   ListTile(
                     key: ValueKey('remise-option-${o.id}'),
                     minTileHeight: 52,
@@ -178,7 +238,8 @@ class RemiseVenteZone extends StatelessWidget {
     final r = await hote.choisirRemise(choisie);
     if (!context.mounted) return;
     if (r.isOk) {
-      showVenteSnack(context, 'Remise appliquée : ${choisie.nom}.', color: Colors.green.shade700);
+      showVenteSnack(context, choisie.id == idSansRemise ? 'Sans remise pour cette vente.' : 'Remise appliquée : ${choisie.nom}.',
+          color: Colors.green.shade700);
     } else {
       showVenteFailure(context, r);
     }
@@ -339,7 +400,8 @@ mixin RemiseVenteVoMixin on ChangeNotifier implements RemiseVenteHote {
         if (remiseTerminee) return const VenteRefused('Vente déjà terminée.');
         if (!remiseAutorisee(DroitsVente.instance)) return const VenteRefused('Remise réservée aux comptes autorisés.', code: VenteRefused.codeInterdit);
         final epoch = remiseEpoch;
-        var res = await g.appliquerRemise(id, r?.id);
+        final envoye = remiseIdEnvoye(r, DroitsVente.instance);
+        var res = await g.appliquerRemise(id, envoye);
         if (epoch != remiseEpoch || id != venteIdRemise) return const VenteRefused('Vente changée : remise non appliquée.');
         if (res is VenteRefused<void> && res.interdit) {
           remiseRefuseeParServeur();
@@ -348,13 +410,12 @@ mixin RemiseVenteVoMixin on ChangeNotifier implements RemiseVenteHote {
         if (res.uncertain) {
           final v = await relireVentePourRemise(id);
           if (v case VenteOk(:final value)) {
-            final lu = '${value['lgREMISEID'] ?? ''}'.trim();
-            if ((lu == 'null' ? '' : lu) == (r?.id ?? '')) res = const VenteOk(null);
+            if (remiseRelueEgale(value['lgREMISEID'], envoye)) res = const VenteOk(null);
           }
         }
         if (!res.isOk) return res;
-        remiseEtat.id = r?.id;
-        remiseEtat.nom = r?.nom;
+        remiseEtat.id = remiseIdRetenue(envoye);
+        remiseEtat.nom = remiseEtat.id == null ? null : r?.nom;
         await apresRemise();
         return const VenteOk(null);
       });
