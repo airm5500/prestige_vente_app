@@ -1022,6 +1022,69 @@ Remarques :
   `P_REMISE_VENTE` pour un compte qui ne l'a pas. Une capacité (par exemple `remiseVente:true` dans
   `GET v1/app-vente/capacites`) permettrait de masquer la zone dès la connexion au lieu d'attendre un 403.
 
+### Demande 64 — Prévente payée par mobile money dont le net a baissé (P2)
+
+**État au 19/11 : traitée sur `correctif/demande64-1911` (d6cf51fa5), en attente de fusion** dans
+`integration/recette-2026-10-29` (officine : 76aa5fc1, sans cette demande). Règle du pharmacien : payer à la borne par
+mobile money termine la vente (ni avoir, ni remboursement). Contrat vérifié dans le code :
+- `POST v1/paiements-mobile` `cloturer:true` → refus `{success:false, message:"Paiement mobile money impossible : …"}`
+  (HTTP 200) avant toute création ;
+- panier verrouillé (payé, ou en cours non expiré) → `{success:false, msg}` ;
+- `remove/vno/item` répond aussi `{success:false, msg}` (avant : 500 sur une vente terminée).
+
+Prestige Mobile 4.15.2+48 / PrestigePOS 1.13.2+34 :
+- borne : toujours `cloturer:true`, plus aucun repli `cloturer:false`, et pas de mobile money sans droit de clôture ;
+- refus « paiement impossible » → ticket de prévente et « payez à la caisse » ;
+- comptoir : refus du verrou affichés tels quels, ancienne interface comprise.
+
+Remarques : `TRANSMISSION_SERVEUR_2026-11-19_demandes64_65_retour.md`.
+
+Cas : la borne a encaissé 4 125 F (`statut = paye`, non clôturée), puis le comptoir retire un article : le net passe à
+3 000 F, sous le montant payé.
+
+- `ClotureComptoir.refus` exige que le mode de l'opérateur porte **exactement** le montant payé (4 125 F).
+- Une clôture qui le fait porte donc plus que le net. Ce que fait alors `updateVenteClotureComptant` (montant rendu ?
+  refus ?) n'est pas défini.
+- Il n'existe aucun chemin pour rembourser l'écart ou faire un avoir.
+
+Prestige Mobile 4.15.0+ bloque ce cas avec un message : « Remettez le panier au montant payé, ou voyez le responsable ».
+
+Demande : dire la conduite à tenir. Soit refuser explicitement toute modification du panier d'une prévente payée
+(ajout seulement), soit prévoir l'écart (avoir ou remboursement).
+
+Tests attendus : prévente payée de 4 125 F ramenée à 3 000 F, puis clôture avec Wave 4 125 F → réponse définie
+(refus avec message, ou avoir de 1 125 F), rien d'écrit à moitié.
+
+### Demande 65 — Image du ticket : ne pas dépendre de l'imprimante du poste serveur (P1, avant la fusion de `plan/support-1811`)
+
+**État au 19/11 : traitée sur `plan/support-1811` (f8ef5afa6), en attente de fusion.** Vérifié :
+`sansImprimante(ps) = ps == null && APERCU.get() == null` dans les 11 contrôles R1. Le contrat de la route image ne
+change pas : aucun changement dans les applications. La route image (demande 63) n'est pas sur `plan/support-1811`.
+Elle sera couverte à la fusion : un seul conflit annoncé, dans `GenerateTicketServiceImpl`.
+
+Code lu : `plan/support-1811` (20c8f515, 19/11), pas encore fusionnée ; intégration `76aa5fc1` (déployée le 19/11).
+
+- `GET v1/vente/ticket/{type}/{id}/image` (`SalesRessource.imageTicket`) construit les tickets par
+  `GenerateTicketServiceImpl.documentsTicket`, qui rejoue `lunchPrinterForTicket`, `lunchPrinterForTicketVo` et
+  `imprimerTicketPrevente` en mode aperçu (`APERCU`, `PAPIER_IMAGE`). Sur `76aa5fc1`, ces méthodes vont jusqu'au bout
+  même sans imprimante (`findImprimanteByName(null)` renvoie `null`) : l'image ne dépend pas d'une imprimante.
+- Le correctif R1 de `plan/support-1811` (2bf92aba) ajoute dans ces mêmes méthodes, **avant** la construction du
+  ticket : `if (printService == null) return imprimanteAbsente();`.
+- Une fois fusionné, sur un poste serveur sans imprimante (cas du 16/11, Payara en service sans imprimante par
+  défaut), aucun document n'est capturé : `apercu` lève « Imprimante … » et la route renvoie
+  `{success:false, msg:"Ticket introuvable : …"}`. **Le mobile et la borne ne recevraient plus aucune image**, alors
+  qu'ils impriment sur leur propre imprimante. Prestige Mobile 4.15.1 afficherait alors le message, avec
+  « Ticket de l'application » en secours. Le ticket ne serait donc plus identique au web.
+- La branche part de `f0282bf0` : elle ne contient pas la demande 63. La fusion devra réunir les deux `ChoixImprimante`
+  (`rest.service.impl` et `rest.service.ticket`).
+
+Demande : en mode aperçu ou image (`APERCU.get() != null` ou `PAPIER_IMAGE.get() != null`), ne pas faire le contrôle
+`imprimanteAbsente` : il ne vaut que pour une impression réelle sur l'imprimante du serveur.
+
+Tests attendus : poste serveur sans aucune imprimante (ni par défaut, ni installée, ni déclarée) →
+`GET …/vno/{id}/image`, `…/vo/{id}/image` et `…/prevente/{id}/image` renvoient `success:true` en 58 et 80 mm ;
+`POST ticket/vno/{id}` renvoie `imprimanteAbsente:true` (correctif R1 gardé) ; mêmes résultats pour les aperçus JSON.
+
 ---
 
 ## 5. Récapitulatif des nouvelles demandes
@@ -1049,5 +1112,7 @@ Remarques :
 | 61 | Suites 59/60 : fusion des branches et migrations, tolérance sans `V7.2.70`, 401 avant 403, retour des manquants abandonné, forme de `deja:true` | Mobile | P1 / P2 |
 | 62 | Client rapide : numéro cherchable (`strTELEPHONE` rempli à la création, ou recherche dans `strADRESSE`), type 6 par défaut ; borne : droit dédié pour clôturer une vente payée par mobile money, prévente payée signalée au poste, `clientId` de la clôture automatique | Mobile, PrestigePOS | P1 / P2 |
 | 63 | Ticket : route `GET v1/vente/ticket/{type}/{id}/image` absente de toutes les branches (à créer, date de déploiement) ; remise : droit `P_REMISE_VENTE` dans `vente/remise` et `GET v1/user/droits`, retrait d'une remise quand la fiche du client en a une, refus d'un `remiseId` inconnu, net renvoyé | Mobile, PrestigePOS | P1 / P2 |
+| 64 | Prévente payée par mobile money dont le net a baissé sous le montant payé : refus explicite ou avoir | Mobile, PrestigePOS | P2 |
+| 65 | Image du ticket : ne pas appliquer le contrôle « imprimante absente » de `plan/support-1811` en mode aperçu / image | Mobile, PrestigePOS | P1 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.

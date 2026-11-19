@@ -168,8 +168,12 @@ class SaleProvider with ChangeNotifier {
     _setLoading(false);
   }
 
-  Future<void> addProductToCart(ProductSearchResult product, int quantity, {bool isPrevente = false}) async {
+  // 4.15.2 (demande 64) : ajout, modification et retrait renvoient le message du serveur quand il REFUSE (ex. panier
+  // verrouillé par un paiement mobile money : « Cette prévente est déjà payée par Wave (4125 F) : le panier ne peut
+  // plus être modifié… »), null sinon. Le panier affiché n'est relu qu'après un succès : un refus ne change rien.
+  Future<String?> addProductToCart(ProductSearchResult product, int quantity, {bool isPrevente = false}) async {
     _setLoading(true);
+    _apiService.prendreRefusPanier();
     final newVenteId = await _apiService.addItemToSale(
         produitId: product.lgFAMILLEID,
         qte: quantity,
@@ -180,23 +184,33 @@ class SaleProvider with ChangeNotifier {
       _currentVenteId = newVenteId;
       await _refreshCartAndSummary();
     }
+    final refus = newVenteId == null ? _apiService.prendreRefusPanier() : null;
     _setLoading(false);
+    return refus;
   }
 
-  Future<void> removeProductFromCart(String itemId) async {
+  Future<String?> removeProductFromCart(String itemId) async {
     _setLoading(true);
-    if (await _apiService.removeItemFromSale(itemId)) {
+    _apiService.prendreRefusPanier();
+    final ok = await _apiService.removeItemFromSale(itemId);
+    if (ok) {
       await _refreshCartAndSummary();
     }
+    final refus = ok ? null : _apiService.prendreRefusPanier();
     _setLoading(false);
+    return refus;
   }
 
-  Future<void> updateCartItem(SaleItemDetail item, int newQuantity, int newPrice) async {
+  Future<String?> updateCartItem(SaleItemDetail item, int newQuantity, int newPrice) async {
     _setLoading(true);
-    if (await _apiService.updateSaleItem(itemId: item.lgPREENREGISTREMENTDETAILID, produitId: item.lgFAMILLEID, qte: newQuantity, itemPu: newPrice)) {
+    _apiService.prendreRefusPanier();
+    final ok = await _apiService.updateSaleItem(itemId: item.lgPREENREGISTREMENTDETAILID, produitId: item.lgFAMILLEID, qte: newQuantity, itemPu: newPrice);
+    if (ok) {
       await _refreshCartAndSummary();
     }
+    final refus = ok ? null : _apiService.prendreRefusPanier();
     _setLoading(false);
+    return refus;
   }
 
   Future<Map<String, dynamic>> cloturerVente(PaymentMethod paymentMethod, User currentUser, {int? montantRecu, int? montantRemis}) async {

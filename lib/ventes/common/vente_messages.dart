@@ -31,8 +31,14 @@ void showVenteSnack(BuildContext context, String message, {bool error = false, V
 /// Affiche l'échec d'un résultat : message du serveur (refus) ou panne (avec « Réessayer » si fourni).
 void showVenteFailure(BuildContext context, VenteResult<dynamic> r, {VoidCallback? onRetry}) {
   final msg = venteMessage(r.message);
-  showVenteSnack(context, msg, error: true, onRetry: r is VenteFailed ? onRetry : null);
+  // 4.15.2 (demande 64) : panier verrouillé par un paiement mobile money : message du serveur tel quel, laissé 8 s
+  // (deux phrases à lire : ne pas modifier, terminer avec ce paiement).
+  final verrou = r is VenteRefused && r.panierVerrouille;
+  showVenteSnack(context, msg, error: true, onRetry: r is VenteFailed ? onRetry : null, duree: verrou ? dureeMessageVerrou : null);
 }
+
+/// 4.15.2 : durée d'affichage d'un refus « panier verrouillé » (demande 64).
+const dureeMessageVerrou = Duration(seconds: 8);
 
 /// Caisse fermée : même proposition qu'aujourd'hui (ouvrir la caisse). Renvoie true si traité.
 Future<bool> handleCaisseFermee(BuildContext context, VenteResult<dynamic> r) async {

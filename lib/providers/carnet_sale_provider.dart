@@ -372,6 +372,7 @@ class CarnetSaleProvider with ChangeNotifier {
 
     _setLoading(true);
     _setError(null);
+    _apiService.prendreRefusPanier();
     final tiersPayantPayload = _buildTiersPayantPayload();
 
     final newVenteId = await _apiService.addAssuranceSaleItem(
@@ -391,7 +392,8 @@ class CarnetSaleProvider with ChangeNotifier {
       _currentVenteId = newVenteId;
       await _refreshCart();
     } else {
-      _setError("Erreur lors de l'ajout du produit.");
+      // 4.15.2 (demande 64) : refus du serveur affiché tel quel (ex. panier verrouillé par un paiement mobile money).
+      _setError(_apiService.prendreRefusPanier() ?? "Erreur lors de l'ajout du produit.");
     }
     clearProductSearch();
     _setLoading(false);
@@ -411,11 +413,12 @@ class CarnetSaleProvider with ChangeNotifier {
   Future<void> removeProductFromCart(String itemId) async {
     _setLoading(true);
     _setError(null);
+    _apiService.prendreRefusPanier();
     final success = await _apiService.removeItemFromSale(itemId);
     if (success) {
       await _refreshCart();
     } else {
-      _setError("Erreur lors de la suppression.");
+      _setError(_apiService.prendreRefusPanier() ?? "Erreur lors de la suppression.");
     }
     _setLoading(false);
   }
@@ -423,6 +426,7 @@ class CarnetSaleProvider with ChangeNotifier {
   Future<void> updateCartItem(SaleItemDetail item, int newQuantity, int newPrice) async {
     _setLoading(true);
     _setError(null);
+    _apiService.prendreRefusPanier();
     final success = await _apiService.updateSaleItem(
       itemId: item.lgPREENREGISTREMENTDETAILID,
       produitId: item.lgFAMILLEID,
@@ -432,7 +436,7 @@ class CarnetSaleProvider with ChangeNotifier {
     if (success) {
       await _refreshCart();
     } else {
-      _setError("Erreur de mise à jour.");
+      _setError(_apiService.prendreRefusPanier() ?? "Erreur de mise à jour.");
     }
     _setLoading(false);
   }

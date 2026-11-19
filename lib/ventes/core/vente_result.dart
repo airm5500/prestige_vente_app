@@ -50,6 +50,11 @@ class VenteRefused<T> extends VenteResult<T> {
   /// Refus de clôture : prévente déjà payée par mobile money, à terminer avec ce paiement.
   bool get paiementMobile => code == codePaiementMobile;
 
+  /// 4.15.2 (demande 64) : panier VERROUILLÉ par un paiement mobile money payé (« Cette prévente est déjà payée par
+  /// Wave (4125 F) : le panier ne peut plus être modifié… ») ou en cours (« … : le panier ne peut pas être modifié
+  /// pendant le paiement. »), `{success:false, msg}` : rien n'a été écrit ; message affiché tel quel, panier relu.
+  bool get panierVerrouille => message.toLowerCase().contains('le panier ne peut');
+
   /// Caisse fermée (message du serveur Prestige).
   bool get caisseFermee => message.toLowerCase().contains('caisse est ferm');
 

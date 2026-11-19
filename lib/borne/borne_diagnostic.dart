@@ -52,13 +52,16 @@ class DiagnosticBorne {
 /// Titre et message de l'étape « droit de clôture » (4.5.1).
 const titreDroitCloture = 'Paiement mobile money';
 const titreModuleMobileMoney = 'Module Mobile Money';
-const messageSansDroitCloture = 'Utilisateur borne sans droit de clôture : paiement mobile proposé SANS clôture '
-    'automatique (la caisse termine la vente payée). Pour la clôture automatique, droit à donner au profil : '
-    'P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION ou P_BT_MODIFICATION_DE_VENTE.';
+/// 4.15.2 (demande 64, règle du pharmacien du 19/11 : payer à la borne termine la vente) : sans droit de clôture, le
+/// paiement mobile money n'est plus proposé à la borne (fin du « proposé SANS clôture automatique » de 4.13.1).
+const messageSansDroitCloture = 'Utilisateur borne sans droit de clôture : paiement mobile money NON proposé au client '
+    '(payer à la borne termine la vente). Droit à donner au profil : P_BORNE_PAIEMENT_MOBILE (ou P_SM_CLOTURER_CAISSE, '
+    'P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE).';
 
 /// 4.15.0 (demande 62) : utilisateur borne avec le seul droit P_BORNE_PAIEMENT_MOBILE.
 const messageDroitBorne = 'Droit P_BORNE_PAIEMENT_MOBILE présent : paiement mobile money avec clôture automatique, si '
-    'une caisse est ouverte pour le compte de la borne ; sinon ticket « PAYÉE » et la caisse termine la vente.';
+    'une caisse est ouverte pour le compte de la borne ; sinon le client paie à la caisse (serveur sans la demande 64 : '
+    'ticket « PAYÉE » et la caisse termine la vente).';
 
 class TesteurBorne {
   final String baseUrl;

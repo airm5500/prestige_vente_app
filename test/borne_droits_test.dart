@@ -2,13 +2,13 @@
 // clôture `cloturer:true` sous la session de l'utilisateur borne ; l'espèce donne un ticket de prévente pour la caisse) :
 //  - droits de l'utilisateur borne lus (GET v1/user/droits) à la connexion de la borne, avec l'en-tête
 //    X-Prestige-Utilisateur ;
-//  - 4.13.1 (retour du pharmacien du 15/11, « option mobile money active mais toujours un ticket pour la caisse ») :
-//    sans droit de clôture (profil prévente), « PAYER PAR MOBILE MONEY » EST proposé ; le paiement est créé avec
-//    `cloturer:false` (le serveur n'exige le droit que pour cloturer:true) ; payé → ticket « PAYÉE » « la caisse
-//    termine la vente » ; avec le droit : `cloturer:true` comme avant ;
+//  - 4.13.1 (retour du pharmacien du 15/11) : sans droit de clôture, mobile money proposé avec `cloturer:false` ;
+//    4.15.2 (demande 64, règle du pharmacien du 19/11 : « s'il paye par mobile money la vente est validée ») : ce
+//    paiement sans clôture n'existe plus ; sans droit de clôture, « PAYER PAR MOBILE MONEY » n'est PAS proposé (le
+//    client valide sa prévente et paie à la caisse) ; avec le droit : `cloturer:true` comme avant ;
 //  - 403 interdit pendant un paiement mobile money : « Paiement mobile indisponible, rendez-vous à la caisse avec votre
 //    ticket », ticket de prévente imprimé, vente gardée, aucune nouvelle tentative, borne toujours connectée ;
-//  - « Tester la borne » : « Utilisateur borne sans droit de clôture : paiement mobile proposé SANS clôture automatique ».
+//  - « Tester la borne » : « Utilisateur borne sans droit de clôture : paiement mobile money NON proposé » (4.15.2).
 // Données fictives uniquement.
 import 'dart:convert';
 
@@ -158,26 +158,18 @@ void main() {
 
   group('Écran de la borne', () {
     // Cas signalé par le pharmacien le 15/11 : compte borne au profil PRÉVENTE + option mobile money active.
-    testWidgets('profil prévente + option active : mobile money PROPOSÉ, cloturer:false, ticket « PAYÉE » à terminer en caisse', (t) async {
+    testWidgets('profil prévente + option active : 4.15.2, mobile money NON proposé (plus de cloturer:false), payer en caisse', (t) async {
       DroitsVente.instance.fixer({'P_SM_VENTE'}, utilisateur: 'U-borne.accueil');
       final pm = _Pm()..payer = true;
       final (gw, imp) = await _borne(t, pm);
       expect(find.byKey(const ValueKey('borne-payer')), findsOneWidget);
-      final mobile = find.byKey(const ValueKey('borne-payer-mobile'));
-      expect(mobile, findsOneWidget, reason: 'bouton visible (bogue du 15/11)');
-      await t.ensureVisible(mobile);
-      await t.pump();
-      await t.tap(mobile);
-      await t.pump();
-      await t.tap(find.byKey(const ValueKey('borne-operateur-wave')));
-      await _avancer(t, const Duration(seconds: 6));
-      expect(pm.cloturers, [false], reason: 'sans le droit : jamais cloturer:true (refusé par le serveur)');
+      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsNothing,
+          reason: 'règle du pharmacien du 19/11 : payer à la borne termine la vente ; sans droit de clôture, pas de paiement');
+      await t.tap(find.byKey(const ValueKey('borne-payer')));
+      await _avancer(t, const Duration(seconds: 2));
+      expect(pm.cloturers, isEmpty, reason: 'aucune demande de paiement');
       expect(gw.terminees, 1);
-      expect(imp.tickets, hasLength(1));
-      expect(imp.tickets.single.paye, isTrue);
-      expect(imp.tickets.single.aTerminer, isTrue);
-      expect(imp.tickets.single.invitationTexte, BorneTicket.invitationPayeeATerminer);
-      expect(find.byKey(const ValueKey('borne-avis-ticket')), findsNothing);
+      expect(imp.tickets.single.paye, isFalse, reason: 'ticket de prévente pour la caisse');
       expect(t.takeException(), isNull);
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 1));
@@ -217,7 +209,7 @@ void main() {
       expect(find.byKey(const ValueKey('borne-payer-mobile')), findsOneWidget, reason: 'avec le droit : proposé comme avant');
       DroitsVente.instance.fixer({'P_SM_VENTE'}, utilisateur: 'U-borne.accueil');
       await t.pump();
-      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsOneWidget, reason: '4.13.1 : proposé, sans clôture automatique');
+      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsNothing, reason: '4.15.2 : plus proposé sans droit de clôture');
       expect(find.byKey(const ValueKey('borne-payer')), findsOneWidget);
       expect(t.takeException(), isNull);
       await t.pumpWidget(const SizedBox());
@@ -266,11 +258,12 @@ void main() {
           return d;
         });
 
-    test('sans droit de clôture : « … paiement mobile proposé SANS clôture automatique »', () async {
+    test('sans droit de clôture : « … paiement mobile money NON proposé » (4.15.2)', () async {
       final d = await tester(['P_SM_VENTE']);
       final e = d.etapes.firstWhere((e) => e.titre == titreDroitCloture);
       expect(e.etat, EtatEtapeBorne.attention);
-      expect(e.detail, startsWith('Utilisateur borne sans droit de clôture : paiement mobile proposé SANS clôture automatique'));
+      expect(e.detail, startsWith('Utilisateur borne sans droit de clôture : paiement mobile money NON proposé'));
+      expect(e.detail, contains('P_BORNE_PAIEMENT_MOBILE'));
       expect(d.ok, isTrue, reason: 'la borne fonctionne (ticket pour la caisse)');
     });
 
@@ -281,7 +274,7 @@ void main() {
   });
 
   group('Borne dans l\'application (e2e)', () {
-    testWidgets('connexion de la borne : droits lus avec son en-tête ; profil prévente + option active → mobile money proposé', (t) async {
+    testWidgets('connexion de la borne : droits lus avec son en-tête ; profil prévente + option active → 4.15.2 : payer en caisse seul', (t) async {
       TailleEcran.telephone360x800.appliquer(t);
       final avantSecrets = BorneReglages.secrets;
       BorneReglages.secrets = MemoireBorneSecrets('Borne#2026');
@@ -328,7 +321,7 @@ void main() {
       await t.tap(find.byKey(const ValueKey('borne-voir-panier')));
       await app.attendre(t, const Duration(milliseconds: 500));
       expect(find.byKey(const ValueKey('borne-payer')), findsOneWidget);
-      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsOneWidget, reason: 'cas du pharmacien du 15/11');
+      expect(find.byKey(const ValueKey('borne-payer-mobile')), findsNothing, reason: '4.15.2 (demande 64) : sans droit de clôture');
       expect(t.takeException(), isNull);
       await app.fermer(t);
     });

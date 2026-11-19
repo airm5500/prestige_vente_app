@@ -8,7 +8,10 @@
 //   3. GET v1/paiements-mobile/capacites : module présent (404 = serveur ancien) et au moins un opérateur (liste vide =
 //      aucun compte de paiement configuré sur le serveur : variables PRESTIGE_PAIEMENTS_* + redémarrage) ;
 //   4. droit de clôture du compte qui paie (borne : l'utilisateur borne ; règle 4.5.1) : P_SM_CLOTURER_CAISSE,
-//      P_SM_DEPOT_EXTENSION ou P_BT_MODIFICATION_DE_VENTE ; droits inconnus (serveur ancien) : pas d'obstacle.
+//      P_SM_DEPOT_EXTENSION ou P_BT_MODIFICATION_DE_VENTE (borne : aussi P_BORNE_PAIEMENT_MOBILE, 4.15.0) ; droits
+//      inconnus (serveur ancien) : pas d'obstacle. 4.15.2 (demande 64, règle du pharmacien du 19/11 : payer à la
+//      borne termine la vente) : à la borne aussi, sans ce droit, le paiement n'est PLUS proposé (fin du « proposé
+//      sans clôture automatique » de 4.13.1).
 // Les capacités sont relues à chaque vérification (jamais seulement au démarrage).
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
@@ -44,11 +47,13 @@ class DiagnosticMobileMoney {
       {this.operateurs = const [], this.compte = '', this.borne = true, this.droitManquantAussi = false, this.detail = '', this.parDroitBorne = false});
 
   /// 4.15.0 : précision ajoutée à « Proposé au client » quand la clôture automatique vient du droit de la borne.
+  /// 4.15.2 (demande 64) : caisse fermée → le serveur refuse le paiement avant tout encaissement (le client paie à la
+  /// caisse) ; un serveur sans la demande 64 encaisse puis laisse un ticket « PAYÉE » que la caisse termine.
   String get _noteDroitBorne => ' Clôture automatique par le droit P_BORNE_PAIEMENT_MOBILE du compte de la borne « $compte » : '
-      'elle demande une caisse ouverte pour ce compte ; sinon le client reçoit un ticket « PAYÉE » et la caisse termine la '
-      'vente payée.';
+      'elle demande une caisse ouverte pour ce compte ; sinon le client paie à la caisse (serveur sans la demande 64 : '
+      'ticket « PAYÉE » et la caisse termine la vente payée).';
 
-  /// Proposé au client (4.13.1 : aussi à la borne sans droit de clôture, la caisse termine alors la vente payée).
+  /// Proposé au client. [EtatMobileMoney.proposeSansCloture] (4.13.1) n'est plus produit depuis 4.15.2.
   bool get propose => etat == EtatMobileMoney.propose || etat == EtatMobileMoney.proposeSansCloture;
 
   static const messageDesactive = 'Désactivé : le client paie à la caisse (ticket de prévente).';
@@ -58,8 +63,12 @@ class DiagnosticMobileMoney {
       '(agrégateur). Les modes Wave / Orange de la caisse ne suffisent pas : faites configurer le compte de paiement du '
       'serveur, puis redémarrez-le.';
 
-  String get _messageSansDroit => 'Mobile Money activé, mais le compte ${borne ? 'de la borne ' : ''}« $compte » n\'a pas le droit de '
-      'clôturer : donnez-lui P_SM_CLOTURER_CAISSE (ou P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE).';
+  String get _messageSansDroit => borne
+      ? 'Mobile Money activé, mais le compte de la borne « $compte » ne peut pas terminer une vente : paiement mobile money '
+          'non proposé au client (payer à la borne termine la vente). Donnez-lui P_BORNE_PAIEMENT_MOBILE (ou '
+          'P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE).'
+      : 'Mobile Money activé, mais le compte « $compte » n\'a pas le droit de '
+          'clôturer : donnez-lui P_SM_CLOTURER_CAISSE (ou P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE).';
 
   /// Ligne d'état affichée sous l'option (écrans d'administration).
   String get message => switch (etat) {
@@ -116,10 +125,10 @@ Future<DiagnosticMobileMoney> diagnostiquerMobileMoney({
   if (ops.isEmpty) {
     return DiagnosticMobileMoney(EtatMobileMoney.sansCompte, compte: compte, borne: borne, droitManquantAussi: !droit);
   }
-  // 4.13.1 : à la borne, le paiement est proposé sans clôture automatique (le serveur n'exige le droit que pour
-  // cloturer:true). Ailleurs (encaissement de l'appli), il faut toujours le droit de terminer une vente.
+  // 4.15.2 (demande 64) : sans le droit de terminer la vente, le paiement n'est proposé NULLE PART (à la borne non
+  // plus : fin du « proposé sans clôture automatique » de 4.13.1).
   if (!droit) {
-    return DiagnosticMobileMoney(borne ? EtatMobileMoney.proposeSansCloture : EtatMobileMoney.sansDroit, operateurs: ops, compte: compte, borne: borne);
+    return DiagnosticMobileMoney(EtatMobileMoney.sansDroit, operateurs: ops, compte: compte, borne: borne);
   }
   return DiagnosticMobileMoney(EtatMobileMoney.propose, operateurs: ops, compte: compte, borne: borne, parDroitBorne: parDroitBorne);
 }

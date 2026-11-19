@@ -101,12 +101,14 @@ void main() {
     await app.fermer(t);
   });
 
-  testWidgets('borne configurée : utilisateur borne sans droit → proposé sans clôture auto, compte nommé ; avec le droit → proposé', (t) async {
+  testWidgets('borne configurée : utilisateur borne sans droit → non proposé (4.15.2), compte nommé ; avec le droit → proposé', (t) async {
     final app = await _ouvrir(t, capacites: ok, droitsCompte: cloture, droitsBorne: const ['P_SM_VENTE'], borne: true);
     expect(_texte(t, 'pm-etat-appareil'), contains('Proposé au client'));
-    expect(_texte(t, 'pm-etat-borne'), contains('Le compte de la borne « $_borne » n\'a pas le droit de terminer une vente'));
+    expect(_texte(t, 'pm-etat-borne'), contains('le compte de la borne « $_borne » ne peut pas terminer une vente'));
     expect(app.serveur.recuesSur('/user/logout'), isNotEmpty, reason: 'session d\'essai de la borne fermée');
     app.serveur.droitsComptes = {DonneesFictives.login: cloture, _borne: cloture};
+    // 4.15.2 : texte « non proposé » plus long, bouton plus bas sur le Sunmi V2s.
+    await app.defilerJusqua(t, find.byKey(const ValueKey('pm-verifier')));
     await t.tap(find.byKey(const ValueKey('pm-verifier')));
     await app.attendre(t, const Duration(seconds: 3));
     expect(_texte(t, 'pm-etat-borne'), contains('Proposé au client : Orange Money, Wave.'));

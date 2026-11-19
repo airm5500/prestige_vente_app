@@ -1,7 +1,7 @@
 // UNITAIRES — 4.15.0 : demande 62 (branche serveur correctif/demande62-1911, fb0a3cc2) et décision du pharmacien du
 // 19/11 (remise ouverte aux comptes de prévente). Données FICTIVES uniquement.
 //  - droit P_BORNE_PAIEMENT_MOBILE : clôture automatique de la borne, JAMAIS « Terminer une vente » ;
-//  - repli sûr sur un 403 `interdit` à cloturer:true (une seule nouvelle demande, cloturer:false, même clé) ;
+//  - 403 `interdit` à cloturer:true : 4.15.2 (demande 64, règle du pharmacien) plus de repli cloturer:false ;
 //  - « vente terminée » seulement si le serveur confirme la clôture (`cloture:true`) ;
 //  - prévente payée : lecture de `paiementMobile` / `typeReglementAttente`, textes du bandeau et de la liste ;
 //  - refus `{success:false, paiementMobile:true}` reconnu ; serveur ancien : rien de tout cela.
@@ -86,7 +86,7 @@ void main() {
       expect(b.etat, EtatMobileMoney.propose);
       expect(b.message, contains('P_BORNE_PAIEMENT_MOBILE'));
       expect(b.message, contains('caisse ouverte'));
-      expect((await diag({'P_SM_VENTE'})).etat, EtatMobileMoney.proposeSansCloture, reason: 'inchangé (4.13.1)');
+      expect((await diag({'P_SM_VENTE'})).etat, EtatMobileMoney.sansDroit, reason: '4.15.2 (demande 64) : plus proposé sans clôture');
       final avec = await diag({'P_SM_CLOTURER_CAISSE'});
       expect(avec.message, 'Proposé au client : Wave.', reason: 'texte de 4.14.0 inchangé');
       expect((await diag({'P_SM_VENTE', DroitsVente.bornePaiementMobileDroit}, borne: false)).etat, EtatMobileMoney.sansDroit,
@@ -94,18 +94,17 @@ void main() {
     });
   });
 
-  group('Paiement de la borne : repli et clôture confirmée', () {
-    test('403 interdit à cloturer:true, repli demandé : UNE nouvelle demande cloturer:false, même clé X-Client-Ref', () async {
+  group('Paiement de la borne : sans repli (4.15.2) et clôture confirmée', () {
+    test('4.15.2 (demande 64) : 403 interdit à cloturer:true → AUCUNE nouvelle demande cloturer:false', () async {
       final api = _Api();
       final a = AttentePaiement(api);
-      await a.demarrer(venteId: 'V1', operateur: 'wave', cloturer: true, repliSiInterdit: true);
-      expect(api.creations.map((c) => c.$1), [true, false]);
-      expect(api.creations[0].$2, api.creations[1].$2);
-      expect((a.repliSansCloture, a.clotureDemandee, a.interdit, a.paiement?.id), (true, false, false, 'PM1'));
+      await a.demarrer(venteId: 'V1', operateur: 'wave', cloturer: true);
+      expect(api.creations.map((c) => c.$1), [true]);
+      expect((a.clotureDemandee, a.interdit, a.refusAvantPaiement, a.paiement), (true, true, false, null));
       a.dispose();
     });
 
-    test('403 sans repli demandé (serveur sans la demande 62) : comportement de 4.14.0 (aucune nouvelle demande)', () async {
+    test('403 (serveur sans la demande 62) : comportement de 4.14.0 (aucune nouvelle demande)', () async {
       final api = _Api();
       final a = AttentePaiement(api);
       await a.demarrer(venteId: 'V1', operateur: 'wave', cloturer: true);
@@ -114,12 +113,12 @@ void main() {
       a.dispose();
     });
 
-    test('second refus impossible à cloturer:false : jamais plus de deux demandes', () async {
+    test('paiement accepté à cloturer:true : une seule demande, clôture demandée', () async {
       final api = _Api()..refuserCloture = false;
       final a = AttentePaiement(api);
-      await a.demarrer(venteId: 'V1', operateur: 'wave', cloturer: true, repliSiInterdit: true);
+      await a.demarrer(venteId: 'V1', operateur: 'wave', cloturer: true);
       expect(api.creations, hasLength(1));
-      expect((a.repliSansCloture, a.clotureDemandee), (false, true));
+      expect((a.clotureDemandee, a.paiement?.id), (true, 'PM1'));
       a.dispose();
     });
 

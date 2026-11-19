@@ -52,6 +52,9 @@ class Demande62Fictive {
   final List<String> refusClotures = [];
   int _n = 0;
 
+  /// Contrôle supplémentaire avant la création d'un paiement (demande 64), null : aucun.
+  String? Function(String? login, String venteId, Map<String, dynamic> corps)? controleAvantCreation;
+
   Demande62Fictive(this.s, {this.d62 = true, int nombreVentes = 40}) {
     s.routes['GET /paiements-mobile/capacites'] = (_) => FauxServeurPrestige.ok({
           'success': true,
@@ -76,6 +79,10 @@ class Demande62Fictive {
         }
       }
       final venteId = '${j['venteId']}';
+      // 4.15.2 : contrôle ajouté par la demande 64 (test/outils/demande64_fictive.dart), après le droit, avant toute
+      // création : `{success:false, message}`.
+      final refus = controleAvantCreation?.call(login, venteId, j);
+      if (refus != null) return FauxServeurPrestige.ok({'success': false, 'message': refus});
       final montant = _net(venteId);
       final p = PaiementFictif('PM-FICT-${++_n}', venteId, montant, '${j['operateur']}', login ?? '', cloturer);
       _ajouter(p);

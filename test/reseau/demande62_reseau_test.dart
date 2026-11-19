@@ -91,20 +91,21 @@ void main() {
         expect(c.preventePayee, isNotNull);
       }));
 
-  test('borne : 403 puis cloturer:false sur un serveur lent ; serveur coupé : une seule tentative, aucun repli', () => avecVraiHttp(() async {
+  test('borne : 403 sur un serveur lent → aucun repli (4.15.2) ; serveur coupé : une seule tentative', () => avecVraiHttp(() async {
         srv.droitsComptes = {DonneesFictives.login: ['P_SM_VENTE']};
         final id = d62.preventeDeLaBorne(payee: false);
         srv.latence = const Duration(milliseconds: 600);
         final pm = DioPaiementsMobileApi(() => api.dio);
         final a = AttentePaiement(pm);
-        await a.demarrer(venteId: id, operateur: 'wave', cloturer: true, repliSiInterdit: true);
-        expect((a.repliSansCloture, a.paiement?.clotureAuto), (true, false));
+        await a.demarrer(venteId: id, operateur: 'wave', cloturer: true);
+        expect((a.interdit, a.paiement), (true, null));
+        expect(d62.creations.map((c) => c['cloturer']), [true], reason: 'jamais cloturer:false');
         a.dispose();
         srv.latence = Duration.zero;
         await srv.arreter();
         final b = AttentePaiement(pm);
-        await b.demarrer(venteId: id, operateur: 'wave', cloturer: true, repliSiInterdit: true);
-        expect((b.repliSansCloture, b.paiement, b.interdit), (false, null, false));
+        await b.demarrer(venteId: id, operateur: 'wave', cloturer: true);
+        expect((b.paiement, b.interdit, b.refusAvantPaiement), (null, false, false));
         expect(b.erreur, contains('injoignable'));
         b.dispose();
       }));

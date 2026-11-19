@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.15.1+47** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Version en préparation (pas encore publiée) : **4.15.2+48** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -67,7 +67,10 @@ serveur n'a pas terminé la vente, prévente payée terminée au comptoir avec s
 actifs seulement quand le serveur les fournit) et remise ouverte aux comptes de prévente (4.15.0+46, voir
 `docs/NOTE_VERSION_4.15.0.md`) + réponse du serveur à la demande 63 (ticket du serveur en niveaux de gris converti en
 1 bit pour l'imprimante, droit P_REMISE_VENTE, « sans remise » = "0", net rendu par vente/remise ; actifs seulement
-quand le serveur les fournit) (4.15.1+47, voir `docs/NOTE_VERSION_4.15.1.md`).
+quand le serveur les fournit) (4.15.1+47, voir `docs/NOTE_VERSION_4.15.1.md`) + réponse du serveur aux demandes 64
+et 65 (borne : paiement mobile money seulement s'il termine la vente, refus « caisse fermée » → payer en caisse, plus
+de paiement `cloturer:false` ; comptoir : refus du panier verrouillé affichés tels quels, ancienne interface comprise)
+(4.15.2+48, voir `docs/NOTE_VERSION_4.15.2.md`).
 
 **Prestige Pointage** (borne de pointage sans compte, `com.dici.prestigepointage`, même dépôt, saveur Android
 `pointage`) a sa **propre** version, dans `android/app/prestigepointage-version.properties` (`nomVersion`,

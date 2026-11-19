@@ -109,6 +109,8 @@ class BorneScreen extends StatefulWidget {
   static const indisponibleTitre = 'Borne momentanément indisponible';
 
   /// 4.5.1 : paiement mobile money refusé faute de droit de clôture (403 interdit) : le client va à la caisse.
+  /// 4.15.2 (demande 64) : même avis quand le serveur refuse le paiement AVANT tout encaissement (« Paiement mobile
+  /// money impossible : … », caisse de la borne fermée, stock…) : le motif, destiné à l'équipe, va au journal.
   static const avisMobileIndisponible = 'Paiement mobile indisponible, rendez-vous à la caisse avec votre ticket.';
   static const indisponibleTexte = 'Adressez-vous au comptoir';
   static const toujoursLa = 'Êtes-vous toujours là ?';
@@ -152,19 +154,16 @@ class BorneScreenState extends State<BorneScreen> {
   List<String> _opsMobile = const [];
 
   /// Opérateurs PROPOSÉS au client (réglage « Proposer le paiement mobile money » actif, serveur avec compte de
-  /// paiement). 4.13.1 (retour du pharmacien du 15/11) : plus réservés à un utilisateur borne qui a le droit de
-  /// terminer une vente. Le serveur (PaiementsMobileRessource.creer) n'exige ce droit QUE pour `cloturer:true` ;
-  /// sans lui, le paiement est créé avec `cloturer:false` : le client paie, la vente reste une prévente payée que la
-  /// caisse termine (ticket « PAYÉE », voir [_clotureAuto]).
-  List<String> get _opsProposes => _opsMobile;
+  /// paiement) : 4.15.2 (demande 64, règle du pharmacien du 19/11 : « à la borne le client peut soit payer par mobile
+  /// money soit valider sa prévente et aller à la caisse ; s'il paye par mobile money la vente est validée ») :
+  /// seulement si la borne peut TERMINER la vente ([_clotureAuto]). Le paiement sans clôture de 4.13.1
+  /// (`cloturer:false`, prévente payée laissée à la caisse) n'existe plus à la borne.
+  List<String> get _opsProposes => _clotureAuto ? _opsMobile : const [];
 
   /// Clôture automatique de la vente à la confirmation du paiement : seulement avec le droit de terminer une vente
   /// (P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE ; droits inconnus : comme avant) ou,
   /// 4.15.0 (demande 62), avec le droit propre de la borne P_BORNE_PAIEMENT_MOBILE (serveur qui l'expose).
   bool get _clotureAuto => DroitsVente.instance.cloturerPaiementMobile;
-
-  /// Le paiement en cours a été demandé avec la clôture automatique.
-  bool _clotureLancee = true;
 
   /// 4.5.1 : message affiché avec le ticket (paiement mobile refusé faute de droit).
   String? _avisTicket;
@@ -677,20 +676,19 @@ class BorneScreenState extends State<BorneScreen> {
       _validation = false;
       vue = BorneVue.mobile;
     });
-    _clotureLancee = _clotureAuto;
-    // 4.15.0 : 403 `interdit` à cloturer:true avec le droit P_BORNE_PAIEMENT_MOBILE (droit retiré depuis la lecture) :
-    // paiement redemandé une fois avec cloturer:false (le serveur refuse avant de rien créer). Sans ce droit (serveur
-    // sans la demande 62) : comportement d'avant (ticket de prévente pour la caisse).
-    a.demarrer(
-        venteId: p.venteId, operateur: op, cloturer: _clotureLancee, repliSiInterdit: _clotureLancee && DroitsVente.instance.bornePaiementMobile);
+    // 4.15.2 (demande 64) : toujours `cloturer:true` à la borne, une seule demande. 403 `interdit` (droit retiré
+    // depuis la lecture) ou refus « Paiement mobile money impossible » (serveur avec la demande 64 : caisse de la
+    // borne fermée, stock, vente incomplète) : aucun paiement créé → ticket de prévente, le client paie à la caisse.
+    a.demarrer(venteId: p.venteId, operateur: op, cloturer: true);
   }
 
   void _onAttente(BornePrevente p, String op) {
     final a = _attente;
     if (!mounted || a == null) return;
     // 4.5.1 : refus de droit (403 interdit) : aucun paiement créé ; ticket de prévente imprimé pour la caisse, vente
-    // gardée, pas de nouvelle tentative, la borne reste connectée.
-    if (a.interdit && vue == BorneVue.mobile) {
+    // gardée, pas de nouvelle tentative, la borne reste connectée. 4.15.2 (demande 64) : de même pour le refus
+    // « Paiement mobile money impossible » (rien créé, aucun QR montré, jamais de demande avec cloturer:false).
+    if ((a.interdit || a.refusAvantPaiement) && vue == BorneVue.mobile) {
       _attente = null;
       // Libérée après la notification en cours (jamais pendant son propre appel).
       Future.microtask(a.dispose);
@@ -709,8 +707,8 @@ class BorneScreenState extends State<BorneScreen> {
               clientRefus: p.clientRefus),
           payePar: nomOperateur[op] ?? op,
           // 4.15.0 (demande 62) : « vente terminée » seulement si le serveur confirme la clôture (`cloture:true`) ;
-          // sinon (cloturer:false, repli, ou clôture refusée faute de caisse ouverte pour le compte de la borne) :
-          // ticket « PAYÉE, présentez ce ticket à la caisse ».
+          // sinon (clôture refusée faute de caisse ouverte pour le compte de la borne : serveur sans la demande 64,
+          // ou caisse fermée entre la demande et le paiement) : ticket « PAYÉE, présentez ce ticket à la caisse ».
           aTerminer: !a.paiement!.clotureConfirmee);
       return;
     }
