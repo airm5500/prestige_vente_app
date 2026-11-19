@@ -2,8 +2,10 @@
 // 4.14.0 — Ticket DESSINÉ PAR LE SERVEUR (demande de la session principale du 19/11/2026, « ticket 58 mm (terminal) et
 // 80 mm (tablette), identique au web »).
 //
-// 4.15.1 — Contrat VÉRIFIÉ dans le code du serveur (réponse à la demande 63, correctif/demande63-1911, bb6b4604,
-// pas encore fusionnée ; le serveur de l'officine n'a pas la route) :
+// 4.15.1 — Contrat VÉRIFIÉ dans le code du serveur (réponse à la demande 63, correctif/demande63-1911, bb6b4604),
+// inchangé à la fusion dans integration/recette-2026-10-29 (76aa5fc1), DÉPLOYÉE en officine le 19/11 : l'image du
+// serveur est le chemin normal ; le gabarit local reste le repli d'un serveur plus ancien (404 / 405 : autre officine,
+// sauvegarde restaurée) :
 //   GET v1/vente/ticket/{type}/{id}/image?largeur=58|80&dpi=203   type = vno | vo | prevente (PAS de « vo-combine » :
 //   la route vo renvoie tous les tickets de la vente dans l'ordre d'impression, deux organismes compris)
 //   → {success:true, largeur:58|80, dpi, tickets:[{modele, png (base64), largeurPoints, hauteurPoints}]}
@@ -16,9 +18,10 @@
 // Le mobile n'appelle JAMAIS `POST v1/vente/ticket/vno` ni `ticket/vo` : ces routes impriment sur l'imprimante du
 // serveur (caisse). Vérifié le 19/11 : aucun appel dans l'application.
 //
-// RÈGLE DE NON-RÉGRESSION : tant qu'un serveur répond 404 / 405 (route absente : serveur de l'officine aujourd'hui),
-// le ticket est imprimé avec le gabarit local (lib/services/ticket_texte.dart), comme en 4.15.0. Date de déploiement
-// de la route en officine : pas encore fixée par le serveur.
+// RÈGLE DE NON-RÉGRESSION : tant qu'un serveur répond 404 / 405 (route absente : serveur antérieur au 19/11), le
+// ticket est imprimé avec le gabarit local (lib/services/ticket_texte.dart), comme en 4.15.0. Le serveur autorise le
+// retrait du gabarit local ; il est GARDÉ comme repli tant qu'une officine peut tourner sur un serveur plus ancien
+// (retrait prévu dans une version suivante, docs/NOTE_VERSION_4.15.1.md).
 //
 // États de la route, par adresse de serveur, gardés en mémoire :
 //  - inconnue : on essaie ; 404 / 405 → absente (gabarit local) ; réseau → gabarit local (rien n'a jamais été dessiné

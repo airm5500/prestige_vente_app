@@ -21,8 +21,9 @@
 //  - hors ligne : aucune route ; la remise n'est pas proposée hors ligne (elle n'est appliquée qu'après la réponse
 //    du serveur).
 //
-// 4.15.1 — Réponse du serveur à la demande 63 (correctif/demande63-1911, bb6b4604, vérifiée dans le code, PAS encore
-// fusionnée ; le serveur de l'officine ne l'a pas) :
+// 4.15.1 — Réponse du serveur à la demande 63 (correctif/demande63-1911, bb6b4604, vérifiée dans le code), fusionnée
+// sans changement dans integration/recette-2026-10-29 (76aa5fc1) et déployée en officine le 19/11. La détection du
+// serveur est gardée (autres officines, sauvegardes : serveur plus ancien possible) :
 //  - droit P_REMISE_VENTE « Remise sur une vente » : POST v1/vente/remise (et v2) → 403 {interdit:true, msg:"Droit
 //    manquant : Remise sur une vente"} sans lui ; listé par GET v1/user/droits ; la migration le donne à TOUS les
 //    rôles existants, le pharmacien le retire ensuite par rôle. Règle de l'application (remiseAutorisee) : droits
