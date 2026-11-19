@@ -55,8 +55,18 @@ class _Pm implements PaiementsMobileApi {
   @override
   Future<VenteResult<PaiementMobile>> statut(String id) async {
     statuts++;
+    // Comme le serveur : la clôture automatique demandée est faite à la confirmation du paiement (`cloture:true`).
+    final auto = cloturers.isNotEmpty && cloturers.last;
     return VenteOk(PaiementMobile(
-        id: 'PM1', venteId: 'V1', reference: 'R', montant: 3000, operateur: 'wave', statut: payer ? StatutPM.paye : StatutPM.enAttente, lien: ''));
+        id: 'PM1',
+        venteId: 'V1',
+        reference: 'R',
+        montant: 3000,
+        operateur: 'wave',
+        statut: payer ? StatutPM.paye : StatutPM.enAttente,
+        lien: '',
+        clotureAuto: auto,
+        cloture: payer && auto));
   }
 
   @override

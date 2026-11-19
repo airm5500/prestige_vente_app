@@ -20,6 +20,7 @@ import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/paiements/attente_paiement_screen.dart';
 import 'package:prestige_vente_app/paiements/mode_paiement_logo.dart';
 import 'package:prestige_vente_app/paiements/paiements_mobile.dart';
+import 'package:prestige_vente_app/paiements/prevente_payee.dart';
 import 'package:prestige_vente_app/ventes/core/paiement_multiple.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart' show maxReglements;
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
@@ -110,6 +111,14 @@ class EncaissementPage extends StatefulWidget {
   /// B3 : paiement par QR mobile money (agrégateur) ; null : celui de l'appli (désactivé par défaut).
   final PaiementsMobile? paiementsMobile;
 
+  /// 4.15.0 (demande 62) : prévente DÉJÀ PAYÉE par mobile money (champ `paiementMobile` du serveur) ; null : page
+  /// d'origine, rien ne change.
+  final PreventePayee? dejaPayee;
+
+  /// Vente comptant : mode de l'opérateur imposé, montant payé non modifiable, « Terminer la vente » sans redemander
+  /// l'argent (règle du serveur, ClotureComptoir). false (assurance) : bandeau seulement, le serveur n'y contrôle rien.
+  final bool dejaPayeeImpose;
+
   const EncaissementPage({
     super.key,
     this.controller,
@@ -125,6 +134,8 @@ class EncaissementPage extends StatefulWidget {
     this.stepsHeader,
     this.horsLigneNote,
     this.paiementsMobile,
+    this.dejaPayee,
+    this.dejaPayeeImpose = true,
   }) : assert(controller != null || actions != null);
 
   @override
@@ -234,8 +245,70 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         ),
       );
 
+  // --- 4.15.0 (demande 62) : prévente déjà payée par mobile money -----------------------
+  PreventePayee? get _payee => widget.horsLigneNote == null ? widget.dejaPayee : null;
+
+  /// Mode imposé : vente comptant déjà payée (sinon page d'origine, bandeau seulement pour l'assurance).
+  bool get _impose => _payee != null && widget.dejaPayeeImpose;
+
+  /// Mode de l'opérateur : celui de la liste du serveur (même s'il n'est pas activé sur l'appareil), sinon construit.
+  PaymentMethod _modePayee() {
+    final p = _payee!;
+    return (_methods ?? const <PaymentMethod>[]).where((m) => m.id == p.typeReglement).firstOrNull ??
+        PaymentMethod(id: p.typeReglement, name: p.operateurLibelle);
+  }
+
+  /// Complément (net augmenté depuis le paiement) : mode choisi, montant reçu (espèces) ou « Reçu » coché.
+  PaymentMethod? _complementMode;
+  final _complementRecu = TextEditingController();
+  bool _complementConfirme = false;
+
+  int get _complement => _net - (_payee?.montant ?? 0);
+
+  ReglementLigne? _ligneComplement() {
+    final m = _complementMode;
+    if (m == null || _complement <= 0) return null;
+    return ReglementLigne(m, _complement, recu: int.tryParse(_complementRecu.text.trim()), confirme: _complementConfirme);
+  }
+
+  /// Pourquoi « Terminer la vente » est bloqué (null : prêt).
+  String? get _blocagePayee {
+    final p = _payee;
+    if (p == null) return null;
+    if (_net < p.montant) return p.consigne(_net);
+    if (_net == p.montant) return null;
+    final l = _ligneComplement();
+    if (l == null) return 'Choisissez le mode du complément (${Constants.formatNumber(_complement)} F).';
+    if (_actions.encaisserReglements == null) return 'Complément impossible ici : voyez le responsable.';
+    final e = l.erreur;
+    return e == null ? null : (e.isEmpty ? 'Complément non reçu.' : e);
+  }
+
+  Future<void> _validerPayee() async {
+    final p = _payee;
+    if (_busy || p == null || _blocagePayee != null) return;
+    final op = _modePayee();
+    if (_net == p.montant) {
+      // Une seule clôture, mode de l'opérateur pour tout le net : rien n'est encaissé à nouveau.
+      await _submit(
+        () => _actions.encaisser(op, null, null),
+        (deja) => (method: op, recu: null, remis: null, dejaCloturee: deja, copies: _print ? _copies : 0, reglements: const []),
+      );
+      return;
+    }
+    final lignes = [ReglementLigne(op, p.montant, confirme: true), _ligneComplement()!];
+    final monnaie = lignes.fold<int>(0, (s, l) => s + l.monnaie);
+    final recu = _net + monnaie;
+    final principal = lignes.reduce((a, b) => b.montant > a.montant ? b : a).method;
+    await _submit(
+      () => _actions.encaisserReglements!(lignes, recu, monnaie),
+      (deja) => (method: principal, recu: recu, remis: monnaie, dejaCloturee: deja, copies: _print ? _copies : 0, reglements: lignes),
+    );
+  }
+
   @override
   void dispose() {
+    _complementRecu.dispose();
     _cash.dispose();
     for (final c in [..._parts.values, ..._recus.values]) {
       c.dispose();
@@ -498,6 +571,9 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
       body = LoadErrorView(message: 'Modes de règlement non chargés : $_loadError', onRetry: _loadMethods);
     } else if (_methods == null) {
       body = const Center(child: CircularProgressIndicator());
+    } else if (_impose) {
+      // 4.15.0 : mode imposé même s'il n'est pas activé sur l'appareil (aucune page « aucun mode »).
+      body = _formPayee(methods);
     } else if (methods.isEmpty) {
       body = _noMethod();
     } else {
@@ -505,7 +581,7 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
     }
     // Tablette paysage : résumé de la vente à côté des modes de règlement.
     final split = Responsive.isExpanded(context);
-    if (split && _methods != null && methods.isNotEmpty) {
+    if (split && _methods != null && methods.isNotEmpty && !_impose) {
       body = Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Expanded(child: body),
         SizedBox(width: 320, child: _resume(method, totalText)),
@@ -556,7 +632,7 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
           ),
         ],
         body: body,
-        bottomNavigationBar: _bottom(methods, method),
+        bottomNavigationBar: _impose && _methods != null ? _bottomPayee() : _bottom(methods, method),
       ),
     );
   }
@@ -605,10 +681,13 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
       );
     }
     final note = widget.horsLigneNote;
+    final payee = _payee;
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
       children: [
         if (note != null) ...[_Notice(key: const ValueKey('encaissement-hors-ligne'), icon: Icons.cloud_off, text: note), const SizedBox(height: 10)],
+        // 4.15.0 (demande 62) : prévente assurance déjà payée par mobile money : bandeau (le serveur n'impose rien).
+        if (payee != null) ...[PreventePayeeBandeau(payee: payee), const SizedBox(height: 10)],
         if (f != null) ..._failureViews(f),
         if (_multiPossible && methods.length > 1)
           // Même hauteur que le titre seul : la page d'origine ne bouge pas.
@@ -639,6 +718,172 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
         const SizedBox(height: 10),
         _printRow(),
       ],
+    );
+  }
+
+  /// 4.15.0 (demande 62) : prévente comptant déjà payée par mobile money. Mode de l'opérateur imposé (liste
+  /// verrouillée), montant reçu = montant payé (non modifiable), aucun QR ni montant à encaisser ; si le net a
+  /// augmenté, complément dans un autre mode (seul cas accepté par le serveur avec un second mode).
+  Widget _formPayee(List<PaymentMethod> enabled) {
+    final p = _payee!;
+    final op = _modePayee();
+    final f = _failure;
+    final complements = enabled.where((m) => m.id != op.id).toList();
+    final cm = _complementMode;
+    return ListView(
+      key: const ValueKey('encaissement-payee'),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+      children: [
+        PreventePayeeBandeau(payee: p, net: _net),
+        const SizedBox(height: 10),
+        if (f != null) ..._failureViews(f),
+        _label('Mode de paiement (imposé)'),
+        Container(
+          key: ValueKey('mode-impose-${op.id}'),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          decoration: BoxDecoration(color: const Color(0xFFE3ECF7), borderRadius: BorderRadius.circular(14), border: Border.all(color: Pal.navy, width: 2)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              ModePaiementLogo(modeId: op.id, libelle: op.name, size: 32),
+              const SizedBox(width: 10),
+              Expanded(child: Text(op.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Pal.navy))),
+              const Icon(Icons.lock_outline, color: Pal.muted, size: 20),
+            ]),
+            const SizedBox(height: 10),
+            TextFormField(
+              key: const ValueKey('encaissement-payee-recu'),
+              initialValue: Constants.formatNumber(p.montant),
+              enabled: false,
+              readOnly: true,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Pal.ink),
+              decoration: InputDecoration(
+                labelText: 'Montant reçu (F) — déjà payé',
+                prefixIcon: const Icon(Icons.check_circle, color: Pal.green),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ]),
+        ),
+        if (_net > p.montant) ...[
+          const SizedBox(height: 14),
+          _label('Complément : ${_f(_complement)}'),
+          if (complements.isEmpty)
+            const Text('Aucun autre mode activé sur cet appareil (Réglages › Modes de paiement).', style: TextStyle(color: Pal.muted))
+          else
+            LayoutBuilder(builder: (context, box) {
+              final cols = Responsive.isExpanded(context) ? 4 : 2;
+              final w = (box.maxWidth - 8 * (cols - 1)) / cols;
+              return Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final m in complements)
+                  SizedBox(
+                    width: w,
+                    child: KeyedSubtree(
+                      key: ValueKey('complement-${m.id}'),
+                      child: _tileAction(m, selected: cm?.id == m.id, onTap: () => setState(() {
+                            _complementMode = m;
+                            _complementRecu.clear();
+                            _complementConfirme = false;
+                            if (_failure?.caisse != true) _failure = null;
+                          })),
+                    ),
+                  ),
+              ]);
+            }),
+          if (cm != null) ...[
+            const SizedBox(height: 10),
+            if (estEspeces(cm))
+              TextField(
+                key: const ValueKey('complement-recu'),
+                controller: _complementRecu,
+                enabled: !_busy,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'Espèces reçues pour le complément (F)',
+                  errorText: () {
+                    final e = _ligneComplement()?.erreur;
+                    return _complementRecu.text.trim().isEmpty || e == null || e.isEmpty ? null : e;
+                  }(),
+                  helperText: 'À rendre : ${_f(_ligneComplement()?.monnaie ?? 0)}',
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              )
+            else
+              InkWell(
+                onTap: _busy ? null : () => setState(() => _complementConfirme = !_complementConfirme),
+                child: Row(children: [
+                  Checkbox(
+                    key: const ValueKey('complement-confirme'),
+                    value: _complementConfirme,
+                    activeColor: Pal.green,
+                    onChanged: _busy ? null : (v) => setState(() => _complementConfirme = v ?? false),
+                  ),
+                  Expanded(child: Text('Reçu : ${_f(_complement)} par ${cm.name}', style: const TextStyle(fontSize: 14, color: Pal.ink))),
+                ]),
+              ),
+          ],
+        ],
+        const SizedBox(height: 10),
+        _printRow(),
+      ],
+    );
+  }
+
+  /// Barre du bas de la prévente déjà payée : « TERMINER LA VENTE » (ou motif du blocage).
+  Widget _bottomPayee() {
+    final guided = style == ListPresentation.guided;
+    final back = OutlinedButton(
+      style: outlineButton,
+      onPressed: _busy ? null : () => Navigator.of(context).maybePop(),
+      child: const Text('RETOUR'),
+    );
+    final blocage = _blocagePayee;
+    final ready = !_busy && blocage == null;
+    Widget content = Row(children: [
+      Expanded(child: back),
+      const SizedBox(width: 8),
+      Expanded(
+        flex: 2,
+        child: ElevatedButton(
+          key: const ValueKey('encaissement-valider'),
+          style: guided ? amberButton : navyButton,
+          onPressed: ready ? _validerPayee : null,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (_busy) ...[
+              const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.4)),
+              const SizedBox(width: 10),
+            ],
+            Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text(_busy ? 'VALIDATION…' : 'TERMINER LA VENTE'))),
+          ]),
+        ),
+      ),
+    ]);
+    // Compte sans droit de terminer une vente (profil prévente) : comme la page d'origine.
+    if (!DroitsVente.instance.terminerVente) {
+      content = Row(children: [
+        Expanded(child: back),
+        const SizedBox(width: 8),
+        const Expanded(
+          flex: 2,
+          child: Text(DroitsVente.messageReserve, key: ValueKey('encaissement-reserve'), style: TextStyle(color: Pal.muted)),
+        ),
+      ]);
+    }
+    return Material(
+      color: Colors.white,
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: SizedBox(height: 54, width: double.infinity, child: content),
+        ),
+      ),
     );
   }
 
@@ -972,21 +1217,24 @@ class _EncaissementPageState extends State<EncaissementPage> with PresentationAw
     return [_Notice(error: true, icon: Icons.error_outline, text: f.message), const SizedBox(height: 10)];
   }
 
-  Widget _tile(PaymentMethod m, {required bool selected}) => Material(
+  Widget _tile(PaymentMethod m, {required bool selected}) => _tileAction(m,
+      selected: selected,
+      key: ValueKey('mode-${m.id}'),
+      onTap: () => setState(() {
+            _selected = m;
+            if (_failure?.caisse != true) _failure = null;
+          }));
+
+  Widget _tileAction(PaymentMethod m, {required bool selected, required VoidCallback onTap, Key? key}) => Material(
         color: selected ? const Color(0xFFE3ECF7) : Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: BorderSide(color: selected ? Pal.navy : Pal.line, width: selected ? 2 : 1.5),
         ),
         child: InkWell(
-          key: ValueKey('mode-${m.id}'),
+          key: key,
           borderRadius: BorderRadius.circular(14),
-          onTap: _busy
-              ? null
-              : () => setState(() {
-                    _selected = m;
-                    if (_failure?.caisse != true) _failure = null;
-                  }),
+          onTap: _busy ? null : onTap,
           child: SizedBox(
             height: 74,
             child: Padding(

@@ -15,10 +15,9 @@
 //      le montant (carnet), jamais sur la part des organismes ;
 //  - grille : la remise d'une ligne dépend du code remise du produit (grille VNO ou VO) ; produit non remisable ou
 //    en promotion : aucune remise ;
-//  - droit : AUCUN droit dédié côté serveur (la route n'est contrôlée que par la session). Repli prudent : la remise
-//    est proposée aux comptes qui peuvent terminer une vente (droits de DroitsVente.terminerVente) ou au droit
-//    « P_REMISE_VENTE » s'il apparaît dans GET v1/user/droits (demande 63) ; un 403 `interdit` la masque pour la
-//    session ;
+//  - droit : AUCUN droit dédié côté serveur (la route n'est contrôlée que par la session). 4.15.0 (décision du
+//    pharmacien du 19/11) : proposée à TOUT compte qui a un écran de vente, comptes de prévente compris, comme le web ;
+//    le serveur reste juge : un 403 `interdit` la masque pour la session. La borne ne propose jamais de remise ;
 //  - hors ligne : aucune route ; la remise n'est pas proposée hors ligne (elle n'est appliquée qu'après la réponse
 //    du serveur).
 // Aucun nom de client ni texte saisi n'est écrit dans un journal.
@@ -67,11 +66,11 @@ abstract class RemiseVenteGateway {
 /// Droit dédié demandé au serveur (demande 63). Absent de GET v1/user/droits aujourd'hui.
 const String droitRemiseVente = 'P_REMISE_VENTE';
 
-/// La remise peut être proposée à ce compte : droit dédié, sinon (repli) le droit de terminer une vente ; jamais si le
-/// serveur l'a refusée (403) pendant la session.
+/// La remise peut être proposée à ce compte. 4.15.0 (décision du pharmacien du 19/11) : à tout compte qui a un écran de
+/// vente, prévente comprise, comme le web (4.14.0 la réservait aux comptes qui terminent une vente) ; jamais si le
+/// serveur l'a refusée (403 `interdit`) pendant la session, sauf droit dédié présent.
 bool remiseAutorisee(DroitsVente d) {
   if (d.droits.contains(droitRemiseVente)) return true;
-  if (d.connus && !d.terminerVente) return false;
   return !d.controle(droitRemiseVente);
 }
 

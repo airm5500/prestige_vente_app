@@ -410,7 +410,10 @@ class _VenteTabState extends State<VenteTab> {
                       _showPrintDialog(isPrevente: false, paymentMethod: method, currentUser: currentUser, montantVerse: montantRecu, monnaie: montantRemis);
                     } else {
                       // 4.5.1 : refus de droit (403) ou session changée (409) : message du serveur, vente gardée.
-                      final refus = apiResult['interdit'] == true || apiResult['sessionChangee'] == true ? '${apiResult['msg']}' : null;
+                      // 4.15.0 (demande 62) : prévente déjà payée par mobile money (paiementMobile:true) : idem.
+                      final refus = apiResult['interdit'] == true || apiResult['sessionChangee'] == true || apiResult['paiementMobile'] == true
+                          ? '${apiResult['msg']}'
+                          : null;
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(refus ?? saleProvider.errorMessage ?? "La validation a échoué"), backgroundColor: Colors.red));
                     }
                   },

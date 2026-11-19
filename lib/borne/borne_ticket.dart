@@ -26,7 +26,8 @@ class BorneTicket {
   final String? payePar;
 
   /// 4.13.1 : payée SANS clôture automatique (utilisateur borne sans le droit de terminer une vente) : la caisse
-  /// termine la vente.
+  /// termine la vente. 4.15.0 (demande 62) : aussi quand la clôture automatique demandée n'a pas été confirmée par le
+  /// serveur (caisse du compte de la borne fermée, net modifié) : jamais « vente terminée » sans `cloture:true`.
   final bool aTerminer;
   const BorneTicket({
     required this.officine,
@@ -40,7 +41,7 @@ class BorneTicket {
 
   static const String invitation = 'Présentez ce ticket à la caisse';
   static const String invitationPayee = 'Présentez ce ticket au comptoir pour récupérer vos produits';
-  static const String invitationPayeeATerminer = 'Payé : présentez ce ticket à la caisse, qui termine la vente';
+  static const String invitationPayeeATerminer = 'PAYÉE, présentez ce ticket à la caisse';
 
   /// 4.14.0 : le même ticket composé pour une autre largeur (imprimante intégrée de 58 mm).
   BorneTicket aLargeur(int mm) => mm == largeur

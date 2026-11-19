@@ -31,6 +31,7 @@ import 'package:prestige_vente_app/ventes/prevente/vente_controller.dart' show V
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
+import 'package:prestige_vente_app/paiements/prevente_payee.dart';
 
 enum AssuranceStep { clientSearch, bonAndAyantDroit, productSearch }
 
@@ -311,7 +312,13 @@ class AssuranceController extends ChangeNotifier with RemiseVenteVoMixin {
   // ---------------------------------------------------------------------------
 
   /// Nouvelle vente (une vente commencée reste sur le serveur, en prévente).
+  /// 4.15.0 (demande 62) : prévente assurance déjà payée par mobile money (champ `paiementMobile` de ventestats/{id}) ;
+  /// bandeau seulement : le serveur ne contrôle pas la clôture d'une vente assurance. null : serveur sans la demande 62.
+  PreventePayee? _payee;
+  PreventePayee? get preventePayee => _hl == null ? _payee : null;
+
   void reset() {
+    _payee = null;
     _epoch++;
     _queue = SaleOpQueue();
     _hl = null;
@@ -1020,6 +1027,7 @@ class AssuranceController extends ChangeNotifier with RemiseVenteVoMixin {
     reset();
     final missing = <String>[];
     lireRemiseDe(data);
+    _payee = PreventePayee.depuisVente(data);
     _client = client;
     _venteId = venteId;
     _reference = parsed.reference;

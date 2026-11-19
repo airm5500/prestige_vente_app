@@ -252,7 +252,18 @@ class _PreventeTile extends StatelessWidget {
     final row = Row(children: [
       Expanded(child: info),
       const SizedBox(width: 6),
-      Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [_badge, reprint]),
+      Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+        // 4.15.0 (demande 62) : prévente déjà payée par mobile money (colonne « Paiement mobile » du web) ; badge
+        // d'origine sinon (serveur sans la demande 62).
+        if (sale.paiementMobile case final pm?)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 170),
+            child: StatusBadge(pm.colonne, key: ValueKey('prevente-payee-${sale.lgPREENREGISTREMENTID}'), fg: const Color(0xFF17795F), bg: const Color(0xFFE3F6EF)),
+          )
+        else
+          _badge,
+        reprint,
+      ]),
     ]);
 
     if (style == ListPresentation.compact) {

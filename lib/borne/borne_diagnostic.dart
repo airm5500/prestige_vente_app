@@ -56,6 +56,10 @@ const messageSansDroitCloture = 'Utilisateur borne sans droit de clôture : paie
     'automatique (la caisse termine la vente payée). Pour la clôture automatique, droit à donner au profil : '
     'P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION ou P_BT_MODIFICATION_DE_VENTE.';
 
+/// 4.15.0 (demande 62) : utilisateur borne avec le seul droit P_BORNE_PAIEMENT_MOBILE.
+const messageDroitBorne = 'Droit P_BORNE_PAIEMENT_MOBILE présent : paiement mobile money avec clôture automatique, si '
+    'une caisse est ouverte pour le compte de la borne ; sinon ticket « PAYÉE » et la caisse termine la vente.';
+
 class TesteurBorne {
   final String baseUrl;
   final BorneSecrets secrets;
@@ -74,9 +78,15 @@ class TesteurBorne {
       final d = r.data;
       if (r.statusCode == 200 && d is Map && d['droits'] is List) {
         final droits = {for (final x in d['droits'] as List) '$x'};
-        return droits.any(DroitsVente.terminerVenteDroits.contains)
-            ? const EtapeBorne(titreDroitCloture, EtatEtapeBorne.ok, 'Droit de clôture présent : le paiement mobile money peut être proposé.')
-            : const EtapeBorne(titreDroitCloture, EtatEtapeBorne.attention, messageSansDroitCloture);
+        if (droits.any(DroitsVente.terminerVenteDroits.contains)) {
+          return const EtapeBorne(titreDroitCloture, EtatEtapeBorne.ok, 'Droit de clôture présent : le paiement mobile money peut être proposé.');
+        }
+        // 4.15.0 (demande 62) : droit propre de la borne (serveur qui l'expose) : clôture automatique sans « Terminer
+        // une vente ».
+        if (droits.contains(DroitsVente.bornePaiementMobileDroit)) {
+          return const EtapeBorne(titreDroitCloture, EtatEtapeBorne.ok, messageDroitBorne);
+        }
+        return const EtapeBorne(titreDroitCloture, EtatEtapeBorne.attention, messageSansDroitCloture);
       }
       if (r.statusCode == 404 || r.statusCode == 405) {
         return const EtapeBorne(titreDroitCloture, EtatEtapeBorne.ok,

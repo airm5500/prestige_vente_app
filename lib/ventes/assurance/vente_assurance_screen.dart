@@ -388,6 +388,9 @@ class _AssuranceViewState extends State<_AssuranceView> with PresentationAware {
           initialCopies: copiesDefault,
           totalLabel: 'Part client à payer',
           stepsHeader: (onDark) => AssuranceStepsBar(active: 3, onDark: onDark),
+          // 4.15.0 (demande 62) : prévente assurance payée par mobile money : bandeau seulement (le serveur suit).
+          dejaPayee: c.preventePayee,
+          dejaPayeeImpose: false,
         ),
       ));
       if (done == null || !mounted) return;
