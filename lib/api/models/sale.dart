@@ -1,5 +1,6 @@
 // lib/api/models/sale.dart
 // 09/11/2025 20:45 (Ajout strREF manquant)
+import 'package:prestige_vente_app/paiements/prevente_payee.dart';
 class SaleItemDetail {
   final String lgPREENREGISTREMENTDETAILID;
   final String lgFAMILLEID;
@@ -121,6 +122,10 @@ class PreventeListItem {
   final String userFullName;
   final String lgTYPEVENTEID;
 
+  /// 4.15.0 (demande 62) : prévente déjà payée par mobile money (champ `paiementMobile` du serveur qui l'envoie,
+  /// avec `typeReglementAttente`) ; null : serveur sans la demande 62, ou prévente non payée.
+  final PreventePayee? paiementMobile;
+
   PreventeListItem({
     required this.lgPREENREGISTREMENTID,
     required this.heure,
@@ -129,6 +134,7 @@ class PreventeListItem {
     required this.strREF,
     required this.userFullName,
     required this.lgTYPEVENTEID,
+    this.paiementMobile,
   });
 
   factory PreventeListItem.fromJson(Map<String, dynamic> json) {
@@ -140,6 +146,7 @@ class PreventeListItem {
       strREF: json['strREF'] ?? '',
       userFullName: json['userFullName'] ?? '',
       lgTYPEVENTEID: json['lgTYPEVENTEID'] ?? '',
+      paiementMobile: PreventePayee.depuisVente(json),
     );
   }
 }

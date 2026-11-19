@@ -280,7 +280,9 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway, ClientVenteGate
       final body = r.data;
       if (body is Map && body['success'] == false) {
         final msg = '${body['msg'] ?? body['message'] ?? ''}'.trim();
-        return VenteRefused(msg.isEmpty ? 'Le serveur a refusé : $what.' : msg, code: body['codeError']?.toString());
+        // 4.15.0 (demande 62) : clôture refusée d'une prévente déjà payée par mobile money (message tel quel).
+        final code = body['paiementMobile'] == true ? VenteRefused.codePaiementMobile : body['codeError']?.toString();
+        return VenteRefused(msg.isEmpty ? 'Le serveur a refusé : $what.' : msg, code: code);
       }
       if (body is String && body.trim().startsWith('<')) {
         return VenteFailed('Réponse inattendue du serveur ($what). La session a peut-être expiré : reconnectez-vous.');

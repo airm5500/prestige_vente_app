@@ -9,10 +9,10 @@
 // | Action                                                     | Droit (l'un des)                                                  |
 // |------------------------------------------------------------|-------------------------------------------------------------------|
 // | Terminer une vente comptant, assurance ou carnet           | P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE |
-// | Paiement mobile money avec clôture (`cloturer:true`)       | les mêmes                                                         |
+// | Paiement mobile money avec clôture (`cloturer:true`)       | les mêmes, ou P_BORNE_PAIEMENT_MOBILE (4.15.0, demande 62)         |
 // | Terminer une vente en dépôt                                | P_SM_VENTEDEPOT, P_SM_DEPOT_EXTENSION, P_SM_CLOTURER_CAISSE       |
 // | Annuler une vente                                          | P_BT_ANNULER_VENTE (aucun écran de l'application n'annule une vente) |
-// | Remise sur une vente (4.14.0, POST v1/vente/remise)          | P_REMISE_VENTE (demande 63) ; repli : les droits de « Terminer une vente » |
+// | Remise sur une vente (4.14.0, POST v1/vente/remise)          | 4.15.0 : tout compte qui a un écran de vente, comme le web ; un 403 la masque |
 // « Terminer la prévente » reste ouvert à tous.
 //
 // REPLI (serveur sans la route, 404 / 405, ou droits jamais lus) : comportement d'avant la 4.5.1, tout est affiché ;
@@ -30,6 +30,12 @@ class DroitsVente extends ChangeNotifier {
   static const terminerVenteDroits = {'P_SM_CLOTURER_CAISSE', 'P_SM_DEPOT_EXTENSION', 'P_BT_MODIFICATION_DE_VENTE'};
   static const venteDepotDroits = {'P_SM_VENTEDEPOT', 'P_SM_DEPOT_EXTENSION', 'P_SM_CLOTURER_CAISSE'};
   static const annulerVenteDroits = {'P_BT_ANNULER_VENTE'};
+
+  /// 4.15.0 (demande 62, point 3a, branche serveur correctif/demande62-1911) : droit propre de la borne, « Clôturer une
+  /// vente payée par mobile money ». Accepté par POST v1/paiements-mobile pour `cloturer:true`, en plus des droits de
+  /// « Terminer une vente ». Il ne donne PAS « Terminer une vente » (aucun bouton d'encaissement ordinaire). Un serveur
+  /// sans la demande 62 ne le connaît pas : il n'est dans la liste de personne, rien ne change.
+  static const bornePaiementMobileDroit = 'P_BORNE_PAIEMENT_MOBILE';
 
   /// 4.6.0 (décision 12) : scanner et saisir les lots d'un BL, créer un BL (`commande/add-lot`, `commande/creerbl`).
   static const scannerBlDroit = 'P_BL_MOBILE_SCANNER';
@@ -64,8 +70,12 @@ class DroitsVente extends ChangeNotifier {
   /// « Terminer la vente » (comptant, assurance, carnet), encaissement d'une prévente, clôture espèces hors ligne.
   bool get terminerVente => _unDe(terminerVenteDroits);
 
-  /// Paiement mobile money avec clôture automatique (`cloturer:true`).
-  bool get cloturerPaiementMobile => terminerVente;
+  /// 4.15.0 : le compte a le droit propre de la borne (lu dans GET v1/user/droits ; jamais supposé).
+  bool get bornePaiementMobile => _droits?.contains(bornePaiementMobileDroit) ?? false;
+
+  /// Paiement mobile money avec clôture automatique (`cloturer:true`) : droit de terminer une vente, ou (4.15.0) droit
+  /// propre de la borne.
+  bool get cloturerPaiementMobile => terminerVente || bornePaiementMobile;
 
   /// Clôture d'une vente en dépôt.
   bool get venteDepot => _unDe(venteDepotDroits);

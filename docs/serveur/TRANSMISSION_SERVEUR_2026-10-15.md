@@ -896,6 +896,25 @@ comptoir. Demandes :
 
 État au 16/11 (intégration 1991fe41) : non traité — createClient remplit seulement strADRESSE (ClientServiceImpl.java:109,164), findClientLambda cherche dans strTELEPHONE (:255), type sans défaut (:110,:165), PaiementsMobileRessource inchangé.
 
+**État au 19/11 : traitée sur `correctif/demande62-1911` (fb0a3cc2), en attente de fusion** dans
+`integration/recette-2026-10-29` (l'officine n'en dispose pas encore). Code vérifié en lecture seule ; applications
+Prestige Mobile 4.15.0+46 et PrestigePOS 1.13.0+32, qui ne l'utilisent que si le serveur le fournit :
+
+- points 1 et 2 : recherche aussi dans `strADRESSE` (fiches non reprises), type 6 par défaut — rien à changer dans les
+  applications (elles envoient déjà `"6"`) ;
+- point 3a : `P_BORNE_PAIEMENT_MOBILE` (migration V7.6.41.1911, donné à aucun rôle) accepté pour `cloturer:true`, lu
+  dans `GET v1/user/droits` ; les applications envoient `cloturer:true` avec ce droit ou « Terminer une vente »,
+  sans ouvrir « Terminer une vente » ; un 403 est refusé avant toute création, d'où un seul nouvel essai
+  `cloturer:false` ; « vente terminée » seulement sur `cloture:true` (sans caisse ouverte pour le compte de la borne :
+  ticket « PAYÉE ») ;
+- point 3b : `paiementMobile` et `typeReglementAttente` lus (`ventestats/{id}`, `ventestats/preventes`), mode imposé,
+  refus `paiementMobile:true` affiché tel quel ;
+- point 3c : `clientId` de la vente dans la clôture automatique : vérifié, rien côté applications.
+
+Remarques : le droit n'est lu qu'à la connexion (reconnecter la borne après l'avoir donné) ; une prévente payée dont
+le net a **baissé** sous le montant payé n'a pas de chemin de clôture (retour du 19/11 transmis à
+part) ; `cloturer/assurance` n'est pas contrôlé (dit dans la notice).
+
 ### Demande 63 — Ticket 58 / 80 mm dessiné par le serveur et remise sur les ventes du mobile (P1 pour les points 1 et 2, P2 pour les autres)
 
 Code lu en lecture seule le 19/11/2026 : `integration/recette-2026-10-29` (f0282bf0, et 1991fe41 envoyé en officine),

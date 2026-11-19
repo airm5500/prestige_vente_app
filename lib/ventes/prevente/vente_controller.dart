@@ -24,6 +24,7 @@ import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
 import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
+import 'package:prestige_vente_app/paiements/prevente_payee.dart';
 
 /// Résultat de l'encaissement : [dejaCloturee] = le serveur indique une vente déjà clôturée.
 typedef ClotureOk = ({bool dejaCloturee});
@@ -234,6 +235,7 @@ class VenteController extends ChangeNotifier implements RemiseVenteHote {
     _client = null;
     _clientNonLu = null;
     _remise.vider();
+    _payee = null;
     _notify();
   }
 
@@ -246,7 +248,10 @@ class VenteController extends ChangeNotifier implements RemiseVenteHote {
       // 4.14.0 : la vente est relue AVANT le net (une seule lecture, client et remise) : le net d'une vente remisée
       // part avec sa remise (sans elle, net/vno remet la remise à 0 sur le serveur).
       final vente = _clients != null || _remises != null ? await gateway.fullSale(id) : null;
-      if (vente != null) _lireRemise(vente);
+      if (vente != null) {
+        _lireRemise(vente);
+        _lirePayee(vente);
+      }
       await _reload();
       await _remember();
       await _lireClient(id, deja: vente);
@@ -541,6 +546,14 @@ class VenteController extends ChangeNotifier implements RemiseVenteHote {
           await _finish();
           return const VenteOk((dejaCloturee: true));
         }
+        if (r is VenteRefused<Map<String, dynamic>> && r.paiementMobile) {
+          // 4.15.0 (demande 62) : prévente déjà payée par mobile money, clôture refusée par le serveur (rien n'est
+          // écrit) : message du serveur tel quel, vente gardée ; le paiement est relu (bandeau, mode imposé).
+          final v = await gateway.fullSale(id);
+          if (id == _venteId) _lirePayee(v);
+          _notify();
+          return r.map((_) => (dejaCloturee: false));
+        }
         if (r.uncertain) {
           // Réponse perdue : relire la vente, jamais de seconde clôture à l'aveugle.
           if (await _statut(id) == 'is_Closed') {
@@ -655,6 +668,21 @@ class VenteController extends ChangeNotifier implements RemiseVenteHote {
     if (serveurHorsLigne || _hl != null) return const VenteRefused(messageClientHorsLigne);
     if (nom.trim().isEmpty && prenom.trim().isEmpty) return const VenteRefused('Le nom ou le prénom du client est obligatoire.');
     return _run(() => g.creerClientVente(nom: nom, prenom: prenom, telephone: telephone));
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4.15.0 — demande 62 (point 3b) : prévente déjà payée par mobile money (lib/paiements/prevente_payee.dart)
+  // ---------------------------------------------------------------------------
+
+  PreventePayee? _payee;
+
+  /// Paiement mobile money reçu pour cette prévente, pas encore terminée (champ `paiementMobile` de GET
+  /// ventestats/{id}) ; null : serveur sans la demande 62, ou prévente non payée. Le comptoir la termine avec ce
+  /// paiement (mode imposé, montant payé, rien à encaisser).
+  PreventePayee? get preventePayee => _hl == null ? _payee : null;
+
+  void _lirePayee(VenteResult<Map<String, dynamic>> vente) {
+    if (vente case VenteOk(:final value)) _payee = PreventePayee.depuisVente(value);
   }
 
   // ---------------------------------------------------------------------------

@@ -176,14 +176,15 @@ void main() {
     expect(DroitsVente.instance.controle(droitRemiseVente), isTrue);
   });
 
-  test('droits : profil prévente (sans terminer une vente) → pas de remise ; P_REMISE_VENTE → remise ; repli : comme le poste', () {
+  // 4.15.0 (décision du pharmacien du 19/11) : remise ouverte aux comptes de prévente, comme le web (4.14.0 : non).
+  test('droits : profil prévente (sans terminer une vente) → remise, comme le web ; P_REMISE_VENTE → remise ; 403 → masquée', () {
     final d = DroitsVente();
     d.fixer(null);
     expect(remiseAutorisee(d), isTrue, reason: 'droits inconnus (serveur ancien) : comme avant, le serveur reste juge');
     d.fixer({'P_SM_CLOTURER_CAISSE'});
     expect(remiseAutorisee(d), isTrue);
     d.fixer({'P_PREVENTE_FICTIF'});
-    expect(remiseAutorisee(d), isFalse);
+    expect(remiseAutorisee(d), isTrue, reason: '4.15.0 : compte de prévente, comme le web');
     d.fixer({'P_PREVENTE_FICTIF', droitRemiseVente});
     expect(remiseAutorisee(d), isTrue);
     d.fixer({'P_SM_CLOTURER_CAISSE'});
@@ -191,13 +192,13 @@ void main() {
     expect(remiseAutorisee(d), isFalse);
   });
 
-  testWidgets('profil prévente : aucune zone Remise', (t) async {
+  testWidgets('profil prévente : zone Remise proposée (4.15.0, comme le web)', (t) async {
     _telephone(t);
     DroitsVente.instance.fixer({'P_PREVENTE_FICTIF'});
     final gw = FauxVenteRemise();
     await ouvrirVente(t, gw);
     await ajouterArticle(t);
-    expect(zoneRemise, findsNothing);
+    expect(zoneRemise, findsOneWidget);
   });
 
   test('réponse perdue : la remise de la vente est relue, appliquée seulement si le serveur l\'a', () async {

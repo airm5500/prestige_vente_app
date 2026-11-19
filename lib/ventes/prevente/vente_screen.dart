@@ -32,6 +32,7 @@ import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/ventes/prevente/client_vente.dart';
 import 'package:prestige_vente_app/ventes/common/remise_vente.dart';
 import 'package:prestige_vente_app/ventes/prevente/encaissement_page.dart';
+import 'package:prestige_vente_app/paiements/prevente_payee.dart';
 import 'package:prestige_vente_app/ventes/prevente/prevente_dialogs.dart';
 import 'package:prestige_vente_app/ventes/prevente/prevente_list.dart';
 import 'package:prestige_vente_app/ventes/prevente/vente_cart.dart';
@@ -358,6 +359,8 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
           summary: summary,
           itemCount: items.length,
           presentation: style,
+          // 4.15.0 (demande 62) : prévente déjà payée par mobile money (null : page d'origine).
+          dejaPayee: c.preventePayee,
         ),
       ));
       if (done == null || !mounted) return;
@@ -551,6 +554,12 @@ class _VenteViewState extends State<_VenteView> with PresentationAware {
       // Clavier ouvert : bandeaux « Envoi… » / « enregistré ✓ » masqués (place pour le panier) ;
       // les alertes (hors ligne, panier non relu, net non calculé) restent affichées.
       _StatusBanner(controller: c, onTerminerHorsLigne: _paying ? null : _terminerHorsLigne, discret: clavierOuvert(context)),
+      // 4.15.0 (demande 62) : prévente déjà payée par mobile money (bandeau du web), seulement si le serveur l'envoie.
+      if (c.preventePayee case final payee? when !c.finished && !clavierOuvert(context))
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: PreventePayeeBandeau(payee: payee, net: c.netUpToDate ? c.summary.montantNet : null),
+        ),
       // 4.13.0 : client facultatif d'une vente comptant (en ligne, vente créée) ; masqué clavier ouvert, comme les
       // bandeaux d'information (place pour le panier).
       if ((c.clientDisponible || c.client != null || c.clientNonLu != null) && !clavierOuvert(context))

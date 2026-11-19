@@ -84,6 +84,11 @@ class PaiementMobile {
 
   bool get aRegulariser => statut == StatutPM.payeApresAnnulation;
 
+  /// 4.15.0 (demande 62) : la vente est TERMINÉE par le serveur (clôture automatique faite). Un paiement payé sans
+  /// clôture (`cloturer:false`, ou clôture automatique refusée : caisse du compte de la borne fermée, net modifié)
+  /// laisse une prévente payée que la caisse termine.
+  bool get clotureConfirmee => statut == StatutPM.paye && cloture;
+
   static PaiementMobile fromJson(Map<String, dynamic> j) => PaiementMobile(
         id: '${j['id'] ?? ''}',
         venteId: '${j['venteId'] ?? ''}',
@@ -270,6 +275,12 @@ class AttentePaiement extends ChangeNotifier {
 
   /// 4.5.1 : le serveur a refusé la demande faute de droit (403 interdit) : aucun paiement créé, ne pas réessayer.
   bool interdit = false;
+
+  /// 4.15.0 : clôture automatique demandée pour le paiement créé (false après le repli sans clôture).
+  bool clotureDemandee = false;
+
+  /// 4.15.0 : 403 `interdit` sur `cloturer:true`, puis paiement redemandé une fois avec `cloturer:false`.
+  bool repliSansCloture = false;
   bool creation = false;
   DateTime? _fin;
   Timer? _timer;
@@ -289,13 +300,23 @@ class AttentePaiement extends ChangeNotifier {
 
   bool get termine => paiement?.statut.termine ?? false;
 
-  Future<void> demarrer({required String venteId, required String operateur, int? part, bool cloturer = false}) async {
+  /// [repliSiInterdit] (4.15.0, demande 62) : sur un 403 `interdit` à `cloturer:true`, la demande est refaite UNE fois
+  /// avec `cloturer:false`. Sans risque : le serveur (PaiementsMobileRessource.creer) contrôle le droit AVANT de lire
+  /// la clé `X-Client-Ref` et de créer quoi que ce soit ; la même clé est renvoyée.
+  Future<void> demarrer({required String venteId, required String operateur, int? part, bool cloturer = false, bool repliSiInterdit = false}) async {
     if (creation || paiement != null) return; // anti double appui
     creation = true;
     erreur = null;
+    interdit = false;
     _cle ??= PaiementsMobile.nouvelleCle();
     _notifier();
-    final r = await api.creer(venteId: venteId, operateur: operateur, part: part, cloturer: cloturer, cle: _cle!);
+    clotureDemandee = cloturer;
+    var r = await api.creer(venteId: venteId, operateur: operateur, part: part, cloturer: cloturer, cle: _cle!);
+    if (cloturer && repliSiInterdit && r is VenteRefused<PaiementMobile> && r.interdit && !_ferme) {
+      repliSansCloture = true;
+      clotureDemandee = false;
+      r = await api.creer(venteId: venteId, operateur: operateur, part: part, cloturer: false, cle: _cle!);
+    }
     creation = false;
     if (r case VenteOk(:final value)) {
       paiement = value;

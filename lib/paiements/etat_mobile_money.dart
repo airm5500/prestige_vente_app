@@ -37,8 +37,16 @@ class DiagnosticMobileMoney {
   /// Détail d'une erreur inattendue (code HTTP…).
   final String detail;
 
+  /// 4.15.0 (demande 62) : clôture automatique permise par le seul droit propre de la borne P_BORNE_PAIEMENT_MOBILE.
+  final bool parDroitBorne;
+
   const DiagnosticMobileMoney(this.etat,
-      {this.operateurs = const [], this.compte = '', this.borne = true, this.droitManquantAussi = false, this.detail = ''});
+      {this.operateurs = const [], this.compte = '', this.borne = true, this.droitManquantAussi = false, this.detail = '', this.parDroitBorne = false});
+
+  /// 4.15.0 : précision ajoutée à « Proposé au client » quand la clôture automatique vient du droit de la borne.
+  String get _noteDroitBorne => ' Clôture automatique par le droit P_BORNE_PAIEMENT_MOBILE du compte de la borne « $compte » : '
+      'elle demande une caisse ouverte pour ce compte ; sinon le client reçoit un ticket « PAYÉE » et la caisse termine la '
+      'vente payée.';
 
   /// Proposé au client (4.13.1 : aussi à la borne sans droit de clôture, la caisse termine alors la vente payée).
   bool get propose => etat == EtatMobileMoney.propose || etat == EtatMobileMoney.proposeSansCloture;
@@ -60,7 +68,8 @@ class DiagnosticMobileMoney {
         EtatMobileMoney.serveurAncien => messageServeurAncien,
         EtatMobileMoney.sansCompte => droitManquantAussi ? '$messageSansCompte\n$_messageSansDroit' : messageSansCompte,
         EtatMobileMoney.sansDroit => _messageSansDroit,
-        EtatMobileMoney.propose => 'Proposé au client : ${operateurs.map((o) => nomOperateur[o] ?? o).join(', ')}.',
+        EtatMobileMoney.propose =>
+          'Proposé au client : ${operateurs.map((o) => nomOperateur[o] ?? o).join(', ')}.${parDroitBorne ? _noteDroitBorne : ''}',
         EtatMobileMoney.proposeSansCloture => 'Proposé au client : ${operateurs.map((o) => nomOperateur[o] ?? o).join(', ')}. '
             'Le compte de la borne « $compte » n\'a pas le droit de terminer une vente : le paiement est confirmé, puis la '
             'caisse termine la vente payée (ticket « PAYÉE »). Pour la clôture automatique, donnez-lui P_SM_CLOTURER_CAISSE '
@@ -100,7 +109,10 @@ Future<DiagnosticMobileMoney> diagnostiquerMobileMoney({
   } catch (_) {
     d = null;
   }
-  final droit = d == null || d.any(DroitsVente.terminerVenteDroits.contains);
+  final terminer = d == null || d.any(DroitsVente.terminerVenteDroits.contains);
+  // 4.15.0 (demande 62) : à la borne, le droit propre P_BORNE_PAIEMENT_MOBILE suffit pour la clôture automatique.
+  final parDroitBorne = borne && !terminer && d != null && d.contains(DroitsVente.bornePaiementMobileDroit);
+  final droit = terminer || parDroitBorne;
   if (ops.isEmpty) {
     return DiagnosticMobileMoney(EtatMobileMoney.sansCompte, compte: compte, borne: borne, droitManquantAussi: !droit);
   }
@@ -109,7 +121,7 @@ Future<DiagnosticMobileMoney> diagnostiquerMobileMoney({
   if (!droit) {
     return DiagnosticMobileMoney(borne ? EtatMobileMoney.proposeSansCloture : EtatMobileMoney.sansDroit, operateurs: ops, compte: compte, borne: borne);
   }
-  return DiagnosticMobileMoney(EtatMobileMoney.propose, operateurs: ops, compte: compte, borne: borne);
+  return DiagnosticMobileMoney(EtatMobileMoney.propose, operateurs: ops, compte: compte, borne: borne, parDroitBorne: parDroitBorne);
 }
 
 bool _reseau(String? m) {

@@ -151,7 +151,8 @@ class BorneScreenState extends State<BorneScreen> {
   List<String> get _opsProposes => _opsMobile;
 
   /// Clôture automatique de la vente à la confirmation du paiement : seulement avec le droit de terminer une vente
-  /// (P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE ; droits inconnus : comme avant).
+  /// (P_SM_CLOTURER_CAISSE, P_SM_DEPOT_EXTENSION, P_BT_MODIFICATION_DE_VENTE ; droits inconnus : comme avant) ou,
+  /// 4.15.0 (demande 62), avec le droit propre de la borne P_BORNE_PAIEMENT_MOBILE (serveur qui l'expose).
   bool get _clotureAuto => DroitsVente.instance.cloturerPaiementMobile;
 
   /// Le paiement en cours a été demandé avec la clôture automatique.
@@ -661,7 +662,11 @@ class BorneScreenState extends State<BorneScreen> {
       vue = BorneVue.mobile;
     });
     _clotureLancee = _clotureAuto;
-    a.demarrer(venteId: p.venteId, operateur: op, cloturer: _clotureLancee);
+    // 4.15.0 : 403 `interdit` à cloturer:true avec le droit P_BORNE_PAIEMENT_MOBILE (droit retiré depuis la lecture) :
+    // paiement redemandé une fois avec cloturer:false (le serveur refuse avant de rien créer). Sans ce droit (serveur
+    // sans la demande 62) : comportement d'avant (ticket de prévente pour la caisse).
+    a.demarrer(
+        venteId: p.venteId, operateur: op, cloturer: _clotureLancee, repliSiInterdit: _clotureLancee && DroitsVente.instance.bornePaiementMobile);
   }
 
   void _onAttente(BornePrevente p, String op) {
@@ -680,7 +685,10 @@ class BorneScreenState extends State<BorneScreen> {
       _imprimerTicket(
           BornePrevente(venteId: p.venteId, reference: p.reference, total: a.paiement!.montant, lignes: p.lignes, at: p.at),
           payePar: nomOperateur[op] ?? op,
-          aTerminer: !_clotureLancee);
+          // 4.15.0 (demande 62) : « vente terminée » seulement si le serveur confirme la clôture (`cloture:true`) ;
+          // sinon (cloturer:false, repli, ou clôture refusée faute de caisse ouverte pour le compte de la borne) :
+          // ticket « PAYÉE, présentez ce ticket à la caisse ».
+          aTerminer: !a.paiement!.clotureConfirmee);
       return;
     }
     setState(() {});
@@ -1586,7 +1594,8 @@ class BorneScreenState extends State<BorneScreen> {
                   ),
                 ],
                 const SizedBox(height: 10),
-                Text('${prixF(p.total)} · ${BorneTicket.invitation}',
+                Text('${prixF(p.total)} · ${t.paye && t.aTerminer ? BorneTicket.invitationPayeeATerminer : BorneTicket.invitation}',
+                    key: const ValueKey('borne-ticket-invitation'),
                     textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Pal.ink)),
               ]),
             ),

@@ -43,6 +43,13 @@ class VenteRefused<T> extends VenteResult<T> {
   /// Droit manquant (le compte n'a pas le droit de cette action).
   bool get interdit => code == codeInterdit;
 
+  /// 4.15.0 (demande 62) : code d'un refus de clôture d'une prévente déjà payée par mobile money
+  /// (`{success:false, paiementMobile:true, msg}`) : message du serveur affiché tel quel, vente gardée.
+  static const codePaiementMobile = 'paiementMobile';
+
+  /// Refus de clôture : prévente déjà payée par mobile money, à terminer avec ce paiement.
+  bool get paiementMobile => code == codePaiementMobile;
+
   /// Caisse fermée (message du serveur Prestige).
   bool get caisseFermee => message.toLowerCase().contains('caisse est ferm');
 

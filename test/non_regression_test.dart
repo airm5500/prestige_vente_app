@@ -39,6 +39,7 @@ const _horsCI = {
   'test/outils/captures_borne_test.dart': 'génère les captures PNG de la borne (APERCUS=1), jamais en CI',
   'test/outils/captures_client_vente_test.dart': 'génère les captures PNG de la zone Client de la vente comptant (APERCUS=1), jamais en CI',
   'test/outils/captures_ticket_remise_test.dart': 'génère les captures PNG de la remise et des tickets (APERCUS=1), jamais en CI',
+  'test/outils/captures_demande62_test.dart': 'génère les captures PNG de la demande 62 (prévente payée, remise, ticket PAYÉE de la borne) (APERCUS=1), jamais en CI',
   'test/outils/generer_tickets_reference_test.dart': 'écrit les références texte des tickets (test/references/tickets), jamais en CI',
   'test/outils/captures_icones_test.dart': 'génère les captures PNG et le relevé des tailles d\'icônes (APERCUS=1), jamais en CI',
   'test/outils/video_lenteur_test.dart': 'filme l\'application contre le serveur Prestige de test local (VIDEO=…), jamais en CI',
