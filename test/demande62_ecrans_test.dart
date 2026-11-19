@@ -4,8 +4,9 @@
 //     vente terminée par le serveur (ticket « payée », sans « présentez ce ticket à la caisse ») ;
 //   - même droit, AUCUNE caisse ouverte pour le compte de la borne → payé mais pas clôturé (`cloture:false`) : ticket
 //     « PAYÉE, présentez ce ticket à la caisse » ;
-//   - 403 interdit à cloturer:true avec le droit (droit retiré entre-temps) → une nouvelle demande cloturer:false ;
-//   - serveur d'aujourd'hui (droit inconnu, compte prévente) : cloturer:false, comme 4.13.1.
+//   - 403 interdit à cloturer:true avec le droit (droit retiré entre-temps) → 4.15.2 (demande 64) : AUCUNE demande
+//     cloturer:false, ticket de prévente « payez à la caisse » ;
+//   - serveur d'aujourd'hui (droit inconnu, compte prévente) : 4.15.2, mobile money NON proposé (plus de cloturer:false).
 //  Comptoir (point 3b) :
 //   - prévente payée reprise : bandeau, mode de l'opérateur imposé (même non activé sur l'appareil), montant reçu =
 //     montant payé non modifiable, « TERMINER LA VENTE » sans saisie d'argent, clôture avec ce règlement ;
@@ -132,7 +133,7 @@ Future<void> _avancer(WidgetTester t, Duration d) async {
 }
 
 /// Borne au panier (1 produit), puis paiement Wave ; renvoie les tickets imprimés.
-Future<_Imp> _payerALaBorne(WidgetTester t, _Pm pm) async {
+Future<_Imp> _payerALaBorne(WidgetTester t, _Pm pm, {bool mobilePropose = true}) async {
   t.view.physicalSize = const Size(720, 1520);
   t.view.devicePixelRatio = 2;
   addTearDown(t.view.reset);
@@ -165,6 +166,10 @@ Future<_Imp> _payerALaBorne(WidgetTester t, _Pm pm) async {
   await t.pump();
   expect(find.byKey(const ValueKey('remise-vente-zone')), findsNothing, reason: 'la borne ne propose jamais de remise');
   final mobile = find.byKey(const ValueKey('borne-payer-mobile'));
+  if (!mobilePropose) {
+    expect(mobile, findsNothing);
+    return imp;
+  }
   expect(mobile, findsOneWidget);
   await t.ensureVisible(mobile);
   await t.pump();
@@ -351,23 +356,22 @@ void main() {
       await _fin(t);
     });
 
-    testWidgets('droit de la borne retiré entre-temps (403 interdit à cloturer:true) : redemandé une fois avec cloturer:false', (t) async {
+    testWidgets('droit de la borne retiré entre-temps (403 interdit à cloturer:true) : 4.15.2, aucune demande cloturer:false', (t) async {
       DroitsVente.instance.fixer({'P_SM_VENTE', DroitsVente.bornePaiementMobileDroit}, utilisateur: 'U-borne.fictive');
       final pm = _Pm(droits: {'P_SM_VENTE'}); // droit retiré sur le serveur
       final imp = await _payerALaBorne(t, pm);
-      expect(pm.cloturers, [true, false]);
-      expect(pm.cles, hasLength(1), reason: 'même clé X-Client-Ref : jamais deux paiements');
-      expect(imp.tickets.single.aTerminer, isTrue);
-      expect(find.byKey(const ValueKey('borne-avis-ticket')), findsNothing);
+      expect(pm.cloturers, [true], reason: 'règle du pharmacien : jamais de prévente payée non terminée');
+      expect(imp.tickets.single.paye, isFalse, reason: 'ticket de prévente pour la caisse');
+      expect(find.byKey(const ValueKey('borne-avis-ticket')), findsOneWidget);
       await _fin(t);
     });
 
-    testWidgets('serveur d\'aujourd\'hui (droit inconnu), compte prévente : cloturer:false, ticket PAYÉE (comme 4.13.1)', (t) async {
+    testWidgets('serveur d\'aujourd\'hui (droit inconnu), compte prévente : 4.15.2, mobile money non proposé (plus de cloturer:false)', (t) async {
       DroitsVente.instance.fixer({'P_SM_VENTE'}, utilisateur: 'U-borne.fictive');
       final pm = _Pm(droits: {'P_SM_VENTE'}, d62: false);
-      final imp = await _payerALaBorne(t, pm);
-      expect(pm.cloturers, [false]);
-      expect(imp.tickets.single.aTerminer, isTrue);
+      await _payerALaBorne(t, pm, mobilePropose: false);
+      expect(pm.cloturers, isEmpty);
+      expect(find.byKey(const ValueKey('borne-payer')), findsOneWidget, reason: '« Payer en caisse » seul');
       await _fin(t);
     });
 

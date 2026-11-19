@@ -85,8 +85,8 @@ class PaiementMobile {
   bool get aRegulariser => statut == StatutPM.payeApresAnnulation;
 
   /// 4.15.0 (demande 62) : la vente est TERMINÉE par le serveur (clôture automatique faite). Un paiement payé sans
-  /// clôture (`cloturer:false`, ou clôture automatique refusée : caisse du compte de la borne fermée, net modifié)
-  /// laisse une prévente payée que la caisse termine.
+  /// clôture (`cloturer:false` au comptoir, ou clôture automatique refusée : caisse du compte de la borne fermée
+  /// entre la demande et le paiement, serveur sans la demande 64) laisse une prévente payée que la caisse termine.
   bool get clotureConfirmee => statut == StatutPM.paye && cloture;
 
   static PaiementMobile fromJson(Map<String, dynamic> j) => PaiementMobile(
@@ -120,6 +120,14 @@ abstract class PaiementsMobileApi {
   Future<VenteResult<PaiementMobile>> annuler(String id);
   Future<VenteResult<List<PaiementMobile>>> historique(DateTime jour);
 }
+
+/// 4.15.2 (demande 64, branche serveur correctif/demande64-1911) : début du refus de `POST v1/paiements-mobile` avec
+/// `cloturer:true` quand la vente ne pourrait pas être clôturée (ClotureComptoir.refusPaiement : « Paiement mobile
+/// money impossible : <motif> Le client paie à la caisse. », champ `message`, HTTP 200). Rien n'est créé.
+const debutRefusPaiementImpossible = 'Paiement mobile money impossible';
+
+/// Refus de la demande 64 (aucun paiement créé, la vente ne pourrait pas être clôturée).
+bool estRefusPaiementImpossible(String? message) => (message ?? '').trimLeft().startsWith(debutRefusPaiementImpossible);
 
 VenteResult<PaiementMobile> _unPaiement(Object? body) {
   if (body is! Map) return const VenteFailed('Paiement : réponse illisible.');
@@ -276,11 +284,13 @@ class AttentePaiement extends ChangeNotifier {
   /// 4.5.1 : le serveur a refusé la demande faute de droit (403 interdit) : aucun paiement créé, ne pas réessayer.
   bool interdit = false;
 
-  /// 4.15.0 : clôture automatique demandée pour le paiement créé (false après le repli sans clôture).
+  /// 4.15.0 : clôture automatique demandée pour le paiement créé.
   bool clotureDemandee = false;
 
-  /// 4.15.0 : 403 `interdit` sur `cloturer:true`, puis paiement redemandé une fois avec `cloturer:false`.
-  bool repliSansCloture = false;
+  /// 4.15.2 (demande 64) : paiement refusé AVANT tout encaissement parce que la vente ne pourrait pas être clôturée
+  /// (`{success:false, message:"Paiement mobile money impossible : … Le client paie à la caisse."}`, HTTP 200) :
+  /// rien n'a été créé, l'opérateur n'a pas été appelé ; le client paie à la caisse (aucune nouvelle demande).
+  bool refusAvantPaiement = false;
   bool creation = false;
   DateTime? _fin;
   Timer? _timer;
@@ -300,23 +310,20 @@ class AttentePaiement extends ChangeNotifier {
 
   bool get termine => paiement?.statut.termine ?? false;
 
-  /// [repliSiInterdit] (4.15.0, demande 62) : sur un 403 `interdit` à `cloturer:true`, la demande est refaite UNE fois
-  /// avec `cloturer:false`. Sans risque : le serveur (PaiementsMobileRessource.creer) contrôle le droit AVANT de lire
-  /// la clé `X-Client-Ref` et de créer quoi que ce soit ; la même clé est renvoyée.
-  Future<void> demarrer({required String venteId, required String operateur, int? part, bool cloturer = false, bool repliSiInterdit = false}) async {
+  /// Une seule demande de création. 4.15.2 (demande 64, règle du pharmacien du 19/11 : payer à la borne par mobile
+  /// money TERMINE la vente) : plus de nouvelle demande avec `cloturer:false` après un refus (le repli de 4.15.0 sur
+  /// un 403 `interdit` est retiré) ; un refus « Paiement mobile money impossible » est signalé par
+  /// [refusAvantPaiement].
+  Future<void> demarrer({required String venteId, required String operateur, int? part, bool cloturer = false}) async {
     if (creation || paiement != null) return; // anti double appui
     creation = true;
     erreur = null;
     interdit = false;
+    refusAvantPaiement = false;
     _cle ??= PaiementsMobile.nouvelleCle();
     _notifier();
     clotureDemandee = cloturer;
-    var r = await api.creer(venteId: venteId, operateur: operateur, part: part, cloturer: cloturer, cle: _cle!);
-    if (cloturer && repliSiInterdit && r is VenteRefused<PaiementMobile> && r.interdit && !_ferme) {
-      repliSansCloture = true;
-      clotureDemandee = false;
-      r = await api.creer(venteId: venteId, operateur: operateur, part: part, cloturer: false, cle: _cle!);
-    }
+    final r = await api.creer(venteId: venteId, operateur: operateur, part: part, cloturer: cloturer, cle: _cle!);
     creation = false;
     if (r case VenteOk(:final value)) {
       paiement = value;
@@ -326,6 +333,16 @@ class AttentePaiement extends ChangeNotifier {
     } else {
       erreur = r.message;
       interdit = r is VenteRefused && (r as VenteRefused).interdit;
+      refusAvantPaiement = r is VenteRefused && !interdit && estRefusPaiementImpossible(r.message);
+      if (refusAvantPaiement) {
+        // Motif du serveur (caisse fermée, stock, vente incomplète) : aucune donnée de client ni de ticket.
+        JournalTerminal.instance.noter(
+          type: TypeJournal.encaissement,
+          action: 'Paiement mobile money refusé avant paiement : le client paie à la caisse',
+          resultat: ResultatJournal.refus,
+          motif: r.message ?? '',
+        );
+      }
     }
     _notifier();
   }

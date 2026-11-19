@@ -207,16 +207,30 @@ class _VenteTabState extends State<VenteTab> {
     }
   }
 
-  void _checkStockAndAddDirectly(ProductSearchResult product) {
+  Future<void> _checkStockAndAddDirectly(ProductSearchResult product) async {
     if (product.intNUMBERAVAILABLE <= 0) {
       _showForceStockDialog(product, 1);
     } else {
-      Provider.of<SaleProvider>(context, listen: false).addProductToCart(product, 1, isPrevente: widget.isPrevente);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("${product.strNAME} ajouté (+1)"), duration: const Duration(milliseconds: 500), backgroundColor: Colors.green),
-      );
+      final messenger = ScaffoldMessenger.of(context);
+      // 4.15.2 (demande 64) : « ajouté » seulement si le serveur n'a pas refusé ; un refus (ex. panier verrouillé
+      // par un paiement mobile money) est affiché tel quel, rien n'est ajouté au panier affiché.
+      final refus = await Provider.of<SaleProvider>(context, listen: false).addProductToCart(product, 1, isPrevente: widget.isPrevente);
+      if (refus != null) {
+        _afficherRefusPanier(messenger, refus);
+      } else {
+        messenger.showSnackBar(
+          SnackBar(content: Text("${product.strNAME} ajouté (+1)"), duration: const Duration(milliseconds: 500), backgroundColor: Colors.green),
+        );
+      }
       if (mounted) _requestSearchFocus();
     }
+  }
+
+  /// 4.15.2 (demande 64) : refus du serveur sur le panier, affiché tel quel (8 s : deux phrases à lire).
+  static void _afficherRefusPanier(ScaffoldMessengerState messenger, String refus) {
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+        key: const Key('vente_refus_panier'), content: Text(refus), backgroundColor: Colors.red.shade700, duration: const Duration(seconds: 8)));
   }
 
   void _openEnrichedSearchModal(List<ProductSearchResult> initialResults) async {
@@ -300,7 +314,9 @@ class _VenteTabState extends State<VenteTab> {
     final provider = Provider.of<SaleProvider>(context, listen: false);
     provider.clearSearchResults();
     _searchController.clear();
-    await provider.addProductToCart(product, qty, isPrevente: widget.isPrevente);
+    final messenger = ScaffoldMessenger.of(context);
+    final refus = await provider.addProductToCart(product, qty, isPrevente: widget.isPrevente);
+    if (refus != null) _afficherRefusPanier(messenger, refus);
     if (mounted) _requestSearchFocus();
   }
 

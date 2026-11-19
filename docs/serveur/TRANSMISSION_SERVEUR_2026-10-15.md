@@ -1024,6 +1024,21 @@ Remarques :
 
 ### Demande 64 — Prévente payée par mobile money dont le net a baissé (P2)
 
+**État au 19/11 : traitée sur `correctif/demande64-1911` (d6cf51fa5), en attente de fusion** dans
+`integration/recette-2026-10-29` (officine : 76aa5fc1, sans cette demande). Règle du pharmacien : payer à la borne par
+mobile money termine la vente (ni avoir, ni remboursement). Contrat vérifié dans le code :
+- `POST v1/paiements-mobile` `cloturer:true` → refus `{success:false, message:"Paiement mobile money impossible : …"}`
+  (HTTP 200) avant toute création ;
+- panier verrouillé (payé, ou en cours non expiré) → `{success:false, msg}` ;
+- `remove/vno/item` répond aussi `{success:false, msg}` (avant : 500 sur une vente terminée).
+
+Prestige Mobile 4.15.2+48 / PrestigePOS 1.13.2+34 :
+- borne : toujours `cloturer:true`, plus aucun repli `cloturer:false`, et pas de mobile money sans droit de clôture ;
+- refus « paiement impossible » → ticket de prévente et « payez à la caisse » ;
+- comptoir : refus du verrou affichés tels quels, ancienne interface comprise.
+
+Remarques : `TRANSMISSION_SERVEUR_2026-11-19_demandes64_65_retour.md`.
+
 Cas : la borne a encaissé 4 125 F (`statut = paye`, non clôturée), puis le comptoir retire un article : le net passe à
 3 000 F, sous le montant payé.
 
@@ -1041,6 +1056,11 @@ Tests attendus : prévente payée de 4 125 F ramenée à 3 000 F, puis clôture 
 (refus avec message, ou avoir de 1 125 F), rien d'écrit à moitié.
 
 ### Demande 65 — Image du ticket : ne pas dépendre de l'imprimante du poste serveur (P1, avant la fusion de `plan/support-1811`)
+
+**État au 19/11 : traitée sur `plan/support-1811` (f8ef5afa6), en attente de fusion.** Vérifié :
+`sansImprimante(ps) = ps == null && APERCU.get() == null` dans les 11 contrôles R1. Le contrat de la route image ne
+change pas : aucun changement dans les applications. La route image (demande 63) n'est pas sur `plan/support-1811`.
+Elle sera couverte à la fusion : un seul conflit annoncé, dans `GenerateTicketServiceImpl`.
 
 Code lu : `plan/support-1811` (20c8f515, 19/11), pas encore fusionnée ; intégration `76aa5fc1` (déployée le 19/11).
 

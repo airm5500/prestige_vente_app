@@ -43,8 +43,8 @@ class SaleCartWidget extends StatelessWidget {
             onPressed: () {
               final newQte = int.tryParse(qteController.text) ?? item.intQUANTITY;
               final newPrice = int.tryParse(priceController.text) ?? item.intPRICEUNITAIR;
-              provider.updateCartItem(item, newQte, newPrice);
               Navigator.of(ctx).pop();
+              _apres(context, provider.updateCartItem(item, newQte, newPrice));
             },
           ),
         ],
@@ -72,9 +72,20 @@ class SaleCartWidget extends StatelessWidget {
       ),
     );
 
-    if (confirm == true) {
-      provider.removeProductFromCart(item.lgPREENREGISTREMENTDETAILID);
+    if (confirm == true && context.mounted) {
+      _apres(context, provider.removeProductFromCart(item.lgPREENREGISTREMENTDETAILID));
     }
+  }
+
+  /// 4.15.2 (demande 64) : refus du serveur (ex. panier verrouillé par un paiement mobile money) affiché tel quel ;
+  /// le panier n'est relu qu'après un succès, il reste donc tel qu'avant.
+  static Future<void> _apres(BuildContext context, Future<String?> operation) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final refus = await operation;
+    if (refus == null) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+        key: const Key('vente_refus_panier'), content: Text(refus), backgroundColor: Colors.red.shade700, duration: const Duration(seconds: 8)));
   }
 
   @override

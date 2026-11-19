@@ -89,17 +89,17 @@ void main() {
           expect(PreventePayee.depuisVente(v)?.montant, 4125, reason: 'le comptoir la voit payée');
         }));
 
-    test('sans droit : 403 interdit avant toute création ; cloturer:false ensuite accepté (même clé)', () => avecVraiHttp(() async {
+    test('sans droit : 403 interdit avant toute création ; 4.15.2 (demande 64) : AUCUNE demande cloturer:false ensuite', () => avecVraiHttp(() async {
           await connecter(droits: ['P_SM_VENTE']);
           final id = await prevente();
           final r = await pm.creer(venteId: id, operateur: 'wave', cloturer: true, cle: 'PM-FICT-C');
           expect((r as VenteRefused).interdit, isTrue);
           expect(d62.paiements, isEmpty, reason: 'rien créé');
           final a = AttentePaiement(pm);
-          await a.demarrer(venteId: id, operateur: 'wave', cloturer: true, repliSiInterdit: true);
-          expect(d62.creations.map((c) => c['cloturer']), [true, true, false]);
-          expect(a.paiement?.clotureAuto, isFalse);
-          expect(d62.paiements, hasLength(1));
+          await a.demarrer(venteId: id, operateur: 'wave', cloturer: true);
+          expect(d62.creations.map((c) => c['cloturer']), [true, true]);
+          expect((a.interdit, a.paiement), (true, null));
+          expect(d62.paiements, isEmpty, reason: 'jamais de prévente payée non terminée');
           a.dispose();
         }));
 

@@ -2,7 +2,7 @@
 // avec le serveur d'aujourd'hui, tout reste comme en 4.14.0, sauf la remise ouverte aux comptes de prévente :
 //  - « Terminer une vente » : toujours les trois mêmes droits ; P_BORNE_PAIEMENT_MOBILE n'y entre jamais ;
 //  - clôture automatique : mêmes décisions qu'en 4.14.0 pour toute liste de droits sans P_BORNE_PAIEMENT_MOBILE ;
-//  - repli cloturer:false seulement à la borne, et seulement avec le droit de la borne lu sur le serveur ;
+//  - 4.15.2 (demande 64) : plus de repli cloturer:false (règle du pharmacien : payer à la borne termine la vente) ;
 //  - prévente payée : seulement si `paiementMobile` est présent ; la page d'encaissement d'origine sinon ;
 //  - aucun journal (ni nom, ni numéro, ni texte de ticket) dans le code de la demande 62.
 import 'dart:io';
@@ -35,15 +35,11 @@ void main() {
     }
   });
 
-  test('repli cloturer:false : désactivé par défaut, demandé seulement par la borne avec le droit de la borne', () {
-    final pm = _lire('lib/paiements/paiements_mobile.dart');
-    expect(pm, contains('bool repliSiInterdit = false'));
-    final borne = _lire('lib/borne/borne_screen.dart');
-    expect(borne, contains('repliSiInterdit: _clotureLancee && DroitsVente.instance.bornePaiementMobile'));
+  test('4.15.2 (demande 64) : plus aucun repli cloturer:false, nulle part ; la borne demande toujours cloturer:true', () {
     for (final f in Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'))) {
-      if (f.path.endsWith('borne_screen.dart') || f.path.endsWith('paiements_mobile.dart')) continue;
       expect(f.readAsStringSync(), isNot(contains('repliSiInterdit')), reason: f.path);
     }
+    expect(_lire('lib/borne/borne_screen.dart'), contains('a.demarrer(venteId: p.venteId, operateur: op, cloturer: true);'));
   });
 
   test('« vente terminée » à la borne seulement si le serveur confirme la clôture', () {

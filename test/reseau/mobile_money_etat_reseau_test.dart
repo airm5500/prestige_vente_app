@@ -32,7 +32,7 @@ void main() {
         srv.routes['GET /paiements-mobile/capacites'] = (_) => FauxServeurPrestige.ok({'success': true, 'paiementsMobile': ['wave']});
         srv.droitsComptes = {_borne: ['P_SM_VENTE']};
         final s = await testeur().mobileMoney(c, actif: true);
-        expect(s.etat, EtatMobileMoney.proposeSansCloture); // 4.13.1
+        expect(s.etat, EtatMobileMoney.sansDroit); // 4.15.2 (demande 64) : plus proposé sans clôture
         expect(s.message, contains('« $_borne »'));
         srv.droitsComptes = {_borne: ['P_SM_VENTE', 'P_SM_CLOTURER_CAISSE']};
         expect((await testeur().mobileMoney(c, actif: true)).message, 'Proposé au client : Wave.');
@@ -42,7 +42,7 @@ void main() {
         expect(capacites(), 4, reason: 'option décochée : aucune requête');
       }));
 
-  test('« Tester la borne » : étape « Module Mobile Money » (4.13.1 : proposé sans clôture auto sans le droit)', () => avecVraiHttp(() async {
+  test('« Tester la borne » : étape « Module Mobile Money » (4.15.2 : non proposé sans le droit)', () => avecVraiHttp(() async {
         srv.routes['GET /paiements-mobile/capacites'] = (_) => FauxServeurPrestige.ok({'success': true, 'paiementsMobile': ['orange']});
         srv.droitsComptes = {_borne: ['P_SM_VENTE']};
         final avant = TesteurBorne.mobileMoneyActif;
@@ -50,8 +50,8 @@ void main() {
         addTearDown(() => TesteurBorne.mobileMoneyActif = avant);
         var d = await testeur().tester(c);
         var e = d.etapes.firstWhere((x) => x.titre == titreModuleMobileMoney);
-        expect(e.etat, EtatEtapeBorne.ok);
-        expect(e.detail, contains('n\'a pas le droit de terminer une vente'));
+        expect(e.etat, EtatEtapeBorne.attention);
+        expect(e.detail, contains('ne peut pas terminer une vente'));
         srv.droitsComptes = {_borne: ['P_SM_VENTE', 'P_SM_CLOTURER_CAISSE']};
         d = await testeur().tester(c);
         e = d.etapes.firstWhere((x) => x.titre == titreModuleMobileMoney);
