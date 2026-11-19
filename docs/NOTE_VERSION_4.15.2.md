@@ -4,8 +4,20 @@ Réponse du serveur du 19/11 (`docs/notices/REPONSE_DEMANDES64_65_2026-11-19.md`
 - demande 64 : branche `correctif/demande64-1911` (d6cf51fa5) ;
 - demande 65 : branche `plan/support-1811` (f8ef5afa6).
 
-Aucune des deux n'est fusionnée dans `integration/recette-2026-10-29` ni déployée : l'officine tourne sur 76aa5fc1
-(demandes 62 et 63). La fusion attend la validation du pharmacien.
+**Mise à jour du 19/11 (soir) : les deux sont fusionnées dans l'intégration (5f0ab46f), déploiement en officine non
+confirmé.** Fusions dans `integration/recette-2026-10-29` :
+- demande 64 : 67efe9cd ;
+- demande 65 : 5f0ab46f, avec un conflit résolu dans `GenerateTicketServiceImpl`.
+
+Serveur de référence : 5f0ab46f. Vérifié à 5f0ab46f :
+- demande 64 : fichiers identiques à d6cf51fa5 (refus avant paiement, verrou, messages). Seul ajout, venu de
+  `plan/support-1811` : l'expiration des paiements ne tourne que sur le poste serveur ;
+- demande 65 : `sansImprimante(ps) = ps == null && APERCU.get() == null && PAPIER_IMAGE.get() == null`.
+  `documentsTicket` passe par `apercu` (APERCU posé) : l'image n'est jamais refusée faute d'imprimante. Le refus
+  `imprimanteAbsente` reste limité à l'impression réelle ;
+- la route image (`SalesRessource`) et `PaiementsMobileRessource` sont inchangées depuis 76aa5fc1.
+
+Officine confirmée à ce jour : 76aa5fc1 (demandes 62 et 63).
 
 **Règle du pharmacien (19/11)** : « à la borne, le client peut soit payer par mobile money, soit valider sa prévente et
 aller à la caisse ; s'il paye par mobile money, la vente est validée ». Payer à la borne termine donc la vente. Il n'y a
@@ -66,9 +78,9 @@ envoyés avec chaque ajout et chaque calcul du net. Ces routes ne sont donc pas 
 Aucun changement. La route image et sa lecture sont inchangées : `{success:true, tickets}` lu comme en 4.15.1, et le
 refus `{success:false, msg}` d'un serveur sans imprimante est gardé tel quel.
 
-## Avec le serveur déployé (76aa5fc1) et avec le serveur de la demande 64
+## Avec le serveur déployé (76aa5fc1) et avec l'intégration 5f0ab46f (demandes 64 et 65)
 
-| Cas | Déployé (76aa5fc1) | Avec la demande 64 |
+| Cas | Déployé (76aa5fc1) | Intégration 5f0ab46f |
 |---|---|---|
 | Borne avec droit, caisse ouverte | paiement, vente terminée (inchangé) | idem |
 | Borne avec droit, caisse fermée | paiement, ticket « PAYÉE, présentez ce ticket à la caisse » (inchangé : le serveur encaisse) | refus avant paiement → ticket de prévente, « payez à la caisse » |
