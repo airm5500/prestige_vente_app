@@ -20,10 +20,10 @@ borne verticale, panier, ticket, imprimante en panne, terminal Sunmi).
 | Saveur Android | `mobile` (par défaut) | `pos` |
 | Point d'entrée | `lib/main.dart` (inchangé) | `lib/main_pos.dart` |
 | applicationId | `com.dici.prestige_vente_app` | `com.dici.prestigepos` |
-| Version | `pubspec.yaml` (4.14.0+45) | `android/app/prestigepos-version.properties` (1.12.0+31) |
+| Version | `pubspec.yaml` (4.15.0+46) | `android/app/prestigepos-version.properties` (1.13.0+32) |
 | Nom, icône, activité | `android/app/src/main` | `android/app/src/pos` (remplace nom, icône, activité) |
 | Permissions en plus | — | Bluetooth (SPP), USB (OTG), démarrage de l'appareil (1.1.0) : `src/pos/AndroidManifest.xml` |
-| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.12.0.apk`) |
+| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.13.0.apk`) |
 
 **Code partagé** : la borne (`lib/borne/`) — recherche, catégories, fiche, panier, vérification prix / stock,
 création de la prévente, ticket, kiosque (épinglage), sortie par code administrateur (`lib/widgets/sortie_kiosque.dart`),
@@ -72,7 +72,7 @@ flutter build apk --release --flavor pos -t lib/main_pos.dart
 ```
 
 APK produit : `build/app/outputs/flutter-apk/app-pos-release.apk` (même fichier, nommé
-`PrestigePOS-release-1.12.0.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
+`PrestigePOS-release-1.13.0.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
 **`prestigepos-apk`** à chaque envoi sur la branche `prestigepos`.
 
 Version : modifier `android/app/prestigepos-version.properties` (`nomVersion`, et `codeVersion` **toujours
@@ -277,6 +277,10 @@ flutter test test/prestigepos        # tests PrestigePOS (job CI « prestigepos 
 - 1.12.0 : Prestige Mobile 4.14.0+45 — demande du 19/11 : ticket de vente comme le serveur, remise sur les ventes de la
   caisse (jamais à la borne) ; borne : ticket de prévente du serveur en raster ESC/POS sur l'imprimante externe quand
   la route existe : `pos_ticket_serveur_test.dart` ; `pos_version_test.dart` : 1.12.0+31 ;
+- 1.13.0 : Prestige Mobile 4.15.0+46 — demande 62 : droit P_BORNE_PAIEMENT_MOBILE de la borne (clôture automatique),
+  ticket « PAYÉE » tant que le serveur n'a pas terminé la vente, 403 → une nouvelle demande sans clôture ; caisse :
+  prévente payée terminée avec son paiement ; remise des comptes de prévente : `pos_droits_test.dart` (cas du
+  pharmacien, caisse fermée, droit retiré) ; `pos_version_test.dart` : 1.13.0+32 ;
 - `pos_play_test.dart` (1.3.0) : saveur pos dans le workflow Google Play, targetSdk 36 pour la version Play seulement
   (APK des bornes sans `playStore`), règles Play (administrateur sans politique, HOME désactivé par défaut, tâche
   verrouillée, démarrage, Bluetooth, USB) ;
