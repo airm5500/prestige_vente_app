@@ -1,5 +1,5 @@
 // NON-RÉGRESSION — 4.15.2 : réponse du serveur aux demandes 64 (correctif/demande64-1911, d6cf51fa5) et 65
-// (plan/support-1811, f8ef5afa6), PAS encore fusionnées ni déployées (officine : integration 76aa5fc1) :
+// (plan/support-1811, f8ef5afa6), fusionnées dans l'intégration à 5f0ab46f, déploiement en officine non confirmé (officine : 76aa5fc1) :
 //  - règle du pharmacien du 19/11 (« s'il paye par mobile money la vente est validée ») : à la borne, jamais de
 //    paiement `cloturer:false`, jamais de nouvelle demande après un refus ; sans droit de clôture, pas de mobile money ;
 //  - comptoir : `cloturer` toujours absent (false) comme en 4.15.1 ; routes et corps du panier inchangés ;

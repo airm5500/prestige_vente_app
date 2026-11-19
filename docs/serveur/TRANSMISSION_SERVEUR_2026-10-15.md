@@ -1024,8 +1024,9 @@ Remarques :
 
 ### Demande 64 — Prévente payée par mobile money dont le net a baissé (P2)
 
-**État au 19/11 : traitée sur `correctif/demande64-1911` (d6cf51fa5), en attente de fusion** dans
-`integration/recette-2026-10-29` (officine : 76aa5fc1, sans cette demande). Règle du pharmacien : payer à la borne par
+**État au 19/11 : traitée sur `correctif/demande64-1911` (d6cf51fa5), en attente de fusion.** **Mise à jour du 19/11
+(soir) : fusionnée dans l'intégration (5f0ab46f, fusion 67efe9cd), déploiement en officine non confirmé.** Contrat
+vérifié inchangé à 5f0ab46f. Règle du pharmacien : payer à la borne par
 mobile money termine la vente (ni avoir, ni remboursement). Contrat vérifié dans le code :
 - `POST v1/paiements-mobile` `cloturer:true` → refus `{success:false, message:"Paiement mobile money impossible : …"}`
   (HTTP 200) avant toute création ;
@@ -1057,7 +1058,9 @@ Tests attendus : prévente payée de 4 125 F ramenée à 3 000 F, puis clôture 
 
 ### Demande 65 — Image du ticket : ne pas dépendre de l'imprimante du poste serveur (P1, avant la fusion de `plan/support-1811`)
 
-**État au 19/11 : traitée sur `plan/support-1811` (f8ef5afa6), en attente de fusion.** Vérifié :
+**État au 19/11 : traitée sur `plan/support-1811` (f8ef5afa6), en attente de fusion.** **Mise à jour du 19/11
+(soir) : fusionnée dans l'intégration (5f0ab46f), déploiement en officine non confirmé.** À 5f0ab46f,
+`sansImprimante` exclut aussi `PAPIER_IMAGE` : l'image n'est jamais refusée faute d'imprimante. Vérifié sur la branche :
 `sansImprimante(ps) = ps == null && APERCU.get() == null` dans les 11 contrôles R1. Le contrat de la route image ne
 change pas : aucun changement dans les applications. La route image (demande 63) n'est pas sur `plan/support-1811`.
 Elle sera couverte à la fusion : un seul conflit annoncé, dans `GenerateTicketServiceImpl`.
