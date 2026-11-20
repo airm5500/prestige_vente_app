@@ -4,6 +4,7 @@
 // - Position NON exigée : envoyée seulement si l'autorisation est DÉJÀ accordée (jamais demandée), délai
 //   court ; tout échec est silencieux et le pointage part sans position.
 // La position n'est jamais journalisée ; elle part seulement avec le pointage.
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
 
@@ -86,7 +87,7 @@ class GeoLocalisateur implements Localisateur {
       if (p == LocationPermission.denied) p = await plateforme.demanderPermission();
       if (p == LocationPermission.deniedForever) {
         return const ResultatPosition.echec(
-            'Localisation refusée pour Prestige Mobile : autorisez-la dans les réglages du téléphone pour pointer.',
+            'Localisation refusée pour $nomAppli : autorisez-la dans les réglages du téléphone pour pointer.',
             reglages: true);
       }
       if (p == LocationPermission.denied || p == LocationPermission.unableToDetermine) {

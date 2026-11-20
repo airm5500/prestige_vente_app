@@ -14,8 +14,8 @@ String versionPubspec() =>
 String simulerVersionInstallee() {
   final v = versionPubspec().split('+');
   PackageInfo.setMockInitialValues(
-    appName: 'Prestige Mobile',
-    packageName: 'com.dici.prestige_vente_app',
+    appName: 'Prestige Mobile V3',
+    packageName: 'com.dici.prestigemobile.v3',
     version: v.first,
     buildNumber: v.length > 1 ? v[1] : '',
     buildSignature: '',

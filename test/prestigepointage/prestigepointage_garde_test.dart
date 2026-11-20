@@ -22,9 +22,9 @@ void main() {
     expect(RegExp(r'^codeVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1');
   });
 
-  test('Gradle : `mobile` par défaut et identité de Prestige Mobile inchangée ; `pointage` séparée', () {
+  test('Gradle : `mobile` par défaut (Prestige Mobile V3 depuis 5.0.0) ; `pointage` séparée', () {
     final g = _lire('android/app/build.gradle.kts');
-    expect(g, contains('applicationId = "com.dici.prestige_vente_app"'));
+    expect(g, contains('applicationId = "com.dici.prestigemobile.v3"'), reason: '5.0.0 : Prestige Mobile V3');
     expect(g, contains('versionCode = flutter.versionCode'));
     expect(g, contains('versionName = flutter.versionName'));
     expect(g, contains('create("pointage")'));
@@ -40,7 +40,7 @@ void main() {
     expect(m, contains('ACCESS_FINE_LOCATION" tools:node="remove"'));
     expect(m, contains('ACCESS_COARSE_LOCATION" tools:node="remove"'));
     final main = _lire('android/app/src/main/AndroidManifest.xml');
-    expect(main, contains('android:label="Prestige Mobile"'), reason: 'nom de Prestige Mobile inchangé');
+    expect(main, contains('android:label="Prestige Mobile V3"'), reason: '5.0.0 : nom de Prestige Mobile V3');
     expect(main, contains('<package android:name="com.dici.prestigepointage" />'));
     for (final d in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
       expect(File('android/app/src/pointage/res/mipmap-$d/launcher_icon.png').existsSync(), isTrue, reason: 'icône $d');
@@ -54,7 +54,7 @@ void main() {
     final ci = _lire('.github/workflows/build-apk.yml');
     expect(ci, contains('flutter build apk --release --flavor pointage -t lib/main_pointage.dart'));
     expect(ci, contains("package: name='com.dici.prestigepointage'"));
-    expect(ci, contains('prestige-mobile-identique'), reason: 'identité et permissions de Prestige Mobile comparées à la 4.9.4');
+    expect(ci, contains('prestige-mobile-identique'), reason: 'permissions de Prestige Mobile comparées à la 4.9.4 (identité : seul le changement V3)');
     final play = _lire('.github/workflows/play-pointage.yml');
     expect(play, contains("- 'android/DEMANDE_PLAY_POINTAGE'"));
     expect(play, contains('--flavor pointage -t lib/main_pointage.dart'));

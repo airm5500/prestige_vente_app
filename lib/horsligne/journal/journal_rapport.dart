@@ -5,6 +5,7 @@
 // - totaux de QUANTITÉS par produit (ventes : lignes ajoutées, une modification remplace la quantité ;
 //   stock : réceptions, pointages, péremptions, retours, ajustements) ;
 // - PDF (en-tête officine, terminal, utilisateur, période, tableau, totaux) et lignes du ticket résumé.
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'dart:typed_data';
 
 import 'package:intl/intl.dart';
@@ -129,7 +130,7 @@ Future<Uint8List> construirePdfJournal({
   DateTime? au,
   DateTime? genereLe,
 }) async {
-  final doc = pw.Document(title: 'Journal du terminal', author: 'Prestige Mobile');
+  final doc = pw.Document(title: 'Journal du terminal', author: nomAppli);
   const petit = pw.TextStyle(fontSize: 7.5);
   final gras = pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold);
   String s(String t) => pdfSafe(t);

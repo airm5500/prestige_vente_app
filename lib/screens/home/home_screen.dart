@@ -1,4 +1,5 @@
 // lib/screens/home/home_screen.dart
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'dart:async';
 import 'package:prestige_vente_app/screens/retour_frs/retour_home_screen.dart';
 import 'package:prestige_vente_app/screens/reception_bl/reception_home_screen.dart';
@@ -312,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
-        title: const Text('Prestige Mobile'),
+        title: const Text(nomAppli),
         actions: [
           IconButton(icon: const Icon(Icons.info_outline), onPressed: _showInfoPopup, tooltip: 'Tâches en attente'),
 

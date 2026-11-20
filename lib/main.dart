@@ -1,5 +1,6 @@
 // lib/main.dart
 // 10/11/2025 09:30 (Ajout LicenceProvider)
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
@@ -222,7 +223,7 @@ class MyApp extends StatelessWidget {
       // lors de « Relancer maintenant ».
       child: RacineTailleEcran(
         child: MaterialApp(
-          title: 'Prestige Vente',
+          title: nomAppli,
           // Navigateur global : le bandeau hors ligne ouvre « Ventes hors ligne ».
           navigatorKey: HorsLigne.navigatorKey,
           // Centre de support : écran courant et fil d'Ariane des écrans.

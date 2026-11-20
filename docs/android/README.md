@@ -1,4 +1,14 @@
-# Prestige Mobile et PrestigePOS sur Google Play — piste « Test interne »
+# Prestige Mobile V3 et PrestigePOS sur Google Play — piste « Test interne »
+
+> **5.0.0 — Prestige Mobile V3 (20/11/2026).** Prestige Mobile est devenue une **nouvelle application** :
+> identifiant **`com.dici.prestigemobile.v3`**, nom « Prestige Mobile V3 » (voir `docs/NOTE_VERSION_5.0.0.md`). Dans
+> ce guide, « Prestige Mobile » désigne désormais Prestige Mobile V3. Pour Google Play, c'est une **application
+> nouvelle** : la créer dans la Play Console (« Prestige Mobile V3 », étape 2) puis faire le **premier envoi à la
+> main** (étape 6) avec l'artefact `prestige-mobile-aab` d'un envoi de la branche `pres-/tender-thompson-ang0ls`
+> (5.0.0+49 ou plus) ; tant que ce premier envoi manuel n'est pas fait, l'envoi automatique (`android/DEMANDE_PLAY`)
+> est refusé par Google (message clair dans la CI). Si une application « Prestige Mobile »
+> (`com.dici.prestige_vente_app`) existe déjà dans la Play Console, elle n'est plus alimentée par ce dépôt (son
+> identifiant ne peut pas être changé sur Play) : la laisser telle quelle ou l'archiver.
 
 Ce guide est pour le pharmacien. La piste **Test interne** de Google Play est l'équivalent de TestFlight : jusqu'à
 100 testeurs choisis par e-mail, version disponible en quelques minutes, **sans examen** de Google ni fiche publique.
@@ -17,7 +27,7 @@ servir aux quatre** : la créer une fois (étape 3) et déposer les **mêmes** s
 
 | Élément | Prestige Mobile | PrestigePOS |
 |---|---|---|
-| Nom du paquet (package name, ne peut plus jamais changer sur Play) | **`com.dici.prestige_vente_app`** | **`com.dici.prestigepos`** |
+| Nom du paquet (package name, ne peut plus jamais changer sur Play) | **`com.dici.prestigemobile.v3`** (depuis 5.0.0 ; avant : `com.dici.prestige_vente_app`) | **`com.dici.prestigepos`** |
 | Branche GitHub | `pres-/tender-thompson-ang0ls` | `prestigepos` |
 | Version | `pubspec.yaml` (ex. `4.5.0+23`) | `android/app/prestigepos-version.properties` (ex. `1.3.0+9`) |
 | Artefact de la CI | `prestige-mobile-aab` | `prestigepos-aab` |
@@ -38,13 +48,13 @@ Play Console › **Créer une application**, **deux fois** :
 
 | | 1re application | 2e application |
 |---|---|---|
-| Nom | « Prestige Mobile » | « PrestigePOS » |
+| Nom | « Prestige Mobile V3 » | « PrestigePOS » |
 | Langue par défaut | Français (France) – fr-FR | Français (France) – fr-FR |
 | Type / prix | Application, Gratuite | Application, Gratuite |
 
 Cocher les déclarations (règles du programme, lois américaines sur l'exportation). Le nom du paquet n'est pas
 demandé ici : il est fixé par le **premier App Bundle** envoyé dans chaque application (étape 6). **Attention à ne
-pas inverser** : le bundle `prestige-mobile-aab` va dans « Prestige Mobile », `prestigepos-aab` dans « PrestigePOS ».
+pas inverser** : le bundle `prestige-mobile-aab` va dans « Prestige Mobile V3 », `prestigepos-aab` dans « PrestigePOS ».
 
 ## 3. Créer la clé d'envoi (une fois pour les 4 applications)
 
@@ -236,7 +246,7 @@ image 1024 × 500) et examen par Google. Inutile pour le test interne.
   dans `android/gradle.properties` (AGP 8.7.3 testé jusqu'à 35 : avertissement seulement).
 - Workflow : `.github/workflows/play.yml`, le même fichier sur les deux branches : application choisie par le nom de
   la branche (`prestigepos` → `com.dici.prestigepos`, `--flavor pos -t lib/main_pos.dart` ; sinon
-  `com.dici.prestige_vente_app`) ; job `controle` sans secret à chaque envoi ; AAB en artefact si la clé existe ; envoi
+  `com.dici.prestigemobile.v3`, Prestige Mobile V3 depuis 5.0.0) ; job `controle` sans secret à chaque envoi ; AAB en artefact si la clé existe ; envoi
   seulement si `android/DEMANDE_PLAY` change et si `PLAY_SERVICE_ACCOUNT_JSON` existe (action
   `r0adkll/upload-google-play` v1.1.5 épinglée par SHA). L'APK reste construit par `build-apk.yml`, sans `playStore`.
 - `android/DEMANDE_PLAY` : sur `prestigepos`, il contient la version de PrestigePOS ; en cas de conflit à la fusion de

@@ -3,6 +3,7 @@
 // description, module, gravité, contexte technique joint ou non. Envoi au centre de support
 // (POST /support/events, type APPLICATION) ; gardé sur le terminal si le serveur ne répond pas.
 // En option : demande de contact (e-mail au support, POST /prestige/support-contact) avec une capture d'écran.
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:prestige_vente_app/support/support_capture.dart';
@@ -130,7 +131,7 @@ class _SignalerProblemeScreenState extends State<SignalerProblemeScreen> {
         final terminal = ctx['terminal'] is Map ? (ctx['terminal'] as Map)['id'] : '';
         final message = [
           description.isEmpty ? objet : description,
-          if (_contexte) '— Envoyé depuis ${SupportCentre.application} ${SupportCentre.version}, terminal $terminal'
+          if (_contexte) '— Envoyé depuis $nomAppli ${SupportCentre.version}, terminal $terminal'
               '${widget.ecranOrigine.isEmpty ? '' : ', écran ${widget.ecranOrigine}'}.',
         ].join('\n\n');
         final (r, msg) = await f(

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fond de l'icône adaptative de Prestige Mobile V3 (PrestigePOS et Prestige Pointage : leur propre valeur). -->
+    <color name="launcher_icon_background">#FFFFFF</color>
+</resources>

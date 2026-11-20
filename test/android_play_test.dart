@@ -93,7 +93,7 @@ void main() {
       });
       expect(m, isNot(contains('ACCESS_BACKGROUND_LOCATION')));
       expect(m, isNot(contains('QUERY_ALL_PACKAGES')));
-      expect(m, contains('android:label="Prestige Mobile"'));
+      expect(m, contains('android:label="Prestige Mobile V3"'), reason: '5.0.0 : Prestige Mobile V3');
     });
   });
 
@@ -109,7 +109,8 @@ void main() {
     test('deux applications, une par branche : paquet, artefact, saveur, version', () {
       expect(play, contains("- 'pres-/tender-thompson-ang0ls'"));
       expect(play, contains("- 'prestigepos'"));
-      expect(play, contains('echo "paquet=com.dici.prestige_vente_app"'));
+      expect(play, contains('echo "paquet=com.dici.prestigemobile.v3"'), reason: '5.0.0 : nouvelle application Prestige Mobile V3');
+      expect(play, isNot(contains('echo "paquet=com.dici.prestige_vente_app"')), reason: 'ancienne fiche : plus construite ici');
       expect(play, contains('echo "artefact=prestige-mobile-aab"'));
       expect(play, contains('echo "paquet=com.dici.prestigepos"'));
       expect(play, contains('echo "artefact=prestigepos-aab"'));
