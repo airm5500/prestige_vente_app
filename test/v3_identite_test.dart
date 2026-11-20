@@ -161,8 +161,15 @@ void main() {
       expect(ci, contains("grep -q \"^package: name='com.dici.prestigemobile.v3' versionCode='\${version#*+}' versionName='\${version%+*}'\" badging-mobile.txt"));
       expect(ci, contains("grep -q \"^application-label:'Prestige Mobile V3'\" badging-mobile.txt"));
       expect(ci, contains("launchable-activity: name='com.dici.prestige_vente_app.MainActivity'"));
-      expect(ci, contains('identite-reference-v3.txt'), reason: 'identité de la 4.9.4 : seuls l\'identifiant et le nom changent');
-      expect(ci, contains('diff -u permissions-reference.txt actuel/permissions-mobile.txt'), reason: 'permissions identiques');
+      if (ci.contains('REFERENCE_MOBILE:')) {
+        // Branche prestigepos (même fichier de test) : Prestige Mobile V3 comparée à la Prestige Mobile V3 de référence.
+        expect(ci, contains('APK de référence (5.0.0+'), reason: 'référence : Prestige Mobile V3');
+      } else {
+        expect(ci, contains('identite-reference-v3.txt'), reason: 'identité de la 4.9.4 : seuls l\'identifiant et le nom changent');
+        expect(ci, contains('diff -u permissions-reference-v3.txt actuel/permissions-mobile.txt'), reason: 'permissions identiques');
+        expect(ci, contains('s/com\\.dici\\.prestige_vente_app\\./com.dici.prestigemobile.v3./g'),
+            reason: 'seule la permission nommée d\'après l\'identifiant (DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION) suit le nouvel identifiant');
+      }
     });
 
     test('play.yml : paquet com.dici.prestigemobile.v3, envoi toujours gardé (secrets + DEMANDE_PLAY)', () {
