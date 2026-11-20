@@ -1,5 +1,5 @@
 // PrestigePOS — construction : deux applications dans le même projet (saveurs Android), sans toucher Prestige Mobile.
-//  - version de PrestigePOS 1.13.2+34 (android/app/prestigepos-version.properties), pubspec.yaml inchangé ;
+//  - version de PrestigePOS 1.13.3+35 (android/app/prestigepos-version.properties), pubspec.yaml inchangé ;
 //  - saveurs `mobile` (par défaut, sans applicationId propre) et `pos` (com.dici.prestigepos) ;
 //  - permissions Bluetooth / USB et activité PrestigePOS dans le manifeste de la saveur pos SEULEMENT ;
 //  - icônes PrestigePOS (toutes densités, adaptative, ronde) ; configurations Android Studio versionnées ;
@@ -19,19 +19,19 @@ String lire(String f) => File(f).readAsStringSync();
 }
 
 void main() {
-  test('version de PrestigePOS : 1.13.2+34, propre à la saveur pos', () {
+  test('version de PrestigePOS : 1.13.3+35, propre à la saveur pos', () {
     final p = lire('android/app/prestigepos-version.properties');
-    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.13.2');
-    expect(RegExp(r'^codeVersion=(\d+)$', multiLine: true).firstMatch(p)!.group(1), '34');
+    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.13.3');
+    expect(RegExp(r'^codeVersion=(\d+)$', multiLine: true).firstMatch(p)!.group(1), '35');
     final g = lire('android/app/build.gradle.kts');
     expect(g, contains('getProperty("nomVersion")'));
     expect(g, contains('getProperty("codeVersion")'));
-    expect(lire('pubspec.yaml'), matches(RegExp(r'^version: 4\.\d+\.\d+\+\d+', multiLine: true)), reason: 'pubspec = Prestige Mobile');
+    expect(lire('pubspec.yaml'), matches(RegExp(r'^version: 5\.\d+\.\d+\+\d+', multiLine: true)), reason: 'pubspec = Prestige Mobile V3 (5.0.0)');
   });
 
   test('saveurs : mobile par défaut (Prestige Mobile inchangé), pos = com.dici.prestigepos', () {
     final g = lire('android/app/build.gradle.kts');
-    expect(g, contains('applicationId = "com.dici.prestige_vente_app"'), reason: 'defaultConfig de Prestige Mobile');
+    expect(g, contains('applicationId = "com.dici.prestigemobile.v3"'), reason: 'defaultConfig de Prestige Mobile V3 (5.0.0)');
     final mobile = RegExp(r'create\("mobile"\)\s*\{([^}]*)\}').firstMatch(g)!.group(1)!;
     expect(mobile, isNot(contains('applicationId')), reason: 'Prestige Mobile garde son applicationId');
     expect(mobile, isNot(contains('version')));
@@ -53,7 +53,7 @@ void main() {
     expect(pos, contains('android:label="PrestigePOS"'));
     expect(pos, contains('com.dici.prestigepos.PosActivity'));
     expect(pos, contains('tools:node="remove"'));
-    expect(main, contains('android:label="Prestige Mobile"'));
+    expect(main, contains('android:label="Prestige Mobile V3"'), reason: 'Prestige Mobile V3 (5.0.0)');
     expect(File('android/app/src/pos/kotlin/com/dici/prestigepos/ImprimantesPlugin.kt').existsSync(), isTrue);
     expect(Directory('android/app/src/main/kotlin').listSync(recursive: true).where((f) => f.path.contains('Imprimantes')), isEmpty,
         reason: 'pont des imprimantes absent de Prestige Mobile');

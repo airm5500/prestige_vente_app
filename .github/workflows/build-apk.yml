@@ -67,7 +67,7 @@ jobs:
           echo "::notice title=Version de l'APK::$apk"
 
       # Saveurs Android : Flutter nomme l'APK « app-mobile-release.apk » ; l'artefact garde le nom d'origine
-      # « app-release.apk ». Identité et permissions relevées pour la comparaison avec 4.15.2+48 (job suivant).
+      # « app-release.apk ». Identité et permissions relevées pour la comparaison avec 5.0.0+49 (job suivant).
       - name: APK Prestige Mobile (nom d'origine) et permissions
         shell: bash
         run: |
@@ -112,13 +112,13 @@ jobs:
           retention-days: 30
 
   # Non-régression de Prestige Mobile : l'APK construit ici a le MÊME applicationId, le même nom, la même version
-  # et EXACTEMENT les mêmes permissions que celui de la version de référence 4.15.2+48 (Prestige Mobile avant sa fusion dans PrestigePOS).
+  # et EXACTEMENT les mêmes permissions que celui de la version de référence 5.0.0+49 (Prestige Mobile V3, com.dici.prestigemobile.v3, avant sa fusion dans PrestigePOS).
   prestige-mobile-identique:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      REFERENCE_MOBILE: 48528e8647bc3819f9e461933e210e630579b465  # 4.15.2+48, avant la fusion dans PrestigePOS
+      REFERENCE_MOBILE: 8f7b7d1100ff26c905d25627054eefbfa7da3f78  # 5.0.0+49 (Prestige Mobile V3), avant la fusion dans PrestigePOS
     steps:
       - uses: actions/checkout@v4
         with:
@@ -133,7 +133,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: APK de référence (4.15.2+48)
+      - name: APK de référence (5.0.0+49)
         run: flutter build apk --release
       - uses: actions/download-artifact@v4
         with:
@@ -200,6 +200,11 @@ jobs:
           "$aapt2" dump badging "$apk" | grep -E "^(package|application-label|launchable-activity):"
           "$aapt2" dump badging "$apk" | grep -q "package: name='com.dici.prestigepos' versionCode='$code' versionName='$nom'"             || { echo "::error title=PrestigePOS::applicationId/version attendus com.dici.prestigepos $nom+$code"; exit 1; }
           "$aapt2" dump badging "$apk" | grep -q "application-label:'PrestigePOS'" || { echo "::error title=PrestigePOS::nom affiché"; exit 1; }
+          # 1.13.3 (Prestige Mobile V3 fusionnée) : identité de PrestigePOS INCHANGÉE — ni l'identifiant, ni le nom, ni
+          # l'activité de Prestige Mobile V3 ; icône de la saveur pos (fichiers comparés par pos_identite_v3_test.dart).
+          if "$aapt2" dump badging "$apk" | grep -qE "prestigemobile|Prestige Mobile|com.dici.prestige_vente_app.MainActivity"; then echo "::error title=PrestigePOS::identité de Prestige Mobile V3 dans PrestigePOS"; exit 1; fi
+          "$aapt2" dump badging "$apk" | grep -q "launchable-activity: name='com.dici.prestigepos.PosActivity'" || { echo "::error title=PrestigePOS::activité de lancement"; exit 1; }
+          "$aapt2" dump badging "$apk" | grep -E "^application-icon|^application:" || true
           "$aapt2" dump permissions "$apk" | sort
           "$aapt2" dump permissions "$apk" | grep -q "BLUETOOTH_CONNECT" || { echo "::error title=PrestigePOS::permission Bluetooth absente"; exit 1; }
           # 1.1.0 : démarrage automatique de la borne avec l'appareil (récepteur BOOT_COMPLETED, saveur pos seulement).
