@@ -34,6 +34,7 @@ import 'package:prestige_vente_app/droits/droits_modules.dart';
 import 'package:prestige_vente_app/fiche_client/ordonnances_clients_screen.dart';
 import 'package:prestige_vente_app/posos/posos_screen.dart';
 import 'package:prestige_vente_app/reserve/reserve_screen.dart';
+import 'package:prestige_vente_app/ventes/reedition/reedition_ventes_screen.dart';
 
 /// Familles de l'accueil, dans l'ordre d'affichage.
 /// La Caisse est rangée dans « Ventes » (retour client) : les familles ne sont pas enregistrées
@@ -175,6 +176,9 @@ final List<AccueilMenu> menusSousDroits = [
   AccueilMenu(id: 'posos', label: 'Analyse posologie', short: 'Posologie', icon: Icons.health_and_safety_outlined, color: Colors.pink.shade600, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.posos, screen: () => const PososScreen()),
   // Ordonnances des clients (onglet « Fiche client ») : droit Prestige P_ORDONNANCE_CLIENT.
   AccueilMenu(id: 'ordonnances_clients', label: 'Ordonnances des clients', short: 'Fiche client', icon: Icons.assignment_ind, color: Colors.teal.shade800, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.ordonnancesConsulter, screen: () => const OrdonnancesClientsScreen()),
+  // 5.4.0 — Réédition des ventes (comptant, assurance, carnet) faites sur ce terminal : compte connecté (le serveur
+  // applique ses droits de consultation des ventes terminées).
+  AccueilMenu(id: 'reedition_ventes', label: 'Réédition des ventes', short: 'Rééditer', icon: Icons.print_outlined, color: Colors.blueGrey.shade800, famille: MenuFamille.ventes, autorise: () => DroitsModules.instance.connu, screen: () => const ReeditionVentesScreen()),
   // Réserve : réappros rayon ↔ réserve (suggestion puis traitement). Administrateur (+ droit dédié quand le serveur l'exposera).
   AccueilMenu(id: 'reserve', label: 'Réserve', short: 'Réserve', icon: Icons.warehouse_outlined, color: Colors.deepPurple.shade600, famille: MenuFamille.stock, autorise: () => DroitsModules.instance.reserve, screen: () => const ReserveScreen()),
   // 4.4.0 — Photos produits : scanner, photographier, OK → produit suivant. Mêmes droits que l'ajout de photo

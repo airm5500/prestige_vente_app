@@ -2,8 +2,13 @@
 // A / B / C à 360 px, carte client permanente, « CONTINUER » désactivé avec la raison exacte, répartition
 // toujours visible (« Calcul… »), page d'encaissement (part client > 0), validation 0 F (confirmation
 // simple), double tap = 1 clôture, retour par la barre d'étapes, menu « Présentation » transmis.
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/api/models/assurance_sale_summary.dart';
@@ -17,6 +22,10 @@ import 'package:prestige_vente_app/api/models/tiers_payant_assurance.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/services/impression_ticket.dart';
+import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
+import 'package:prestige_vente_app/services/largeur_ticket.dart';
+import 'package:prestige_vente_app/services/ticket_serveur.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/ventes/assurance/vente_assurance_screen.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
@@ -969,7 +978,110 @@ void main() {
       expect(gw.clotures, hasLength(1));
       expect(tester.takeException(), isNull);
     });
+
+    // 5.4.0 — retour du pharmacien (SUNMI V3) : « nombre de tickets = 2 », le 1er ticket sort, la question du 2e
+    // n'apparaît plus. Ticket dessiné par le serveur (route image) + imprimante intégrée Sunmi (canal simulé) : le
+    // chemin de l'officine depuis le déploiement du serveur 76aa5fc1, absent des tests ci-dessus (mode test, gabarit).
+    for (final zero in [false, true]) {
+      testWidgets('ticket du serveur, imprimante Sunmi, 2 tickets${zero ? ' (part client 0 F)' : ''} : 1er ticket, « Ticket suivant (2/2) », 2e ticket', (tester) async {
+        SharedPreferences.setMockInitialValues({'enabled_payment_method_ids': ['1', '10'], 'number_of_tickets_assurance': 2, 'paper_width': 58});
+        _phone(tester);
+        TicketServeur.oublier();
+        ImpressionTicket.reinitialiser();
+        ImprimanteSunmi.reinitialiser(avec: () async => true, pas: const Duration(milliseconds: 50));
+        LargeurTicket.reinitialiser();
+        addTearDown(() {
+          ImpressionTicket.reinitialiser();
+          ImprimanteSunmi.reinitialiser();
+          LargeurTicket.reinitialiser();
+        });
+        final images = <String>[];
+        ImpressionTicket.dioDe = (_) => Dio(BaseOptions(baseUrl: 'http://serveur-fictif/prestige/api/v1'))..httpClientAdapter = _RouteImageFictive(images);
+        var raster = 0, versions = 0;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(ImprimanteSunmi.canal, (call) async {
+          switch (call.method) {
+            case 'BIND_PRINTER_SERVICE':
+              return true;
+            case 'PRINTER_VERSION':
+              return ++versions > 3 ? '2.4.1' : 'NOT FOUND'; // service connecté en retard (5.1.0)
+            case 'PAPER_SIZE':
+              return 1;
+            case 'GET_UPDATE_PRINTER':
+              return 'NORMAL';
+            case 'RAW_DATA':
+              raster++;
+          }
+          return null;
+        });
+        addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(ImprimanteSunmi.canal, null));
+        final gw = _FakeGateway();
+        if (zero) gw.clients = [_client(tps: [_ctp('TP1', 'MCI', 'CT1', 100, 1)])];
+        await _open(tester, gw, ListPresentation.dashboard);
+        await _toProducts(tester, ascoma: !zero);
+        await _add(tester, 'doli');
+        await tester.tap(_valider);
+        await tester.pumpAndSettle();
+        if (zero) {
+          await tester.tap(find.byKey(const ValueKey('assurance-zero-valider')));
+        } else {
+          expect(_text(tester, find.byKey(const ValueKey('encaissement-copies'))), '2');
+          await tester.tap(find.text('Exact'));
+          await tester.pump();
+          await tester.ensureVisible(_pageValider);
+          await tester.pumpAndSettle();
+          await tester.tap(_pageValider);
+        }
+        for (var i = 0; i < 60 && pause.evaluate().isEmpty; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        expect(raster, 1, reason: '1er ticket imprimé (image du serveur)');
+        expect(pause, findsOneWidget, reason: 'question du 2e ticket (absente en 5.3.0)');
+        expect(find.text('Ticket suivant (2/2)'), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('ticket-suivant-imprimer')));
+        for (var i = 0; i < 30; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        await tester.pumpAndSettle();
+        expect(raster, 2, reason: '2e ticket imprimé');
+        expect(images, hasLength(2), reason: 'un exemplaire demandé au serveur par ticket');
+        expect(images.toSet().single, startsWith('/vente/ticket/vo/'));
+        expect(pause, findsNothing);
+        expect(gw.clotures, hasLength(1));
+        expect(_clientField, findsOneWidget, reason: 'nouvelle vente');
+        expect(tester.takeException(), isNull);
+      });
+    }
   });
+}
+
+/// 5.4.0 : route image du serveur (un ticket fictif, lecture lente : « Préparation du ticket… »).
+class _RouteImageFictive implements HttpClientAdapter {
+  final List<String> chemins;
+  _RouteImageFictive(this.chemins);
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions o, Stream<Uint8List>? s, Future<void>? c) async {
+    chemins.add(o.path);
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    final i = img.Image(width: 384, height: 24);
+    img.fill(i, color: img.ColorUint8.rgb(255, 255, 255));
+    img.fillRect(i, x1: 10, y1: 8, x2: 200, y2: 14, color: img.ColorUint8.rgb(0, 0, 0));
+    return ResponseBody.fromString(
+      jsonEncode({
+        'success': true,
+        'largeur': 58,
+        'dpi': 203,
+        'tickets': [
+          {'modele': 'VENTE_ASSURANCE', 'png': base64Encode(img.encodePng(i)), 'largeurPoints': 384, 'hauteurPoints': 24}
+        ],
+      }),
+      200,
+      headers: {Headers.contentTypeHeader: ['application/json']},
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 // 5.0.0 — outil de captures du magasin (test/outils/captures_store_v3_test.dart, hors CI) : même faux serveur et même

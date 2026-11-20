@@ -39,7 +39,9 @@ import 'package:prestige_vente_app/screens/auth/qr_code_preview_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/employees_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
 import 'package:prestige_vente_app/screens/pointage/pointage_report_screen.dart';
+import 'package:prestige_vente_app/services/contraste_impression.dart';
 import 'package:prestige_vente_app/services/receipt_service.dart';
+import 'package:prestige_vente_app/services/ticket_1bit.dart' show ContrasteImpression;
 import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
@@ -148,6 +150,28 @@ class _ImpressionPageState extends State<ImpressionPage> {
         const SectionLabel('Largeur du ticket'),
         // 4.14.0 : largeur imposée par l'imprimante intégrée ; page de test.
         const ChoixLargeurTicket(),
+        // 5.4.0 : libellés fins et pâles sur le ticket du serveur (SUNMI V3) → contraste renforcé par défaut.
+        const SectionLabel('Contraste d\'impression'),
+        ValueListenableBuilder<ContrasteImpression>(
+          valueListenable: ReglageContraste.courant,
+          builder: (context, c, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Segmented<ContrasteImpression>(
+              key: const ValueKey('contraste-impression'),
+              options: const [(ContrasteImpression.normal, 'Normal'), (ContrasteImpression.renforce, 'Renforcé')],
+              value: c,
+              onChanged: ReglageContraste.choisir,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+              child: Text(
+                c == ContrasteImpression.renforce
+                    ? 'Traits fins épaissis, noir pur : textes plus lisibles sur le papier thermique.'
+                    : 'Rendu d\'avant la 5.4.0 (textes fins plus pâles).',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+              ),
+            ),
+          ]),
+        ),
         const SectionLabel('Type de code sur le ticket'),
         Segmented<String>(
           options: const [('QR_CODE', 'QR code'), ('BARCODE', 'Code-barres')],
@@ -194,9 +218,10 @@ class _ImpressionPageState extends State<ImpressionPage> {
         ),
         ResetDefaultsButton(
           rubrique: 'Impression',
-          detail: '58 mm, QR code, code non affiché sur la vente, produits non affichés sur la prévente, 1 ticket (2 en assurance), '
-              'mode test désactivé.',
+          detail: '58 mm, contraste renforcé, QR code, code non affiché sur la vente, produits non affichés sur la prévente, '
+              '1 ticket (2 en assurance), mode test désactivé.',
           onReset: () async {
+            await ReglageContraste.choisir(ReglageContraste.parDefaut);
             await s.setPaperWidth(58);
             await s.setTicketCodeType('QR_CODE');
             await s.setShowQrCodeOnSaleTicket(false);

@@ -17,7 +17,7 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10), 59 et 60 (réception d'un BL incomplet, droit « Voir les suggestions de réserve », 08/11), 62 (client des ventes comptant, paiement mobile money de la borne, 15/11), 63 (ticket dessiné par le serveur, remise sur les ventes, 19/11), 66 (taux des organismes plafonnés à 100 % sur tous les tickets, 20/11)
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10), 59 et 60 (réception d'un BL incomplet, droit « Voir les suggestions de réserve », 08/11), 62 (client des ventes comptant, paiement mobile money de la borne, 15/11), 63 (ticket dessiné par le serveur, remise sur les ventes, 19/11), 66 (taux des organismes plafonnés à 100 % sur tous les tickets, 20/11), 69 (réédition des ventes : non émise) et 70 (textes du ticket image 58 mm trop fins, 20/11)
 3. Prestige Pharmacien : réponses et demandes 45 et 55 (péremptions courtes, 25/10)
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
@@ -1149,6 +1149,69 @@ Tests attendus :
   et `…/vo/{id}/image` d'une vente liée à une vente comptant : 20 % pour le complémentaire, en 58 et 80 mm.
 - Web : ticket de prévente et ticket combiné réimprimés depuis le web : mêmes taux que l'image.
 
+### Demande 69 — Réédition des ventes de chaque terminal : NON ÉMISE (routes existantes suffisantes)
+
+**20/11 (soir)** (Prestige Mobile V3 5.4.0+54, PrestigePOS 1.17.0+40 ; fichier autonome
+`TRANSMISSION_SERVEUR_2026-11-20_demande69.md`, qui contient aussi la demande 70). Code lu : 76aa5fc1 et 5f0ab46f.
+
+Besoin du pharmacien : « rééditer les ventes (comptant, assurance, carnet) effectuées sur chaque terminal ».
+Vérifié dans le code déployé (76aa5fc1), tout existe :
+
+- liste : `GET v1/ventestats` (`SalesStatsRessource.getAlls`) avec `dtStart`, `dtEnd`, `hStart`, `hEnd`, `query`
+  (début du n° de ticket, de la référence ou d'un produit), `lgTypeVenteId` (1, 2, 3) et `poste`
+  (`SalesStatsServiceImpl.buildWhereClose` : `str_POSTE`, `str_POSTE_SAISIE` ou `str_IP`) ; droits de l'écran
+  « Ventes terminées » appliqués (`str_SHOW_VENTE`, `P_SHOW_ALL_ACTIVITY`) ;
+- ticket : `GET v1/vente/ticket/{vno|vo}/{id}/image` (demande 63), la route de la réimpression du poste.
+
+Un nom de poste n'étant pas un identifiant unique (deux terminaux peuvent porter le même nom ; un nom changé ne
+retrouve plus les ventes d'avant), l'application garde aussi, sur l'appareil, les identifiants des ventes clôturées
+sur ce terminal (identifiants seulement). Rien à faire côté serveur.
+
+Pour information (aucune demande) : ni la route image ni la réimpression du poste n'impriment de mention
+« DUPLICATA » ; l'application n'en ajoute pas. Si le pharmacien la souhaite un jour, ce sera une demande à part.
+
+### Demande 70 — Ticket image 58 mm : textes normaux trop fins pour une tête thermique de 203 dpi (P2)
+
+**Transmise le 20/11 (soir)** (même fichier autonome que la demande 69).
+
+**Constat** (SUNMI V3, 58 mm, ticket assurance imprimé depuis `GET v1/vente/ticket/vo/{id}/image`) : les libellés de
+gauche (« Matricule assuré », « Bénéficiaire », « Bon N° », « Part du client », noms des organismes,
+« 1 ligne · 1 article », « Total ») sortent fins et pâles, comme tramés ; les valeurs de droite un peu mieux ; les gras
+(TICKET N°, produit, Vente à terme, NET) sont nets. Les taux sont justes.
+
+**Cause** (mesurée sur un ticket FICTIF dessiné par `RenduTicket.imageImprimante`, mêmes classes, police métriquement
+identique à « Arial Narrow ») :
+
+- rien n'est gris volontairement : tout est dessiné en `Color.BLACK` (`RenduTicket.java`, l. 178) ;
+- mais la taille de base est de **8 points en 58 mm** (`tailleBase`, l. 74-76 ; 9 en 80 mm), en **« Arial Narrow »
+  ordinaire** (`POLICE_REPLI`, l. 36 ; `police()`, l. 308-326, `Style.NORMAL` et `PETIT` = `Font.PLAIN`, `PETIT` à
+  7 points), lissée (`VALUE_TEXT_ANTIALIAS_ON`, l. 179), puis mise à l'échelle de 2,78 points d'imprimante par point
+  (`echelleImage`) : un trait vertical de lettre fait environ 1,5 point d'imprimante, réparti en deux colonnes grises ;
+- converti en noir et blanc (obligatoire sur une tête thermique), **74 % des traits verticaux de ces textes ne font
+  plus qu'UN point** de large (seuil 128) ; une colonne d'un seul point chauffe mal : trait pâle, pointillé.
+  En 80 mm (9 points), 6 % seulement : le problème touche surtout le 58 mm (SUNMI V2s / V3).
+
+**Ce que fait l'application dès la 5.4.0** (sans attendre le serveur) : seuil 160 et doublement des traits verticaux
+d'un seul point avant l'impression (réglage « Contraste d'impression », Renforcé par défaut), code-barres et QR
+inchangés (vérifiés lisibles). C'est un rattrapage : le serveur peut dessiner directement un ticket net.
+
+**Demande** — dans `RenduTicket.imageImprimante` / `dessinerImage` seulement (l'aperçu du web et le ticket du poste
+ne changent pas), pour les images à 203 dpi en 58 mm au moins :
+
+1. aucun texte sous 2 points d'imprimante d'épaisseur : soit **9 points au minimum** pour `NORMAL` et `PETIT` en 58 mm
+   dans l'image (au lieu de 8 et 7), soit dessiner ces textes une seconde fois **décalés d'un point d'imprimante**
+   (1/203 pouce) vers la droite (même largeur de texte, aucun débordement nouveau), soit une police non « Narrow »
+   (« Arial ») en 58 mm ;
+2. garder `Color.BLACK` partout (aucun gris), fond blanc, largeur exacte 384 / 576 points ;
+3. ne pas toucher au code-barres ni au QR (dessinés au plus proche voisin : barres et modules nets).
+
+L'application garde son renforcement : sur un ticket déjà épais il ne fait rien (il ne double que les traits d'un seul
+point ; le texte gras et les barres ne bougent pas).
+
+Tests serveur suggérés : image `…/vo/{id}/image?largeur=58&dpi=203` d'une vente assurance fictive à deux organismes :
+après seuil 128, moins de 15 % des suites noires horizontales des textes normaux d'un seul point ; mêmes largeurs de
+textes (aucun débordement nouveau) ; code-barres relu (Code 128), QR de la prévente relu ; 80 mm inchangé.
+
 ---
 
 ## 5. Récapitulatif des nouvelles demandes
@@ -1179,5 +1242,7 @@ Tests attendus :
 | 64 | Prévente payée par mobile money dont le net a baissé sous le montant payé : refus explicite ou avoir | Mobile, PrestigePOS | P2 |
 | 65 | Image du ticket : ne pas appliquer le contrôle « imprimante absente » de `plan/support-1811` en mode aperçu / image | Mobile, PrestigePOS | P1 |
 | 66 | Taux des organismes plafonnés à 100 % au total (`CreditLigne.tauxAffiches`) aussi sur le ticket de prévente (`TicketPrevente.lignes`) et le ticket client combiné (`TicketCombine`), images comprises : 80 % + 30 % → 80 % + 20 % | Mobile, PrestigePOS | P2 |
+| 69 | Réédition des ventes de chaque terminal : NON ÉMISE (`GET v1/ventestats` avec `poste`, et la route image, suffisent) | Mobile, PrestigePOS | — |
+| 70 | Image du ticket en 58 mm : textes normaux d'au moins 2 points d'imprimante (9 points minimum, ou trait doublé d'un point, ou police non « Narrow ») dans `RenduTicket.imageImprimante` ; noir pur, code-barres et QR inchangés | Mobile, PrestigePOS | P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.

@@ -3,6 +3,7 @@
 // et recherche produit des nouveaux écrans qui bascule sur la copie locale UNIQUEMENT
 // quand l'état est « hors ligne » (en ligne : appel serveur inchangé).
 // Étape H2 : file des ventes saisies hors ligne, envoyée automatiquement au retour du serveur.
+import 'package:prestige_vente_app/ventes/reedition/ventes_du_terminal.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/material.dart';
@@ -211,6 +212,8 @@ class HorsLigne {
     if (!dio.interceptors.any((i) => i is JournalInterceptor)) {
       dio.interceptors.add(JournalInterceptor(fileEnCours: () => HorsLigne.instance.ventes.running));
     }
+    // 5.4.0 : ventes clôturées sur ce terminal (identifiants seulement), pour la réédition des tickets.
+    if (!dio.interceptors.any((i) => i is VentesDuTerminalInterceptor)) dio.interceptors.add(VentesDuTerminalInterceptor());
     JournalTerminal.instance.horsLigne = () => HorsLigne.instance.offline;
     _bindSupport(dio);
     monitor.ping ??= _ping;

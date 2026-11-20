@@ -1,7 +1,7 @@
 // NON-RÉGRESSION — Prestige Mobile V3 (5.0.0) : NOUVELLE application Android, seule l'identité change.
 //  - Gradle : applicationId com.dici.prestigemobile.v3 (saveur `mobile`), namespace INCHANGÉ (MainActivity, R, et
 //    l'activité retirée par PrestigePOS : com.dici.prestige_vente_app.MainActivity) ; PrestigePOS et Prestige Pointage
-//    gardent leur identifiant ; version 5.3.0+53 lue dans pubspec.yaml.
+//    gardent leur identifiant ; version 5.4.0+54 lue dans pubspec.yaml.
 //  - Manifeste : nom « Prestige Mobile V3 », icône (5.0.1 : plus d'icône ronde) ; visibilité de l'ANCIENNE application seulement dans
 //    la saveur `mobile` (src/mobile), jamais QUERY_ALL_PACKAGES ; canal natif : ancienne application seulement pour
 //    « estInstallee » (jamais ouverte).
@@ -45,8 +45,8 @@ void main() {
       expect(_lire('android/app/src/pointage/AndroidManifest.xml'), contains('android:label="Prestige Pointage"'));
     });
 
-    test('version 5.3.0+53 (pubspec.yaml, source unique)', () {
-      expect(RegExp(r'^version: (\S+)$', multiLine: true).firstMatch(_lire('pubspec.yaml'))!.group(1), '5.3.0+53');
+    test('version 5.4.0+54 (pubspec.yaml, source unique)', () {
+      expect(RegExp(r'^version: (\S+)$', multiLine: true).firstMatch(_lire('pubspec.yaml'))!.group(1), '5.4.0+54');
     });
 
     test('manifeste : nom « Prestige Mobile V3 », icône (sans icône ronde depuis 5.0.1), aucune nouvelle permission', () {

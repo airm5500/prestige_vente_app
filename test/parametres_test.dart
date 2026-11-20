@@ -343,6 +343,9 @@ void main() {
     expect(env.settings.ticketCodeType, 'BARCODE');
 
     final plus = find.descendant(of: find.byKey(const Key('tickets_vente')), matching: find.byIcon(Icons.add));
+    // 5.4.0 : page plus longue (contraste d'impression) : compteur rendu visible avant les appuis.
+    await tester.ensureVisible(plus);
+    await tester.pumpAndSettle();
     for (var i = 0; i < 4; i++) {
       await tester.tap(plus);
       await tester.pumpAndSettle();
