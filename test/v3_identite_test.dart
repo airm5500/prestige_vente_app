@@ -1,12 +1,12 @@
 // NON-RÉGRESSION — Prestige Mobile V3 (5.0.0) : NOUVELLE application Android, seule l'identité change.
 //  - Gradle : applicationId com.dici.prestigemobile.v3 (saveur `mobile`), namespace INCHANGÉ (MainActivity, R, et
 //    l'activité retirée par PrestigePOS : com.dici.prestige_vente_app.MainActivity) ; PrestigePOS et Prestige Pointage
-//    gardent leur identifiant ; version 5.0.0+49 lue dans pubspec.yaml.
-//  - Manifeste : nom « Prestige Mobile V3 », icône et icône ronde ; visibilité de l'ANCIENNE application seulement dans
+//    gardent leur identifiant ; version 5.0.1+50 lue dans pubspec.yaml.
+//  - Manifeste : nom « Prestige Mobile V3 », icône (5.0.1 : plus d'icône ronde) ; visibilité de l'ANCIENNE application seulement dans
 //    la saveur `mobile` (src/mobile), jamais QUERY_ALL_PACKAGES ; canal natif : ancienne application seulement pour
 //    « estInstallee » (jamais ouverte).
-//  - Icônes : héritées, rondes et adaptatives (fond blanc, avant-plan contenu dans la zone de sécurité de 66 dp : le
-//    badge « V3 » n'est coupé par aucun masque), toutes les densités, tailles exactes.
+//  - Icônes (5.0.1) : SANS cadre, comme l'ancienne : PNG transparents seulement (ni adaptative, ni ronde), dessin
+//    pleine toile à l'encombrement de l'ancienne icône, badge « V3 », aucun liseré blanc ; toutes les densités.
 //  - Nom affiché : constante nomAppli, plus de « Prestige Mobile » en dur dans les écrans qui nomment l'application ;
 //    contenu envoyé au serveur (support) inchangé.
 //  - CI et Google Play : badging de l'APK (identifiant, nom, version), paquet Play ; note de version.
@@ -22,6 +22,10 @@ import 'package:prestige_vente_app/support/support_centre.dart';
 String _lire(String p) => File(p).readAsStringSync();
 
 const _densites = {'mdpi': 1.0, 'hdpi': 1.5, 'xhdpi': 2.0, 'xxhdpi': 3.0, 'xxxhdpi': 4.0};
+
+/// Ancienne icône (Prestige Mobile 4.15.2, commit 48528e8, PNG transparent sans cadre) : moyenne largeur / hauteur du
+/// cadre du dessin (alpha > 8), rapportée à la toile, par densité (0,90 × 1,00 environ).
+const _ancienneMoyenne = {'mdpi': 0.958, 'hdpi': 0.958, 'xhdpi': 0.948, 'xxhdpi': 0.951, 'xxxhdpi': 0.948};
 
 void main() {
   group('Identité Android', () {
@@ -41,16 +45,18 @@ void main() {
       expect(_lire('android/app/src/pointage/AndroidManifest.xml'), contains('android:label="Prestige Pointage"'));
     });
 
-    test('version 5.0.0+49 (pubspec.yaml, source unique)', () {
-      expect(RegExp(r'^version: (\S+)$', multiLine: true).firstMatch(_lire('pubspec.yaml'))!.group(1), '5.0.0+49');
+    test('version 5.0.1+50 (pubspec.yaml, source unique)', () {
+      expect(RegExp(r'^version: (\S+)$', multiLine: true).firstMatch(_lire('pubspec.yaml'))!.group(1), '5.0.1+50');
     });
 
-    test('manifeste : nom « Prestige Mobile V3 », icône et icône ronde, aucune nouvelle permission', () {
+    test('manifeste : nom « Prestige Mobile V3 », icône (sans icône ronde depuis 5.0.1), aucune nouvelle permission', () {
       final m = _lire('android/app/src/main/AndroidManifest.xml');
       expect(m, contains('android:label="Prestige Mobile V3"'));
       expect(m, contains('android:icon="@mipmap/launcher_icon"'));
-      expect(m, contains('android:roundIcon="@mipmap/launcher_icon_round"'),
-          reason: 'même valeur que PrestigePOS et Prestige Pointage : aucun conflit de fusion du manifeste');
+      expect(m, isNot(contains('android:roundIcon')),
+          reason: '5.0.1 : comme l\'ancienne application ; Prestige Pointage (et PrestigePOS) déclarent la leur');
+      expect(_lire('android/app/src/pointage/AndroidManifest.xml'), contains('android:roundIcon="@mipmap/launcher_icon_round"'),
+          reason: 'Prestige Pointage inchangée');
       expect(m, isNot(contains('QUERY_ALL_PACKAGES')));
       expect(m, isNot(contains('com.dici.prestige_vente_app')), reason: 'visibilité de l\'ancienne appli : saveur mobile seulement');
     });
@@ -85,41 +91,63 @@ void main() {
   group('Icônes du lanceur (Prestige Mobile V3)', () {
     const res = 'android/app/src/main/res';
 
-    test('icône adaptative : fond blanc, avant-plan ; versions ronde et carrée', () {
-      for (final n in ['launcher_icon', 'launcher_icon_round']) {
-        final x = _lire('$res/mipmap-anydpi-v26/$n.xml');
-        expect(x, contains('<background android:drawable="@color/launcher_icon_background" />'));
-        expect(x, contains('<foreground android:drawable="@mipmap/launcher_icon_foreground" />'));
+    test('5.0.1 : SANS cadre, comme l\'ancienne icône : ni icône adaptative ni fond blanc ni icône ronde', () {
+      expect(Directory('$res/mipmap-anydpi-v26').existsSync() && Directory('$res/mipmap-anydpi-v26').listSync().isNotEmpty,
+          isFalse, reason: 'icône adaptative = dessin réduit dans un carré blanc sur le lanceur Sunmi');
+      for (final d in [...Directory(res).listSync().whereType<Directory>()]) {
+        for (final f in d.listSync().whereType<File>()) {
+          final nom = f.uri.pathSegments.last;
+          expect(nom.startsWith('launcher_icon') && nom.endsWith('.xml'), isFalse, reason: f.path);
+          expect(nom, isNot(anyOf('launcher_icon_round.png', 'launcher_icon_foreground.png')), reason: f.path);
+        }
       }
-      expect(_lire('$res/values/couleurs_prestigemobile.xml'), contains('<color name="launcher_icon_background">#FFFFFF</color>'));
+      expect(File('$res/values/couleurs_prestigemobile.xml').existsSync(), isFalse, reason: 'fond blanc de l\'icône adaptative');
+      final m = _lire('android/app/src/main/AndroidManifest.xml');
+      expect(m, contains('android:icon="@mipmap/launcher_icon"'));
+      expect(m, isNot(contains('roundIcon')), reason: 'l\'ancienne application n\'avait pas d\'icône ronde');
     });
 
     for (final e in _densites.entries) {
-      test('${e.key} : icônes héritées ${(48 * e.value).round()} px, avant-plan ${(108 * e.value).round()} px dans la zone de sécurité',
-          () {
-        for (final n in ['launcher_icon', 'launcher_icon_round']) {
-          final i = img.decodePng(File('$res/mipmap-${e.key}/$n.png').readAsBytesSync())!;
-          expect(i.width, (48 * e.value).round(), reason: n);
-          expect(i.height, (48 * e.value).round(), reason: n);
+      final px = (48 * e.value).round();
+      test('${e.key} : launcher_icon.png $px px transparent, dessin pleine toile comme l\'ancienne icône, badge « V3 »', () {
+        final i = img.decodePng(File('$res/mipmap-${e.key}/launcher_icon.png').readAsBytesSync())!;
+        expect([i.width, i.height], [px, px]);
+        expect(i.numChannels, 4, reason: 'fond transparent (RGBA)');
+        // Coins transparents (aucun fond, aucun cadre).
+        for (final (x, y) in [(0, 0), (px - 1, 0), (0, px - 1), (px - 1, px - 1), (1, 1), (px - 2, px - 2)]) {
+          expect(i.getPixel(x, y).a, 0, reason: 'coin ($x, $y)');
         }
-        final fg = img.decodePng(File('$res/mipmap-${e.key}/launcher_icon_foreground.png').readAsBytesSync())!;
-        final px = (108 * e.value).round();
-        expect(fg.width, px);
-        expect(fg.height, px);
-        // Zone de sécurité : cercle de 66 dp de diamètre au centre de la toile de 108 dp (aucun masque ne la coupe).
-        final rayonSur = 33 * e.value;
-        var hors = 0, visibles = 0;
+        // Cadre du dessin (alpha > 8) : même encombrement que l'ancienne icône de la même densité (4.15.2, 48528e8).
+        var x0 = px, y0 = px, x1 = -1, y1 = -1;
+        var badge = 0, texteBadge = 0, liseres = 0;
         for (var y = 0; y < px; y++) {
           for (var x = 0; x < px; x++) {
-            final a = fg.getPixel(x, y).a;
-            if (a <= 8) continue;
-            visibles++;
-            final d = math.sqrt(math.pow(x + 0.5 - px / 2, 2) + math.pow(y + 0.5 - px / 2, 2));
-            if (d > rayonSur) hors++;
+            final p = i.getPixel(x, y);
+            final a = p.a.toInt(), r = p.r.toInt(), g = p.g.toInt(), b = p.b.toInt();
+            if (a > 8) {
+              x0 = math.min(x0, x);
+              y0 = math.min(y0, y);
+              x1 = math.max(x1, x);
+              y1 = math.max(y1, y);
+            }
+            final coinBadge = x >= px * 0.6 && y < px * 0.3;
+            if (coinBadge && a > 200 && g > r + 40 && g > b + 20) badge++;
+            if (coinBadge && a > 200 && math.min(r, math.min(g, b)) > 200) texteBadge++;
+            // Liseré blanc : pixel semi-transparent quasi blanc hors du badge (bordé de blanc par dessin).
+            if (!coinBadge && a > 0 && a < 200 && math.min(r, math.min(g, b)) > 235) liseres++;
           }
         }
-        expect(visibles, greaterThan(px * px ~/ 6), reason: 'avant-plan non vide (panier et badge)');
-        expect(hors, 0, reason: 'pixels visibles hors de la zone de sécurité : le masque couperait le badge');
+        final largeur = (x1 - x0 + 1) / px, hauteur = (y1 - y0 + 1) / px;
+        final moyenne = (largeur + hauteur) / 2;
+        expect(moyenne, closeTo(_ancienneMoyenne[e.key]!, 0.03),
+            reason: 'dessin ${largeur.toStringAsFixed(3)} × ${hauteur.toStringAsFixed(3)} de la toile '
+                '(ancienne : ${_ancienneMoyenne[e.key]}) — 5.0.0 adaptative : environ 0,6 dans un cadre');
+        expect(math.max(largeur, hauteur), greaterThan(0.9), reason: 'dessin grand, pas réduit');
+        expect((x0 - (px - 1 - x1)).abs(), lessThanOrEqualTo(math.max(2, px ~/ 24)), reason: 'centré horizontalement');
+        expect((y0 - (px - 1 - y1)).abs(), lessThanOrEqualTo(math.max(2, px ~/ 24)), reason: 'centré verticalement');
+        expect(badge, greaterThan(px * px ~/ 60), reason: 'badge vert « V3 » en haut à droite');
+        expect(texteBadge, greaterThan(0), reason: 'texte blanc du badge (bordure et « V3 »)');
+        expect(liseres, 0, reason: 'aucun liseré blanc sur les bords (fond d\'écran sombre)');
       });
     }
 

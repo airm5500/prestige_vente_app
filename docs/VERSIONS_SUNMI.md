@@ -74,7 +74,12 @@ de paiement `cloturer:false` ; comptoir : refus du panier verrouillé affichés 
 
 ## Prestige Mobile V3 (5.0.0) : nouvelle fiche Sunmi
 
-Version en préparation (pas encore publiée) : **5.0.0+49** (`pubspec.yaml`) : **Prestige Mobile V3**, NOUVELLE
+Version en préparation (pas encore publiée) : **5.0.1+50** (`pubspec.yaml`) : icônes du lanceur sans cadre, comme
+les anciennes (PNG transparents, plus d'icône adaptative ni ronde), version de l'APK lue directement dans
+`pubspec.yaml` par Gradle (build depuis Android Studio) et APK nommé `PrestigeMobileV3-release-<version>.apk` (voir
+`docs/NOTE_VERSION_5.0.1.md`).
+
+Avant : **5.0.0+49** : **Prestige Mobile V3**, NOUVELLE
 application (`com.dici.prestigemobile.v3`, « Prestige Mobile V3 », icône avec le badge « V3 »), même fonctionnement que
 la 4.15.2+48 (voir `docs/NOTE_VERSION_5.0.0.md`). Elle est publiée sur une **nouvelle fiche** du magasin Sunmi : aucune
 version n'y a encore été publiée, la première sera 5.0.0+49. Les règles ci-dessous s'appliquent à cette nouvelle
@@ -92,7 +97,8 @@ appliquées à ce fichier ; elle ne change jamais la version de Prestige Mobile 
 ## Les 3 règles (permanentes)
 
 1. **Une seule source : `pubspec.yaml`** (`version: X.Y.Z+N`). Gradle la reprend
-   (`versionCode = flutter.versionCode`, `versionName = flutter.versionName` dans `android/app/build.gradle.kts`),
+   (5.0.1 : lue directement dans `pubspec.yaml` par `android/app/build.gradle.kts`, `versionPubspec`, même depuis
+   Android Studio sans commande flutter ; `flutter.versionCode` / `flutter.versionName` en repli seulement),
    **aucun numéro en dur** (ni dans Gradle, ni dans le code : l'application lit sa version à l'exécution avec
    `package_info_plus`, voir `lib/version_app.dart`).
 2. **X.Y.Z jamais inférieur** (comparaison nombre par nombre : 3.10.0 > 3.9.9) à la dernière version publiée sur

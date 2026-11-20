@@ -9,8 +9,15 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// La lecture de la version se fait maintenant automatiquement par le plugin Flutter.
-// Il n'y a plus besoin de script manuel en haut du fichier.
+// 5.0.1 — VERSION lue DIRECTEMENT dans pubspec.yaml (« version: X.Y.Z+N » → versionName X.Y.Z, versionCode N).
+// flutter.versionName / flutter.versionCode viennent de android/local.properties, réécrit seulement par une commande
+// flutter (pub get, build) : un build lancé depuis Android Studio sans commande flutter reprenait une version
+// périmée (APK 4.10.0+36 au lieu de 5.0.0+49). Repli sur les valeurs de Flutter seulement si pubspec.yaml est
+// absent ou sans « version: X.Y.Z+N ». Aucun numéro en dur (test/version_sunmi_test.dart, test/v501_version_gradle_test.dart).
+val versionPubspec: Pair<String, Int>? = file("../../pubspec.yaml").takeIf { it.exists() }?.readText()?.let { texte ->
+    Regex("""^version:\s*(\d+\.\d+\.\d+)\+(\d+)\s*$""", RegexOption.MULTILINE).find(texte)
+        ?.let { it.groupValues[1] to it.groupValues[2].toInt() }
+}
 
 // Prestige Pointage (saveur `pointage`, demande 57) : sa propre version, dans prestigepointage-version.properties (le
 // pubspec.yaml reste celui de Prestige Mobile et ses garde-fous de version Sunmi sont inchangés). Voir
@@ -74,10 +81,11 @@ android {
         minSdk = flutter.minSdkVersion
         targetSdk = if (versionPlay) 36 else flutter.targetSdkVersion
 
-        // Version unique : celle de pubspec.yaml (« version: 4.0.0+8 » → versionName 4.0.0, versionCode 8).
+        // Version unique : celle de pubspec.yaml (« version: 4.0.0+8 » → versionName 4.0.0, versionCode 8), lue
+        // directement (5.0.1, versionPubspec ci-dessus) ; valeurs de Flutter en repli seulement.
         // Aucun numéro en dur ici (vérifié par test/version_sunmi_test.dart, voir docs/VERSIONS_SUNMI.md).
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionCode = versionPubspec?.second ?: flutter.versionCode
+        versionName = versionPubspec?.first ?: flutter.versionName
     }
 
     val fichierCle = cheminCle?.let { file(it) }
@@ -129,8 +137,9 @@ android {
     }
 
     // MODIFICATION : Utilisation de votre script de renommage (syntaxe Kotlin)
-    // Prestige Mobile garde son nom de fichier d'origine (« prestigepos-release-4.10.0.apk ») ;
-    // Prestige Pointage : « PrestigePointage-release-1.0.0.apk ».
+    // 5.0.1 : Prestige Mobile V3 : « PrestigeMobileV3-release-5.0.1.apk » (avant : « prestigepos-release-… ») ;
+    // Prestige Pointage : « PrestigePointage-release-1.0.0.apk ». Flutter copie aussi l'APK sous
+    // build/app/outputs/flutter-apk/app-<saveur>-release.apk (nom fixe, utilisé par la CI).
     applicationVariants.all {
         val variante = this
         outputs.all {
@@ -138,7 +147,7 @@ android {
             // Ce script ne met que le versionName (ex: 1.2.1)
             val prefixe = when (variante.flavorName) {
                 "pointage" -> "PrestigePointage"
-                else -> "prestigepos"
+                else -> "PrestigeMobileV3"
             }
             outputImpl.outputFileName = "$prefixe-${variante.buildType.name}-${variante.versionName}.apk"
         }

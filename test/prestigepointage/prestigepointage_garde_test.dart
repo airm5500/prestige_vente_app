@@ -25,8 +25,9 @@ void main() {
   test('Gradle : `mobile` par défaut (Prestige Mobile V3 depuis 5.0.0) ; `pointage` séparée', () {
     final g = _lire('android/app/build.gradle.kts');
     expect(g, contains('applicationId = "com.dici.prestigemobile.v3"'), reason: '5.0.0 : Prestige Mobile V3');
-    expect(g, contains('versionCode = flutter.versionCode'));
-    expect(g, contains('versionName = flutter.versionName'));
+    // 5.0.1 : version de Prestige Mobile V3 lue directement dans pubspec.yaml (repli : valeurs de Flutter).
+    expect(g, contains('versionCode = versionPubspec?.second ?: flutter.versionCode'));
+    expect(g, contains('versionName = versionPubspec?.first ?: flutter.versionName'));
     expect(g, contains('create("pointage")'));
     expect(g, contains('applicationId = "com.dici.prestigepointage"'));
     expect(g, contains('prestigepointage-version.properties'));
