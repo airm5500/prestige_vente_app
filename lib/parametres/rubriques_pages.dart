@@ -45,7 +45,7 @@ import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
-import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
+import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 
 const _verified = 'Code administrateur vérifié';
 
@@ -61,7 +61,8 @@ Future<void> imprimerTicketEssai(BuildContext context) async {
   if (!settings.isTestPrintMode) {
     bool connected = false;
     try {
-      connected = await SunmiPrinter.bindingPrinter() == true;
+      // 5.1.0 : terminal Sunmi → service d'impression réellement connecté.
+      connected = await ImprimanteSunmi.pret();
     } catch (_) {
       connected = false;
     }

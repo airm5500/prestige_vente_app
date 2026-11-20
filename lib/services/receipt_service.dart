@@ -12,11 +12,13 @@ import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
 import 'package:prestige_vente_app/services/impression_ticket.dart';
+import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 import 'package:prestige_vente_app/services/largeur_ticket.dart';
 import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/services/ticket_serveur.dart';
 import 'package:prestige_vente_app/services/ticket_texte.dart';
 import 'package:prestige_vente_app/utils/constants.dart';
+import 'package:prestige_vente_app/ventes/core/taux_affiches.dart';
 import 'package:sunmi_printer_plus/enums.dart';
 import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
 import 'package:sunmi_printer_plus/sunmi_style.dart';
@@ -117,6 +119,7 @@ class ReceiptService {
   }) {
     final m = MiseEnPageTicket(papier);
     final carnet = title.toUpperCase().contains('CARNET');
+    final taux = tauxAffiches([for (final tp in saleSummary.tierspayants) tp.taux]);
     // Nom du client : sur sa propre ligne (un nom n'est jamais une valeur poussée à droite).
     final lignesClient = <PaireTicket>[
       (libelle: 'Client : ${client.fullName}', valeur: ''),
@@ -124,9 +127,10 @@ class ReceiptService {
       if (ayantDroit.fullName.trim().isNotEmpty) (libelle: 'Bénéficiaire : ${ayantDroit.fullName}', valeur: ''),
       for (final bon in {for (final tp in saleSummary.tierspayants) if (tp.numBon.trim().isNotEmpty) tp.numBon.trim()}) (libelle: 'Bon N°', valeur: bon),
       (libelle: 'Part du client', valeur: m.montantF(saleSummary.montantNet)),
-      for (final tp in saleSummary.tierspayants)
+      // 5.1.0 : taux affichés plafonnés à 100 % au total, comme le web (80 % + 30 % → 80 % + 20 %).
+      for (final (i, tp) in saleSummary.tierspayants.indexed)
         (
-          libelle: '${client.tiersPayants.where((c) => c.compteTp == tp.compteTp).firstOrNull?.tpFullName ?? 'Organisme'} [${tp.taux}%]',
+          libelle: '${client.tiersPayants.where((c) => c.compteTp == tp.compteTp).firstOrNull?.tpFullName ?? 'Organisme'} [${taux[i]}%]',
           valeur: m.montantF(tp.tpnet),
         ),
     ];
@@ -346,8 +350,8 @@ class ReceiptService {
     String titre = 'PRE-VENTE BORNE',
   }) async {
     try {
-      final bool? ok = await SunmiPrinter.bindingPrinter();
-      if (ok != true) return false;
+      // 5.1.0 : terminal Sunmi → service d'impression réellement connecté (borne juste lancée).
+      if (!await ImprimanteSunmi.pret()) return false;
       await SunmiPrinter.initPrinter();
       await SunmiPrinter.startTransactionPrint(true);
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
@@ -383,8 +387,13 @@ class ReceiptService {
 
   Future<bool> _initializePrinter(BuildContext context) async {
     try {
-      final bool? isConnected = await SunmiPrinter.bindingPrinter();
-      if (isConnected != true) { Constants.showSnackBar(context, "Imprimante non connectée.", isError: true); return false; }
+      // 5.1.0 : terminal Sunmi → attente de la connexion réelle du service (sinon les commandes seraient perdues).
+      final isConnected = await ImprimanteSunmi.pret();
+      if (!isConnected) {
+        final motif = await ImprimanteSunmi.estSunmi() ? 'Ticket non imprimé : ${ImprimanteSunmi.motifNonConnectee}' : "Imprimante non connectée.";
+        if (context.mounted) Constants.showSnackBar(context, motif, isError: true);
+        return false;
+      }
       await SunmiPrinter.initPrinter(); return true;
     } catch (e) { Constants.showSnackBar(context, 'Erreur imprimante Sunmi: $e', isError: true); return false; }
   }

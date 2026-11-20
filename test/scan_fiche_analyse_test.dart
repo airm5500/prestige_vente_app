@@ -161,6 +161,8 @@ void main() {
       await provider.searchArticles('8049052');
       // 4.1.2 : la liste vient de la recherche rapide (GET /vente/search), le détail de GET /info (CIP exact).
       expect(serveur.requetes.single, startsWith('/vente/search?'));
+      // Lot de la saisie arrivé (5.1.0 : un lot encore en route n'est plus attendu).
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       final viaAnalyse = (await provider.chargerDetail(provider.results.single))!;
       final viaFiche = articleDuProduit(await api.fetchArticleAnalysisOrFail('8049052'), _ibex)!;
       expect(serveur.requetes.where((r) => r.startsWith('/info')), ['/info?search=8049052', '/info?search=8049052']);
@@ -295,7 +297,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('fiche quittée avant la réponse : aucune erreur ; la réponse remplit le cache (réouverture sans requête)', (tester) async {
+    testWidgets('fiche quittée avant la réponse : aucune erreur ; 5.1.0 : sa requête est annulée, la réouverture relit le CIP', (tester) async {
       phone(tester);
       brancher();
       _Install();
@@ -304,19 +306,22 @@ void main() {
       var appels = 0;
       Future<List<ArticleAnalysis>> load(String _) {
         appels++;
-        return reponse.future;
+        return appels == 1 ? reponse.future : Future.value([ArticleAnalysis.fromJson(_ibexInfo)]);
       }
 
       await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _ibex, loadAnalyse: load, cache: cache)));
       await tester.pumpWidget(const SizedBox());
       expect(cache.abandons, 1);
-      // 4.3.2 : la requête continue (le serveur la calcule de toute façon) ; sa réponse sert à la réouverture.
+      expect(cache.enCours(cleFiche(load, _ibex)), isFalse, reason: 'aucune requête gardée');
+      // 5.1.0 : la requête est annulée ; une réponse arrivée quand même n'est pas gardée.
       reponse.complete([ArticleAnalysis.fromJson(_ibexInfo)]);
       await tester.pump();
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(MaterialApp(home: FicheProduitScreen(produit: _ibex, loadAnalyse: load, cache: cache)));
-      expect(find.text('LABOREX-CI YOP'), findsOneWidget, reason: 'réouverture : analyse affichée dès la 1ʳᵉ image');
-      expect(appels, 1);
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('LABOREX-CI YOP'), findsOneWidget, reason: 'réouverture : nouvelle requête du CIP');
+      expect(appels, 2);
     });
 
     testWidgets('hors ligne : copie locale, « Disponible en ligne uniquement », aucune requête (inchangé)', (tester) async {

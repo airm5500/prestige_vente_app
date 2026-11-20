@@ -51,6 +51,7 @@ import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
+import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 import 'package:prestige_vente_app/support/support_capture.dart';
 import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/support/support_file.dart';
@@ -88,6 +89,8 @@ Future<void> main() async {
   SupportCentre.instance = SupportCentre(file: PrefsSupportFileStore());
   await SupportCentre.instance.chargerReglage();
   installerCaptureErreurs();
+  // 5.1.0 : terminal Sunmi → liaison au service d'impression dès le lancement, sans attendre (premier ticket imprimé).
+  ImprimanteSunmi.lierAuDemarrage();
   runApp(const MyApp());
 }
 

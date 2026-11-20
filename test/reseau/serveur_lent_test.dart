@@ -192,18 +192,18 @@ void main() {
       expect(find.byType(ArticleAnalysisScreen), findsOneWidget);
       await t.enterText(find.byType(TextField).first, nomCourt(7));
       await app.attendre(t, const Duration(seconds: 1));
-      // 4.3.2 : le GET /info de la saisie (lot) est parti dès la liste (≈ 0,4 s après la frappe) : le détail ouvert
-      // 1 s après la frappe attend la FIN de ce lot (≈ d − 0,6 s), pas une nouvelle requête de durée d.
+      // 4.3.2 : le GET /info de la saisie (lot) est parti dès la liste. 5.1.0 : le détail ouvert pendant que ce lot est
+      // en route ne l'attend plus : GET /info du CIP exact tout de suite (durée d).
       expect(app.serveur.recuesSur('/info'), hasLength(1), reason: 'lot de la saisie déjà en route');
       await t.tap(find.text('PRODUIT 0007 CPR B/20').hitTestable().first);
       await t.pump();
       expect(find.text('500 FCFA'), findsOneWidget, reason: "prix d'achat de la liste, sans attendre");
       await attendreServeurLent(t, d - const Duration(seconds: 1), 'Analyse article',
           attendu: find.byKey(const ValueKey('analyse-detail-chargement')));
-      await app.attendre(t, const Duration(seconds: 1));
+      await app.attendre(t, const Duration(milliseconds: 1500));
       expect(find.byKey(const ValueKey('analyse-detail')), findsOneWidget);
       expect(find.text('RAYON FICTIF 7'), findsOneWidget);
-      expect(app.serveur.recuesSur('/info'), hasLength(1), reason: 'un seul GET /info');
+      expect(app.serveur.recuesSur('/info'), hasLength(2), reason: 'le lot, puis le CIP exact');
 
       // Retour pendant une seconde attente : aucune erreur, aucune exception à l'arrivée de la réponse.
       await t.tap(find.text('Fermer'));

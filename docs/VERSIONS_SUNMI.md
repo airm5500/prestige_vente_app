@@ -74,7 +74,13 @@ de paiement `cloturer:false` ; comptoir : refus du panier verrouillé affichés 
 
 ## Prestige Mobile V3 (5.0.0) : nouvelle fiche Sunmi
 
-Version en préparation (pas encore publiée) : **5.0.1+50** (`pubspec.yaml`) : icônes du lanceur sans cadre, comme
+Version en préparation (pas encore publiée) : **5.1.0+51** (`pubspec.yaml`) : retours du pharmacien du 20/11 :
+texte tapé repris dans la liste des résultats de la vente (focus, clavier ouvert, filtre par mots, recherche
+serveur), fenêtre de quantité « NOM · CIP » lisible clavier ouvert, premier ticket imprimé sur Sunmi (service
+d'impression lié au démarrage, connexion réelle attendue), « Préparation du ticket… », taux des organismes plafonnés
+à 100 % comme le web, Analyse article sans attente du lot de la saisie (voir `docs/NOTE_VERSION_5.1.0.md`).
+
+Avant : **5.0.1+50** : icônes du lanceur sans cadre, comme
 les anciennes (PNG transparents, plus d'icône adaptative ni ronde), version de l'APK lue directement dans
 `pubspec.yaml` par Gradle (build depuis Android Studio) et APK nommé `PrestigeMobileV3-release-<version>.apk` (voir
 `docs/NOTE_VERSION_5.0.1.md`).

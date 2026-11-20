@@ -239,6 +239,9 @@
     "test/demande64_garde_test.dart": "non_regression",
     "test/v3_identite_test.dart": "non_regression",
     "test/v3_premier_lancement_e2e_test.dart": "e2e",
-    "test/v501_version_gradle_test.dart": "non_regression"
+    "test/v501_version_gradle_test.dart": "non_regression",
+    "test/retours_2011_test.dart": "ecrans",
+    "test/retours_2011_e2e_test.dart": "e2e",
+    "test/retours_2011_ergonomie_test.dart": "ergonomie"
   }
 }

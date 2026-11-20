@@ -337,7 +337,7 @@ class VenteProductSearchState extends State<VenteProductSearch> {
       await _handleResults(q, shown, scan: false);
       return;
     }
-    final chosen = await _popup(() => showProductListModal(context, shown, initialQuery: '', pager: pager, visible: widget.visible));
+    final chosen = await _popup(() => showProductListModal(context, shown, initialQuery: q, pager: pager, visible: widget.visible));
     if (!mounted || chosen == null) return;
     _ctrl.clear();
     _resetRepeat();

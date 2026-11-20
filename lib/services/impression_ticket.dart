@@ -19,9 +19,12 @@
 //    l'application » (gabarit local, choisi par le vendeur qui voit le motif) et « Fermer » (aucun ticket). Jamais de
 //    ticket local imprimé en silence pour une vente que le serveur dit inconnue ou non terminée. Aperçu (mode test)
 //    et borne (aucune question) : gabarit local, comme avant.
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 import 'package:prestige_vente_app/services/largeur_ticket.dart';
 import 'package:prestige_vente_app/services/ticket_1bit.dart';
 import 'package:prestige_vente_app/services/ticket_serveur.dart';
@@ -67,6 +70,7 @@ class ImpressionTicket {
     imprimeur = imprimerSunmi;
     imagesImprimees = 0;
     _copiesParServeur = false;
+    delaiPreparation = const Duration(milliseconds: 300);
   }
 
   /// Essaie le ticket du serveur. true : traité (imprimé, affiché ou échec expliqué avec « Réimprimer ») ;
@@ -84,7 +88,9 @@ class ImpressionTicket {
     final avant = TicketServeur.etat(dio.options.baseUrl);
     if (avant == EtatRouteTicket.absente) return false;
     while (true) {
-      final r = await TicketServeur.lire(dio, type: type, id: venteId, largeur: largeur);
+      // 5.1.0 : « Préparation du ticket… » pendant que le serveur dessine le ticket (jusqu'à 20 s sur un serveur
+      // chargé) : avant, rien ne s'affichait entre la fin de la vente et l'impression.
+      final r = await avecPreparation(context, () => TicketServeur.lire(dio, type: type, id: venteId, largeur: largeur));
       if (!context.mounted) return true;
       switch (r) {
         case RouteTicketAbsente():
@@ -120,6 +126,31 @@ class ImpressionTicket {
           if (!await _reimprimer(context, 'Ticket non imprimé : $echec')) return true;
       }
       if (!context.mounted) return true;
+    }
+  }
+
+  /// Délai avant d'afficher « Préparation du ticket… » (aucun clignotement quand le serveur répond tout de suite).
+  static Duration delaiPreparation = const Duration(milliseconds: 300);
+
+  /// Texte de l'indicateur (5.1.0).
+  static const String textePreparation = 'Préparation du ticket…';
+
+  /// Exécute [lecture] en affichant, au-dessus de l'écran et sans bloquer la navigation, « Préparation du ticket… »
+  /// si elle dure plus de [delaiPreparation]. L'indicateur est toujours retiré (réponse, erreur ou écran fermé).
+  static Future<T> avecPreparation<T>(BuildContext context, Future<T> Function() lecture) async {
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    OverlayEntry? entree;
+    final minuteur = overlay == null
+        ? null
+        : Timer(delaiPreparation, () {
+            entree = OverlayEntry(builder: (_) => const _PreparationTicket());
+            overlay.insert(entree!);
+          });
+    try {
+      return await lecture();
+    } finally {
+      minuteur?.cancel();
+      entree?.remove();
     }
   }
 
@@ -234,7 +265,10 @@ class ImpressionTicket {
   /// du rouleau, coupe entre deux tickets.
   static Future<String?> imprimerSunmi(List<TicketImage> tickets) async {
     try {
-      if (await SunmiPrinter.bindingPrinter() != true) return 'imprimante non connectée.';
+      // 5.1.0 : terminal Sunmi → attente de la connexion réelle du service (premier ticket après le lancement).
+      if (!await ImprimanteSunmi.pret()) {
+        return await ImprimanteSunmi.estSunmi() ? ImprimanteSunmi.motifNonConnectee : 'imprimante non connectée.';
+      }
       final motif = motifSunmi(await SunmiPrinter.getPrinterStatus());
       if (motif != null) return motif;
       final mm = await LargeurTicket.integree();
@@ -258,3 +292,36 @@ class ImpressionTicket {
 }
 
 enum _ChoixRefus { reimprimer, ticketLocal, fermer }
+
+/// Bandeau « Préparation du ticket… » (5.1.0) : en bas de l'écran, au-dessus de tout, sans capter les touchers.
+class _PreparationTicket extends StatelessWidget {
+  const _PreparationTicket();
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+        left: 16,
+        right: 16,
+        bottom: 24 + MediaQuery.viewPaddingOf(context).bottom,
+        child: IgnorePointer(
+          child: Material(
+            key: const ValueKey('ticket-preparation'),
+            color: const Color(0xFF1E3A5F),
+            elevation: 6,
+            borderRadius: BorderRadius.circular(12),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(children: [
+                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white)),
+                SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    ImpressionTicket.textePreparation,
+                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      );
+}

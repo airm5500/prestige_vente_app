@@ -135,7 +135,7 @@ class _EditLineDialogState extends State<_EditLineDialog> {
         key: _form,
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            QuantiteSaisie(controller: _qte, prixUnitaire: prix, autofocus: true),
+            QuantiteSaisie(controller: _qte, prixUnitaire: prix, autofocus: true, compact: MediaQuery.viewInsetsOf(context).bottom > 0),
             const SizedBox(height: 12),
             TextFormField(
               key: const ValueKey('ligne-prix'),

@@ -128,38 +128,16 @@ class FicheInfoCache {
       servisParLot++;
       return Future.value(duLot);
     }
+    // 5.1.0 (retour du 20/11, Analyse article lente) : un lot encore en route n'est plus attendu. Il lisait jusqu'à
+    // 30 produits (GET /info?search=<saisie>) : au clic, le détail attendait toute sa réponse. Le CIP exact est
+    // demandé tout de suite ; le lot ne sert que s'il est déjà arrivé (ci-dessus).
     final token = CancelToken();
-    final lot = produit == null ? null : _lots[sourceDeCle(cle)];
     late final _Demande demande;
-    Future<ArticleAnalysis?> envoyer() {
-      requetes++;
-      return Future<ArticleAnalysis?>.sync(() => chargeur(token)).then<ArticleAnalysis?>((a) {
-        if (!token.isCancelled) _connus[cle] = (at: horloge(), article: a);
-        return a;
-      });
-    }
-
-    final Future<ArticleAnalysis?> source;
-    if (lot != null && lot.couvre(produit!)) {
-      // Le lot en route contient ce produit : on l'attend (aucune 2ᵉ requête) ; s'il échoue ou ne l'a pas,
-      // requête par le CIP exact.
-      lot.attentes++;
-      source = lot.fin.then((_) {
-        lot.attentes--;
-        final lignes = lot.lignes;
-        // Lot en échec (délai, réseau…) : même cause affichée, avec Réessayer (qui lira le CIP exact) ; jamais une
-        // 2ᵉ attente complète enchaînée derrière un serveur déjà trop lent. Lot abandonné : CIP exact.
-        final erreur = lot.erreur;
-        if (erreur != null) throw erreur;
-        final a = lignes == null ? null : articleDuProduit(lignes, produit);
-        if (a == null) return envoyer(); // lot abandonné, ou produit absent du lot : CIP exact
-        _connus[cle] = (at: lot.at ?? horloge(), article: a);
-        servisParLot++;
-        return a;
-      });
-    } else {
-      source = envoyer();
-    }
+    requetes++;
+    final Future<ArticleAnalysis?> source = Future<ArticleAnalysis?>.sync(() => chargeur(token)).then<ArticleAnalysis?>((a) {
+      if (!token.isCancelled) _connus[cle] = (at: horloge(), article: a);
+      return a;
+    });
     final f = source.whenComplete(() {
       if (identical(_enCours[cle], demande)) _enCours.remove(cle);
     });
@@ -170,13 +148,18 @@ class FicheInfoCache {
     return f;
   }
 
-  /// Un écran n'attend plus [cle] (fiche ou détail fermé) : la requête CONTINUE (le serveur la calcule de toute
-  /// façon) et sa réponse reste en cache pour une réouverture immédiate. Elle reste bornée par son délai.
+  /// Un écran n'attend plus [cle] (fiche ou détail fermé). 5.1.0 : la requête est ANNULÉE dès qu'aucun écran ne
+  /// l'attend (avant : elle continuait et occupait la connexion pendant le détail suivant) ; une réouverture en
+  /// envoie une nouvelle.
   void lacher(String cle) {
     final d = _enCours[cle];
     if (d == null) return;
     if (d.abonnes > 0) d.abonnes--;
-    if (d.abonnes <= 0) abandons++;
+    if (d.abonnes <= 0) {
+      abandons++;
+      _enCours.remove(cle);
+      d.token.cancel('Détail fermé');
+    }
   }
 
   /// Délai dépassé pour [cle] : la requête est abandonnée et oubliée, « Réessayer » en enverra une nouvelle
@@ -219,11 +202,11 @@ class FicheInfoCache {
     return lot.fin;
   }
 
-  /// Le lot de [source] n'est plus utile (saisie effacée, liste trop longue, écran quitté) : abandonné s'il
-  /// n'est attendu par aucun détail.
+  /// Le lot de [source] n'est plus utile (saisie effacée, liste trop longue, écran quitté) : abandonné (5.1.0 : aucun
+  /// détail ne l'attend plus).
   void lacherSaisie(String source) {
     final lot = _lots[source];
-    if (lot == null || lot.attentes > 0) return;
+    if (lot == null) return;
     _lots.remove(source);
     lotsAnnules++;
     lot.abandonne = true;
@@ -256,7 +239,9 @@ class FicheInfoCache {
 const int longueurMiniLot = 3;
 
 /// Nombre maximal de produits de la liste rapide pour lire le lot de la saisie (au-delà : détail par CIP au clic).
-const int produitsMaxLot = 30;
+/// 5.1.0 : 5 (30 avant) : un lot de 30 produits est long à calculer pour le serveur et ralentissait le détail
+/// demandé au clic ; une liste courte (5 au plus) reste couverte d'avance.
+const int produitsMaxLot = 5;
 
 /// Saisie normalisée comme la recherche « commence par » du serveur (casse ignorée).
 String saisieLot(String saisie) => saisie.trim().toUpperCase();
@@ -265,9 +250,6 @@ class _Lot {
   final String saisie;
   final CancelToken token;
   late final Future<void> fin;
-
-  /// Détails qui attendent ce lot (il n'est alors jamais abandonné).
-  int attentes = 0;
 
   /// Lignes reçues et heure de réception (null : pas encore arrivé, ou en échec).
   List<ArticleAnalysis>? lignes;

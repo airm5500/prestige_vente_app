@@ -18,6 +18,7 @@ import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/ventes/core/taux_affiches.dart';
 
 /// Ajout refusé faute de réponse (panne) : affiché en ambre jusqu'à « Réessayer » ou « Retirer ».
 /// [baseQty] = quantité du produit déjà au panier au moment de l'échec (pour ne jamais l'ajouter deux fois).
@@ -532,8 +533,10 @@ class _CarnetFooter extends StatelessWidget {
     final enabled = c.canFinish && blocked == null && !paying && !c.finished;
     String amount(int v) => upToDate ? '${Constants.formatNumber(v)} F' : (c.busy ? 'Calcul…' : '—');
     final tpNames = {for (final tp in c.client?.tiersPayants ?? const []) tp.compteTp: tp.tpFullName};
-    final taux = c.activeTps.fold<int>(0, (a, tp) => a + tp.taux);
+    // 5.1.0 : taux de cette vente plafonnés à 100 % au total, comme le web (80 % + 30 % → 80 % + 20 %).
+    final taux = tauxAffiches([for (final tp in c.activeTps) tp.taux]).fold<int>(0, (a, t) => a + t);
     final several = upToDate && s.tierspayants.length > 1;
+    final tauxTps = upToDate ? tauxAffiches([for (final tp in s.tierspayants) tp.taux]) : const <int>[];
     final hl = c.horsLigne;
     final est = hl ? ' (estimée)' : '';
 
@@ -543,10 +546,10 @@ class _CarnetFooter extends StatelessWidget {
           _row(hl ? 'Total (estimé)' : 'Total', amount(s?.montant ?? 0)),
           _row('Part carnet${c.activeTps.isEmpty ? '' : ' $taux %'}$est', amount(s?.montantTp ?? 0)),
           if (several)
-            for (final tp in s.tierspayants)
+            for (final (i, tp) in s.tierspayants.indexed)
               Padding(
                 padding: const EdgeInsets.only(left: 12),
-                child: _row('∙ ${tpNames[tp.compteTp] ?? tp.compteTp} · bon ${tp.numBon} (${tp.taux} %)', '${Constants.formatNumber(tp.tpnet)} F', size: 12),
+                child: _row('∙ ${tpNames[tp.compteTp] ?? tp.compteTp} · bon ${tp.numBon} (${tauxTps[i]} %)', '${Constants.formatNumber(tp.tpnet)} F', size: 12),
               ),
         ],
         Row(crossAxisAlignment: CrossAxisAlignment.end, children: [

@@ -9,8 +9,10 @@
 //
 // Correction vérifiée ici (application entière, faux serveur LENT) :
 // - mode hybride : liste rapide, puis UN GET /info de la saisie (lot) dès la liste ; clic → identité, stock, prix
-//   (et prix d'achat, emplacement) tout de suite, graphe dès que GET /info répond, sans 2ᵉ requête ;
-// - un détail fermé avant la réponse ne fait plus perdre la requête (réouverture immédiate) ;
+//   (et prix d'achat, emplacement) tout de suite, graphe dès que GET /info répond ;
+// - 5.1.0 (retour du 20/11, Analyse article lente) : le lot n'est utilisé au clic que s'il est DÉJÀ arrivé ; sinon le
+//   CIP exact est demandé tout de suite (avant : le détail attendait tout le lot, jusqu'à 30 produits) ; lot limité
+//   aux listes de 5 produits au plus ; un détail fermé avant la réponse ANNULE sa requête ;
 // - aucune lecture secondaire (images) ne retarde la principale ;
 // - FicheInfoCache : lot, prolongation de saisie, échec, produit absent du lot, abandon, délai.
 import 'dart:async';
@@ -48,9 +50,10 @@ void main() {
   // =====================================================================================================
   group('Performance — Analyse article (serveur lent : GET /info 4 s)', () {
     for (final style in ListPresentation.values) {
-      testWidgets('${style.label} : ordre et nombre des requêtes ; identité, stock, prix immédiats ; graphe à la réponse du lot',
+      testWidgets('${style.label} : ordre et nombre des requêtes ; identité, stock, prix immédiats ; graphe à la réponse du CIP (lot lent non attendu)',
           (t) async {
-        final app = await lancerAnalyse(t, style: style);
+        // 5.1.0 : lot de la saisie lent (12 s), CIP exact 2 s.
+        final app = await lancerAnalyse(t, style: style, info: const Duration(seconds: 2), infoLot: const Duration(seconds: 12));
         await app.ouvrirMenu(t, style, 'analyse_article');
         expect(find.byType(ArticleAnalysisScreen), findsOneWidget);
         final infoAvant = app.serveur.recuesSur('/info').length;
@@ -77,26 +80,25 @@ void main() {
         expect(find.text('976 FCFA'), findsOneWidget);
         expect(find.text('ANTALGIQUES'), findsOneWidget);
         expect(find.byKey(const ValueKey('analyse-detail-chargement')), findsOneWidget);
-        expect(_recherchesInfo(app, infoAvant), ['doli'], reason: 'le détail attend le lot : aucune 2ᵉ requête');
+        expect(_recherchesInfo(app, infoAvant), ['doli', '3595583'], reason: 'lot en route non attendu : CIP exact tout de suite');
 
         final graphe = await _jusqua(t, find.byKey(const ValueKey('analyse-detail')));
-        mesurer('Analyse article : graphe après le clic (lot parti 1 s avant, serveur 4 s)', graphe.inMilliseconds,
-            seuil: 3300, unite: 'ms', detail: 'avant 4.3.2 : ≥ 4000 ms (GET /info lancé au clic)');
-        expect(graphe, lessThan(lentAnalyse), reason: 'le lot était parti avec la liste : attente plus courte que GET /info');
+        mesurer('Analyse article : graphe après le clic (lot de 12 s en route, CIP 2 s)', graphe.inMilliseconds,
+            seuil: 2300, unite: 'ms', detail: 'avant 5.1.0 : le détail attendait la fin du lot (11 s ici)');
+        expect(graphe, lessThan(const Duration(seconds: 3)), reason: 'réponse du CIP, sans attendre le lot');
         expect(find.text('RAYON F-DOLI'), findsOneWidget, reason: 'la ligne du produit choisi (pas 3595583D)');
         expect(find.byKey(const ValueKey('analyse-stock-reserve')), findsOneWidget);
-        expect(_recherchesInfo(app, infoAvant), ['doli']);
 
-        // 2ᵉ produit de la même liste : détail complet dès la 1ʳᵉ image, aucune requête.
+        // Lot arrivé ensuite : 2ᵉ produit de la même liste complet dès la 1ʳᵉ image, aucune requête.
         await t.tap(find.text('Fermer'));
-        await app.attendre(t, const Duration(milliseconds: 500));
+        await app.attendre(t, const Duration(seconds: 10));
         if (style != ListPresentation.guided) {
           await t.tap(find.text(analyseDoliD).hitTestable().first);
           await t.pump();
           await t.pump(const Duration(milliseconds: 50));
-          expect(find.text('RAYON DETAIL'), findsOneWidget, reason: '2ᵉ produit servi par le lot, sans attente');
+          expect(find.text('RAYON DETAIL'), findsOneWidget, reason: '2ᵉ produit servi par le lot arrivé, sans attente');
           expect(find.byKey(const ValueKey('analyse-detail-chargement')), findsNothing);
-          expect(_recherchesInfo(app, infoAvant), ['doli']);
+          expect(_recherchesInfo(app, infoAvant), ['doli', '3595583']);
           await t.tap(find.text('Fermer'));
           await app.attendre(t, const Duration(milliseconds: 500));
         }
@@ -105,7 +107,7 @@ void main() {
       });
     }
 
-    testWidgets('clic immédiat (lot à peine parti) : une seule requête, graphe à la réponse ; saisie prolongée : rien de plus',
+    testWidgets('clic immédiat (lot à peine parti) : CIP exact tout de suite, graphe à sa réponse ; saisie prolongée : rien de plus',
         (t) async {
       final app = await lancerAnalyse(t);
       await app.ouvrirMenu(t, ListPresentation.dashboard, 'analyse_article');
@@ -117,41 +119,43 @@ void main() {
       expect(find.text('1475 FCFA'), findsOneWidget);
       final graphe = await _jusqua(t, find.byKey(const ValueKey('analyse-detail')));
       expect(graphe, lessThanOrEqualTo(lentAnalyse + const Duration(milliseconds: 100)));
-      expect(_recherchesInfo(app, infoAvant), ['doli']);
+      expect(_recherchesInfo(app, infoAvant), ['doli', '3595583']);
       await t.tap(find.text('Fermer'));
       await app.attendre(t, const Duration(milliseconds: 500));
-      // « dolip » prolonge « doli » (lot arrivé) : aucune nouvelle lecture GET /info.
+      // « doliprane » prolonge « doli » (lot arrivé) : aucune nouvelle lecture GET /info.
       await t.enterText(find.byType(TextField).first, 'doliprane');
       await app.attendre(t, const Duration(seconds: 1));
-      expect(_recherchesInfo(app, infoAvant), ['doli']);
+      expect(_recherchesInfo(app, infoAvant), ['doli', '3595583']);
       expect(t.takeException(), isNull);
       await app.fermer(t);
     });
 
-    testWidgets('détail fermé avant la réponse puis rouvert : la requête n\'est pas perdue (pas de nouvelle attente complète)',
+    testWidgets('détail fermé avant la réponse : sa requête est annulée ; rouvert : nouvelle requête du CIP, détail à sa réponse',
         (t) async {
       final app = await lancerAnalyse(t, info: const Duration(seconds: 6));
       await app.ouvrirMenu(t, ListPresentation.dashboard, 'analyse_article');
       final infoAvant = app.serveur.recuesSur('/info').length;
+      final abandonsAvant = FicheInfoCache.instance.abandons;
       await frappeAnalyse(t, 'ibex');
       await _jusqua(t, find.text(analyseIbex));
       await t.tap(find.text(analyseIbex).hitTestable().first);
       await app.attendre(t, const Duration(seconds: 2));
       expect(find.byKey(const ValueKey('analyse-detail-chargement')), findsOneWidget);
       await t.tap(find.text('Fermer'));
-      await app.attendre(t, const Duration(seconds: 2));
+      await app.attendre(t, const Duration(milliseconds: 500));
+      expect(FicheInfoCache.instance.abandons, abandonsAvant + 1, reason: 'requête du détail annulée à la fermeture');
       await t.tap(find.text(analyseIbex).hitTestable().first);
       final graphe = await _jusqua(t, find.text('RAYON IBEX'));
-      expect(graphe, lessThan(const Duration(seconds: 3)), reason: 'la réponse en route est reprise (avant : nouvelle requête de 6 s)');
-      expect(_recherchesInfo(app, infoAvant), ['ibex']);
+      expect(graphe, lessThan(const Duration(seconds: 7)));
+      expect(_recherchesInfo(app, infoAvant), ['ibex', '8049052', '8049052']);
       expect(t.takeException(), isNull);
       await app.fermer(t);
     });
 
-    testWidgets('liste longue (plus de 30 produits) : pas de lot, GET /info par le CIP exact au clic', (t) async {
+    testWidgets('liste de plus de 5 produits (5.1.0 ; 30 avant) : pas de lot, GET /info par le CIP exact au clic', (t) async {
       final app = await lancerAnalyse(t);
       app.serveur.routes['GET /vente/search'] = (r) {
-        final l = [for (var i = 0; i < 31; i++) produitAnalyse('L$i', 'DOLI LOT $i', '77${i.toString().padLeft(5, '0')}', 100, 1)];
+        final l = [for (var i = 0; i < produitsMaxLot + 1; i++) produitAnalyse('L$i', 'DOLI LOT $i', '77${i.toString().padLeft(5, '0')}', 100, 1)];
         return FauxServeurPrestige.ok({'data': l, 'total': l.length});
       };
       await app.ouvrirMenu(t, ListPresentation.dashboard, 'analyse_article');
@@ -169,8 +173,8 @@ void main() {
 
   // =====================================================================================================
   group('Performance — fiche produit', () {
-    testWidgets('recherche de l\'accueil : fiche immédiate, analyse à la réponse du lot, images lentes sans effet', (t) async {
-      final app = await lancerAnalyse(t, images: const Duration(seconds: 20));
+    testWidgets('recherche de l\'accueil : fiche immédiate, analyse à la réponse du CIP (lot lent non attendu), images lentes sans effet', (t) async {
+      final app = await lancerAnalyse(t, info: const Duration(seconds: 2), infoLot: const Duration(seconds: 12), images: const Duration(seconds: 20));
       await app.defilerJusqua(t, find.text('Rechercher un menu ou un produit'));
       await t.tap(find.text('Rechercher un menu ou un produit'));
       await app.attendre(t);
@@ -189,11 +193,11 @@ void main() {
       expect(find.byKey(const ValueKey("fiche-connu-Prix d'achat")), findsOneWidget);
       expect(find.byKey(const ValueKey('fiche-squelette-Grossiste')), findsOneWidget);
       final analyse = await _jusqua(t, find.byKey(const ValueKey('fiche-info-Grossiste')));
-      mesurer('Fiche produit (accueil) : analyse après l\'ouverture (lot parti 1 s avant, serveur 4 s, images 20 s)',
+      mesurer('Fiche produit (accueil) : analyse après l\'ouverture (lot de 12 s en route, CIP 2 s, images 20 s)',
           analyse.inMilliseconds,
-          seuil: 3300, unite: 'ms', detail: 'les images lentes ne retardent pas GET /info');
-      expect(analyse, lessThan(const Duration(seconds: 4)));
-      expect(_recherchesInfo(app, infoAvant), ['ibex'], reason: 'aucune 2ᵉ requête');
+          seuil: 2300, unite: 'ms', detail: 'ni le lot ni les images lentes ne retardent GET /info du CIP');
+      expect(analyse, lessThan(const Duration(seconds: 3)));
+      expect(_recherchesInfo(app, infoAvant), ['ibex', '8049052'], reason: 'CIP exact demandé à l\'ouverture');
       expect(t.takeException(), isNull);
       await app.fermer(t);
     });
@@ -240,7 +244,7 @@ void main() {
     const src = 'S';
     String cle(ProductSearchResult p) => '$src|${p.lgFAMILLEID}|${p.intCIP}';
 
-    test('produit couvert par le lot en route : on attend CE lot (aucune requête propre), ligne du bon produit', () async {
+    test('5.1.0 : produit couvert par le lot EN ROUTE : CIP exact tout de suite (lot non attendu) ; lot arrivé : servi sans requête', () async {
       final c = FicheInfoCache();
       final lot = Completer<List<ArticleAnalysis>>();
       var lots = 0;
@@ -249,18 +253,17 @@ void main() {
         return lot.future;
       });
       var cip = 0;
-      final f = c.charger(cle(doli), (_) async {
+      final a = await c.charger(cle(doli), (_) async {
         cip++;
-        return null;
+        return _a(infoAnalyseSearch('3595583').last);
       }, produit: doli);
-      lot.complete([for (final j in infoAnalyseSearch('doli')) _a(j)]);
-      final a = await f;
       expect(a!.emplacement, 'RAYON F-DOLI');
-      expect(a.reserve.stockReserve, 20);
-      expect((lots, cip, c.servisParLot), (1, 0, 1));
-      // Un autre produit couvert, après l'arrivée : immédiat, sans requête.
+      expect((lots, cip, c.servisParLot), (1, 1, 0), reason: 'réponse du CIP sans attendre le lot (jamais arrivé ici)');
+      lot.complete([for (final j in infoAnalyseSearch('doli')) _a(j)]);
+      await Future<void>.delayed(Duration.zero);
+      // Un autre produit couvert, après l'arrivée du lot : immédiat, sans requête.
       expect(c.connuPour(cle(doliD), doliD)!.article!.emplacement, 'RAYON DETAIL');
-      expect(c.requetes, 0);
+      expect(c.requetes, 1);
     });
 
     test('produit non couvert (autre nom, autre CIP) : requête par le CIP exact, sans attendre le lot', () async {
@@ -291,7 +294,7 @@ void main() {
       expect(c.lotEnRoute(src), 'IBEX');
     });
 
-    test('lot attendu par un détail : jamais abandonné par une nouvelle saisie ; 2 caractères : aucun lot', () async {
+    test('5.1.0 : un détail n\'attend plus le lot : nouvelle saisie → lot abandonné ; 2 caractères : aucun lot', () async {
       final c = FicheInfoCache();
       final lot = Completer<List<ArticleAnalysis>>();
       CancelToken? jeton;
@@ -299,21 +302,17 @@ void main() {
         jeton = j;
         return lot.future;
       });
-      final f = c.charger(cle(doli), (_) async => null, produit: doli);
+      final f = c.charger(cle(doli), (_) async => _a(infoAnalyseSearch('3595583').last), produit: doli);
       c.lacherSaisie(src);
-      expect(jeton!.isCancelled, isFalse);
-      lot.complete([for (final j in infoAnalyseSearch('doli')) _a(j)]);
+      expect(jeton!.isCancelled, isTrue, reason: 'aucun détail ne dépend du lot');
       expect((await f)!.codeCip, '3595583');
       c.chargerSaisie(src, 'do', (_) async => throw StateError('jamais'));
       expect(c.lots, 1);
     });
 
-    test('lot en échec (délai) : même cause pour le détail qui l\'attendait ; Réessayer → CIP exact', () async {
+    test('lot en échec (délai) : sans effet sur le détail (CIP exact demandé au clic)', () async {
       final c = FicheInfoCache();
       c.chargerSaisie(src, 'doli', (_) async => throw Exception('Délai dépassé : pas de réponse du serveur en 30 s (GET /info).'));
-      final f = c.charger(cle(doli), (_) async => null, produit: doli);
-      await expectLater(f, throwsA(isA<Exception>().having((e) => '$e', 'message', contains('Délai dépassé'))));
-      expect(c.requetes, 0, reason: 'aucune 2ᵉ attente complète enchaînée');
       final a = await c.charger(cle(doli), (_) async => _a(infoAnalyseSearch('3595583').last), produit: doli);
       expect(a!.emplacement, 'RAYON F-DOLI');
       expect(c.requetes, 1);
@@ -328,7 +327,7 @@ void main() {
       expect(c.requetes, 1);
     });
 
-    test('écran fermé : la requête continue et remplit le cache ; délai dépassé : oubliée, Réessayer en relance une', () async {
+    test('5.1.0 : écran fermé : la requête est annulée (rien en cache), réouverture → nouvelle requête ; délai dépassé : oubliée, Réessayer en relance une', () async {
       final c = FicheInfoCache();
       final rep = Completer<ArticleAnalysis?>();
       CancelToken? jeton;
@@ -337,10 +336,27 @@ void main() {
         return rep.future;
       });
       c.lacher(cle(ibex));
-      expect(jeton!.isCancelled, isFalse);
+      expect(jeton!.isCancelled, isTrue);
+      expect(c.enCours(cle(ibex)), isFalse);
+      expect(c.abandons, 1);
       rep.complete(_a(infoAnalyseSearch('8049052').single));
       await f;
-      expect(c.connu(cle(ibex))!.article!.emplacement, 'RAYON IBEX');
+      expect(c.connu(cle(ibex)), isNull, reason: 'réponse d\'une requête annulée jamais gardée');
+      expect(await c.charger(cle(ibex), (_) async => _a(infoAnalyseSearch('8049052').single)), isNotNull);
+      expect(c.requetes, 2);
+
+      // Deux écrans sur la même requête : annulée seulement quand le dernier se ferme.
+      final lente = Completer<ArticleAnalysis?>();
+      CancelToken? j3;
+      c.charger(cle(doliD), (j) {
+        j3 = j;
+        return lente.future;
+      }).ignore();
+      c.charger(cle(doliD), (_) async => null).ignore();
+      c.lacher(cle(doliD));
+      expect(j3!.isCancelled, isFalse);
+      c.lacher(cle(doliD));
+      expect(j3!.isCancelled, isTrue);
 
       final muette = Completer<ArticleAnalysis?>();
       CancelToken? j2;
