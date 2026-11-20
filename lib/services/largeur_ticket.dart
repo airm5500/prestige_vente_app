@@ -6,20 +6,18 @@
 //  - appareil sans imprimante intégrée (tablette) : le réglage « Largeur du ticket » (58 ou 80 mm, gardé sur
 //    l'appareil) ; le réglage s'applique au ticket suivant, sans redémarrer.
 // La règle de largeur est celle du serveur (ModeleTicketService.largeurValide) : 58 mm ou moins → 58, sinon 80.
-import 'dart:io' show Platform;
-
+//
+// 5.1.0 : la largeur n'est lue qu'une fois le service d'impression Sunmi réellement connecté
+// (ImprimanteSunmi.attendreConnexion) ; une lecture faite sans connexion n'est jamais mémorisée (avant : « aucune
+// imprimante intégrée » gardé pour toute la session si le premier ticket partait avant la connexion).
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
+import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 
 /// Largeur (58 / 80) de l'imprimante intégrée, ou null si l'appareil n'en a pas.
 typedef DetecteurImprimanteIntegree = Future<int?> Function();
 
 class LargeurTicket {
   LargeurTicket._();
-
-  /// Canal du paquet sunmi_printer_plus (lecture directe : PAPER_SIZE renvoie 1 = 58 mm, 2 = 80 mm ; la méthode
-  /// `paperSize()` du paquet échoue sur 2).
-  static const MethodChannel _canal = MethodChannel('sunmi_printer_plus');
 
   /// Détection remplaçable dans les tests.
   static DetecteurImprimanteIntegree detecteur = _detecter;
@@ -34,25 +32,27 @@ class LargeurTicket {
   static int points(int mm) => valide(mm) == 58 ? 384 : 576;
 
   static Future<int?> _detecter() async {
-    // Imprimante intégrée Sunmi : Android seulement (rien à lire ailleurs, ni dans les tests).
-    if (kIsWeb || !Platform.isAndroid) return null;
+    // Imprimante intégrée Sunmi seulement (rien à lire ailleurs, ni dans les tests), service réellement connecté.
+    if (!await ImprimanteSunmi.attendreConnexion()) return null;
     try {
-      final version = await _canal.invokeMethod<String>('PRINTER_VERSION').timeout(const Duration(seconds: 3));
-      final v = (version ?? '').trim();
-      if (v.isEmpty || v.toUpperCase() == 'NOT FOUND') return null;
-      final papier = await _canal.invokeMethod<int>('PAPER_SIZE').timeout(const Duration(seconds: 3));
+      // Lecture directe : PAPER_SIZE renvoie 1 = 58 mm, 2 = 80 mm (la méthode `paperSize()` du paquet échoue sur 2).
+      final papier = await ImprimanteSunmi.canal.invokeMethod<int>('PAPER_SIZE').timeout(const Duration(seconds: 3));
       return papier == 2 ? 80 : 58;
     } catch (_) {
       return null;
     }
   }
 
-  /// Largeur de l'imprimante intégrée (lue une fois), null sans imprimante intégrée.
+  /// Largeur de l'imprimante intégrée (lue une fois), null sans imprimante intégrée. 5.1.0 : sur un terminal Sunmi
+  /// dont le service n'est pas (encore) connecté, rien n'est mémorisé : la lecture est refaite au ticket suivant.
   static Future<int?> integree() async {
     if (_lue) return _integree;
-    _integree = await detecteur();
-    _lue = true;
-    return _integree;
+    final mm = await detecteur();
+    if (mm != null || !await ImprimanteSunmi.estSunmi()) {
+      _integree = mm;
+      _lue = true;
+    }
+    return mm;
   }
 
   /// Largeur connue sans attendre (null : pas encore lue ou pas d'imprimante intégrée).

@@ -76,20 +76,25 @@ class _QuantityDialogState extends State<QuantityDialog> {
   @override
   Widget build(BuildContext context) {
     final p = widget.product;
+    // 5.1.0 : clavier ouvert → présentation compacte (ni raccourcis ni aide), fenêtre défilante : le nom, le CIP,
+    // l'étiquette « Quantité », le champ, le total et les boutons restent visibles au-dessus du clavier.
+    final clavier = MediaQuery.viewInsetsOf(context).bottom > 0;
     return AlertDialog(
       key: const ValueKey('quantite-dialogue'),
+      scrollable: true,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-      contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-      actionsPadding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      insetPadding: EdgeInsets.symmetric(horizontal: 24, vertical: clavier ? 12 : 24),
+      titlePadding: EdgeInsets.fromLTRB(20, clavier ? 12 : 18, 20, 0),
+      contentPadding: EdgeInsets.fromLTRB(20, clavier ? 4 : 8, 20, 0),
+      actionsPadding: EdgeInsets.fromLTRB(16, clavier ? 8 : 12, 16, clavier ? 12 : 16),
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
           if (widget.isSmartMode)
             Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(10),
+              margin: EdgeInsets.only(bottom: clavier ? 4 : 10),
+              padding: EdgeInsets.all(clavier ? 6 : 10),
               decoration: BoxDecoration(color: const Color(0xFFFFF3D6), borderRadius: BorderRadius.circular(12)),
               child: const Row(children: [
                 Icon(Icons.bolt, color: Color(0xFFB45309), size: 20),
@@ -102,21 +107,21 @@ class _QuantityDialogState extends State<QuantityDialog> {
                 ),
               ]),
             ),
-          Text(p.strNAME, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Pal.ink)),
-          const SizedBox(height: 8),
-          ProduitInfos(prix: p.intPRICE, stock: p.intNUMBERAVAILABLE, cip: p.intCIP),
+          NomProduitCip(nom: p.strNAME, cip: p.intCIP),
+          SizedBox(height: clavier ? 4 : 8),
+          ProduitInfos(prix: p.intPRICE, stock: p.intNUMBERAVAILABLE),
         ],
       ),
       content: Form(
         key: _formKey,
-        child: SingleChildScrollView(
-          child: QuantiteSaisie(
-            controller: _qteController,
-            focusNode: _qtyFocusNode,
-            prixUnitaire: p.intPRICE,
-            stock: p.intNUMBERAVAILABLE,
-            onSubmitted: _submit,
-          ),
+        child: QuantiteSaisie(
+          controller: _qteController,
+          focusNode: _qtyFocusNode,
+          prixUnitaire: p.intPRICE,
+          stock: p.intNUMBERAVAILABLE,
+          onSubmitted: _submit,
+          // Le dialogue retire l'encart du clavier pour son contenu : la présentation compacte est décidée ici.
+          compact: clavier,
         ),
       ),
       actions: [BoutonsDialogue(confirmLabel: widget.confirmLabel, onConfirm: _submit)],
@@ -124,12 +129,38 @@ class _QuantityDialogState extends State<QuantityDialog> {
   }
 }
 
-/// Prix unitaire, stock et CIP du produit (pastilles).
+/// 5.1.0 : nom du produit (15 px, semi-gras) suivi du CIP en gris plus petit, sur deux lignes au plus :
+/// « NOM · CIP 3400930000001 ».
+class NomProduitCip extends StatelessWidget {
+  final String nom;
+  final String? cip;
+  const NomProduitCip({super.key, required this.nom, this.cip});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = cip?.trim() ?? '';
+    return Text.rich(
+      key: const ValueKey('quantite-nom-cip'),
+      TextSpan(children: [
+        TextSpan(text: nom),
+        if (c.isNotEmpty)
+          TextSpan(
+            text: ' · CIP $c',
+            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w400, color: Pal.muted),
+          ),
+      ]),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Pal.ink, height: 1.25),
+    );
+  }
+}
+
+/// Prix unitaire et stock du produit (pastilles). 5.1.0 : le CIP est affiché après le nom ([NomProduitCip]).
 class ProduitInfos extends StatelessWidget {
   final int prix;
   final int? stock;
-  final String? cip;
-  const ProduitInfos({super.key, required this.prix, this.stock, this.cip});
+  const ProduitInfos({super.key, required this.prix, this.stock});
 
   @override
   Widget build(BuildContext context) {
@@ -140,7 +171,6 @@ class ProduitInfos extends StatelessWidget {
         s > 0
             ? _pastille('$s', 'Stock', const Color(0xFF0B6B45), const Color(0xFFDCF5E7))
             : _pastille('0', 'Stock', const Color(0xFF9B1C1C), const Color(0xFFFDE7E7)),
-      if (cip != null && cip!.trim().isNotEmpty) _pastille(cip!.trim(), 'CIP', Pal.muted, Pal.page),
     ]);
   }
 
@@ -168,6 +198,11 @@ class QuantiteSaisie extends StatelessWidget {
   final int? stock;
   final VoidCallback? onSubmitted;
   final bool autofocus;
+
+  /// Présentation compacte (5.1.0) : sans raccourcis ni aide « 1 à 9999 », espacements réduits. null : compacte
+  /// quand le clavier est ouvert (le total de la ligne reste visible au-dessus du clavier). Dans un dialogue (qui retire
+  /// l'encart du clavier à son contenu), le passer explicitement.
+  final bool? compact;
   const QuantiteSaisie({
     super.key,
     required this.controller,
@@ -176,6 +211,7 @@ class QuantiteSaisie extends StatelessWidget {
     this.stock,
     this.onSubmitted,
     this.autofocus = false,
+    this.compact,
   });
 
   static const List<int> raccourcis = [1, 2, 3, 5, 10];
@@ -192,7 +228,10 @@ class QuantiteSaisie extends StatelessWidget {
     final q = _qte;
     final brut = int.tryParse(controller.text.trim());
     final s = stock;
+    final compacte = compact ?? MediaQuery.viewInsetsOf(context).bottom > 0;
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      // Marge du haut : l'étiquette flottante « Quantité » n'est jamais coupée par le bord de la zone défilante.
+      SizedBox(height: compacte ? 6 : 8),
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _gros(
           key: const ValueKey('quantite-moins'),
@@ -211,7 +250,7 @@ class QuantiteSaisie extends StatelessWidget {
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Pal.ink),
             decoration: InputDecoration(
               labelText: 'Quantité',
-              helperText: '1 à ${VenteInput.maxQuantity}',
+              helperText: compacte ? null : '1 à ${VenteInput.maxQuantity}',
               floatingLabelAlignment: FloatingLabelAlignment.center,
               contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -231,8 +270,9 @@ class QuantiteSaisie extends StatelessWidget {
           onPressed: brut == null || brut < VenteInput.maxQuantity ? () => _mettre((brut ?? 0) + 1) : null,
         ),
       ]),
-      const SizedBox(height: 10),
-      Wrap(spacing: 6, runSpacing: 6, alignment: WrapAlignment.center, children: [
+      if (!compacte) const SizedBox(height: 10),
+      if (!compacte)
+        Wrap(spacing: 6, runSpacing: 6, alignment: WrapAlignment.center, children: [
         for (final r in raccourcis)
           SizedBox(
             width: 48,
@@ -253,9 +293,10 @@ class QuantiteSaisie extends StatelessWidget {
             ),
           ),
       ]),
-      const SizedBox(height: 10),
+      SizedBox(height: compacte ? 6 : 10),
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        key: const ValueKey('quantite-total-ligne'),
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: compacte ? 6 : 10),
         decoration: BoxDecoration(color: Pal.page, borderRadius: BorderRadius.circular(12)),
         child: Row(children: [
           const Expanded(child: Text('Total ligne', style: TextStyle(color: Pal.muted, fontSize: 14))),

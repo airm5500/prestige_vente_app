@@ -55,14 +55,20 @@ List<Map<String, dynamic>> infoAnalyseSearch(String q) {
 
 const lentAnalyse = Duration(seconds: 4);
 
-AppE2E appAnalyse({Duration info = lentAnalyse, Duration images = Duration.zero}) {
+/// [infoLot] (5.1.0) : délai de GET /info pour une SAISIE (lot de plusieurs produits, plus long à calculer sur le
+/// serveur) ; [info] : délai pour un CIP exact. Par défaut, le même délai.
+AppE2E appAnalyse({Duration info = lentAnalyse, Duration? infoLot, Duration images = Duration.zero}) {
   final app = AppE2E()..serveur.activerModules();
   app.serveur.routes['GET /vente/search'] = (r) {
     final q = (r.query['query'] ?? '').toUpperCase().replaceAll('%', '');
     final l = [for (final p in catalogueAnalyse) if ((p['strNAME'] as String).startsWith(q) || (p['intCIP'] as String).startsWith(q)) p];
     return FauxServeurPrestige.ok({'data': l, 'total': l.length});
   };
-  app.serveur.routes['GET /info'] = (r) => FauxServeurPrestige.lent(infoAnalyseSearch(r.query['search'] ?? ''), info);
+  bool cipExact(String q) => catalogueAnalyse.any((p) => p['intCIP'] == q);
+  app.serveur.routes['GET /info'] = (r) {
+    final q = r.query['search'] ?? '';
+    return FauxServeurPrestige.lent(infoAnalyseSearch(q), cipExact(q) ? info : (infoLot ?? info));
+  };
   if (images > Duration.zero) {
     for (final id in ['F1', 'F2', 'F3']) {
       app.serveur.routes['GET /produit-images/$id'] = (r) => FauxServeurPrestige.lent({'success': true, 'data': []}, images);
@@ -73,13 +79,14 @@ AppE2E appAnalyse({Duration info = lentAnalyse, Duration images = Duration.zero}
 
 Future<AppE2E> lancerAnalyse(WidgetTester t,
     {Duration info = lentAnalyse,
+    Duration? infoLot,
     Duration images = Duration.zero,
     ListPresentation style = ListPresentation.dashboard,
     TailleEcran ecran = TailleEcran.sunmiV2s}) async {
   ecran.appliquer(t);
   FicheInfoCache.instance.vider();
   addTearDown(FicheInfoCache.instance.vider);
-  final app = appAnalyse(info: info, images: images);
+  final app = appAnalyse(info: info, infoLot: infoLot, images: images);
   await app.preparer(prefs: {'hiddenMenuIds': <String>[], 'presentation_listes_v1': style.name});
   await app.lancer(t);
   expect(await app.seConnecter(t, login: DonneesFictives.admin, motDePasse: DonneesFictives.motDePasseAdmin), isTrue);

@@ -592,7 +592,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('fiche quittée avant la réponse : aucune erreur (la requête continue et remplit le cache)', (tester) async {
+    testWidgets('fiche quittée avant la réponse : aucune erreur (5.1.0 : la requête est annulée)', (tester) async {
       _phone(tester);
       final cache = FicheInfoCache();
       final reponse = Completer<List<ArticleAnalysis>>();
@@ -622,7 +622,8 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
       await tester.pumpAndSettle();
       expect(find.text('SIROPS ET GOUTTES BUVABLES'), findsOneWidget);
-      expect(api.infos, 1);
+      // 5.1.0 : le lot de la saisie (« heli », 2 s) n'est pas attendu à l'ouverture : GET /info du CIP exact aussitôt.
+      expect(api.infos, 2);
       expect(tester.takeException(), isNull);
     });
 

@@ -749,6 +749,28 @@ void main() {
     });
   }
 
+  // 5.1.0 (retour du 20/11) : deux organismes à 80 % et 30 % → la vente affiche 80 % et 20 % (100 % au plus, comme le
+  // web) ; l'étape Couverture (choix du contrat) garde le taux du contrat.
+  testWidgets('organismes 80 % + 30 % : carte et répartition de la vente à 80 % et 20 %, couverture au taux du contrat', (tester) async {
+    _phone(tester);
+    final gw = _FakeGateway()..clients = [_client(tps: [_ctp('TP1', 'MCI', 'CT1', 80, 1), _ctp('TP2', 'ASCOMA', 'CT2', 30, 2)])];
+    await _open(tester, gw, ListPresentation.dashboard);
+    await _toCouverture(tester);
+    expect(find.text('80 %'), findsOneWidget);
+    expect(find.text('30 %'), findsOneWidget, reason: 'choix du contrat : taux du contrat');
+    await tester.enterText(_bon('CT1'), 'B-1');
+    await tester.enterText(_bon('CT2'), 'B-2');
+    await tester.pump();
+    await tester.tap(_continuer);
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: _carte, matching: find.textContaining('MCI 80 % · bon B-1')), findsOneWidget);
+    expect(find.descendant(of: _carte, matching: find.textContaining('ASCOMA 20 % · bon B-2')), findsOneWidget);
+    expect(find.text('MCI (80 %)'), findsOneWidget);
+    expect(find.text('ASCOMA (20 %)'), findsOneWidget);
+    expect(find.textContaining('30 %'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Annuler la confirmation 0 F : rien n\'est clôturé', (tester) async {
     _phone(tester);
     final gw = _FakeGateway()..clients = [_client(tps: [_ctp('TP1', 'MCI', 'CT1', 100, 1)])];

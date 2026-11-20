@@ -114,6 +114,10 @@ class ProductPager {
 
   ProductPager(this._search, this.query, {this.mode});
 
+  /// 5.1.0 : nouvelle recherche sur le serveur pour un texte plus précis (même fonction de recherche, même mode,
+  /// sauf texte trop court pour « Contient »). Aucune page chargée : appeler [loadMore].
+  ProductPager refine(String text) => ProductPager(_search, text, mode: mode == null ? null : modeFor(text, mode));
+
   /// Texte réellement envoyé au serveur.
   String get sentQuery => mode == null ? query : serverQuery(query, mode!);
 

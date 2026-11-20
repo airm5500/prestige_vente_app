@@ -7,6 +7,7 @@ import 'package:prestige_vente_app/ventes/assurance/assurance_controller.dart';
 import 'package:prestige_vente_app/ventes/common/vente_messages.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/sync_status.dart';
+import 'package:prestige_vente_app/ventes/core/taux_affiches.dart';
 
 /// Ce que l'écran transmet à chaque étape : présentation, actions de l'en-tête, retour par la barre.
 class AssuranceFrame {
@@ -184,9 +185,10 @@ class AssuranceClientCard extends StatelessWidget {
         // Chaque TP : taux et n° de bon (une ligne, deux au plus).
         Text.rich(
           TextSpan(children: [
+            // 5.1.0 : taux de cette vente plafonnés à 100 % au total (comme le web et le ticket).
             for (final (i, tp) in c.activeTiersPayants.indexed) ...[
               if (i > 0) const TextSpan(text: '     '),
-              TextSpan(text: '${tp.tpFullName} ${tp.taux} %', style: TextStyle(fontWeight: FontWeight.w600, color: ink)),
+              TextSpan(text: '${tp.tpFullName} ${tauxAffiches([for (final t in c.activeTiersPayants) t.taux])[i]} %', style: TextStyle(fontWeight: FontWeight.w600, color: ink)),
               TextSpan(text: ' · bon ${(c.bonNumbers[tp.compteTp] ?? '').isEmpty ? '—' : c.bonNumbers[tp.compteTp]}'),
             ],
           ]),

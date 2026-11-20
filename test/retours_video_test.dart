@@ -350,7 +350,9 @@ void main() {
       await p.reessayer();
       expect(p.results.single.strNAME, 'DOLIPRANE 1000MG');
       expect(p.aucunResultat, isFalse);
-      // 4.3.2 : liste reçue → UN GET /info de la saisie (lot), dont le détail du produit choisi est tiré.
+      // 4.3.2 : liste reçue → UN GET /info de la saisie (lot), dont le détail du produit choisi est tiré. 5.1.0 : une
+      // fois le lot ARRIVÉ (un lot encore en route n'est plus attendu : CIP exact).
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       final d = await p.chargerDetail(p.results.single);
       expect(s.requetes.where((r) => r.startsWith('/info')), ['/info?search=dolip'], reason: 'aucune 2ᵉ requête au clic');
       expect(d!.grossiste, 'LABOREX-CI YOP');

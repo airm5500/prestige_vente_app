@@ -73,7 +73,9 @@ void main() {
     testWidgets('nom, prix, stock, total en direct ; − / + ; raccourcis ; mêmes valeurs renvoyées', (tester) async {
       _phone(tester);
       var r = await ouvrir(tester);
-      expect(find.text('DOLIPRANE 1000MG CP B/8'), findsOneWidget);
+      // 5.1.0 : « NOM · CIP xxxx » en un seul texte (CIP gris, plus petit), plus de pastille CIP.
+      expect(find.text('DOLIPRANE 1000MG CP B/8 · CIP 3400930000001', findRichText: true), findsOneWidget);
+      expect(find.textContaining('CIP 3400930000001', findRichText: true), findsOneWidget);
       expect(find.textContaining('Prix unitaire'), findsOneWidget);
       expect(find.textContaining('Stock'), findsOneWidget);
       expect(tester.widget<Text>(find.byKey(const ValueKey('quantite-total'))).data, '${Constants.formatNumber(1500)} F');

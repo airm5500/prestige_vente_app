@@ -29,6 +29,7 @@ import 'package:prestige_vente_app/prestigepos/pos_app.dart';
 import 'package:prestige_vente_app/prestigepos/pos_reglages.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
+import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ui/taille_ecran.dart';
 import 'package:prestige_vente_app/version_app.dart';
@@ -69,5 +70,8 @@ Future<void> main() async {
   unawaited(ProduitImages.instance.init());
   // Plein écran dès le lancement.
   unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+  // 1.14.0 (code partagé 5.1.0) : terminal Sunmi → liaison au service d'impression dès le lancement, sans
+  // attendre (premier ticket de la borne et de la caisse imprimé).
+  ImprimanteSunmi.lierAuDemarrage();
   runApp(const PrestigePosApp());
 }

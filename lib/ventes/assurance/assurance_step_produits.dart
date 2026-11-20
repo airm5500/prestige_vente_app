@@ -16,6 +16,7 @@ import 'package:prestige_vente_app/ventes/prevente/vente_cart.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/ventes/core/taux_affiches.dart';
 
 class AssuranceStepProduits extends StatefulWidget {
   /// Présentation et en-tête communs.
@@ -147,6 +148,7 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
     final enabled = c.canFinish && !widget.paying && !c.finished;
     String amount(int v) => !c.hasCart ? '0 F' : (upToDate ? '${Constants.formatNumber(v)} F' : (c.busy ? 'Calcul…' : '—'));
     final net = upToDate && s != null ? s.montantNet : null;
+    final tauxVente = tauxAffiches([for (final tp in c.activeTiersPayants) tp.taux]);
     int partOf(String compteTp) => s?.tierspayants.where((t) => t.compteTp == compteTp).firstOrNull?.tpnet ?? 0;
     final valider = net == 0 ? 'VALIDER (0 F)' : (net == null ? 'ENCAISSER' : 'ENCAISSER ${Constants.formatNumber(net)} F');
     final hl = c.horsLigne;
@@ -159,7 +161,9 @@ class AssuranceStepProduitsState extends State<AssuranceStepProduits> {
           flex: 3,
           child: Column(key: const ValueKey('assurance-repartition'), mainAxisSize: MainAxisSize.min, children: [
             _split('Total$est', amount(s?.montant ?? 0)),
-            for (final tp in c.activeTiersPayants) _split('${tp.tpFullName} (${tp.taux} %)$est', amount(partOf(tp.compteTp))),
+            // 5.1.0 : taux de CETTE vente plafonnés à 100 % au total, comme le web (80 % + 30 % → 80 % + 20 %).
+            for (final (i, tp) in c.activeTiersPayants.indexed)
+              _split('${tp.tpFullName} (${tauxVente[i]} %)$est', amount(partOf(tp.compteTp))),
           ]),
         ),
         const SizedBox(width: 14),

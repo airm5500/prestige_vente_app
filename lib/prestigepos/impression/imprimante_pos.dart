@@ -13,6 +13,7 @@ import 'package:prestige_vente_app/borne/borne_ticket.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/impression/ticket_escpos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/transports.dart';
+import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 import 'package:prestige_vente_app/services/largeur_ticket.dart';
 import 'package:prestige_vente_app/services/ticket_serveur.dart';
 import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
@@ -22,6 +23,10 @@ typedef DetecteurSunmi = Future<bool> Function();
 
 Future<bool> detecterSunmi() async {
   try {
+    // 1.14.0 (code partagé 5.1.0, premier ticket non imprimé) : un terminal Sunmi est reconnu à son fabricant,
+    // sans dépendre de la liaison au service d'impression (le paquet répond true dès qu'elle est DEMANDÉE). Le service
+    // a été lié au démarrage (main_pos) ; l'impression attend sa connexion réelle (ImprimanteSunmi.pret).
+    if (await ImprimanteSunmi.estSunmi()) return true;
     return await SunmiPrinter.bindingPrinter().timeout(const Duration(seconds: 3)) == true;
   } catch (_) {
     return false;

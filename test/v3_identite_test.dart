@@ -1,7 +1,7 @@
 // NON-RÉGRESSION — Prestige Mobile V3 (5.0.0) : NOUVELLE application Android, seule l'identité change.
 //  - Gradle : applicationId com.dici.prestigemobile.v3 (saveur `mobile`), namespace INCHANGÉ (MainActivity, R, et
 //    l'activité retirée par PrestigePOS : com.dici.prestige_vente_app.MainActivity) ; PrestigePOS et Prestige Pointage
-//    gardent leur identifiant ; version 5.0.1+50 lue dans pubspec.yaml.
+//    gardent leur identifiant ; version 5.1.0+51 lue dans pubspec.yaml.
 //  - Manifeste : nom « Prestige Mobile V3 », icône (5.0.1 : plus d'icône ronde) ; visibilité de l'ANCIENNE application seulement dans
 //    la saveur `mobile` (src/mobile), jamais QUERY_ALL_PACKAGES ; canal natif : ancienne application seulement pour
 //    « estInstallee » (jamais ouverte).
@@ -45,8 +45,8 @@ void main() {
       expect(_lire('android/app/src/pointage/AndroidManifest.xml'), contains('android:label="Prestige Pointage"'));
     });
 
-    test('version 5.0.1+50 (pubspec.yaml, source unique)', () {
-      expect(RegExp(r'^version: (\S+)$', multiLine: true).firstMatch(_lire('pubspec.yaml'))!.group(1), '5.0.1+50');
+    test('version 5.1.0+51 (pubspec.yaml, source unique)', () {
+      expect(RegExp(r'^version: (\S+)$', multiLine: true).firstMatch(_lire('pubspec.yaml'))!.group(1), '5.1.0+51');
     });
 
     test('manifeste : nom « Prestige Mobile V3 », icône (sans icône ronde depuis 5.0.1), aucune nouvelle permission', () {
@@ -191,7 +191,7 @@ void main() {
       expect(ci, contains("launchable-activity: name='com.dici.prestige_vente_app.MainActivity'"));
       if (ci.contains('REFERENCE_MOBILE:')) {
         // Branche prestigepos (même fichier de test) : Prestige Mobile V3 comparée à la Prestige Mobile V3 de référence.
-        expect(ci, contains('APK de référence (5.0.'), reason: 'référence : Prestige Mobile V3 (5.0.x)');
+        expect(ci, contains('APK de référence (5.'), reason: 'référence : Prestige Mobile V3 (5.x, 5.1.0 depuis PrestigePOS 1.14.0)');
       } else {
         expect(ci, contains('identite-reference-v3.txt'), reason: 'identité de la 4.9.4 : seuls l\'identifiant et le nom changent');
         expect(ci, contains('diff -u permissions-reference-v3.txt actuel/permissions-mobile.txt'), reason: 'permissions identiques');

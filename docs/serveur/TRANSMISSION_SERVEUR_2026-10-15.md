@@ -17,7 +17,7 @@ sur un serveur qui n'a pas encore la nouveauté).
 ## Sommaire
 
 1. Décisions du pharmacien (questions de la partie 3)
-2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10), 59 et 60 (réception d'un BL incomplet, droit « Voir les suggestions de réserve », 08/11), 62 (client des ventes comptant, paiement mobile money de la borne, 15/11), 63 (ticket dessiné par le serveur, remise sur les ventes, 19/11)
+2. Prestige Mobile et PrestigePOS : réponses et demandes 43, 44, 51, 52 (pointage, 16/10), 53 et 54 (`X-Poste`, 25/10), 56 (nom de l'appareil après réinstallation, 25/10), 57 (borne de pointage sans compte, 25/10), 58 (date de naissance modifiable dans la fiche client, 31/10), 59 et 60 (réception d'un BL incomplet, droit « Voir les suggestions de réserve », 08/11), 62 (client des ventes comptant, paiement mobile money de la borne, 15/11), 63 (ticket dessiné par le serveur, remise sur les ventes, 19/11), 66 (taux des organismes plafonnés à 100 % sur tous les tickets, 20/11)
 3. Prestige Pharmacien : réponses et demandes 45 et 55 (péremptions courtes, 25/10)
 4. Prestige Inventaire : réponses et demandes 46 à 50
 5. Récapitulatif des nouvelles demandes
@@ -1088,6 +1088,67 @@ Tests attendus : poste serveur sans aucune imprimante (ni par défaut, ni instal
 `GET …/vno/{id}/image`, `…/vo/{id}/image` et `…/prevente/{id}/image` renvoient `success:true` en 58 et 80 mm ;
 `POST ticket/vno/{id}` renvoie `imprimanteAbsente:true` (correctif R1 gardé) ; mêmes résultats pour les aperçus JSON.
 
+### Demande 66 — Taux des organismes : jamais plus de 100 % au total, sur TOUS les tickets (P2)
+
+**Transmise le 20/11** (Prestige Mobile V3 5.1.0+51, PrestigePOS 1.14.0+37 ; fichier autonome
+`TRANSMISSION_SERVEUR_2026-11-20_demande66.md`). Code lu : intégration 5f0ab46f.
+
+Cas du 20/11 : un client a deux organismes, 80 % (principal) et 30 % (complémentaire). Le ticket imprime
+« 80 % » et « 30 % » (110 %). Le pharmacien veut, comme sur le web : principal 80 %, complémentaire **20 %**. Les
+parts (montants) ne changent pas, seul le taux affiché change.
+
+Ce qui est déjà juste (vérifié à 5f0ab46f) :
+
+- Ticket de vente assurance (`lunchPrinterForTicketVo`, image `GET v1/vente/ticket/vo/{id}/image` comprise) : le
+  bloc client passe par `ConversionTicket.clients` (`rest/service/ticket/ConversionTicket.java`, l. 369-395), qui
+  applique `CreditLigne.tauxAffiches` (`rest/service/ticket/CreditLigne.java`, l. 207-228, retour du 05/11) aux taux
+  lus dans `generateDataTiersPayant` (« NOM   80% :: … »). Résultat : 80 % et 20 %.
+- Lignes produit (« Taux … % : part ») : bornées ligne par ligne dans `GenerateTicketServiceImpl` (l. 420-431,
+  même règle).
+
+Ce qui imprime encore le taux brut du contrat :
+
+1. **Ticket de prévente assurance / carnet** (`imprimerTicketPrevente`, image `GET v1/vente/ticket/prevente/{id}/image`
+   comprise) : `TicketPrevente.lignes()` (`rest/service/impl/TicketPrevente.java`, l. 133-138) écrit
+   `intitule + " " + o.taux + "%"` pour chaque organisme, avec `o.taux = t.getIntPERCENT()` brut
+   (`GenerateTicketServiceImpl`, l. 939-946). Avec 80 % + 30 % : « Assurance 80% » et « Assurance 30% ».
+2. **Ticket client combiné** (vente assurance liée à une vente comptant, `ModeleTicket.VENTE_MIXTE`, aussi rendu par
+   la réimpression de la vente assurance et donc par l'image `…/vo/{id}/image` d'une vente liée) :
+   `GenerateTicketServiceImpl.imprimerTicketCombine` (l. 531-541) passe `getIntPERCENT()` brut, et
+   `TicketCombine.construire` (`rest/service/ticket/TicketCombine.java`, l. 71-72) écrit `tp[0] + " " + tp[1] + " %"`.
+   Avec 80 % + 30 % : « … 80 % » et « … 30 % ».
+3. Pour mémoire : l'ancien ticket (repli de `brancherVente` quand le nouveau modèle échoue) imprime aussi les lignes de
+   `generateDataTiersPayant` (l. 1261-1297) sans `ConversionTicket` : taux bruts. Cas rare, même correction souhaitée
+   si elle est simple.
+
+Demande : appliquer `CreditLigne.tauxAffiches` (même règle, mêmes organismes, dans l'ordre de `parPriorite`) :
+
+- dans `TicketPrevente.lignes()` : taux affichés calculés sur la liste `organismes` (les `null` restent sans taux) ;
+- dans `imprimerTicketCombine` (ou `TicketCombine.construire`) : taux de `e.tiersPayants` bornés avant l'écriture
+  (attention : les organismes masqués par `masquerPartNulle` sont retirés AVANT ; garder le même ordre que le bloc
+  client du ticket de vente, pour que les deux tickets d'une même vente affichent les mêmes taux) ;
+- si simple : le repli de l'ancien ticket.
+
+Rien ne change dans les montants, les parts, les taux enregistrés ni les réponses JSON : seulement le texte imprimé.
+
+Côté applications (déjà livré, sans attendre le serveur) : Prestige Mobile V3 5.1.0 et PrestigePOS 1.14.0 appliquent
+la même règle (`tauxAffiches`, copie de `CreditLigne.tauxAffiches`, y compris le reste exact du dernier organisme à
+1 ou 2 points de 100 %) à leur ticket local (gabarit, quand l'image du serveur n'est pas disponible) et aux
+récapitulatifs de la vente (répartition, carte client) ; les écrans de choix du client et du contrat gardent le taux
+du contrat. L'image du serveur est imprimée telle quelle : pour la prévente et le ticket combiné, elle montrera 20 %
+dès que cette demande sera déployée.
+
+Tests attendus :
+
+- `TicketPreventeTest` : organismes 80 % + 30 % → « Assurance 80% » et « Assurance 20% » ; 70 % + 29 % → 70 % et
+  30 % ; un seul organisme à 80 % → 80 % ; carnet 100 % + 30 % → 100 % et 0 % ; montants et « Part organismes »
+  inchangés.
+- `TicketCombineTest` : section assurance 80 % + 30 % → « … 80 % » et « … 20 % », parts inchangées ; organisme à part
+  nulle toujours masqué.
+- Route image : vente assurance 80 % + 30 % → `…/vo/{id}/image` (déjà juste, non-régression), `…/prevente/{id}/image`
+  et `…/vo/{id}/image` d'une vente liée à une vente comptant : 20 % pour le complémentaire, en 58 et 80 mm.
+- Web : ticket de prévente et ticket combiné réimprimés depuis le web : mêmes taux que l'image.
+
 ---
 
 ## 5. Récapitulatif des nouvelles demandes
@@ -1117,5 +1178,6 @@ Tests attendus : poste serveur sans aucune imprimante (ni par défaut, ni instal
 | 63 | Ticket : route `GET v1/vente/ticket/{type}/{id}/image` absente de toutes les branches (à créer, date de déploiement) ; remise : droit `P_REMISE_VENTE` dans `vente/remise` et `GET v1/user/droits`, retrait d'une remise quand la fiche du client en a une, refus d'un `remiseId` inconnu, net renvoyé | Mobile, PrestigePOS | P1 / P2 |
 | 64 | Prévente payée par mobile money dont le net a baissé sous le montant payé : refus explicite ou avoir | Mobile, PrestigePOS | P2 |
 | 65 | Image du ticket : ne pas appliquer le contrôle « imprimante absente » de `plan/support-1811` en mode aperçu / image | Mobile, PrestigePOS | P1 |
+| 66 | Taux des organismes plafonnés à 100 % au total (`CreditLigne.tauxAffiches`) aussi sur le ticket de prévente (`TicketPrevente.lignes`) et le ticket client combiné (`TicketCombine`), images comprises : 80 % + 30 % → 80 % + 20 % | Mobile, PrestigePOS | P2 |
 
 Plus les décisions du § 1, qui débloquent : 12 (deux points), 17 D7, 24, 32, 38, 39, 36 D18.

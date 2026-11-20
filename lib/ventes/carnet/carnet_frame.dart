@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/ventes/carnet/carnet_controller.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/ventes/core/taux_affiches.dart';
 
 typedef CarnetStepInfo = ({String title, String short, String detail, VoidCallback? onTap});
 
@@ -146,8 +147,10 @@ class CarnetClientBanner extends StatelessWidget {
     final client = cl == null ? '—' : carnetName(cl.fullName, cl.strFIRSTNAME, cl.strLASTNAME);
     final self = ad == null || ad.lgAYANTSDROITSID == cl?.lgCLIENTID;
     final who = self ? client : '$client → ${carnetName(ad.fullName, ad.strFIRSTNAME, ad.strLASTNAME)}';
+    // 5.1.0 : taux de cette vente plafonnés à 100 % au total (comme le web et le ticket).
+    final tauxVente = tauxAffiches([for (final tp in c.activeTps) tp.taux]);
     final tps = [
-      for (final tp in c.activeTps) '${tp.tpFullName} ${tp.taux} % · bon ${(c.bons[tp.compteTp] ?? '').isEmpty ? '—' : c.bons[tp.compteTp]}',
+      for (final (i, tp) in c.activeTps.indexed) '${tp.tpFullName} ${tauxVente[i]} % · bon ${(c.bons[tp.compteTp] ?? '').isEmpty ? '—' : c.bons[tp.compteTp]}',
     ].join('  ·  ');
     final fg = dark ? Colors.white : Pal.ink;
     final muted = dark ? Pal.headerMuted : Pal.muted;
