@@ -238,6 +238,7 @@
     "test/performance/demande64_perf_test.dart": "performance",
     "test/demande64_garde_test.dart": "non_regression",
     "test/v3_identite_test.dart": "non_regression",
-    "test/v3_premier_lancement_e2e_test.dart": "e2e"
+    "test/v3_premier_lancement_e2e_test.dart": "e2e",
+    "test/v501_version_gradle_test.dart": "non_regression"
   }
 }

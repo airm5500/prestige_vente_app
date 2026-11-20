@@ -19,7 +19,6 @@
         android:label="Prestige Mobile V3"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
-        android:roundIcon="@mipmap/launcher_icon_round"
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:fullBackupContent="@xml/regles_sauvegarde"

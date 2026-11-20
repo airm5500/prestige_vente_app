@@ -1,4 +1,4 @@
-// PrestigePOS 1.13.3 — Prestige Mobile V3 (5.0.0, com.dici.prestigemobile.v3) fusionnée : l'identité de PrestigePOS est
+// PrestigePOS 1.13.3 / 1.13.4 — Prestige Mobile V3 (5.0.0, puis 5.0.1 : icônes sans cadre) fusionnée : l'identité de PrestigePOS est
 // INCHANGÉE (PrestigePOS ne fait pas partie de la V3).
 //  - identifiant com.dici.prestigepos, nom « PrestigePOS », activité PosActivity (saveur pos) ;
 //  - icônes : fichiers de src/pos/res identiques à ceux de PrestigePOS 1.13.2 (empreintes MD5) ; chaque ressource
@@ -46,7 +46,8 @@ void main() {
     expect(m, contains('android:label="PrestigePOS"'));
     expect(m, contains('tools:replace="android:label,android:icon"'));
     expect(m, contains('android:roundIcon="@mipmap/launcher_icon_round"'),
-        reason: 'même valeur que src/main (Prestige Mobile V3) : pas de conflit de fusion du manifeste');
+        reason: 'icône ronde de PrestigePOS (src/pos) gardée ; Prestige Mobile V3 n\'en déclare plus (5.0.1)');
+    expect(_lire('android/app/src/main/AndroidManifest.xml'), isNot(contains('roundIcon')), reason: 'Prestige Mobile V3 5.0.1 : sans cadre');
     expect(m, contains('com.dici.prestigepos.PosActivity'));
     expect(m, isNot(contains('<package android:name="com.dici.prestige_vente_app"')));
     expect(_lire('android/app/src/mobile/AndroidManifest.xml'), contains('<package android:name="com.dici.prestige_vente_app" />'),
@@ -72,9 +73,14 @@ void main() {
     for (final p in main) {
       expect(File('android/app/src/pos/res/$p').existsSync(), isTrue, reason: '$p de Prestige Mobile V3 sans remplaçant PrestigePOS');
     }
-    // Couleur du fond adaptatif : même nom, valeur de PrestigePOS.
-    expect(_lire('android/app/src/main/res/values/couleurs_prestigemobile.xml'), contains('name="launcher_icon_background"'));
+    // 1.13.4 (Prestige Mobile V3 5.0.1 : icônes sans cadre) : src/main n'a plus que des launcher_icon.png
+    // transparents ; PrestigePOS garde son icône adaptative, ronde et son fond (src/pos), utilisés par son manifeste.
+    expect(main.where((p) => p.contains('anydpi') || p.contains('_round') || p.contains('_foreground')), isEmpty);
+    expect(File('android/app/src/main/res/values/couleurs_prestigemobile.xml').existsSync(), isFalse);
     expect(_lire('android/app/src/pos/res/values/couleurs_prestigepos.xml'), contains('name="launcher_icon_background"'));
+    for (final n in ['launcher_icon', 'launcher_icon_round']) {
+      expect(_lire('android/app/src/pos/res/mipmap-anydpi-v26/$n.xml'), contains('@color/launcher_icon_background'), reason: n);
+    }
   });
 
   test('écrans de PrestigePOS : aucun nom de Prestige Mobile V3', () {
@@ -92,6 +98,7 @@ void main() {
     expect(ci, contains("application-label:'PrestigePOS'"));
     expect(ci, contains("launchable-activity: name='com.dici.prestigepos.PosActivity'"));
     expect(ci, contains('grep -qE "prestigemobile|Prestige Mobile|com.dici.prestige_vente_app.MainActivity"'));
-    expect(ci, contains('REFERENCE_MOBILE: 8f7b7d1100ff26c905d25627054eefbfa7da3f78'), reason: 'référence : Prestige Mobile V3 5.0.0+49');
+    expect(ci, contains('REFERENCE_MOBILE: 4080802aea839876d0c2fdbb1bf2bce0056c3d2b'), reason: 'référence : Prestige Mobile V3 5.0.1+50');
+    expect(ci, contains(r"""grep -qE "^application: .*icon='[^']*\.xml'"""), reason: '1.13.4 : icône adaptative de PrestigePOS inchangée');
   });
 }
