@@ -247,6 +247,13 @@
     "test/accueil_metro_e2e_test.dart": "e2e",
     "test/accueil_metro_ergonomie_test.dart": "ergonomie",
     "test/performance/accueil_metro_perf_test.dart": "performance",
-    "test/accueil_metro_garde_test.dart": "non_regression"
+    "test/accueil_metro_garde_test.dart": "non_regression",
+    "test/confirmation_empreinte_test.dart": "unitaires",
+    "test/empreinte_absente_test.dart": "ecrans",
+    "test/confirmation_empreinte_flux_test.dart": "ecrans",
+    "test/confirmation_empreinte_e2e_test.dart": "e2e",
+    "test/prestigepointage/confirmation_empreinte_pointage_e2e_test.dart": "e2e",
+    "test/confirmation_empreinte_ergonomie_test.dart": "ergonomie",
+    "test/confirmation_empreinte_garde_test.dart": "non_regression"
   }
 }

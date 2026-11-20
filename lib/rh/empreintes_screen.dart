@@ -8,15 +8,21 @@
 // Serveur sans partage : comme avant, sur ce terminal seulement. Accès : administrateur de l'application.
 // Suppression des empreintes d'un employé à tout moment (et automatiquement s'il devient inactif).
 // Le journal ne garde que « empreintes enregistrées / envoyées / supprimées » (jamais de modèle).
+// 5.3.0 : service d'empreinte Sunmi ABSENT (ex. SUNMI V3, Android 13 ; détecté à l'ouverture) → bandeau clair
+// (« badge ou code personnel ») au lieu d'une erreur technique, lien « Détails techniques » (diagnostic) ; aucun
+// enrôlement possible et aucun modèle partagé recopié sur ce terminal (il ne saurait pas s'en servir) ; la suppression
+// reste possible. Service présent : rien ne change.
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
+import 'package:prestige_vente_app/rh/confirmation_empreinte.dart';
 import 'package:prestige_vente_app/rh/empreintes_partagees.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
 import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
+import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/responsive.dart';
@@ -62,6 +68,9 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
   String? _etat;
   bool _occupe = false;
 
+  /// 5.3.0 : service d'empreinte Sunmi présent (détecté à l'ouverture) ; sinon bandeau, pas d'enrôlement.
+  bool _lecteur = true;
+
   IdentificationEmploye get _id => widget.identification;
 
   /// Partage des empreintes (null : pas de serveur RH).
@@ -86,8 +95,16 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
       return;
     }
     final rh = widget.rh.acces == AccesRh.autorise;
+    var lecteur = false;
+    if (rh) {
+      try {
+        lecteur = await _id.empreinte.disponible();
+      } catch (_) {}
+    }
+    if (!mounted) return;
     setState(() {
       _autorise = rh;
+      _lecteur = lecteur;
       _verifie = true;
     });
     if (rh) await _charger();
@@ -95,7 +112,7 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
 
   Future<void> _charger({bool synchroniser = true}) async {
     final p = _partage;
-    if (p != null && synchroniser) {
+    if (p != null && synchroniser && _lecteur) {
       try {
         await p.synchroniser();
       } catch (_) {}
@@ -284,6 +301,13 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
                         ),
                       ]),
                       const SizedBox(height: 8),
+                      if (!_lecteur) ...[
+                        BandeauSansEmpreinte(
+                          texte: texteSansEmpreinteGestion,
+                          onDetails: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FingerprintDiagnosticScreen())),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       if (_etat != null)
                         Container(
                           key: const Key('rh_empreintes_etat'),
@@ -308,12 +332,13 @@ class _EmpreintesScreenState extends State<EmpreintesScreen> {
                                 ? 'Enregistrée(s) le ${DateFormat('dd/MM/yyyy').format(_enroles[e.id]!.consentementLe)} (consentement)'
                                 : 'Aucune empreinte${e.matricule.isEmpty ? '' : ' · ${e.matricule}'}'),
                             trailing: Wrap(spacing: 4, children: [
-                              IconButton(
-                                key: Key('rh_enroler_${e.id}'),
-                                tooltip: _enroles.containsKey(e.id) ? 'Refaire' : 'Enregistrer',
-                                onPressed: _occupe ? null : () => _enroler(e),
-                                icon: const Icon(Icons.add_circle_outline),
-                              ),
+                              if (_lecteur)
+                                IconButton(
+                                  key: Key('rh_enroler_${e.id}'),
+                                  tooltip: _enroles.containsKey(e.id) ? 'Refaire' : 'Enregistrer',
+                                  onPressed: _occupe ? null : () => _enroler(e),
+                                  icon: const Icon(Icons.add_circle_outline),
+                                ),
                               if (_enroles.containsKey(e.id))
                                 IconButton(
                                   key: Key('rh_supprimer_${e.id}'),

@@ -7,7 +7,8 @@
 //  - Borne : terminal de pointage de Prestige Mobile (badge QR / 1D / NFC, empreinte, photo de contrôle, file hors
 //    ligne), plein écran, sur le client signé ; bandeau d'état (hors ligne, heure, retirée, réseau, serveur ancien).
 //  - Administration (code administrateur) : état, envoi de la file, empreintes (connexion temporaire P_SM_RH), photo de
-//    contrôle, nouvel enrôlement, retrait de l'appareil.
+//    contrôle, nouvel enrôlement, retrait de l'appareil. 1.1.0 (Prestige Mobile 5.3.0) : « Confirmer le pointage par
+//    empreinte » (désactivé par défaut) et détails techniques du lecteur d'empreinte.
 // Le secret de la borne n'est jamais affiché ; le contenu d'un badge QR non plus (masqué par le terminal).
 import 'dart:async';
 
@@ -20,12 +21,14 @@ import 'package:prestige_vente_app/prestigepointage/client_borne.dart';
 import 'package:prestige_vente_app/prestigepointage/controleur_borne.dart';
 import 'package:prestige_vente_app/prestigepointage/enrolement_borne.dart';
 import 'package:prestige_vente_app/providers/settings_provider.dart';
+import 'package:prestige_vente_app/rh/confirmation_empreinte.dart';
 import 'package:prestige_vente_app/rh/empreintes_screen.dart';
 import 'package:prestige_vente_app/rh/photo_controle.dart';
 import 'package:prestige_vente_app/rh/photo_controle_screen.dart';
 import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/rh/rh_api.dart';
 import 'package:prestige_vente_app/rh/terminal_pointage_screen.dart';
+import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil_serveur.dart';
 import 'package:prestige_vente_app/ui/taille_ecran.dart';
@@ -527,6 +530,29 @@ class _EcranAdministrationBorneState extends State<EcranAdministrationBorne> {
           title: const Text('Empreintes des employés'),
           subtitle: const Text('Enrôlement par un compte Ressources humaines (connexion temporaire, fermée ensuite).'),
           onTap: () => _empreintes(c),
+        ),
+        // 5.3.0 : confirmation par une empreinte Android après le badge / code (désactivée par défaut), même règle que
+        // la photo : administration de la borne (code administrateur).
+        if (r != null)
+          SwitchListTile(
+            key: const Key('pointage_admin_confirmation_empreinte'),
+            title: const Text(titreReglageConfirmationEmpreinte),
+            subtitle: const Text(texteReglageConfirmationEmpreinte),
+            isThreeLine: true,
+            value: r.confirmationEmpreinte,
+            onChanged: (v) async {
+              final n = r.copie(confirmationEmpreinte: v);
+              await n.enregistrer();
+              setState(() => _reglages = n);
+            },
+          ),
+        // 5.3.0 : diagnostic du lecteur d'empreinte (le bandeau de la borne n'en montre pas le lien en mode borne).
+        ListTile(
+          key: const Key('pointage_admin_diagnostic'),
+          leading: const Icon(Icons.build_circle_outlined),
+          title: const Text('Lecteur d\'empreinte : détails techniques'),
+          subtitle: const Text('Diagnostic du lecteur de ce terminal (service Sunmi, lecteur Android).'),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FingerprintDiagnosticScreen())),
         ),
         ListTile(
           key: const Key('pointage_admin_reenroler'),

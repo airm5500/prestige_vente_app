@@ -43,6 +43,7 @@ const _horsCI = {
   'test/outils/captures_ticket_remise_test.dart': 'génère les captures PNG de la remise et des tickets (APERCUS=1), jamais en CI',
   'test/outils/captures_demande62_test.dart': 'génère les captures PNG de la demande 62 (prévente payée, remise, ticket PAYÉE de la borne) (APERCUS=1), jamais en CI',
   'test/outils/captures_demande64_test.dart': 'génère les captures PNG de la demande 64 (borne : caisse fermée → payer en caisse ; comptoir : panier verrouillé) (APERCUS=1), jamais en CI',
+  'test/outils/captures_pointage_530_test.dart': 'génère les captures PNG du pointage 5.3.0 (bandeau badge / code, réglage et demande de confirmation par empreinte) (CAPTURES=dossier), jamais en CI',
   'test/outils/captures_metro_test.dart': 'génère les captures PNG des présentations de l\'accueil 5.2.0 et de leur réglage (CAPTURES=dossier), jamais en CI',
   'test/outils/captures_demande63_test.dart': 'génère les captures PNG de la demande 63 (ticket gris du serveur et ticket imprimé en 1 bit, 58 / 80 mm) (APERCUS=1), jamais en CI',
   'test/outils/generer_tickets_reference_test.dart': 'écrit les références texte des tickets (test/references/tickets), jamais en CI',

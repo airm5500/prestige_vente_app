@@ -31,6 +31,7 @@ import 'package:prestige_vente_app/providers/settings_provider.dart';
 import 'package:prestige_vente_app/reception/reception_logic.dart';
 import 'package:prestige_vente_app/rh/empreintes_partagees.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
+import 'package:prestige_vente_app/rh/confirmation_empreinte.dart';
 import 'package:prestige_vente_app/rh/photo_controle.dart';
 import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/rh/photo_controle_screen.dart';
@@ -981,6 +982,14 @@ class _EquipePageState extends State<EquipePage> {
                 'empreinte. À désactiver sur un terminal partagé : seuls le badge (avec photo) et l\'empreinte restent possibles.',
             value: _terminal.simpleBouton,
             onChanged: (v) => _majTerminal(_terminal.copie(simpleBouton: v)),
+          ),
+          // 5.3.0 : confirmation par une empreinte Android après le badge / code (désactivée par défaut).
+          SwitchCard(
+            key: const Key('rh_reglage_confirmation_empreinte'),
+            title: titreReglageConfirmationEmpreinte,
+            subtitle: texteReglageConfirmationEmpreinte,
+            value: _terminal.confirmationEmpreinte,
+            onChanged: (v) => _majTerminal(_terminal.copie(confirmationEmpreinte: v)),
           ),
           SettingCard(
             child: Row(children: [

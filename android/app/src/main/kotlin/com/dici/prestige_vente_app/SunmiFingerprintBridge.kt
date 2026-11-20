@@ -193,6 +193,13 @@ class SunmiFingerprintBridge(private val context: Context, messenger: BinaryMess
                     android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT,
                     android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT -> "LOCKOUT"
                     android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS -> "NONE_ENROLLED"
+                    // 5.3.0 (confirmation du pointage par empreinte) : délai sans doigt posé, lecteur absent ou en
+                    // panne distingués des autres erreurs (le pointage par badge passe alors avec une mention).
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_TIMEOUT -> "TIMEOUT"
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT -> "NO_HARDWARE"
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE,
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_NO_SPACE,
+                    android.hardware.biometrics.BiometricPrompt.BIOMETRIC_ERROR_VENDOR -> "HW_ERROR"
                     else -> "AUTH_ERROR"
                 }
                 reply.error(code, errString?.toString() ?: "Erreur d'empreinte ($errorCode)")
