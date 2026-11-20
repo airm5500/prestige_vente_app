@@ -150,16 +150,19 @@ jobs:
           # Identité : seul changement admis = nouvel identifiant et nouveau nom (5.0.0, Prestige Mobile V3).
           sed -e "s/name='com.dici.prestige_vente_app'/name='com.dici.prestigemobile.v3'/" \
               -e "s/^application-label:'Prestige Mobile'$/application-label:'Prestige Mobile V3'/" identite-reference.txt > identite-reference-v3.txt
+          # Permissions : mêmes permissions ; seule celle qu'Android nomme d'après l'identifiant
+          # (<identifiant>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION) suit le nouvel identifiant.
+          sed -e "s/com\.dici\.prestige_vente_app\./com.dici.prestigemobile.v3./g" permissions-reference.txt > permissions-reference-v3.txt
           {
             echo "## Prestige Mobile V3 comparée à $REFERENCE_SANS_SAVEUR (hors numéro de version)"
             echo '```diff'
             diff -u identite-reference.txt actuel/identite-mobile.txt || true
             diff -u identite-reference-v3.txt actuel/identite-mobile.txt && echo "identité : seuls l'identifiant et le nom changent (V3)"
-            diff -u permissions-reference.txt actuel/permissions-mobile.txt && echo "permissions : identiques ($(wc -l < permissions-reference.txt))"
+            diff -u permissions-reference-v3.txt actuel/permissions-mobile.txt && echo "permissions : identiques ($(wc -l < permissions-reference.txt), préfixe de l'identifiant mis à jour)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           diff -u identite-reference-v3.txt actuel/identite-mobile.txt
-          diff -u permissions-reference.txt actuel/permissions-mobile.txt
+          diff -u permissions-reference-v3.txt actuel/permissions-mobile.txt
 
   # Prestige Pointage (saveur `pointage`, lib/main_pointage.dart, demande 57) : APK, version
   # (android/app/prestigepointage-version.properties), identité et permissions. Ses tests sont dans la suite commune
