@@ -74,7 +74,13 @@ de paiement `cloturer:false` ; comptoir : refus du panier verrouillé affichés 
 
 ## Prestige Mobile V3 (5.0.0) : nouvelle fiche Sunmi
 
-Version en préparation (pas encore publiée) : **5.3.0+53** (`pubspec.yaml`) : pointage sur un terminal sans le
+Version en préparation (pas encore publiée) : **5.4.0+54** (`pubspec.yaml`) : retours du pharmacien (SUNMI V3) :
+2e ticket des ventes à crédit rétabli (question « Ticket suivant (2/2) » après le 1er ticket, nombre de tickets
+respecté quand le serveur dessine le ticket), « Réédition des ventes » (ventes de ce terminal, jour, type, n° de
+ticket, réimpression avec le nombre d'exemplaires), « Contraste d'impression » renforcé par défaut (textes fins du
+ticket épaissis, noir pur) ; Prestige Pointage inchangée (1.1.0+2) (voir `docs/NOTE_VERSION_5.4.0.md`).
+
+Avant : **5.3.0+53** : pointage sur un terminal sans le
 service d'empreinte Sunmi (SUNMI V3, Android 13) : bandeau « badge ou code personnel » au lieu du diagnostic technique,
 réglage « Confirmer le pointage par empreinte » (désactivé par défaut), anciens terminaux Sunmi inchangés ; Prestige
 Pointage 1.1.0+2 (voir `docs/NOTE_VERSION_5.3.0.md`).

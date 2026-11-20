@@ -19,6 +19,7 @@ import 'package:prestige_vente_app/prestigepos/impression/transports.dart';
 import 'package:prestige_vente_app/services/ticket_serveur.dart';
 
 import 'package:image/image.dart' as img;
+import 'package:prestige_vente_app/services/contraste_impression.dart';
 import 'package:prestige_vente_app/services/ticket_1bit.dart';
 
 import '../outils/demande63_fictive.dart';
@@ -76,7 +77,8 @@ void main() {
         final m = TicketEscPos.matricePng(png, points)!;
         final noirs = m.fold<int>(0, (a, l) => a + l.where((p) => p).length);
         expect(noirs, lessThan(points * g.height ~/ 4), reason: 'fond blanc (pas un rectangle noir)');
-        final r = Ticket1Bit.depuisPng(png, largeurMax: points)!;
+        // 1.17.0 : même conversion que Prestige Mobile, au contraste du réglage (renforcé par défaut).
+        final r = Ticket1Bit.depuisPng(png, largeurMax: points, contraste: ReglageContraste.courant.value)!;
         expect(noirs, r.pointsNoirs);
         // ancienne lecture (1.12.0) : luminance de la bibliothèque sur un PNG gris → presque tout noir
         final ancien = [for (var y = 0; y < g.height; y++) for (var x = 0; x < g.width; x++) img.getLuminanceNormalized(g.getPixel(x, y)) < 0.5]

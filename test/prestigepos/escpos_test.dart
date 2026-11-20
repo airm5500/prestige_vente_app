@@ -13,6 +13,8 @@ import 'package:prestige_vente_app/borne/borne_ticket.dart';
 import 'package:prestige_vente_app/prestigepos/impression/escpos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
 import 'package:prestige_vente_app/prestigepos/impression/ticket_escpos.dart';
+import 'package:prestige_vente_app/services/contraste_impression.dart';
+import 'package:prestige_vente_app/services/ticket_1bit.dart' show ContrasteImpression;
 import 'package:prestige_vente_app/services/ticket_prevente.dart';
 
 final _maj = Platform.environment.containsKey('MAJ_REFERENCES');
@@ -103,6 +105,10 @@ void verifierReference(String nom, Uint8List o) {
 }
 
 void main() {
+  // 1.17.0 : références octet par octet = contraste « Normal » (rendu 1.16.0) ; le contraste renforcé (par défaut) a ses
+  // propres références (pos_contraste_test.dart).
+  setUp(() => ReglageContraste.reinitialiser(ContrasteImpression.normal));
+  tearDown(ReglageContraste.reinitialiser);
   group('Ticket type ESC/POS', () {
     for (final papier in [58, 80]) {
       final cols = papier == 58 ? 32 : 48;

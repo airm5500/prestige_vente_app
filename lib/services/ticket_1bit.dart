@@ -14,6 +14,9 @@
 // lissage au bord des lettres tombent d'un côté ou de l'autre du seuil : traits pleins, épaisseur conservée à un point
 // près. Transparence éventuelle : posée sur fond blanc.
 //
+// 5.4.0 : contraste « Renforcé » (par défaut) : seuil 160 et traits verticaux d'un point doublés (voir
+// [Ticket1Bit.renforcer]) ; « Normal » : rendu d'avant (seuil 128).
+//
 // Aucun contenu de ticket n'est lu ni écrit dans un journal : seuls des points noirs ou blancs sont manipulés.
 import 'dart:typed_data';
 
@@ -75,15 +78,32 @@ class Raster1Bit {
   }
 }
 
+/// 5.4.0 — « Contraste d'impression » (Réglages › Impression) : rendu des tickets dessinés par le serveur.
+enum ContrasteImpression {
+  /// Seuil 128, rien d'autre : rendu de la 4.15.1 à la 5.3.0.
+  normal,
+
+  /// Seuil 160 et traits verticaux d'un seul point doublés (voir [Ticket1Bit.renforcer]). Par défaut.
+  renforce,
+}
+
 class Ticket1Bit {
   Ticket1Bit._();
 
   /// Luminance (0-255) en dessous de laquelle un point est imprimé.
   static const int seuil = 128;
 
+  /// 5.4.0 : seuil du contraste renforcé (le bord lissé des lettres fines compte davantage).
+  static const int seuilRenforce = 160;
+
+  /// 5.4.0 : une colonne noire d'au moins ce nombre de points (barre du code-barres, cadre) n'est jamais épaissie,
+  /// ni ses voisines : les barres et les espaces du code-barres gardent leur largeur exacte (lecture du code).
+  static const int hauteurProtegee = 32;
+
   /// Convertit un PNG (niveaux de gris, couleur, avec ou sans transparence) en 1 bit. null : PNG illisible, ou plus
   /// large que [largeurMax] points (jamais réduit : une image réduite ne serait plus celle du serveur).
-  static Raster1Bit? depuisPng(Uint8List png, {int? largeurMax, int seuilNoir = seuil}) {
+  static Raster1Bit? depuisPng(Uint8List png,
+      {int? largeurMax, int seuilNoir = seuil, ContrasteImpression contraste = ContrasteImpression.normal}) {
     final img.Image? i;
     try {
       i = img.decodePng(png);
@@ -92,16 +112,19 @@ class Ticket1Bit {
     }
     if (i == null || i.width <= 0 || i.height <= 0) return null;
     if (largeurMax != null && i.width > largeurMax) return null;
-    return depuisImage(i, seuilNoir: seuilNoir);
+    return depuisImage(i, seuilNoir: seuilNoir, contraste: contraste);
   }
 
-  static Raster1Bit depuisImage(img.Image i, {int seuilNoir = seuil}) {
+  static Raster1Bit depuisImage(img.Image i, {int seuilNoir = seuil, ContrasteImpression contraste = ContrasteImpression.normal}) {
     final w = i.width, h = i.height;
     final n = (w + 7) >> 3;
+    final renforce = contraste == ContrasteImpression.renforce;
+    final s = renforce && seuilNoir == seuil ? seuilRenforce : seuilNoir;
     final gris = i.hasPalette ? i.palette!.numChannels <= 2 : i.numChannels <= 2;
-    final out = Uint8List(n * h);
+    // Points noirs (1 octet par point) : au seuil, puis renforcés au besoin.
+    final noir = Uint8List(w * h);
     for (var y = 0; y < h; y++) {
-      final base = y * n;
+      final base = y * w;
       for (var x = 0; x < w; x++) {
         final p = i.getPixel(x, y);
         // luminance 0..1 (un canal : le gris lui-même ; getLuminance lirait vert et bleu à 0 et noircirait tout),
@@ -109,9 +132,68 @@ class Ticket1Bit {
         final l = gris ? p.rNormalized.toDouble() : (0.299 * p.rNormalized + 0.587 * p.gNormalized + 0.114 * p.bNormalized);
         final a = i.hasAlpha ? p.aNormalized.toDouble() : 1.0;
         final v = (l * a + (1 - a)) * 255;
-        if (v < seuilNoir) out[base + (x >> 3)] |= 0x80 >> (x & 7);
+        if (v < s) noir[base + x] = 1;
+      }
+    }
+    final points = renforce ? renforcer(noir, w, h) : noir;
+    final out = Uint8List(n * h);
+    for (var y = 0; y < h; y++) {
+      final base = y * n, ligne = y * w;
+      for (var x = 0; x < w; x++) {
+        if (points[ligne + x] != 0) out[base + (x >> 3)] |= 0x80 >> (x & 7);
       }
     }
     return Raster1Bit(w, h, out);
+  }
+
+  /// 5.4.0 — retour du pharmacien (SUNMI V3) : sur le ticket du serveur, les textes en police normale (« Matricule
+  /// assuré », « Bénéficiaire », « Bon N° », « Part du client », organismes, « 1 ligne · 1 article », « Total »)
+  /// sortaient FINS et pâles, comme tramés, alors que les gras passaient bien. Le serveur les dessine en NOIR
+  /// (RenduTicket : Color.BLACK, police « Arial Narrow » de 8 points en 58 mm, lissée), mais à 203 dpi un trait vertical
+  /// de cette police fait 1,5 point environ : au seuil 128, les trois quarts des traits verticaux de ces textes ne
+  /// gardent qu'UN point de large (mesuré sur un ticket fictif dessiné par le code du serveur), et une colonne d'un
+  /// seul point chauffe mal sur la tête thermique (trait gris, pointillé).
+  ///
+  /// Renforcement (sans redimensionner : l'image reste à la largeur exacte de la tête) : tout trait horizontal d'un
+  /// seul point noir (vertical fin) est doublé d'un point à DROITE, seulement si le point suivant est blanc (deux
+  /// lettres ne se touchent jamais : un point blanc reste entre elles). Les colonnes noires d'au moins
+  /// [hauteurProtegee] points (barres du code-barres, bords du cadre) et leurs voisines ne sont jamais touchées : le
+  /// code-barres garde ses largeurs (vérifié décodable). Les traits horizontaux ne sont pas épaissis (les petites
+  /// boucles des lettres « e », « a » resteraient ouvertes).
+  static Uint8List renforcer(Uint8List noir, int w, int h) {
+    // Hauteur de la colonne noire qui passe par chaque point.
+    final protege = Uint8List(w * h);
+    for (var x = 0; x < w; x++) {
+      var y = 0;
+      while (y < h) {
+        if (noir[y * w + x] == 0) {
+          y++;
+          continue;
+        }
+        var y1 = y;
+        while (y1 < h && noir[y1 * w + x] != 0) {
+          y1++;
+        }
+        if (y1 - y >= hauteurProtegee) {
+          for (var k = y; k < y1; k++) {
+            protege[k * w + x] = 1;
+          }
+        }
+        y = y1;
+      }
+    }
+    final out = Uint8List.fromList(noir);
+    for (var y = 0; y < h; y++) {
+      final l = y * w;
+      for (var x = 0; x < w - 1; x++) {
+        final i = l + x;
+        if (noir[i] == 0 || protege[i] != 0) continue;
+        if (x > 0 && noir[i - 1] != 0) continue; // trait d'au moins deux points : inchangé
+        if (noir[i + 1] != 0) continue;
+        if (x + 2 < w && (noir[i + 2] != 0 || protege[i + 2] != 0)) continue; // garder un blanc avant le trait suivant
+        out[i + 1] = 1;
+      }
+    }
+    return out;
   }
 }

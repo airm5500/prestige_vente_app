@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:prestige_vente_app/borne/borne_ticket.dart';
 import 'package:prestige_vente_app/prestigepos/impression/escpos.dart';
 import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.dart';
+import 'package:prestige_vente_app/services/contraste_impression.dart';
 import 'package:prestige_vente_app/services/ticket_1bit.dart';
 import 'package:prestige_vente_app/services/ticket_serveur.dart';
 
@@ -35,9 +36,14 @@ class TicketEscPos {
       ..taille()
       ..gras(false)
       ..aligner(0);
+    // 1.17.0 (Prestige Mobile 5.4.0) : contraste renforcé (par défaut) → lignes produits et total en gras (même
+    // largeur de colonnes), comme le ticket Sunmi de la borne ; Normal : comme avant.
+    final renforce = ReglageContraste.texteRenforce;
+    if (renforce) e.gras(true);
     for (final l in t.lignes) {
       e.ligne(l);
     }
+    if (renforce) e.gras(false);
     e
       ..aligner(1)
       ..avancer(1);
@@ -76,9 +82,11 @@ class TicketEscPos {
     return e.octets;
   }
 
-  /// Matrice noir / blanc d'un PNG (gris, couleur ou transparent ; seuil 128), null si illisible ou plus large que
-  /// [points].
-  static List<List<bool>>? matricePng(Uint8List png, int points) => Ticket1Bit.depuisPng(png, largeurMax: points)?.matrice();
+  /// Matrice noir / blanc d'un PNG (gris, couleur ou transparent), null si illisible ou plus large que [points].
+  /// 1.17.0 (Prestige Mobile 5.4.0) : réglage « Contraste d'impression » (renforcé par défaut : seuil 160, traits
+  /// verticaux d'un point doublés, code-barres et QR inchangés ; normal : seuil 128 comme avant).
+  static List<List<bool>>? matricePng(Uint8List png, int points, {ContrasteImpression? contraste}) =>
+      Ticket1Bit.depuisPng(png, largeurMax: points, contraste: contraste ?? ReglageContraste.courant.value)?.matrice();
 
   /// Ticket d'essai (« Test d'impression ») : largeur, accents, QR.
   static Uint8List essai(ImprimanteConfig c, {String officine = '', DateTime? at}) {

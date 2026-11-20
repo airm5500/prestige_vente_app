@@ -24,6 +24,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
+import 'package:prestige_vente_app/services/contraste_impression.dart';
 import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 import 'package:prestige_vente_app/services/largeur_ticket.dart';
 import 'package:prestige_vente_app/services/ticket_1bit.dart';
@@ -52,8 +53,14 @@ class ImpressionTicket {
   /// Une série de copies commence (imprimerCopiesAvecPause).
   static void debutCopies() => _copiesParServeur = false;
 
-  /// Le serveur a fourni les tickets de cette vente : il décide du nombre d'exemplaires, le mobile n'ajoute pas les
-  /// copies suivantes.
+  /// Diagnostic (tests) : la dernière copie imprimée venait du serveur (route image).
+  ///
+  /// 5.4.0 — N'ARRÊTE PLUS les copies. Jusqu'à la 5.3.0, cet indicateur interrompait la série après la 1ʳᵉ copie
+  /// (« le serveur décide du nombre d'exemplaires », 4.14.0) : faux, la route image est la RÉIMPRESSION du poste et
+  /// rend UN exemplaire de la vente (GenerateTicketServiceImpl.lunchPrinterForTicketVo(id) : « la reimpression sort
+  /// le ticket de cette vente en un exemplaire ») ; le nombre de tickets choisi sur l'appareil (2 en assurance) n'était
+  /// donc plus respecté dès que le serveur dessinait le ticket (serveur 76aa5fc1 déployé en officine le 19/11) : plus
+  /// de question « Ticket suivant (2/2) », plus de 2ᵉ ticket. Chaque copie redemande les images au serveur.
   static bool get copiesParServeur => _copiesParServeur;
 
   static Dio? _dioDe(BuildContext context) {
@@ -251,10 +258,12 @@ class ImpressionTicket {
 
   /// 4.15.1 : tickets du serveur en raster 1 bit (`GS v 0`) pour une imprimante de [points] points ; null si une
   /// image est illisible ou plus large que le papier (motif dans [motif]).
-  static List<Raster1Bit>? rasters(List<TicketImage> tickets, int points) {
+  /// 5.4.0 : contraste du réglage « Contraste d'impression » (renforcé par défaut), ou [contraste] s'il est donné.
+  static List<Raster1Bit>? rasters(List<TicketImage> tickets, int points, {ContrasteImpression? contraste}) {
     final out = <Raster1Bit>[];
+    final c = contraste ?? ReglageContraste.courant.value;
     for (final t in tickets) {
-      final r = Ticket1Bit.depuisPng(t.png, largeurMax: points);
+      final r = Ticket1Bit.depuisPng(t.png, largeurMax: points, contraste: c);
       if (r == null) return null;
       out.add(r);
     }

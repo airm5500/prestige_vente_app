@@ -44,11 +44,12 @@ Future<bool> confirmerTicketSuivant(BuildContext context, int numero, int total)
 /// Renvoie le nombre de copies imprimées.
 Future<int> imprimerCopiesAvecPause(BuildContext context, int copies, Future<void> Function() imprimer) async {
   var faites = 0;
-  // 4.14.0 : ticket dessiné par le serveur → le serveur décide du nombre d'exemplaires (aucune copie ajoutée).
+  // 5.4.0 : le ticket dessiné par le serveur est UN exemplaire (route de réimpression du poste) : le nombre de tickets
+  // choisi sur l'appareil est respecté, avec la pause « Ticket suivant (i/N) », que le ticket vienne du serveur ou du
+  // gabarit local (régression de la 4.14.0, visible depuis le déploiement du serveur 76aa5fc1).
   ImpressionTicket.debutCopies();
   for (var i = 0; i < copies; i++) {
     if (!context.mounted) break;
-    if (i > 0 && ImpressionTicket.copiesParServeur) break;
     if (i > 0 && !await confirmerTicketSuivant(context, i + 1, copies)) break;
     if (!context.mounted) break;
     await imprimer();

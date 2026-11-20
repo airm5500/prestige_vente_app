@@ -20,10 +20,10 @@ borne verticale, panier, ticket, imprimante en panne, terminal Sunmi).
 | Saveur Android | `mobile` (par défaut) | `pos` |
 | Point d'entrée | `lib/main.dart` (inchangé) | `lib/main_pos.dart` |
 | applicationId | `com.dici.prestigemobile.v3` (avant 5.0.0 : `com.dici.prestige_vente_app`) | `com.dici.prestigepos` (inchangé) |
-| Version | `pubspec.yaml` (5.3.0+53) | `android/app/prestigepos-version.properties` (1.16.0+39) |
+| Version | `pubspec.yaml` (5.4.0+54) | `android/app/prestigepos-version.properties` (1.17.0+40) |
 | Nom, icône, activité | `android/app/src/main` | `android/app/src/pos` (remplace nom, icône, activité) |
 | Permissions en plus | — | Bluetooth (SPP), USB (OTG), démarrage de l'appareil (1.1.0) : `src/pos/AndroidManifest.xml` |
-| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.16.0.apk`) |
+| APK de la CI | artefact `prestige-vente-apk` (`app-release.apk`) | artefact `prestigepos-apk` (`PrestigePOS-1.17.0.apk`) |
 
 **Code partagé** : la borne (`lib/borne/`) — recherche, catégories, fiche, panier, vérification prix / stock,
 création de la prévente, ticket, kiosque (épinglage), sortie par code administrateur (`lib/widgets/sortie_kiosque.dart`),
@@ -72,7 +72,7 @@ flutter build apk --release --flavor pos -t lib/main_pos.dart
 ```
 
 APK produit : `build/app/outputs/flutter-apk/app-pos-release.apk` (même fichier, nommé
-`PrestigePOS-release-1.16.0.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
+`PrestigePOS-release-1.17.0.apk`, dans `build/app/outputs/apk/pos/release/`). La CI le publie dans l'artefact
 **`prestigepos-apk`** à chaque envoi sur la branche `prestigepos`.
 
 Version : modifier `android/app/prestigepos-version.properties` (`nomVersion`, et `codeVersion` **toujours
@@ -281,6 +281,11 @@ flutter test test/prestigepos        # tests PrestigePOS (job CI « prestigepos 
   ticket « PAYÉE » tant que le serveur n'a pas terminé la vente, 403 → une nouvelle demande sans clôture ; caisse :
   prévente payée terminée avec son paiement ; remise des comptes de prévente : `pos_droits_test.dart` (cas du
   pharmacien, caisse fermée, droit retiré) ; `pos_version_test.dart` : 1.13.0+32 ;
+- 1.17.0 : Prestige Mobile V3 5.4.0+54 fusionnée (2e ticket des ventes à crédit rétabli, réédition des ventes,
+  « Contraste d'impression » renforcé par défaut) ; PrestigePOS : ticket du serveur envoyé aux imprimantes externes avec
+  le même contraste (`TicketEscPos.matricePng`), ticket ESC/POS de la borne en gras si renforcé, option « Contraste
+  renforcé » dans la page Imprimante, réglage chargé au démarrage (`main_pos`) : `pos_contraste_test.dart` ;
+  `pos_identite_v3_test.dart` (référence 5.4.0+54) ; `pos_version_test.dart` : 1.17.0+40 ;
 - 1.16.0 : Prestige Mobile V3 5.3.0+53 fusionnée (pointage sur un terminal sans service d'empreinte Sunmi : bandeau
   « badge ou code personnel », réglage « Confirmer le pointage par empreinte ») ; PrestigePOS n'a aucun pointage :
   `PosActivity` inchangée, rien de ce changement n'y est atteint : `pos_pointage_empreinte_test.dart` ;

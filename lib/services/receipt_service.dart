@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/api/models/officine.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
 import 'package:prestige_vente_app/api/models/user.dart';
+import 'package:prestige_vente_app/services/contraste_impression.dart';
 import 'package:prestige_vente_app/services/impression_ticket.dart';
 import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 import 'package:prestige_vente_app/services/largeur_ticket.dart';
@@ -197,7 +198,7 @@ class ReceiptService {
     final title = _assuranceTitle(saleSummary, carnet, prevente: false);
     ImpressionTicket.debutCopies();
     for (int i = 0; i < numberOfCopies; i++) {
-      if (i > 0 && ImpressionTicket.copiesParServeur) break;
+      // 5.4.0 : plus d'arrêt après la 1ʳᵉ copie quand le serveur dessine le ticket (un exemplaire par appel).
       if (i > 0 && confirmEachCopy) {
         final bool? rePrint = await showDialog<bool>(
           context: context, barrierDismissible: false,
@@ -209,12 +210,11 @@ class ReceiptService {
         if (rePrint != true) break;
       }
 
-      // 4.14.0 : ticket du serveur s'il sait le dessiner (il décide alors du nombre d'exemplaires).
+      // 4.14.0 : ticket du serveur s'il sait le dessiner (5.4.0 : un exemplaire par copie, comme le gabarit local).
       final papier = await LargeurTicket.pourImpression(paperWidth);
       if (!context.mounted) return;
-      if (i == 0 &&
-          await ImpressionTicket.parServeur(context, type: TypeTicketServeur.vo, venteId: saleSummary.venteId, largeur: papier, apercu: isTestMode)) {
-        return;
+      if (await ImpressionTicket.parServeur(context, type: TypeTicketServeur.vo, venteId: saleSummary.venteId, largeur: papier, apercu: isTestMode)) {
+        continue;
       }
       if (!context.mounted) return;
       final ticket = ticketVenteAssurance(
@@ -359,13 +359,15 @@ class ReceiptService {
       await SunmiPrinter.printText(titre, style: SunmiStyle(bold: true));
       await SunmiPrinter.printText('N° $numero', style: SunmiStyle(bold: true, fontSize: SunmiFontSize.XL));
       await SunmiPrinter.setAlignment(SunmiPrintAlign.LEFT);
-      for (final l in lignes) { await SunmiPrinter.printText(l); }
+      // 5.4.0 : contraste renforcé (par défaut) → lignes et pied en gras de l'imprimante.
+      final renforce = ReglageContraste.texteRenforce;
+      for (final l in lignes) { await SunmiPrinter.printText(l, style: renforce ? SunmiStyle(bold: true) : null); }
       await SunmiPrinter.setAlignment(SunmiPrintAlign.CENTER);
       await SunmiPrinter.lineWrap(1);
       if (codeType == 'QR_CODE') { await SunmiPrinter.printQRCode(reference); }
       else { await SunmiPrinter.printBarCode(reference, barcodeType: SunmiBarcodeType.CODE128, height: 60, width: 2); }
-      await SunmiPrinter.printText(reference);
-      for (final l in pied) { await SunmiPrinter.printText(l, style: SunmiStyle(bold: l == pied.first)); }
+      await SunmiPrinter.printText(reference, style: renforce ? SunmiStyle(bold: true) : null);
+      for (final l in pied) { await SunmiPrinter.printText(l, style: SunmiStyle(bold: renforce || l == pied.first)); }
       await SunmiPrinter.lineWrap(4);
       await SunmiPrinter.cut();
       await SunmiPrinter.exitTransactionPrint(true);
@@ -661,8 +663,9 @@ class ReceiptService {
           else { await SunmiPrinter.printBarCode(ticket.codeDonnees, barcodeType: SunmiBarcodeType.CODE128, height: 60, width: 2); }
           continue;
         }
+        // 5.4.0 : contraste renforcé (par défaut) → tout le texte en gras de l'imprimante (même largeur de colonnes).
         await SunmiPrinter.printText(l.imprimee(l.grand ? ticket.colonnesGrand : ticket.colonnes),
-            style: SunmiStyle(align: SunmiPrintAlign.LEFT, fontSize: l.grand ? SunmiFontSize.LG : SunmiFontSize.MD, bold: l.gras));
+            style: SunmiStyle(align: SunmiPrintAlign.LEFT, fontSize: l.grand ? SunmiFontSize.LG : SunmiFontSize.MD, bold: l.gras || ReglageContraste.texteRenforce));
       }
       await SunmiPrinter.lineWrap(4);
       await SunmiPrinter.cut();

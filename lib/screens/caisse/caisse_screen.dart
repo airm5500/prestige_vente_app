@@ -8,6 +8,7 @@ import 'package:prestige_vente_app/utils/constants.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 import 'widgets/billetage_dialog.dart';
+import 'package:prestige_vente_app/ventes/reedition/reedition_ventes_screen.dart';
 
 class CaisseScreen extends StatefulWidget {
   /// Présentation imposée (tests) ; sinon celle choisie sur l'appareil (A par défaut).
@@ -146,6 +147,13 @@ class _CaisseScreenState extends State<CaisseScreen> with PresentationAware {
           title: 'Gestion de Caisse',
           subtitle: loaded ? userName : null,
           actions: (c) => [
+            // 5.4.0 : réédition des tickets des ventes de ce terminal.
+            IconButton(
+              key: const ValueKey('caisse-reedition'),
+              tooltip: 'Réédition des ventes',
+              icon: Icon(Icons.print_outlined, color: c),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReeditionVentesScreen())),
+            ),
             IconButton(
               tooltip: 'Actualiser',
               icon: Icon(Icons.refresh, color: c),

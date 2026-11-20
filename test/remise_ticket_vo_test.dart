@@ -1,6 +1,6 @@
 // ÉCRANS — 4.14.0 : remise des ventes assurance / carnet (contrat commun RemiseVenteVoMixin) et impression du ticket
 // dessiné par le serveur (ImpressionTicket) : route absente → gabarit local ; présente → images imprimées telles quelles,
-// copies décidées par le serveur ; échec d'impression (papier, Bluetooth) → motif + « Réimprimer » ; réseau coupé
+// un exemplaire par copie (5.4.0 : le nombre de tickets de l'appareil est respecté) ; échec d'impression (papier, Bluetooth) → motif + « Réimprimer » ; réseau coupé
 // alors que le serveur dessine → « Ticket non imprimé : réseau indisponible ». Données FICTIVES.
 import 'dart:convert';
 import 'dart:typed_data';
@@ -226,12 +226,23 @@ void main() {
       expect(_adaptateur.appels, 1, reason: 'route absente gardée en mémoire');
     });
 
-    testWidgets('route présente : images imprimées telles quelles, le serveur décide des exemplaires (aucune copie ajoutée)', (t) async {
+    // 5.4.0 (régression 4.14.0, retour du pharmacien) : la route image rend UN exemplaire (réimpression du poste) ;
+    // le nombre de copies choisi sur l'appareil est respecté, avec la pause « Ticket suivant (i/N) ».
+    testWidgets('route présente : images imprimées telles quelles, UN exemplaire par copie, pause avant chaque copie suivante', (t) async {
       _adaptateur.repondre = (o) => _images(o, n: 2);
       await _monter(t, (c) => _assurance(c, copies: 3));
-      expect(_imprimees, [2], reason: 'un appel, deux tickets du serveur, pas de 2e/3e copie mobile');
+      expect(_imprimees, [2], reason: 'copie 1 : les deux tickets de la vente rendus par le serveur');
+      expect(find.text('Ticket suivant (2/3)'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('ticket-suivant-imprimer')));
+      await t.pumpAndSettle();
+      expect(_imprimees, [2, 2]);
+      expect(find.text('Ticket suivant (3/3)'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('ticket-suivant-imprimer')));
+      await t.pumpAndSettle();
+      expect(_imprimees, [2, 2, 2]);
       expect(find.byKey(const ValueKey('ticket-suivant')), findsNothing);
-      expect(ImpressionTicket.imagesImprimees, 2);
+      expect(ImpressionTicket.imagesImprimees, 6);
+      expect(_adaptateur.appels, 3, reason: 'chaque copie redemande le ticket au serveur');
     });
 
     testWidgets('mode test d\'impression : aperçu des images du serveur', (t) async {

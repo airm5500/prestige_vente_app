@@ -11,6 +11,8 @@ import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.da
 import 'package:prestige_vente_app/prestigepos/impression/transports.dart';
 import 'package:prestige_vente_app/prestigepos/pos_styles.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
+import 'package:prestige_vente_app/services/contraste_impression.dart';
+import 'package:prestige_vente_app/services/ticket_1bit.dart' show ContrasteImpression;
 
 /// Contenu des réglages de l'imprimante (sans Scaffold : intégré à l'assistant et à la page d'administration).
 class ImprimanteReglagesVue extends StatefulWidget {
@@ -363,6 +365,18 @@ class _ImprimanteReglagesVueState extends State<ImprimanteReglagesVue> {
               onChanged: (v) => _maj(c.copyWith(coupe: v)),
             ),
           ],
+          // 1.17.0 (Prestige Mobile 5.4.0) : contraste du ticket (toutes les imprimantes, Sunmi comprise).
+          ValueListenableBuilder<ContrasteImpression>(
+            valueListenable: ReglageContraste.courant,
+            builder: (context, contraste, _) => SwitchListTile(
+              key: const ValueKey('imp-contraste'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Contraste renforcé'),
+              subtitle: const Text('Traits fins épaissis, noir pur : textes du ticket plus lisibles. Désactivé : rendu d\'avant.'),
+              value: contraste == ContrasteImpression.renforce,
+              onChanged: (v) => ReglageContraste.choisir(v ? ContrasteImpression.renforce : ContrasteImpression.normal),
+            ),
+          ),
           const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerLeft,

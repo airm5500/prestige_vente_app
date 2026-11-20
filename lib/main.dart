@@ -51,7 +51,9 @@ import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/horsligne_ui.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
+import 'package:prestige_vente_app/services/contraste_impression.dart';
 import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
+import 'package:prestige_vente_app/ventes/reedition/ventes_du_terminal.dart';
 import 'package:prestige_vente_app/support/support_capture.dart';
 import 'package:prestige_vente_app/support/support_centre.dart';
 import 'package:prestige_vente_app/support/support_file.dart';
@@ -93,6 +95,9 @@ Future<void> main() async {
   installerCaptureErreurs();
   // 5.1.0 : terminal Sunmi → liaison au service d'impression dès le lancement, sans attendre (premier ticket imprimé).
   ImprimanteSunmi.lierAuDemarrage();
+  // 5.4.0 : « Contraste d'impression » (renforcé par défaut) et ventes faites sur ce terminal (réédition).
+  await ReglageContraste.charger();
+  await VentesDuTerminal.instance.charger();
   runApp(const MyApp());
 }
 

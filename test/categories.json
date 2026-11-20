@@ -254,6 +254,11 @@
     "test/confirmation_empreinte_e2e_test.dart": "e2e",
     "test/prestigepointage/confirmation_empreinte_pointage_e2e_test.dart": "e2e",
     "test/confirmation_empreinte_ergonomie_test.dart": "ergonomie",
-    "test/confirmation_empreinte_garde_test.dart": "non_regression"
+    "test/confirmation_empreinte_garde_test.dart": "non_regression",
+    "test/contraste_impression_test.dart": "unitaires",
+    "test/deuxieme_ticket_test.dart": "ecrans",
+    "test/reedition_ventes_test.dart": "ecrans",
+    "test/reedition_ventes_e2e_test.dart": "e2e",
+    "test/reedition_ventes_ergonomie_test.dart": "ergonomie"
   }
 }

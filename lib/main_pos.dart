@@ -28,6 +28,7 @@ import 'package:prestige_vente_app/prestigepos/impression/imprimante_reglages.da
 import 'package:prestige_vente_app/prestigepos/pos_app.dart';
 import 'package:prestige_vente_app/prestigepos/pos_reglages.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
+import 'package:prestige_vente_app/services/contraste_impression.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
@@ -42,6 +43,8 @@ Future<void> initialiserPrestigePos() async {
   await BorneReglages.charger();
   await ImagesReglages.charger();
   await ImprimanteReglages.charger();
+  // 1.17.0 (Prestige Mobile 5.4.0) : « Contraste d'impression » (renforcé par défaut).
+  await ReglageContraste.charger();
   final pos = await PosReglages.charger();
   // B3 : mobile money proposé si le serveur l'annonce (réglage de PrestigePOS, activé par défaut).
   PaiementsMobileReglages.actif.value = pos.mobileMoney;
