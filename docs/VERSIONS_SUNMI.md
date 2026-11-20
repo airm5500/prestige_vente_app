@@ -74,7 +74,12 @@ de paiement `cloturer:false` ; comptoir : refus du panier verrouillé affichés 
 
 ## Prestige Mobile V3 (5.0.0) : nouvelle fiche Sunmi
 
-Version en préparation (pas encore publiée) : **5.2.0+52** (`pubspec.yaml`) : présentation de l'accueil au choix
+Version en préparation (pas encore publiée) : **5.3.0+53** (`pubspec.yaml`) : pointage sur un terminal sans le
+service d'empreinte Sunmi (SUNMI V3, Android 13) : bandeau « badge ou code personnel » au lieu du diagnostic technique,
+réglage « Confirmer le pointage par empreinte » (désactivé par défaut), anciens terminaux Sunmi inchangés ; Prestige
+Pointage 1.1.0+2 (voir `docs/NOTE_VERSION_5.3.0.md`).
+
+Avant : **5.2.0+52** : présentation de l'accueil au choix
 dans Réglages › Apparence › Accueil : « Actuelle » (par défaut, inchangée), « Metro mosaïque », « Metro bandes »,
 enregistrée sur l'appareil et appliquée tout de suite (voir `docs/NOTE_VERSION_5.2.0.md`).
 

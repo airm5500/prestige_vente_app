@@ -45,7 +45,17 @@ class ReglagesPointageTerminal {
   /// Durée de conservation des photos sur ce terminal (jours).
   final int retentionJours;
 
-  const ReglagesPointageTerminal({this.photoBadge = true, this.simpleBouton = true, this.retentionJours = retentionParDefaut});
+  /// 5.3.0 : après l'identification par badge ou code personnel, confirmation par une empreinte enregistrée dans
+  /// Android (BiometricPrompt). DÉSACTIVÉE par défaut. Seulement sur un terminal SANS le service d'empreinte Sunmi
+  /// (celui-ci identifie déjà la personne : rien n'y change). Voir lib/rh/confirmation_empreinte.dart.
+  final bool confirmationEmpreinte;
+
+  const ReglagesPointageTerminal({
+    this.photoBadge = true,
+    this.simpleBouton = true,
+    this.retentionJours = retentionParDefaut,
+    this.confirmationEmpreinte = false,
+  });
 
   static const int retentionParDefaut = 30;
   static const int retentionMin = 1;
@@ -57,13 +67,16 @@ class ReglagesPointageTerminal {
   static const prefPhoto = 'rh_photo_badge_v1';
   static const prefSimpleBouton = 'rh_simple_bouton_v1';
   static const prefRetention = 'rh_photo_retention_jours_v1';
+  static const prefConfirmationEmpreinte = 'rh_confirmation_empreinte_v1';
 
   static int borner(int jours) => jours.clamp(retentionMin, retentionMax);
 
-  ReglagesPointageTerminal copie({bool? photoBadge, bool? simpleBouton, int? retentionJours}) => ReglagesPointageTerminal(
+  ReglagesPointageTerminal copie({bool? photoBadge, bool? simpleBouton, int? retentionJours, bool? confirmationEmpreinte}) =>
+      ReglagesPointageTerminal(
         photoBadge: photoBadge ?? this.photoBadge,
         simpleBouton: simpleBouton ?? this.simpleBouton,
         retentionJours: borner(retentionJours ?? this.retentionJours),
+        confirmationEmpreinte: confirmationEmpreinte ?? this.confirmationEmpreinte,
       );
 
   /// Lecture (valeurs par défaut si les préférences sont illisibles).
@@ -74,17 +87,24 @@ class ReglagesPointageTerminal {
         photoBadge: p.getBool(prefPhoto) ?? true,
         simpleBouton: p.getBool(prefSimpleBouton) ?? true,
         retentionJours: borner(p.getInt(prefRetention) ?? retentionParDefaut),
+        confirmationEmpreinte: p.getBool(prefConfirmationEmpreinte) ?? false,
       );
     } catch (_) {
       return const ReglagesPointageTerminal();
     }
   }
 
+  /// 5.3.0 : prévient les écrans ouverts (terminal de pointage) qu'un réglage vient d'être enregistré, par exemple
+  /// depuis l'administration de la borne ouverte par-dessus le terminal.
+  static final ValueNotifier<int> changements = ValueNotifier(0);
+
   Future<void> enregistrer() async {
     final p = await SharedPreferences.getInstance();
     await p.setBool(prefPhoto, photoBadge);
     await p.setBool(prefSimpleBouton, simpleBouton);
     await p.setInt(prefRetention, borner(retentionJours));
+    await p.setBool(prefConfirmationEmpreinte, confirmationEmpreinte);
+    changements.value++;
   }
 }
 

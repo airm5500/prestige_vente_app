@@ -16,10 +16,12 @@ import 'package:prestige_vente_app/rh/terminal_pointage_screen.dart';
 String _lire(String p) => File(p).readAsStringSync();
 
 void main() {
-  test('version propre de Prestige Pointage : 1.0.0 (code 1)', () {
+  // 1.1.0 (code 2, avec Prestige Mobile 5.3.0) : badge ou code personnel sur un terminal sans service d'empreinte
+  // Sunmi, « Confirmer le pointage par empreinte » (désactivé par défaut).
+  test('version propre de Prestige Pointage : 1.1.0 (code 2)', () {
     final p = _lire('android/app/prestigepointage-version.properties');
-    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.0.0');
-    expect(RegExp(r'^codeVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1');
+    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.1.0');
+    expect(RegExp(r'^codeVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '2');
   });
 
   test('Gradle : `mobile` par défaut (Prestige Mobile V3 depuis 5.0.0) ; `pointage` séparée', () {

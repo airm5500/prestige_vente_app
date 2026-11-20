@@ -12,6 +12,9 @@
 // (android/app/libs/libsunmifingeprint_v1.0.0.aar, déjà intégré pour le pointage local), via le pont natif
 // existant SunmiFingerprintBridge (canal `prestige/fingerprint` : enroll → modèle, identify(modèles) → index).
 // Service absent (terminal sans lecteur, autre marque) : « indisponible » proprement → repli badge / NFC.
+// 5.3.0 : service absent sur un terminal Sunmi ou à lecteur (ex. SUNMI V3, Android 13) → bandeau « badge ou code
+// personnel » ; BiometricPrompt peut alors CONFIRMER (pas identifier) un pointage par badge / code, sur réglage
+// (lib/rh/confirmation_empreinte.dart). Service présent : rien ne change.
 //
 // Les MODÈLES d'empreinte sont gardés sur le terminal : stockage sécurisé (Keystore, exclu des sauvegardes
 // Android), associés à l'employeId. 4.4.0 (demande 43) : si le serveur partage les empreintes
@@ -23,6 +26,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:prestige_vente_app/rh/confirmation_empreinte.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/services/fingerprint_service.dart';
 import 'package:prestige_vente_app/services/nfc_service.dart';
@@ -271,7 +275,16 @@ class CapacitesTerminal {
   /// Le scanner 2D intégré (Sunmi) et les lecteurs USB / Bluetooth arrivent par la saisie clavier :
   /// toujours possibles ; la caméra aussi.
   final bool camera;
-  const CapacitesTerminal({this.empreinte = false, this.nfc = NfcAvailability.absent, this.camera = true});
+
+  /// 5.3.0 : terminal où l'on pourrait attendre l'empreinte (fabricant Sunmi, lecteur d'empreinte Android ou paquet
+  /// d'empreinte Sunmi) mais SANS le service d'identification Sunmi : bandeau « badge ou code personnel ».
+  final bool lecteurSansIdentification;
+  const CapacitesTerminal({
+    this.empreinte = false,
+    this.nfc = NfcAvailability.absent,
+    this.camera = true,
+    this.lecteurSansIdentification = false,
+  });
 
   /// Moyens proposés, dans l'ordre : empreinte, scan, NFC, clavier.
   List<MoyenIdentification> get ordre => [
@@ -289,22 +302,51 @@ class IdentificationEmploye {
   final NfcReader nfc;
   final CoffreEmpreintes coffre;
 
+  /// 5.3.0 : lecteur d'empreinte Android du terminal (FingerprintService.hardwareInfo) — remplaçable pour les tests.
+  final Future<Map<String, Object?>> Function() materiel;
+
+  /// 5.3.0 : confirmation du pointage par une empreinte Android (réglage « Confirmer le pointage par empreinte »).
+  final ConfirmationEmpreinte confirmation;
+
   IdentificationEmploye({
     this.empreinte = const SunmiEmpreinte(),
     this.nfc = const DeviceNfcReader(),
     CoffreEmpreintes? coffre,
+    this.materiel = FingerprintService.hardwareInfo,
+    this.confirmation = const ConfirmationEmpreinte(),
   }) : coffre = coffre ?? const CoffreEmpreintesSecurise();
 
   Future<CapacitesTerminal> detecter() async {
-    var e = false;
+    final c = await detecterEmpreinte();
     var n = NfcAvailability.absent;
-    try {
-      e = await empreinte.disponible();
-    } catch (_) {}
     try {
       n = await nfc.availability();
     } catch (_) {}
-    return CapacitesTerminal(empreinte: e, nfc: n);
+    return CapacitesTerminal(empreinte: c.empreinte, nfc: n, lecteurSansIdentification: c.lecteurSansIdentification);
+  }
+
+  /// 5.3.0 : empreinte seulement (service Sunmi présent / absent sur un terminal à lecteur), sans attendre le NFC
+  /// (lu à part par l'écran de pointage). Le champ `nfc` du résultat n'est pas renseigné.
+  Future<CapacitesTerminal> detecterEmpreinte() async {
+    var e = false;
+    try {
+      e = await empreinte.disponible();
+    } catch (_) {}
+    final sansId = e ? false : await lecteurSansIdentification();
+    return CapacitesTerminal(empreinte: e, lecteurSansIdentification: sansId);
+  }
+
+  /// 5.3.0 : service Sunmi absent sur un terminal Sunmi ou à lecteur d'empreinte (ex. SUNMI V3, Android 13).
+  /// Faux si le matériel ne peut être lu (autre appareil, tests sans canal).
+  Future<bool> lecteurSansIdentification() async {
+    try {
+      final hw = await materiel();
+      final sunmi = '${hw['manufacturer'] ?? ''}'.toUpperCase().contains('SUNMI');
+      final paquets = (hw['sunmiPackages'] as List?) ?? const [];
+      return sunmi || hw['featureFingerprint'] == true || paquets.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Employés ayant des empreintes enregistrées sur ce terminal.

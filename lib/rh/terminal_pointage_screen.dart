@@ -20,13 +20,19 @@
 // s'ouvre sur l'écran de confirmation (aperçu + compte à rebours ~2 s) puis prend la photo sans autre geste ;
 // caméra absente / refusée / en erreur → pointage enregistré quand même, marqué « sans photo (motif) ».
 // Rien de changé pour l'empreinte ni pour « vous avez déjà pointé ».
+// 5.3.0 (terminal sans le service d'empreinte Sunmi, ex. SUNMI V3) : bandeau « Pointez avec votre badge ou votre code
+// personnel » (scanner le badge, saisir le code ; « Détails techniques » hors mode borne) ; réglage « Confirmer le
+// pointage par empreinte » (désactivé par défaut) : après le badge / code, empreinte Android demandée avant l'écran de
+// confirmation (lib/rh/confirmation_empreinte.dart). Service Sunmi présent : rien ne change.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/rh/badge_qr.dart';
+import 'package:prestige_vente_app/rh/confirmation_empreinte.dart';
 import 'package:prestige_vente_app/rh/empreintes_screen.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
 import 'package:prestige_vente_app/rh/empreintes_partagees.dart';
@@ -36,6 +42,7 @@ import 'package:prestige_vente_app/rh/pointage_rh.dart';
 import 'package:prestige_vente_app/rh/rh_models.dart';
 import 'package:prestige_vente_app/rh/rh_pointage_screen.dart';
 import 'package:prestige_vente_app/screens/common/camera_scan_screen.dart';
+import 'package:prestige_vente_app/screens/pointage/fingerprint_diagnostic_screen.dart';
 import 'package:prestige_vente_app/services/nfc_service.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
@@ -113,7 +120,10 @@ class _Affiche {
 
   /// « Pointage sans photo (motif) » : affiché sous le résultat (le pointage est enregistré quand même).
   final String? sansPhoto;
-  const _Affiche(this.titre, this.detail, this.ok, this.at, {this.info = false, this.attente = false, this.sansPhoto});
+
+  /// 5.3.0 : « Pointage sans confirmation par empreinte (motif) » (le pointage est enregistré quand même).
+  final String? confirmation;
+  const _Affiche(this.titre, this.detail, this.ok, this.at, {this.info = false, this.attente = false, this.sansPhoto, this.confirmation});
 }
 
 const _orangeFond = Color(0xFFFFF1D6);
@@ -162,12 +172,19 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   // 4.4.0 : gestion (empreintes, autorisation de la caméra) = administrateur de l'application, pas le droit RH seul.
   bool get _gestion => widget.gestion ?? adminAppliRh(context, gerer: _rh.gerer);
 
+  // 5.3.0 : confirmation par empreinte Android (réglage administrateur), seulement sans le service Sunmi.
+  bool get _confirmationActive => _reglages.confirmationEmpreinte && !_capacites.empreinte;
+  BadgeAConfirmer? _confirmationEmpreinte;
+  String? _mentionConfirmation;
+
   @override
   void initState() {
     super.initState();
     loadPresentation();
     WidgetsBinding.instance.addObserver(this);
     _rh.addListener(_onRh);
+    // 5.3.0 : réglage de confirmation modifié pendant que le terminal est ouvert (administration de la borne).
+    ReglagesPointageTerminal.changements.addListener(_relireConfirmationEcoute);
     _demarrer();
     _initCapacites();
     _chargerReglages();
@@ -180,7 +197,12 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   /// Réglages de la photo de contrôle ; purge des photos trop anciennes ; autorisation de la caméra à expliquer.
   Future<void> _chargerReglages() async {
     final p = _photo;
-    if (p == null) return;
+    if (p == null) {
+      // 5.3.0 : sans photo de contrôle branchée, réglages du terminal lus quand même (confirmation par empreinte).
+      final r = await ReglagesPointageTerminal.charger();
+      if (mounted) setState(() => _reglages = r);
+      return;
+    }
     try {
       final r = await p.reglages();
       final expliquee = r.photoBadge ? await PhotoControle.permissionExpliquee() : true;
@@ -213,7 +235,12 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
 
   /// Capacités du terminal : empreinte (service Sunmi), NFC ; le scan et le clavier sont toujours possibles.
   Future<void> _initCapacites() async {
-    final c = await _id.detecter();
+    // 5.3.0 : service Sunmi d'abord (comme avant) ; le lecteur Android (bandeau) est lu à part, sans retarder le NFC.
+    var e = false;
+    try {
+      e = await _id.empreinte.disponible();
+    } catch (_) {}
+    final c = CapacitesTerminal(empreinte: e, lecteurSansIdentification: !e && _capacites.lecteurSansIdentification);
     var n = 0;
     try {
       n = (await _id.enroles()).length;
@@ -228,8 +255,17 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       unawaited(_synchroniserEmpreintes());
       _synchroEmpreintes?.cancel();
       _synchroEmpreintes = Timer.periodic(EmpreintesPartagees.intervalle, (_) => _synchroniserEmpreintes());
+    } else {
+      unawaited(_detecterLecteurSansIdentification());
     }
     await _initNfc();
+  }
+
+  /// 5.3.0 : terminal Sunmi / à lecteur sans le service d'identification → bandeau « badge ou code personnel ».
+  Future<void> _detecterLecteurSansIdentification() async {
+    final sansId = await _id.lecteurSansIdentification();
+    if (!mounted || _capacites.empreinte || sansId == _capacites.lecteurSansIdentification) return;
+    setState(() => _capacites = CapacitesTerminal(lecteurSansIdentification: sansId));
   }
 
   Timer? _synchroEmpreintes;
@@ -248,7 +284,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   bool get _empreintePossible => _capacites.empreinte && _enroles > 0;
 
   Future<void> _identifierEmpreinte() async {
-    if (_empreinteEnCours || _attente != null || _enregistrement) return;
+    if (_empreinteEnCours || _attente != null || _enregistrement || _confirmationEmpreinte != null) return;
     setState(() => _empreinteEnCours = true);
     try {
       final e = await _id.parEmpreinte(_rh.employes);
@@ -277,6 +313,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _rh.removeListener(_onRh);
+    ReglagesPointageTerminal.changements.removeListener(_relireConfirmationEcoute);
     _debounce?.cancel();
     _compteRebours?.cancel();
     _resultatTimer?.cancel();
@@ -377,7 +414,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     if (_masque && mounted) setState(() => _masque = false);
     if (!mounted || brut.trim().isEmpty) return;
     // Une confirmation est à l'écran (ou une lecture en cours) : les lectures suivantes sont ignorées.
-    if (_attente != null || _enregistrement || _lecture) {
+    if (_attente != null || _enregistrement || _lecture || _confirmationEmpreinte != null) {
       _refocus();
       return;
     }
@@ -407,17 +444,82 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         _afficher(_Affiche('Déjà pointé', message, true, _rh.now, info: true), garder: false);
         _signalInfo();
       case BadgeAConfirmer():
-        _resultatTimer?.cancel();
-        // Photo de contrôle : badge uniquement (l'empreinte identifie déjà la personne).
-        _capture?.dispose();
-        _capture = _photoActive && l.moyen != MoyenIdentification.empreinte ? _photo!.demarrer() : null;
-        setState(() {
-          _resultat = null;
-          _attente = l;
-          _sens = l.sens;
-        });
-        _lancerCompteRebours();
+        if (_confirmationActive && l.moyen != MoyenIdentification.empreinte) {
+          unawaited(_confirmerParEmpreinte(l));
+          return;
+        }
+        _ouvrirConfirmation(l);
     }
+    _refocus();
+  }
+
+  void _ouvrirConfirmation(BadgeAConfirmer l, {String? mention}) {
+    _resultatTimer?.cancel();
+    // Photo de contrôle : badge uniquement (l'empreinte identifie déjà la personne).
+    _capture?.dispose();
+    _capture = _photoActive && l.moyen != MoyenIdentification.empreinte ? _photo!.demarrer() : null;
+    setState(() {
+      _resultat = null;
+      _attente = l;
+      _sens = l.sens;
+      _mentionConfirmation = mention;
+    });
+    _lancerCompteRebours();
+  }
+
+  void _relireConfirmationEcoute() => unawaited(_relireConfirmation());
+
+  Future<void> _relireConfirmation() async {
+    try {
+      final r = await (_photo?.reglages ?? ReglagesPointageTerminal.charger)();
+      if (mounted && r.confirmationEmpreinte != _reglages.confirmationEmpreinte) {
+        setState(() => _reglages = _reglages.copie(confirmationEmpreinte: r.confirmationEmpreinte));
+      }
+    } catch (_) {}
+  }
+
+  /// 5.3.0 : empreinte Android demandée après le badge / code. Annulation ou refus : rien n'est enregistré, le badge
+  /// peut être relu tout de suite ; pas d'empreinte enregistrée / pas de lecteur / panne : on continue (mention).
+  Future<void> _confirmerParEmpreinte(BadgeAConfirmer l) async {
+    _resultatTimer?.cancel();
+    setState(() {
+      _resultat = null;
+      _confirmationEmpreinte = l;
+    });
+    IssueConfirmation issue;
+    try {
+      issue = await _id.confirmation.confirmer(prenom: l.employe.prenomAffiche);
+    } catch (_) {
+      issue = IssueConfirmation.erreurLecteur;
+    }
+    if (!mounted) return;
+    setState(() => _confirmationEmpreinte = null);
+    try {
+      _rh.journal().noter(
+          type: TypeJournal.pointageRh,
+          action: issue.journal,
+          resultat: issue == IssueConfirmation.confirmee ? ResultatJournal.ok : (issue.autorise ? ResultatJournal.info : ResultatJournal.refus));
+    } catch (_) {}
+    if (!issue.autorise) {
+      _rh.annuler(l);
+      _afficher(_Affiche('${l.employe.prenomAffiche} : pointage non enregistré', issue.refus, false, _rh.now), garder: false);
+      _signal(false);
+      _refocus();
+      return;
+    }
+    _ouvrirConfirmation(l, mention: issue.mention);
+    _refocus();
+  }
+
+  /// 5.3.0 : « Saisir mon code personnel » (n° de badge ou matricule) : clavier affiché.
+  void _activerCode() {
+    setState(() => _saisieClavier = true);
+    _focus.unfocus();
+    Future.microtask(() => _focus.requestFocus());
+  }
+
+  Future<void> _detailsTechniques() async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => FingerprintDiagnosticScreen(presentation: style)));
     _refocus();
   }
 
@@ -442,7 +544,10 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     // Lecture annulée : caméra fermée, aucune photo gardée.
     _capture?.dispose();
     _capture = null;
-    setState(() => _attente = null);
+    setState(() {
+      _attente = null;
+      _mentionConfirmation = null;
+    });
     _preparerCamera();
     _refocus();
   }
@@ -455,6 +560,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     setState(() => _enregistrement = true);
     final cap = _capture;
     if (cap != null && manuel) unawaited(cap.capturerMaintenant());
+    final mention = _mentionConfirmation;
     final r = await _rh.enregistrerAvecPhoto(a, _sens, photo: cap?.resultat);
     String? sansPhoto;
     if (cap != null && cap.terminee) {
@@ -468,11 +574,13 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
     setState(() {
       _attente = null;
       _enregistrement = false;
+      _mentionConfirmation = null;
     });
     final hm = r.pointage.heure;
     switch (r.issue) {
       case IssueBadge.enregistre:
-        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', etatEnvoyePrestige, true, _rh.now, sansPhoto: sansPhoto));
+        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm ✓', etatEnvoyePrestige, true, _rh.now,
+            sansPhoto: sansPhoto, confirmation: mention));
       case IssueBadge.dejaEnregistre:
         // Doublon du serveur (« Un pointage existe déjà à cette heure ») : même message que la relecture.
         _afficher(_Affiche('Déjà pointé', r.message, true, _rh.now, info: true));
@@ -482,7 +590,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       case IssueBadge.enFile:
         // Gardé sur le terminal : information (orange), jamais présenté comme envoyé.
         _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm', '$etatEnAttenteEnvoi\n${r.message}', true, _rh.now,
-            info: true, attente: true, sansPhoto: sansPhoto));
+            info: true, attente: true, sansPhoto: sansPhoto, confirmation: mention));
       case IssueBadge.refuse:
         _afficher(_Affiche('${a.employe.prenomAffiche} : pointage refusé', '$etatRefusPrestige : ${r.message}', false, _rh.now));
     }
@@ -576,10 +684,18 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
       ListView(
         key: const Key('rh_terminal'),
         padding: const EdgeInsets.all(16),
+        // 5.3.0 : le champ du badge reste construit (focus du lecteur de badge) même si un bandeau le pousse sous le
+        // bas d'un petit écran.
+        cacheExtent: 4000,
         children: [
           if (widget.bandeau != null) ...[widget.bandeau!, const SizedBox(height: 12)],
           if (_photoActive && _permissionAExpliquer && !_borne && _gestion) ...[
             _bandeauAutorisation(),
+            const SizedBox(height: 12),
+          ],
+          // 5.3.0 : service d'empreinte Sunmi absent sur un terminal à lecteur → badge ou code personnel.
+          if (_capacites.lecteurSansIdentification && !_capacites.empreinte) ...[
+            BandeauSansEmpreinte(onBadge: _camera, onCode: _activerCode, onDetails: _borne ? null : _detailsTechniques),
             const SizedBox(height: 12),
           ],
           if (_empreintePossible) ...[
@@ -623,7 +739,9 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         ],
       ),
       if (_attente != null) Positioned.fill(child: _confirmation(_attente!)),
-      if (_attente == null && _resultat != null) Positioned.fill(child: _panneauResultat(_resultat!)),
+      if (_confirmationEmpreinte != null && _attente == null)
+        Positioned.fill(child: PanneauConfirmationEmpreinte(prenom: _confirmationEmpreinte!.employe.prenomAffiche)),
+      if (_attente == null && _confirmationEmpreinte == null && _resultat != null) Positioned.fill(child: _panneauResultat(_resultat!)),
     ]);
     final ecran = PresentationScaffold(
       style: style,
@@ -741,6 +859,15 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
               Icon(Icons.photo_camera_front, size: 18, color: Pal.navy),
               SizedBox(width: 6),
               Expanded(child: Text(textePhotoControleEmploye, style: TextStyle(fontSize: 12.5, color: Pal.muted))),
+            ]),
+          ),
+        if (_confirmationActive)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Row(key: Key('rh_confirmation_info'), children: [
+              Icon(Icons.fingerprint, size: 18, color: Pal.navy),
+              SizedBox(width: 6),
+              Expanded(child: Text(texteConfirmationActive, style: TextStyle(fontSize: 12.5, color: Pal.muted))),
             ]),
           ),
         if (_nfcEtat == NfcAvailability.ready || _nfcEtat == NfcAvailability.disabled)
@@ -898,6 +1025,13 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
                         fontWeight: FontWeight.bold,
                         color: r.info ? _orangeTexte : (r.ok ? const Color(0xFF0B6B45) : const Color(0xFFB91C1C)))),
                 const SizedBox(height: 8),
+                if (r.confirmation != null) ...[
+                  Text(r.confirmation!,
+                      key: const Key('rh_resultat_confirmation'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _orangeTexte)),
+                  const SizedBox(height: 8),
+                ],
                 if (r.sansPhoto != null) ...[
                   Text(r.sansPhoto!,
                       key: const Key('rh_resultat_sans_photo'),
