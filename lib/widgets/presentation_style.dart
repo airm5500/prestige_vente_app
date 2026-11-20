@@ -45,6 +45,52 @@ class PresentationPrefs {
       await (await SharedPreferences.getInstance()).setString(_key, p.name);
     } catch (_) {}
   }
+
+  // ---------------------------------------------------------------------------
+  // 5.2.0 : présentation de l'ACCUEIL (Réglages › Apparence › Accueil), à côté de la présentation des menus.
+  // Clé à part : la présentation des listes ([_key]) et les autres préférences ne sont pas touchées ; sans
+  // valeur enregistrée (installation existante) ou valeur inconnue, l'accueil reste « Actuelle ».
+  // ---------------------------------------------------------------------------
+  static const cleAccueil = 'presentation_accueil_v1';
+
+  /// Présentation de l'accueil en cours : l'accueil l'écoute, un changement s'applique immédiatement.
+  static final ValueNotifier<AccueilPresentation> accueil = ValueNotifier(AccueilPresentation.actuelle);
+
+  static Future<AccueilPresentation> loadAccueil() async {
+    var p = AccueilPresentation.actuelle;
+    try {
+      p = AccueilPresentation.values.asNameMap()[(await SharedPreferences.getInstance()).getString(cleAccueil)] ?? AccueilPresentation.actuelle;
+    } catch (_) {}
+    return accueil.value = p;
+  }
+
+  static Future<void> saveAccueil(AccueilPresentation p) async {
+    accueil.value = p;
+    try {
+      await (await SharedPreferences.getInstance()).setString(cleAccueil, p.name);
+    } catch (_) {}
+  }
+}
+
+/// Présentation de l'accueil (5.2.0) : « Actuelle » (par défaut, inchangée : suit la présentation A / B / C des
+/// menus), « Metro mosaïque » (tuiles carrées pleines sur fond bleu nuit) ou « Metro bandes » (bandes pleines
+/// sur fond blanc, largeur selon le libellé).
+enum AccueilPresentation { actuelle, metroMosaique, metroBandes }
+
+extension AccueilPresentationLabel on AccueilPresentation {
+  String get label => switch (this) {
+        AccueilPresentation.actuelle => 'Actuelle',
+        AccueilPresentation.metroMosaique => 'Metro mosaïque',
+        AccueilPresentation.metroBandes => 'Metro bandes',
+      };
+
+  String get description => switch (this) {
+        AccueilPresentation.actuelle => 'Favoris et cartes blanches, comme aujourd\'hui',
+        AccueilPresentation.metroMosaique => 'Tuiles de couleur sur fond bleu nuit, 2 favoris en grand',
+        AccueilPresentation.metroBandes => 'Bandes de couleur sur fond blanc, ordre de l\'accueil',
+      };
+
+  bool get metro => this != AccueilPresentation.actuelle;
 }
 
 /// Couleurs des présentations (bleu Prestige + ambre pour l'action principale).

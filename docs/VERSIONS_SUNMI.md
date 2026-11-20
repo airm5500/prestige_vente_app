@@ -74,7 +74,11 @@ de paiement `cloturer:false` ; comptoir : refus du panier verrouillé affichés 
 
 ## Prestige Mobile V3 (5.0.0) : nouvelle fiche Sunmi
 
-Version en préparation (pas encore publiée) : **5.1.0+51** (`pubspec.yaml`) : retours du pharmacien du 20/11 :
+Version en préparation (pas encore publiée) : **5.2.0+52** (`pubspec.yaml`) : présentation de l'accueil au choix
+dans Réglages › Apparence › Accueil : « Actuelle » (par défaut, inchangée), « Metro mosaïque », « Metro bandes »,
+enregistrée sur l'appareil et appliquée tout de suite (voir `docs/NOTE_VERSION_5.2.0.md`).
+
+Avant : **5.1.0+51** : retours du pharmacien du 20/11 :
 texte tapé repris dans la liste des résultats de la vente (focus, clavier ouvert, filtre par mots, recherche
 serveur), fenêtre de quantité « NOM · CIP » lisible clavier ouvert, premier ticket imprimé sur Sunmi (service
 d'impression lié au démarrage, connexion réelle attendue), « Préparation du ticket… », taux des organismes plafonnés

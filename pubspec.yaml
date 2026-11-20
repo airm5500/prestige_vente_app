@@ -2,7 +2,7 @@ name: prestige_vente_app
 description: "Prestige Mobile V3 — application de point de vente (comptoir) Prestige"
 publish_to: 'none'
 
-version: 5.1.0+51
+version: 5.2.0+52
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

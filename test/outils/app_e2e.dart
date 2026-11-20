@@ -115,6 +115,8 @@ class AppE2E {
     // Taille de l'écran (4.0.1) : réglage lu comme main() ; Automatique → Compact sur un petit écran.
     await ecran.TailleEcranReglage.charger();
     await SearchModePrefs.load();
+    // 5.2.0 : présentation de l'accueil (Actuelle par défaut), lue comme main().
+    await PresentationPrefs.loadAccueil();
     await BorneReglages.charger();
     await ConnexionReglages.charger();
     await ImagesReglages.charger();

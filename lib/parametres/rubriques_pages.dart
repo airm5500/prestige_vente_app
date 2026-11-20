@@ -43,6 +43,7 @@ import 'package:prestige_vente_app/services/ticket_prevente.dart';
 import 'package:prestige_vente_app/services/search_mode.dart';
 import 'package:prestige_vente_app/ventes/ventes_version.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
+import 'package:prestige_vente_app/accueil/accueil_metro.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/services/imprimante_sunmi.dart';
@@ -644,6 +645,8 @@ class _ApparencePageState extends State<ApparencePage> {
             locked: true,
             onTap: () => widget.openOrganiser(context),
           ),
+          // 5.2.0 : présentation de l'accueil (Actuelle / Metro mosaïque / Metro bandes), administrateur comme ci-dessus.
+          PresentationAccueilSetting(choix: widget.choixPresentation),
           const SettingCard(padding: EdgeInsets.symmetric(vertical: 4), child: InterfaceVersionTile()),
           const SectionLabel('Recherche'),
           const SearchModeSetting(),
@@ -655,6 +658,120 @@ class _ApparencePageState extends State<ApparencePage> {
           ),
         ],
       );
+}
+
+/// 5.2.0 — Présentation de l'accueil : « Actuelle » (par défaut), « Metro mosaïque », « Metro bandes ».
+/// Enregistrée sur l'appareil ([PresentationPrefs.saveAccueil]) et appliquée immédiatement ; chaque choix montre un
+/// petit aperçu et une description. Choix réservé au compte administrateur (comme la présentation des menus) ;
+/// sinon la présentation en place est seulement indiquée.
+class PresentationAccueilSetting extends StatelessWidget {
+  final bool choix;
+  const PresentationAccueilSetting({super.key, this.choix = true});
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<AccueilPresentation>(
+        valueListenable: PresentationPrefs.accueil,
+        builder: (context, p, _) {
+          if (!choix) {
+            return SettingCard(
+              key: const Key('presentation_accueil_reservee'),
+              child: SettingText('Présentation de l\'accueil : ${p.label}', subtitle: 'Modifiable par le compte administrateur.'),
+            );
+          }
+          return SettingCard(
+            key: const Key('presentation_accueil'),
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 6, 16, 2),
+                child: SettingText('Présentation de l\'accueil', subtitle: 'Enregistrée sur cet appareil, appliquée tout de suite.'),
+              ),
+              for (final v in AccueilPresentation.values)
+                RadioListTile<AccueilPresentation>(
+                  key: Key('presentation_accueil_${v.name}'),
+                  activeColor: Pal.navy,
+                  value: v,
+                  groupValue: p,
+                  onChanged: (x) {
+                    if (x != null) PresentationPrefs.saveAccueil(x);
+                  },
+                  title: Text(v.label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(v.description),
+                  secondary: ApercuAccueil(v),
+                ),
+            ]),
+          );
+        },
+      );
+}
+
+/// Petit aperçu (dessin) d'une présentation de l'accueil, pour l'écran de réglage.
+class ApercuAccueil extends StatelessWidget {
+  final AccueilPresentation presentation;
+  const ApercuAccueil(this.presentation, {super.key});
+
+  static const _couleurs = [Color(0xFF1976D2), Color(0xFFD32F2F), Color(0xFF2E7D32), Color(0xFF6D4C41), Color(0xFF8E24AA), Color(0xFF00796B)];
+
+  @override
+  Widget build(BuildContext context) {
+    Widget bloc(Color c, {double r = 1.5}) => SizedBox.expand(child: DecoratedBox(decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(r))));
+    const g = SizedBox(width: 2, height: 2);
+    final Widget contenu = switch (presentation) {
+      AccueilPresentation.actuelle => Column(children: [
+          for (var i = 0; i < 3; i++) ...[
+            if (i > 0) g,
+            Expanded(
+              child: Row(children: [
+                for (var j = 0; j < 3; j++) ...[
+                  if (j > 0) g,
+                  Expanded(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(2.5)),
+                      child: Center(child: Container(width: 5, height: 5, decoration: BoxDecoration(color: _couleurs[(i * 3 + j) % 6], shape: BoxShape.circle))),
+                    ),
+                  ),
+                ],
+              ]),
+            ),
+          ],
+        ]),
+      AccueilPresentation.metroMosaique => Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(flex: 2, child: bloc(_couleurs[0])),
+          g,
+          Expanded(
+            flex: 2,
+            child: Column(children: [
+              Expanded(child: Row(children: [Expanded(child: bloc(_couleurs[2])), g, Expanded(child: bloc(_couleurs[4]))])),
+              g,
+              Expanded(child: bloc(_couleurs[5])),
+            ]),
+          ),
+        ]),
+      AccueilPresentation.metroBandes => Column(children: [
+          Expanded(child: Row(children: [Expanded(flex: 5, child: bloc(_couleurs[0])), g, Expanded(flex: 4, child: bloc(_couleurs[1]))])),
+          g,
+          Expanded(child: Row(children: [Expanded(flex: 3, child: bloc(_couleurs[2])), g, Expanded(flex: 6, child: bloc(_couleurs[5]))])),
+          g,
+          Expanded(child: bloc(_couleurs[4])),
+        ]),
+    };
+    return Container(
+      key: ValueKey('apercu_accueil_${presentation.name}'),
+      width: 56,
+      height: 44,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: switch (presentation) {
+          AccueilPresentation.actuelle => Pal.page,
+          AccueilPresentation.metroMosaique => MetroCharte.fondMosaique,
+          AccueilPresentation.metroBandes => Colors.white,
+        },
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Pal.line),
+      ),
+      child: contenu,
+    );
+  }
 }
 
 /// Recherche texte des produits, clients et tiers payants : « Commence par » / « Contient ».
