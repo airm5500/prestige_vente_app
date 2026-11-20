@@ -16,6 +16,7 @@
 //
 // Serveur injoignable : message clair, « Réessayer », réessai automatique toutes les 10 s,
 // « Configuration » protégée par le code administrateur. Pas de « Continuer hors ligne » (décision client).
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/parametres/nom_appareil_reglage.dart';
@@ -449,7 +450,7 @@ class _LancementScreenState extends State<LancementScreen> {
                         const SizedBox(height: 18),
                         Semantics(
                           header: true,
-                          child: Text(borne ? 'Borne libre-service' : 'Prestige Mobile',
+                          child: Text(borne ? 'Borne libre-service' : nomAppli,
                               textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: tablette ? 34 : 30, fontWeight: FontWeight.w800)),
                         ),
                         const SizedBox(height: 8),

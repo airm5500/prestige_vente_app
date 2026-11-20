@@ -44,6 +44,7 @@ const _horsCI = {
   'test/outils/captures_demande63_test.dart': 'génère les captures PNG de la demande 63 (ticket gris du serveur et ticket imprimé en 1 bit, 58 / 80 mm) (APERCUS=1), jamais en CI',
   'test/outils/generer_tickets_reference_test.dart': 'écrit les références texte des tickets (test/references/tickets), jamais en CI',
   'test/outils/captures_icones_test.dart': 'génère les captures PNG et le relevé des tailles d\'icônes (APERCUS=1), jamais en CI',
+  'test/outils/captures_store_v3_test.dart': 'génère les captures du magasin de Prestige Mobile V3 (5.0.0) (APERCUS=1), jamais en CI',
   'test/outils/video_lenteur_test.dart': 'filme l\'application contre le serveur Prestige de test local (VIDEO=…), jamais en CI',
 };
 

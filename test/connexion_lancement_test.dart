@@ -160,7 +160,7 @@ void main() {
       final env = _Env()..api.bloquerLicence = Completer<void>();
       await t.pumpWidget(env.app(LancementScreen(services: env.services)));
       await laisser(t);
-      expect(find.text('Prestige Mobile'), findsOneWidget);
+      expect(find.text('Prestige Mobile V3'), findsOneWidget);
       expect(find.text('Chargement des réglages'), findsOneWidget); // fait
       expect(find.text('Connexion au serveur…'), findsOneWidget); // en cours
       expect(find.text('Serveur local · 192.168.1.50:8080'), findsOneWidget);

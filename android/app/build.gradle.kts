@@ -65,7 +65,12 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.dici.prestige_vente_app"
+        // 5.0.0 — Prestige Mobile V3 : NOUVELLE application (nouvelle fiche Sunmi / Google Play), installable à côté de
+        // l'ancienne « Prestige Mobile » (com.dici.prestige_vente_app, fiche gardée telle quelle pour les officines aux
+        // anciens serveurs). Seul l'identifiant change : le `namespace` (paquet Kotlin, MainActivity, R) reste
+        // com.dici.prestige_vente_app (référencé par PrestigePOS, src/pos/AndroidManifest.xml). Voir
+        // docs/NOTE_VERSION_5.0.0.md. PrestigePOS et Prestige Pointage gardent leur propre applicationId (saveurs).
+        applicationId = "com.dici.prestigemobile.v3"
         minSdk = flutter.minSdkVersion
         targetSdk = if (versionPlay) 36 else flutter.targetSdkVersion
 
@@ -105,8 +110,8 @@ android {
     }
 
     // Deux applications dans le même projet Flutter (code partagé) :
-    //  - `mobile` : Prestige Mobile — applicationId, nom, icône, permissions et version (pubspec.yaml) de
-    //    defaultConfig et de src/main, INCHANGÉS. Saveur par défaut (pubspec.yaml : flutter › default-flavor),
+    //  - `mobile` : Prestige Mobile V3 (5.0.0 : com.dici.prestigemobile.v3) — applicationId, nom, icône, permissions et
+    //    version (pubspec.yaml) de defaultConfig, de src/main et de src/mobile (requête de l'ancienne application). Saveur par défaut (pubspec.yaml : flutter › default-flavor),
     //    donc « flutter build apk --release » sans --flavor construit toujours Prestige Mobile.
     //  - `pointage` : Prestige Pointage — com.dici.prestigepointage (installable à côté de Prestige Mobile), point
     //    d'entrée lib/main_pointage.dart, nom, icône et permissions dans src/pointage uniquement.

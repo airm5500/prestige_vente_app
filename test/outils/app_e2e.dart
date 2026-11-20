@@ -91,8 +91,11 @@ class AppE2E {
     bool interfaceNouvelle = true,
     // 4.7.1 : nom de cet appareil déjà enregistré (sinon l'étape obligatoire s'ouvre au lancement) ; null = aucun.
     String? nomAppareil = nomAppareilE2E,
+    // 5.0.0 (Prestige Mobile V3) : appareil VIERGE (nouvelle application : aucune préférence, aucun secret) ; les
+    // autres paramètres sont alors ignorés.
+    bool vierge = false,
   }) async {
-    SharedPreferences.setMockInitialValues({
+    SharedPreferences.setMockInitialValues(vierge ? <String, Object>{} : {
       'local_ip': FauxServeurPrestige.hoteMemoire,
       'port': FauxServeurPrestige.portMemoire,
       'app_name': 'prestige',
@@ -101,7 +104,7 @@ class AppE2E {
       if (nomAppareil != null) NomAppareil.prefNom: nomAppareil,
       ...prefs,
     });
-    FlutterSecureStorage.setMockInitialValues(resterConnecte ? {IdentifiantsSecurises.cleSure: motDePasse} : {});
+    FlutterSecureStorage.setMockInitialValues(resterConnecte && !vierge ? {IdentifiantsSecurises.cleSure: motDePasse} : {});
     IdentifiantsSecurises.instance = IdentifiantsSecurises();
     PinPersonnel.instance = PinPersonnel(iterations: 1000);
 

@@ -4,6 +4,7 @@
 // pavé de 64 px) ou son mot de passe. Après 3 codes faux, le mot de passe complet est exigé.
 // Le PIN débloque le mot de passe gardé chiffré pour CET utilisateur sur l'appareil ; la connexion au
 // serveur est toujours faite (ConnexionFlux, même logique que la connexion classique).
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'package:prestige_vente_app/prestigepointage/lanceur_pointage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -143,7 +144,7 @@ class _QuiEtesVousScreenState extends State<QuiEtesVousScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                      const NomOfficine(taille: 16, align: TextAlign.start, couleur: Colors.white, siVide: 'Prestige Mobile'),
+                      const NomOfficine(taille: 16, align: TextAlign.start, couleur: Colors.white, siVide: nomAppli),
                       const SizedBox(height: 2),
                       _EtatServeurCompact(_serveur),
                     ]),

@@ -10,6 +10,7 @@
 // - Tablette (≥ 900 px) : deux colonnes (identité + serveur à gauche, formulaire à droite, 440 px max).
 // - Pas de « Continuer hors ligne » (décision client).
 // - Option C : après une connexion par mot de passe, création facultative d'un code PIN personnel.
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'package:prestige_vente_app/prestigepointage/lanceur_pointage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -221,6 +222,8 @@ class _ConnexionScreenState extends State<ConnexionScreen> {
             ]),
           ),
         ],
+        // 5.0.0 : ancienne Prestige Mobile encore installée → information, une fois (rien sinon).
+        const BandeauAncienneAppli(),
         const SizedBox(height: 14),
         _libelle('Identifiant', t),
         TextFormField(
@@ -346,7 +349,7 @@ class _ConnexionScreenState extends State<ConnexionScreen> {
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text('Prestige Mobile',
+            Text(nomAppli,
                 maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white, fontSize: grande ? 30 : 21, fontWeight: FontWeight.w800)),
             const SizedBox(height: 2),
             NomOfficine(taille: grande ? 18 : 14, align: TextAlign.start),

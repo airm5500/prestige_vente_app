@@ -1,4 +1,4 @@
-# Versions publiées sur le magasin Sunmi — Prestige Mobile
+# Versions publiées sur le magasin Sunmi — Prestige Mobile (V3 depuis 5.0.0)
 
 Ce fichier est **lu par le test** `test/version_sunmi_test.dart` : la ligne `minimum_sunmi:` ci-dessous est la
 dernière version publiée sur le magasin Sunmi. Garder son format exact (`minimum_sunmi: X.Y.Z+N`).
@@ -11,7 +11,7 @@ minimum_sunmi: 3.3.1+7
 |---|---|---|---|
 | 3.3.1 | 7 | à compléter | dernière version publiée connue |
 
-Version en préparation (pas encore publiée) : **4.15.2+48** (`pubspec.yaml`) : 4.0.0+8 (refonte, voir
+Historique de la version en préparation jusqu'à 4.15.2+48 (ancienne application `com.dici.prestige_vente_app`) : 4.0.0+8 (refonte, voir
 `docs/NOTE_VERSION_4.0.0.md`) + réglage « Taille de l'écran » (4.0.1+9, voir `docs/NOTE_VERSION_4.0.1.md`) +
 corrections ANO-08 et ANO-02 (4.0.2+10, voir `docs/NOTE_VERSION_4.0.2.md`) + Configuration d'origine sans
 débordement et recherche par début de CIP (4.0.3+11, voir `docs/NOTE_VERSION_4.0.3.md`) + HTTPS pour l'accès au
@@ -71,6 +71,18 @@ quand le serveur les fournit) (4.15.1+47, voir `docs/NOTE_VERSION_4.15.1.md`) + 
 et 65 (borne : paiement mobile money seulement s'il termine la vente, refus « caisse fermée » → payer en caisse, plus
 de paiement `cloturer:false` ; comptoir : refus du panier verrouillé affichés tels quels, ancienne interface comprise)
 (4.15.2+48, voir `docs/NOTE_VERSION_4.15.2.md`).
+
+## Prestige Mobile V3 (5.0.0) : nouvelle fiche Sunmi
+
+Version en préparation (pas encore publiée) : **5.0.0+49** (`pubspec.yaml`) : **Prestige Mobile V3**, NOUVELLE
+application (`com.dici.prestigemobile.v3`, « Prestige Mobile V3 », icône avec le badge « V3 »), même fonctionnement que
+la 4.15.2+48 (voir `docs/NOTE_VERSION_5.0.0.md`). Elle est publiée sur une **nouvelle fiche** du magasin Sunmi : aucune
+version n'y a encore été publiée, la première sera 5.0.0+49. Les règles ci-dessous s'appliquent à cette nouvelle
+fiche (versionCode 49 et suivants : jamais en dessous de ceux déjà utilisés par ce projet).
+
+L'**ancienne fiche** (`com.dici.prestige_vente_app`, « Prestige Mobile ») garde la version déjà en ligne : rien n'y est
+republié. Pour information : dernier commit construit avec l'ancien identifiant
+`48528e8647bc3819f9e461933e210e630579b465` (4.15.2+48).
 
 **Prestige Pointage** (borne de pointage sans compte, `com.dici.prestigepointage`, même dépôt, saveur Android
 `pointage`) a sa **propre** version, dans `android/app/prestigepointage-version.properties` (`nomVersion`,

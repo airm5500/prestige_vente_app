@@ -7,6 +7,7 @@
 // Conserve tout l'accueil d'origine (lib/screens/home/home_screen.dart, inchangé) : mêmes menus,
 // mêmes écrans, Ajustement protégé par code, ordre / menus masqués (SettingsProvider), contrôle de
 // la licence au retour au premier plan et toutes les 15 min, rappels de licence, tâches en attente.
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'package:prestige_vente_app/prestigepointage/lanceur_pointage.dart';
 import 'dart:async';
 
@@ -1052,7 +1053,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
       onRefresh: _actualiser,
       child: ListView(padding: EdgeInsets.zero, physics: const AlwaysScrollableScrollPhysics(), children: [
         NavyHeader(
-          title: officine.isEmpty ? 'Prestige Mobile' : officine,
+          title: officine.isEmpty ? nomAppli : officine,
           actions: _actions(Colors.white),
           children: [
             _ligneEtat(),
@@ -1187,7 +1188,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
                 Expanded(
-                  child: Text(officine.isEmpty ? 'Prestige Mobile' : officine,
+                  child: Text(officine.isEmpty ? nomAppli : officine,
                       maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Pal.navy)),
                 ),
                 ..._actions(Pal.navy),

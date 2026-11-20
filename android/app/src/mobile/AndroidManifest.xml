@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Prestige Mobile V3 (saveur `mobile`, 5.0.0) : fusionné avec src/main/AndroidManifest.xml pour CETTE saveur seulement
+     (PrestigePOS et Prestige Pointage n'en reçoivent rien).
+     Visibilité de l'ANCIENNE application Prestige Mobile (com.dici.prestige_vente_app, Android 11+) : seulement pour
+     savoir si elle est encore installée et afficher, sur l'écran de connexion, une fois, « Ancienne application
+     installée : synchronisez ses ventes hors ligne avant de la désinstaller. ». Aucune donnée de l'ancienne application
+     n'est lue (impossible : chaque application a son propre espace) et elle n'est jamais ouverte. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="com.dici.prestige_vente_app" />
+    </queries>
+</manifest>

@@ -3,6 +3,7 @@
 // services remplaçables (tests), teintes clair / sombre, logo et nom de l'officine (croix verte d'accent),
 // surveillance du serveur avec réessai automatique toutes les 10 s, « Changer de serveur » sous code
 // administrateur, connexion au serveur (même logique que l'écran d'origine), pied de page.
+import 'package:prestige_vente_app/identite_appli.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -128,7 +129,7 @@ class LogoOfficine extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Semantics(
         image: true,
-        label: 'Logo Prestige Mobile',
+        label: 'Logo $nomAppli',
         child: Container(
           width: taille,
           height: taille,
@@ -139,7 +140,7 @@ class LogoOfficine extends StatelessWidget {
             boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 12, offset: Offset(0, 4))],
           ),
           child: Image.asset(
-            'assets/icon/icon.png',
+            'assets/icon/icon_v3.png',
             fit: BoxFit.contain,
             excludeFromSemantics: true,
             errorBuilder: (_, __, ___) => Icon(Icons.shopping_cart_checkout, color: Pal.navy, size: taille * 0.6),

@@ -3,8 +3,10 @@
 # déclencheur android/DEMANDE_PLAY).
 #
 # Deux applications dans ce dépôt, chacune sur SA branche (ce fichier est le même sur les deux) :
-#   pres-/tender-thompson-ang0ls → Prestige Mobile : com.dici.prestige_vente_app, version = pubspec.yaml,
-#                                   artefact « prestige-mobile-aab »
+#   pres-/tender-thompson-ang0ls → Prestige Mobile V3 (5.0.0) : com.dici.prestigemobile.v3 (NOUVELLE application ;
+#                                   l'ancienne com.dici.prestige_vente_app n'est plus construite ici), version =
+#                                   pubspec.yaml, artefact « prestige-mobile-aab » ; premier AAB envoyé À LA MAIN dans
+#                                   la Play Console (docs/android/README.md)
 #   prestigepos                  → PrestigePOS : com.dici.prestigepos (--flavor pos -t lib/main_pos.dart),
 #                                   version = android/app/prestigepos-version.properties, artefact « prestigepos-aab »
 #
@@ -76,8 +78,8 @@ jobs:
           else
             version="$mobile"
             {
-              echo "paquet=com.dici.prestige_vente_app"
-              echo "nom=Prestige Mobile"
+              echo "paquet=com.dici.prestigemobile.v3"
+              echo "nom=Prestige Mobile V3"
               echo "artefact=prestige-mobile-aab"
               echo "fichier=prestige-mobile"
               echo "options="

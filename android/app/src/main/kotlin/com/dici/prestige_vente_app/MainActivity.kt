@@ -20,6 +20,12 @@ class MainActivity : FlutterActivity() {
         // 4.10.0 : bouton « Pointer » → application Prestige Pointage (com.dici.prestigepointage) si elle est installée.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "prestige/pointage").setMethodCallHandler { call, result ->
             val paquet = call.argument<String>("paquet")
+            // 5.0.0 (Prestige Mobile V3) : présence de l'ANCIENNE Prestige Mobile (com.dici.prestige_vente_app),
+            // seulement « estInstallee » (bandeau de l'écran de connexion) ; jamais ouverte, aucune donnée lue.
+            if (paquet == "com.dici.prestige_vente_app" && call.method == "estInstallee") {
+                result.success(packageManager.getLaunchIntentForPackage(paquet) != null)
+                return@setMethodCallHandler
+            }
             if (paquet != "com.dici.prestigepointage") {
                 result.success(false)
                 return@setMethodCallHandler

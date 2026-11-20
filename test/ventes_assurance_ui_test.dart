@@ -949,3 +949,11 @@ void main() {
     });
   });
 }
+
+// 5.0.0 — outil de captures du magasin (test/outils/captures_store_v3_test.dart, hors CI) : même faux serveur et même
+// montage de l'écran, réutilisés tels quels (données fictives fournies par l'outil).
+typedef FauxGatewayAssurance = _FakeGateway;
+Future<void> ouvrirAssurancePourCaptures(WidgetTester tester, FauxGatewayAssurance gw) => _open(tester, gw, ListPresentation.dashboard);
+ClientTiersPayant tiersPayantPourCaptures(String id, String nom, String compte, int taux, int ordre) => _ctp(id, nom, compte, taux, ordre);
+AyantDroit ayantDroitPourCaptures(String id, String prenom, String nom) => _ad(id, prenom, nom);
+ProductSearchResult produitPourCaptures(String id, String nom, String cip, int prix) => _p(id, nom, cip, price: prix);

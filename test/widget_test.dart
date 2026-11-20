@@ -11,13 +11,13 @@ import 'package:prestige_vente_app/screens/splash_screen.dart';
 import 'outils/app_e2e.dart';
 
 void main() {
-  testWidgets('démarrage : lancement « Prestige Mobile », licence vérifiée, puis écran de connexion', (t) async {
+  testWidgets('démarrage : lancement « Prestige Mobile V3 », licence vérifiée, puis écran de connexion', (t) async {
     TailleEcran.sunmiV2s.appliquer(t);
     final app = AppE2E();
     await app.preparer();
     await app.lancer(t);
     expect(find.byType(LancementScreen), findsOneWidget);
-    expect(find.text('Prestige Mobile'), findsWidgets);
+    expect(find.text('Prestige Mobile V3'), findsWidgets);
     expect(await app.attendreQue(t, find.byType(ConnexionScreen)), isTrue);
     expect(app.serveur.recuesSur('/licence/find'), hasLength(1), reason: 'licence vérifiée une fois au lancement');
     expect(find.byKey(const Key('connexion_login')), findsOneWidget);

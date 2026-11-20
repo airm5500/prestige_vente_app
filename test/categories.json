@@ -1,5 +1,5 @@
 {
-  "application": "Prestige Mobile",
+  "application": "Prestige Mobile V3",
   "description": "Catégorie de chaque fichier de test de la CI (ligne 32 de .github/workflows/build-apk.yml) pour le rapport de tests de livraison (tool/rapport_tests.dart). Un fichier qui couvre plusieurs catégories est rangé dans sa catégorie principale (détail : test/README.md). Garde-fou : test/non_regression_test.dart.",
   "categories": {
     "unitaires": "Unitaires (règles, modèles, sans écran)",
@@ -236,6 +236,8 @@
     "test/reseau/demande64_reseau_test.dart": "reseau",
     "test/demande64_ergonomie_test.dart": "ergonomie",
     "test/performance/demande64_perf_test.dart": "performance",
-    "test/demande64_garde_test.dart": "non_regression"
+    "test/demande64_garde_test.dart": "non_regression",
+    "test/v3_identite_test.dart": "non_regression",
+    "test/v3_premier_lancement_e2e_test.dart": "e2e"
   }
 }
