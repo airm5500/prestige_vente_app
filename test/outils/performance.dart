@@ -44,6 +44,10 @@ class Seuils {
   /// Pire image de l'accueil après son ouverture (défilement de la page des menus).
   static const imageAccueilMs = 250;
 
+  /// 5.2.0 : construction du corps de l'accueil Metro (mosaïque ou bandes : mesure des libellés, placement, 26 tuiles),
+  /// première image, meilleur de 3 (texte ×1,3, terminal et tablette).
+  static const constructionMetroMs = 400;
+
   // --- Longues listes : temps d'UNE image (ms, mode test) ---
   /// PIRE image pendant le défilement d'une longue liste (deuxième passage : code déjà compilé).
   static const imageDefilementMs = 150;

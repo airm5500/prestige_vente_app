@@ -20,6 +20,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:prestige_vente_app/accueil/accueil_menus.dart';
+import 'package:prestige_vente_app/accueil/accueil_metro.dart';
 import 'package:prestige_vente_app/accueil/organiser_accueil_screen.dart';
 import 'package:prestige_vente_app/accueil/point_serveur.dart';
 import 'package:prestige_vente_app/accueil/recherche_globale_screen.dart';
@@ -65,7 +66,11 @@ class AccueilScreen extends StatefulWidget {
   /// Vérification du code administrateur (tests) ; sinon PinCodeDialog.show.
   final Future<bool> Function(BuildContext context)? askPin;
 
-  const AccueilScreen({super.key, this.presentation, this.serverCheck, this.scanner, this.askPin});
+  /// 5.2.0 : présentation de l'accueil imposée (tests) ; sinon celle des réglages ([PresentationPrefs.accueil],
+  /// « Actuelle » par défaut).
+  final AccueilPresentation? presentationAccueil;
+
+  const AccueilScreen({super.key, this.presentation, this.serverCheck, this.scanner, this.askPin, this.presentationAccueil});
 
   @override
   State<AccueilScreen> createState() => _AccueilScreenState();
@@ -129,6 +134,9 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     loadPresentation();
+    // 5.2.0 : présentation de l'accueil (Réglages › Apparence) appliquée dès qu'elle change.
+    PresentationPrefs.accueil.addListener(_onPresentationAccueil);
+    if (widget.presentationAccueil == null) PresentationPrefs.loadAccueil();
     // 4.10.0 : tuile « Pointer » si Prestige Pointage est installée (masquée sinon).
     LanceurPointage.installee.addListener(_onPointage);
     LanceurPointage.detecter();
@@ -244,6 +252,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
   @override
   void dispose() {
     LanceurPointage.installee.removeListener(_onPointage);
+    PresentationPrefs.accueil.removeListener(_onPresentationAccueil);
     HardwareKeyboard.instance.removeHandler(_onTouche);
     _ventesHL.removeListener(_onVentesHL);
     _monitor.removeListener(_onMonitor);
@@ -407,6 +416,13 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
   void _onPointage() {
     if (mounted) setState(() {});
   }
+
+  void _onPresentationAccueil() {
+    if (mounted && widget.presentationAccueil == null) setState(() {});
+  }
+
+  /// Présentation de l'accueil en place (5.2.0).
+  AccueilPresentation get _accueil => widget.presentationAccueil ?? PresentationPrefs.accueil.value;
 
   // ---------------------------------------------------------------------------
   // Navigation
@@ -666,6 +682,8 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     final Widget corps;
     if (_tab == 1) {
       corps = _ongletTaches(taches);
+    } else if (_accueil.metro) {
+      corps = _presentationMetro(visibles, familles);
     } else {
       corps = switch (style) {
         ListPresentation.dashboard => _presentationA(visibles, familles),
@@ -684,7 +702,11 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
         data: themeCharte(Theme.of(context)),
         child: Scaffold(
         resizeToAvoidBottomInset: false,
-        backgroundColor: style == ListPresentation.compact && _tab == 0 ? Colors.white : Pal.page,
+        backgroundColor: _tab == 0 && _accueil.metro
+            ? MetroCharte.fond(_accueil)
+            : style == ListPresentation.compact && _tab == 0
+                ? Colors.white
+                : Pal.page,
         body: corps,
         bottomNavigationBar: NavigationBar(
           key: const Key('accueil_barre_bas'),
@@ -1052,14 +1074,7 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
     return RefreshIndicator(
       onRefresh: _actualiser,
       child: ListView(padding: EdgeInsets.zero, physics: const AlwaysScrollableScrollPhysics(), children: [
-        NavyHeader(
-          title: officine.isEmpty ? nomAppli : officine,
-          actions: _actions(Colors.white),
-          children: [
-            _ligneEtat(),
-            _champRecherche(visibles, dark: true),
-          ],
-        ),
+        _enTeteA(officine, visibles),
         if (favoris.isNotEmpty) ...[
           _titreSection('Favoris'),
           Padding(
@@ -1099,6 +1114,47 @@ class _AccueilScreenState extends State<AccueilScreen> with WidgetsBindingObserv
           const Padding(
             padding: EdgeInsets.all(24),
             child: Text('Aucun menu affiché : utilisez « Organiser l\'accueil » (menu ⋮).', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted)),
+          ),
+        const SizedBox(height: 24),
+      ]),
+    );
+  }
+
+  /// En-tête bleu de la présentation A (et des présentations Metro) : titre, actions, état du serveur, recherche.
+  Widget _enTeteA(String officine, List<AccueilMenu> visibles) => NavyHeader(
+        title: officine.isEmpty ? nomAppli : officine,
+        actions: _actions(Colors.white),
+        children: [
+          _ligneEtat(),
+          _champRecherche(visibles, dark: true),
+        ],
+      );
+
+  // --- 5.2.0 : présentations Metro (mosaïque / bandes), en-tête et barre du bas de la présentation A ---
+
+  Widget _presentationMetro(List<AccueilMenu> visibles, Map<MenuFamille, List<AccueilMenu>> familles) {
+    final auth = Provider.of<AuthProvider>(context);
+    final officine = auth.officine?.nomComplet.trim() ?? '';
+    final idsVisibles = visibles.map((m) => m.id).toSet();
+    final mosaique = _accueil == AccueilPresentation.metroMosaique;
+    return RefreshIndicator(
+      onRefresh: _actualiser,
+      child: ListView(padding: EdgeInsets.zero, physics: const AlwaysScrollableScrollPhysics(), children: [
+        _enTeteA(officine, visibles),
+        AccueilMetro(
+          presentation: _accueil,
+          familles: familles,
+          favoris: _favoris.where(idsVisibles.contains).toList(),
+          pastilles: _pastilles,
+          inset: _inset,
+          onOpen: _ouvrir,
+          onLongPress: _appuiLong,
+        ),
+        if (visibles.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text('Aucun menu affiché : utilisez « Organiser l\'accueil » (menu ⋮).',
+                textAlign: TextAlign.center, style: TextStyle(color: mosaique ? Colors.white70 : Pal.muted)),
           ),
         const SizedBox(height: 24),
       ]),

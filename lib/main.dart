@@ -69,6 +69,8 @@ Future<void> main() async {
   // Taille de l'écran (Automatique / Compact / Très compact ; Compact d'office sur un petit écran).
   await TailleEcranReglage.charger();
   await SearchModePrefs.load();
+  // 5.2.0 : présentation de l'accueil (Actuelle / Metro mosaïque / Metro bandes), lue avant le premier écran.
+  await PresentationPrefs.loadAccueil();
   // Borne libre-service (désactivée par défaut) : réglages de cet appareil.
   await BorneReglages.charger();
   // Écran de connexion (nouvelle interface) : connexion rapide, terminal partagé, assistance, nom de l'officine.
