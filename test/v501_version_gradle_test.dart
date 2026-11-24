@@ -53,12 +53,12 @@ void main() {
     test('l\'expression de Gradle appliquée au vrai pubspec.yaml donne la version attendue de l\'APK', () {
       final (nom, numero) = _versionApk(_expressionGradle(gradle), pubspec, {});
       expect('$nom+$numero', version);
-      expect('$nom+$numero', '5.4.0+54');
+      expect('$nom+$numero', '5.5.0+55');
     });
 
     test('local.properties périmé (4.10.0+36) : ignoré, la version vient de pubspec.yaml', () {
       final perime = {'flutter.versionName': '4.10.0', 'flutter.versionCode': '36'};
-      expect(_versionApk(_expressionGradle(gradle), pubspec, perime), ('5.4.0', 54));
+      expect(_versionApk(_expressionGradle(gradle), pubspec, perime), ('5.5.0', 55));
     });
 
     test('repli : pubspec.yaml absent ou sans « version: X.Y.Z+N » → valeurs de Flutter', () {

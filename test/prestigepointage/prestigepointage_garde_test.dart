@@ -18,10 +18,12 @@ String _lire(String p) => File(p).readAsStringSync();
 void main() {
   // 1.1.0 (code 2, avec Prestige Mobile 5.3.0) : badge ou code personnel sur un terminal sans service d'empreinte
   // Sunmi, « Confirmer le pointage par empreinte » (désactivé par défaut).
-  test('version propre de Prestige Pointage : 1.1.0 (code 2)', () {
+  // 1.2.0 (code 3, avec Prestige Mobile 5.5.0) : heure du serveur fausse (423) : pointage gardé en file avec le message
+  // du serveur, envoyé après la correction (transmission du serveur du 24/11/2026).
+  test('version propre de Prestige Pointage : 1.2.0 (code 3)', () {
     final p = _lire('android/app/prestigepointage-version.properties');
-    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.1.0');
-    expect(RegExp(r'^codeVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '2');
+    expect(RegExp(r'^nomVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '1.2.0');
+    expect(RegExp(r'^codeVersion=(.+)$', multiLine: true).firstMatch(p)!.group(1)!.trim(), '3');
   });
 
   test('Gradle : `mobile` par défaut (Prestige Mobile V3 depuis 5.0.0) ; `pointage` séparée', () {

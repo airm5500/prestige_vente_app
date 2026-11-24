@@ -281,6 +281,24 @@ void main() {
     });
   });
 
+  test('5.5.0 : heure du serveur fausse (423) sur la photo → ni envoyée ni refusée, un essai par envoi, envoyée après correction', () async {
+    await monter(() async {
+      serveur.aJour = true;
+      serveur.statutPhoto = 423;
+      serveur.reponsePhoto = const {'success': false, 'horlogeBloquee': true, 'msg': 'Opération refusée : l\'heure du serveur est fausse (fictif).'};
+      await pr.rafraichirEmployes();
+      await pointer('PV12AB34');
+      expect(await pr.envoiPhotos, 0);
+      expect(registre.photos.single.photoServeur, '', reason: 'gardée à envoyer, jamais « refusée »');
+      expect(serveur.photos, hasLength(1), reason: 'aucune relance dans le même envoi');
+      serveur.statutPhoto = 200;
+      serveur.reponsePhoto = const {'success': true, 'message': 'Photo de contrôle enregistrée.'};
+      expect(await pr.envoyerPhotos(), 1);
+      expect(registre.photos.single.photoServeur, 'envoyee');
+      expect(serveur.photos, hasLength(2));
+    });
+  });
+
   test('caméra en échec → pointage envoyé quand même, marqué « sans photo (motif) » et signalé', () async {
     await monter(() async {
       await pr.rafraichirEmployes();

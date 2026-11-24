@@ -288,15 +288,20 @@ class ProformaProvider with ChangeNotifier, PagedProductSearchHost {
   }
 
   // --- SUPPRESSION GLOBALE ---
-  Future<void> deleteCurrentProforma() async {
+  /// 5.5.0 : renvoie le message du serveur si la suppression est refusée (vente en saisie sur un poste, heure du
+  /// serveur fausse), null sinon.
+  Future<String?> deleteCurrentProforma() async {
+    String? refus;
     if (_currentSaleId != null) {
       try {
-        await _apiService.deleteSale(_currentSaleId!);
+        final ok = await _apiService.deleteSale(_currentSaleId!);
+        if (!ok) refus = _apiService.prendreRefusSuppression();
         resetProforma();
       } catch (e) {
         journalErreur('Erreur suppression proforma', e);
       }
     }
+    return refus;
   }
 
   // --- REMISES ---

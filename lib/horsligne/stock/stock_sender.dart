@@ -32,6 +32,7 @@ import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/reception/reception_gateway.dart' show champsSerie, codeSerieDejaConsommee, messageBoiteDejaScannee;
 import 'package:prestige_vente_app/droits/droits_vente.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/retour/retour_gateway.dart' show avisAjoutRetour, corpsNouveauRetour;
 
 /// Réponse brute du serveur (code HTTP + corps).
@@ -61,6 +62,13 @@ class StockStopException implements Exception {
   const StockStopException(this.message);
   @override
   String toString() => message;
+}
+
+/// 5.5.0 (transmission du 24/11/2026) : heure du serveur fausse (HTTP 423 `horlogeBloquee`) : le serveur refuse toute
+/// écriture sans rien exécuter. Envoi interrompu avec le message du serveur, rien n'est marqué refusé : les opérations
+/// restent en attente et repartent après le déblocage (même clé X-Client-Ref).
+class StockHorlogeBloquee extends StockStopException {
+  const StockHorlogeBloquee(super.message);
 }
 
 /// Accès HTTP au serveur Prestige (remplaçable dans les tests).
@@ -105,6 +113,9 @@ class StockSender {
 
   Future<StockHttp> _call(String method, String path, {Map<String, dynamic>? query, Object? data, Map<String, String>? headers}) async {
     final r = await server.call(method, path, query: query, data: data, headers: headers);
+    // 5.5.0 : heure du serveur fausse : arrêt, opération gardée (jamais une ligne « refusée »).
+    final horloge = horlogeBloqueeDe(r.status, r.body);
+    if (horloge != null) throw StockHorlogeBloquee(horloge);
     // Droit manquant (403 interdit:true) : refus de l'opération, pas de déconnexion.
     if (r.status == 403 && r.map['interdit'] == true) {
       // 4.6.0 (décision 12) : P_BL_MOBILE_SCANNER contrôlé par ce serveur (scan des BL masqué pour ce compte).
@@ -417,6 +428,11 @@ class StockSender {
           // Serveur qui refuserait le champ inconnu (400 avant toute écriture) : même retour, sans blId.
           r = await _call('POST', '/retourfournisseur/new', data: Map.of(corps)..remove('blId'), headers: h4 ? {enteteClientRef: op.id} : null);
         }
+      } on StockHorlogeBloquee {
+        // 5.5.0 : refusée AVANT toute écriture (423) : la création n'a pas eu lieu, la ligne redevient « à envoyer »
+        // (jamais « réponse perdue » au prochain envoi, qui renverra avec la même clé).
+        await _set(op, first, StockLineEtat.pending);
+        rethrow;
       } on StockStopException {
         // H4 : réponse perdue → relecture immédiate par la clé (sinon : relue au prochain envoi).
         var repris = false;

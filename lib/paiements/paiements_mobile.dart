@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
@@ -153,6 +154,9 @@ class DioPaiementsMobileApi implements PaiementsMobileApi {
       if (interdit != null) return VenteRefused(interdit, code: VenteRefused.codeInterdit);
       final change = sessionChangeeDe(code, r.data);
       if (change != null) return VenteFailed(change);
+      // 5.5.0 : heure du serveur fausse (423) : refus, aucun paiement créé ; message du serveur tel quel.
+      final horloge = horlogeBloqueeDe(code, r.data);
+      if (horloge != null) return VenteRefused(horloge, code: VenteRefused.codeHorloge);
       if (code == 401 || code == 403) return const VenteFailed('Session expirée : reconnectez-vous.');
       if (code != 200) return VenteFailed('Paiement : erreur du serveur (code $code).');
       return VenteOk(r.data);

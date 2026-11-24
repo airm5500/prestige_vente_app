@@ -342,12 +342,23 @@ class DepotSaleProvider with ChangeNotifier, PagedProductSearchHost {
     }
   }
 
+  String? _refusSuppression;
+
+  /// Message du serveur du dernier refus de suppression (puis oublié).
+  String? prendreRefusSuppression() {
+    final m = _refusSuppression;
+    _refusSuppression = null;
+    return m;
+  }
+
   /// Supprime la vente courante (vide) sur le serveur. Renvoie `false` si le serveur ne l'a pas supprimée.
   Future<bool> deleteCurrentSale() async {
     var ok = true;
     if (_currentSaleId != null) {
       try {
         ok = await _apiService.deleteSale(_currentSaleId!); // Appel API
+        // 5.5.0 : refus du serveur (vente en saisie sur un poste, heure du serveur fausse) : son message.
+        _refusSuppression = ok ? null : _apiService.prendreRefusSuppression();
       } catch (_) {
         ok = false;
       }

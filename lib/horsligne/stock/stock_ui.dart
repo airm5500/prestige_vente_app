@@ -10,6 +10,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/horsligne/attente_ui.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
@@ -363,12 +364,27 @@ class _StockBandeauState extends State<StockBandeau> {
     super.initState();
     _retourVu = widget.horsLigne.monitor.retourAt;
     widget.horsLigne.monitor.addListener(_onMonitor);
+    _horlogeBloquee = HorlogeServeur.instance.bloquee;
+    HorlogeServeur.instance.addListener(_onHorloge);
   }
 
   @override
   void dispose() {
     widget.horsLigne.monitor.removeListener(_onMonitor);
+    HorlogeServeur.instance.removeListener(_onHorloge);
     super.dispose();
+  }
+
+  bool _horlogeBloquee = false;
+
+  /// 5.5.0 : heure du serveur corrigée (après un refus 423) : même confirmation qu'au retour du serveur.
+  void _onHorloge() {
+    final avant = _horlogeBloquee;
+    _horlogeBloquee = HorlogeServeur.instance.bloquee;
+    if (!avant || _horlogeBloquee || !mounted) return;
+    if (!StockHorsLigne.confirmerAuRetour || _stock.queue.pendingCount == 0) return;
+    if (widget.horsLigne.ventes.enAttente > 0) return;
+    scheduleMicrotask(() => ouvrirEnvoiStock(null, stock: _stock));
   }
 
   void _onMonitor() {

@@ -553,9 +553,35 @@ class FauxServeurPrestige extends ServeurJsonLocal {
   /// v1/borne-pointage/* et l'en-tête X-Borne) ; null = requête non concernée. Voir test/outils/faux_serveur_borne.dart.
   FutureOr<ReponseLocale?> Function(RequeteRecue r)? filtreAvantSession;
 
+  /// 5.5.0 (transmission du 24/11/2026, plan/24112026) : HEURE DU SERVEUR FAUSSE. Toute écriture (POST / PUT /
+  /// DELETE / PATCH) refusée en 423 `{success:false, horlogeBloquee:true, msg}` AVANT d'être exécutée, sauf
+  /// v1/user/auth, v1/user/auth-badge, v1/user/logout et v1/horloge/* ; GET permis.
+  bool horlogeBloquee = false;
+
+  /// Écritures refusées en 423 (« METHODE chemin X-Client-Ref »).
+  final List<String> refusHorloge = [];
+
+  /// `GET v1/horloge/public` : null = route absente (serveur ancien : 404 de Payara) ; sinon OK / BLOQUE / REGULARISATION.
+  String? etatHorloge;
+
+  /// Texte FICTIF du refus (le vrai serveur donne le sien, affiché tel quel).
+  static const messageHorloge =
+      'Opération refusée : l\'heure du serveur est fausse. L\'administrateur doit la corriger sur le serveur.';
+
+  static bool _horsBlocageHorloge(String c) =>
+      c.endsWith('/user/auth') || c.endsWith('/user/auth-badge') || c.endsWith('/user/logout') || c.contains('/horloge/');
+
   Future<ReponseLocale> _repondre(RequeteRecue r) async {
     if (prestigeAbsent) {
       return statutAbsent == 404 ? payara404 : ReponseLocale('<html><body>$statutAbsent</body></html>', statut: statutAbsent);
+    }
+    if (r.methode == 'GET' && r.chemin.endsWith('/horloge/public')) {
+      final e = etatHorloge;
+      return e == null ? payara404 : ReponseLocale({'etat': e, 'serveur': '24/11/2026 20:52'});
+    }
+    if (horlogeBloquee && r.methode != 'GET' && !_horsBlocageHorloge(r.chemin)) {
+      refusHorloge.add('${r.methode} ${r.chemin} ${r.clientRef}'.trim());
+      return const ReponseLocale({'success': false, 'horlogeBloquee': true, 'msg': messageHorloge}, statut: 423);
     }
     final f = filtreAvantSession;
     if (f != null) {

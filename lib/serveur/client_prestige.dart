@@ -18,6 +18,7 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/api/session_expiree.dart' as session_globale;
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
@@ -73,6 +74,14 @@ class RefusMetier extends ErreurPrestige {
   final String message;
   final String? code;
   const RefusMetier(this.message, {this.code});
+}
+
+/// 5.5.0 (transmission du 24/11/2026) : HTTP 423 `horlogeBloquee` — l'heure du serveur est fausse, il refuse toute
+/// écriture SANS rien exécuter. Message du serveur affiché tel quel ; jamais une panne ni une erreur inconnue ; pas de
+/// relance automatique.
+class HorlogeBloquee extends RefusMetier {
+  const HorlogeBloquee(super.message) : super(code: codeHorloge);
+  static const codeHorloge = 'horlogeBloquee';
 }
 
 /// Réponse HTTP en erreur (404 : fonction absente de ce serveur ; 5xx : erreur du serveur).
@@ -222,6 +231,9 @@ class ClientPrestige {
       throw const SessionExpiree();
     }
     if (status == 403) throw ErreurHttp(403, detail: messageDroitManquant(r.data));
+    // 5.5.0 : heure du serveur fausse (423) : rien n'a été exécuté, message du serveur tel quel.
+    final horloge = horlogeBloqueeDe(status, r.data);
+    if (horloge != null) throw HorlogeBloquee(horloge);
     // 4.5.1 : session passée à un autre compte (409 sessionChangee) : rien n'a été exécuté.
     final change = sessionChangeeDe(status, r.data);
     if (change != null) throw RefusMetier(change, code: 'sessionChangee');

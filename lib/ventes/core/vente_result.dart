@@ -43,6 +43,14 @@ class VenteRefused<T> extends VenteResult<T> {
   /// Droit manquant (le compte n'a pas le droit de cette action).
   bool get interdit => code == codeInterdit;
 
+  /// 5.5.0 (transmission du 24/11/2026) : HTTP 423 `horlogeBloquee` — l'heure du serveur est fausse, il refuse toute
+  /// écriture sans rien exécuter. Message du serveur affiché tel quel ; pas de relance ; une vente en FILE n'est
+  /// jamais mise « à vérifier » : elle reste en attente et repart après le déblocage (même X-Client-Ref).
+  static const codeHorloge = 'horlogeBloquee';
+
+  /// Écriture refusée : heure du serveur fausse.
+  bool get horlogeBloquee => code == codeHorloge;
+
   /// 4.15.0 (demande 62) : code d'un refus de clôture d'une prévente déjà payée par mobile money
   /// (`{success:false, paiementMobile:true, msg}`) : message du serveur affiché tel quel, vente gardée.
   static const codePaiementMobile = 'paiementMobile';

@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:prestige_vente_app/connexion/assistance.dart';
 import 'package:prestige_vente_app/connexion/connexion_commun.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/connexion/connexion_reglages.dart';
 import 'package:prestige_vente_app/connexion/pin_personnel.dart';
 import 'package:prestige_vente_app/connexion/qui_etes_vous_screen.dart';
@@ -94,8 +95,21 @@ class _ConnexionScreenState extends State<ConnexionScreen> {
   void initState() {
     super.initState();
     _rester = _settings.stayConnected;
-    _serveur.verifier();
+    _serveur.verifier().then((_) => _lireHorloge());
     _preremplir();
+  }
+
+  /// 5.5.0 : bandeau « heure du serveur fausse ». Aucune requête de plus en fonctionnement normal : GET
+  /// v1/horloge/public n'est lu que si l'application a déjà constaté le blocage (refus 423, ou lecture précédente
+  /// BLOQUE) ; OK / REGULARISATION → débloqué, rien ; serveur ancien (404) ou pas de réponse → bandeau sans l'heure.
+  String? _bandeauHorloge;
+
+  Future<void> _lireHorloge() async {
+    if (!mounted || _serveur.etat != EtatServeur.connecte || !HorlogeServeur.instance.bloquee) return;
+    final h = await _sv.lireHorloge(_settings);
+    if (!mounted) return;
+    final bloque = h ?? (HorlogeServeur.instance.bloquee ? const HorlogePublique(EtatHorloge.bloque, '') : null);
+    setState(() => _bandeauHorloge = bloque?.texteBandeau);
   }
 
   Future<void> _preremplir() async {
@@ -334,6 +348,7 @@ class _ConnexionScreenState extends State<ConnexionScreen> {
           const SizedBox(height: 10),
           MessageErreur(ConnexionFlux.message(IssueConnexion.erreur)),
         ],
+        if (_bandeauHorloge != null) Padding(padding: const EdgeInsets.only(top: 14), child: BandeauHorlogeServeur(_bandeauHorloge!)),
         ListenableBuilder(
           listenable: _serveur,
           builder: (context, _) => _serveur.etat == EtatServeur.injoignable && !_occupe

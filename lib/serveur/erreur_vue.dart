@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:prestige_vente_app/providers/auth_provider.dart';
 import 'package:prestige_vente_app/screens/auth/login_screen.dart';
 import 'package:prestige_vente_app/serveur/client_prestige.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 
@@ -19,6 +20,7 @@ String titreErreur(Object e) => switch (e) {
       ServeurIndisponible() => MessagesServeur.titreIndisponible,
       ServeurInjoignable() => MessagesServeur.titreInjoignable,
       SessionExpiree() => 'Session expirée',
+      HorlogeBloquee() => titreHorlogeBloquee,
       RefusMetier() => 'Refusé par Prestige',
       ErreurHttp(droitManquant: true) => 'Droit manquant',
       ErreurHttp() => 'Erreur du serveur',
@@ -30,6 +32,7 @@ IconData iconeErreur(Object e) => switch (e) {
       ServeurIndisponible() => Icons.hourglass_top,
       ServeurInjoignable() => Icons.cloud_off,
       SessionExpiree() => Icons.lock_clock,
+      HorlogeBloquee() => Icons.schedule,
       RefusMetier() => Icons.block,
       ErreurHttp(droitManquant: true) => Icons.block,
       _ => Icons.error_outline,

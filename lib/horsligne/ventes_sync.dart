@@ -16,6 +16,8 @@
 //   Serveur sans H4 : fonctionnement ci-dessus inchangé (anomalie « vérifiez dans les préventes »).
 // - Écarts (prix, stock, produit introuvable, net ≠ montant encaissé) et refus du serveur (bon,
 //   plafond, caisse fermée) : la vente passe « à vérifier » avec un motif clair. Rien n'est supprimé.
+// - 5.5.0 : heure du serveur fausse (HTTP 423 horlogeBloquee) : envoi arrêté avec le message du serveur, vente
+//   gardée en attente (jamais « à vérifier ») ; au déblocage, la confirmation d'envoi est de nouveau proposée.
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -30,11 +32,15 @@ import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 
 /// Le serveur n'a pas répondu : l'envoi s'arrête, la vente reprendra à la même étape.
 class _Panne implements Exception {
   final String message;
-  const _Panne(this.message);
+
+  /// 5.5.0 : refus « heure du serveur fausse » (423) : journalisé par sa catégorie seulement, pas comme un échec réseau.
+  final bool horloge;
+  const _Panne(this.message, {this.horloge = false});
 }
 
 enum _Issue { envoyee, verifier }
@@ -319,7 +325,10 @@ class FileVentesHL extends ChangeNotifier {
           try {
             await _envoyerUne(gw, v);
           } on _Panne catch (e) {
-            journalVenteHL(byId(id) ?? v, 'Envoi interrompu', resultat: ResultatJournal.echecReseau, motif: e.message, source: SourceJournal.fileHL);
+            journalVenteHL(byId(id) ?? v, 'Envoi interrompu',
+                resultat: e.horloge ? ResultatJournal.refus : ResultatJournal.echecReseau,
+                motif: e.horloge ? motifJournalHorloge : e.message,
+                source: SourceJournal.fileHL);
             _panne = e.message;
             _again = false;
             break;
@@ -341,7 +350,11 @@ class FileVentesHL extends ChangeNotifier {
   static String _f(int v) => Constants.formatNumber(v);
   static String _clean(String m) => m.replaceAll(RegExp(r'<[^>]*>'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
 
+  /// Motif d'une anomalie « refusé par le serveur ». 5.5.0 : un refus « heure du serveur fausse » (423
+  /// horlogeBloquee) n'est PAS une anomalie : l'envoi s'arrête ([_Panne], message du serveur tel quel), la vente reste
+  /// en attente à la même étape et repart après le déblocage avec la même clé X-Client-Ref (aucun doublon).
   static String _motifRefus(VenteRefused<dynamic> r, {String? produit}) {
+    if (r.horlogeBloquee) throw _Panne(_clean(r.message), horloge: true);
     if (r.caisseFermee) return 'Caisse fermée : ouvrez la caisse puis « Renvoyer ».';
     final m = _clean(r.message);
     return produit == null ? 'Refusé par le serveur : $m' : 'Refusé par le serveur ($produit) : $m';

@@ -543,7 +543,7 @@ class _DepotSaleScreenState extends State<DepotSaleScreen> with PresentationAwar
         if (shouldDelete == null) return; // fermé sans choix : on reste
         if (shouldDelete == true) {
           final ok = await provider.deleteCurrentSale();
-          if (!ok && mounted) _showError("La vente vide n'a pas pu être supprimée sur le serveur.");
+          if (!ok && mounted) _showError(provider.prendreRefusSuppression() ?? "La vente vide n'a pas pu être supprimée sur le serveur.");
         } else {
           provider.resetSale();
         }

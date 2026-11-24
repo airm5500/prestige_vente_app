@@ -405,7 +405,10 @@ class _ProformaScreenState extends State<ProformaScreen> {
                   context: context,
                   builder: (ctx) => AlertDialog(title: const Text("Proforma vide"), content: const Text("Supprimer ?"), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Non")), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () => Navigator.pop(ctx, true), child: const Text("Oui"))]),
                 );
-                if (confirm == true) await provider.deleteCurrentProforma();
+                if (confirm == true) {
+                  final refus = await provider.deleteCurrentProforma();
+                  if (refus != null && context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(refus)));
+                }
                 else if (confirm == false) provider.resetSale();
                 if (confirm != null && context.mounted) Navigator.pop(context);
               } else {

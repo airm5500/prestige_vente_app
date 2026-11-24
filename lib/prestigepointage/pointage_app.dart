@@ -8,7 +8,8 @@
 //    ligne), plein écran, sur le client signé ; bandeau d'état (hors ligne, heure, retirée, réseau, serveur ancien).
 //  - Administration (code administrateur) : état, envoi de la file, empreintes (connexion temporaire P_SM_RH), photo de
 //    contrôle, nouvel enrôlement, retrait de l'appareil. 1.1.0 (Prestige Mobile 5.3.0) : « Confirmer le pointage par
-//    empreinte » (désactivé par défaut) et détails techniques du lecteur d'empreinte.
+//    empreinte » (désactivé par défaut) et détails techniques du lecteur d'empreinte. 1.2.0 (Prestige Mobile 5.5.0) :
+//    heure du serveur fausse (HTTP 423) : pointage gardé en file avec le message du serveur, envoyé après correction.
 // Le secret de la borne n'est jamais affiché ; le contenu d'un badge QR non plus (masqué par le terminal).
 import 'dart:async';
 

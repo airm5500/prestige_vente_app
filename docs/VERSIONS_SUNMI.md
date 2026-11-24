@@ -74,7 +74,12 @@ de paiement `cloturer:false` ; comptoir : refus du panier verrouillé affichés 
 
 ## Prestige Mobile V3 (5.0.0) : nouvelle fiche Sunmi
 
-Version en préparation (pas encore publiée) : **5.4.0+54** (`pubspec.yaml`) : retours du pharmacien (SUNMI V3) :
+Version en préparation (pas encore publiée) : **5.5.0+55** (`pubspec.yaml`) : heure du serveur fausse (transmission
+du serveur du 24/11, `plan/24112026`) : refus HTTP 423 affiché avec le message du serveur (jamais « injoignable »),
+aucune relance, ventes / stock / pointages en file gardés puis envoyés une fois après la correction (même clé), bandeau
+« Heure du serveur fausse » à la connexion (après un refus constaté) ; Prestige Pointage 1.2.0+3 (voir `docs/NOTE_VERSION_5.5.0.md`).
+
+Avant : **5.4.0+54** : retours du pharmacien (SUNMI V3) :
 2e ticket des ventes à crédit rétabli (question « Ticket suivant (2/2) » après le 1er ticket, nombre de tickets
 respecté quand le serveur dessine le ticket), « Réédition des ventes » (ventes de ce terminal, jour, type, n° de
 ticket, réimpression avec le nombre d'exemplaires), « Contraste d'impression » renforcé par défaut (textes fins du

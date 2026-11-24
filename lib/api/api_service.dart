@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
@@ -160,6 +161,9 @@ class ApiService {
       if (interdit != null) return {'success': false, 'msg': interdit, 'interdit': true};
       final change = sessionChangeeDe(code, e.response?.data);
       if (change != null) return {'success': false, 'msg': change, 'sessionChangee': true};
+      // 5.5.0 : heure du serveur fausse (423) : message du serveur tel quel, rien n'a été enregistré.
+      final horloge = horlogeBloqueeDe(code, e.response?.data);
+      if (horloge != null) return {'success': false, 'msg': horloge, 'horlogeBloquee': true};
     }
     return {'success': false, 'msg': 'Erreur de connexion: $e'};
   }
@@ -180,6 +184,12 @@ class ApiService {
     return m;
   }
 
+  /// 5.5.0 : refus « heure du serveur fausse » (423, levé en DioException par ce client) : même lecture qu'un refus.
+  void _noterRefusPanierErreur(Object e) {
+    final m = horlogeBloqueeDeErreur(e);
+    if (m != null) _refusPanier = m;
+  }
+
   void _noterRefusPanier(Response<dynamic> r) {
     final d = r.data;
     if (r.statusCode != 200 || d is! Map || d['success'] != false) return;
@@ -189,10 +199,10 @@ class ApiService {
   Future<void> logout() async { try { await _dio.post('/user/logout'); } catch (e) { journalErreur('Error logging out', e); } }
   Future<Officine?> fetchOfficineInfo() async { try { final response = await _dio.get('/officine'); if (response.statusCode == 200 && response.data is List && response.data.isNotEmpty) { return Officine.fromJson(response.data[0]); } return null; } catch (e) { journalErreur('Error fetching officine info', e); return null; } }
   Future<List<ProductSearchResult>> searchProducts(String query) async { try { final response = await _dio.get( '/vente/search', queryParameters: {'query': query, 'page': 1, 'start': 0, 'limit': 30}, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List) .map((item) => ProductSearchResult.fromJson(item)) .toList(); } return []; } catch (e) { journalErreur('Error searching products', e); return []; } }
-  Future<String?> addItemToSale({ required String produitId, required int qte, required int itemPu, String? venteId, bool isPrevente = false, }) async { try { const typeVenteId = "1"; const natureVenteId = "1"; final bool isFirstItem = venteId == null; final String endpoint = isFirstItem ? '/vente/add/vno' : '/vente/add/item'; final Map<String, dynamic> data = { "typeVenteId": typeVenteId, "natureVenteId": natureVenteId, "produitId": produitId, "itemPu": itemPu, "qte": qte, "qteServie": qte, "devis": false, "venteId": venteId, "prevente": isPrevente, "remiseId": null, "userVendeurId": null, ...LotScanneEnAttente.champ(produitId) }; final response = await _dio.post(endpoint, data: data); if (response.statusCode == 200 && response.data['success'] == true) { return isFirstItem ? response.data['data']['lgPREENREGISTREMENTID'] : venteId; } _noterRefusPanier(response); return null; } catch (e) { journalErreur('Error adding item to sale', e); return null; } }
+  Future<String?> addItemToSale({ required String produitId, required int qte, required int itemPu, String? venteId, bool isPrevente = false, }) async { try { const typeVenteId = "1"; const natureVenteId = "1"; final bool isFirstItem = venteId == null; final String endpoint = isFirstItem ? '/vente/add/vno' : '/vente/add/item'; final Map<String, dynamic> data = { "typeVenteId": typeVenteId, "natureVenteId": natureVenteId, "produitId": produitId, "itemPu": itemPu, "qte": qte, "qteServie": qte, "devis": false, "venteId": venteId, "prevente": isPrevente, "remiseId": null, "userVendeurId": null, ...LotScanneEnAttente.champ(produitId) }; final response = await _dio.post(endpoint, data: data); if (response.statusCode == 200 && response.data['success'] == true) { return isFirstItem ? response.data['data']['lgPREENREGISTREMENTID'] : venteId; } _noterRefusPanier(response); return null; } catch (e) { journalErreur('Error adding item to sale', e); _noterRefusPanierErreur(e); return null; } }
   Future<List<SaleItemDetail>> getSaleDetails(String venteId) async { try { final response = await _dio.get( '/vente/deatails', queryParameters: { 'venteId': venteId, 'page': 1, 'start': 0, 'limit': 100 }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((item) => SaleItemDetail.fromJson(item)).toList(); } return []; } catch (e) { journalErreur('Error getting sale details', e); return []; } }
-  Future<bool> removeItemFromSale(String itemId) async { try { final response = await _dio.post('/vente/remove/vno/item/$itemId'); _noterRefusPanier(response); return response.statusCode == 200 && response.data['success'] == true; } catch (e) { journalErreur('Error removing item', e); return false; } }
-  Future<bool> updateSaleItem({ required String itemId, required String produitId, required int qte, required int itemPu, }) async { try { final response = await _dio.post('/vente/update/item/vno', data: { "itemId": itemId, "produitId": produitId, "qte": qte, "qteServie": qte, "itemPu": itemPu, }); _noterRefusPanier(response); return response.statusCode == 200 && response.data['success'] == true; } catch (e) { journalErreur('Error updating item', e); return false; } }
+  Future<bool> removeItemFromSale(String itemId) async { try { final response = await _dio.post('/vente/remove/vno/item/$itemId'); _noterRefusPanier(response); return response.statusCode == 200 && response.data['success'] == true; } catch (e) { journalErreur('Error removing item', e); _noterRefusPanierErreur(e); return false; } }
+  Future<bool> updateSaleItem({ required String itemId, required String produitId, required int qte, required int itemPu, }) async { try { final response = await _dio.post('/vente/update/item/vno', data: { "itemId": itemId, "produitId": produitId, "qte": qte, "qteServie": qte, "itemPu": itemPu, }); _noterRefusPanier(response); return response.statusCode == 200 && response.data['success'] == true; } catch (e) { journalErreur('Error updating item', e); _noterRefusPanierErreur(e); return false; } }
   Future<SaleSummary?> calculateNet(String venteId) async { try { final response = await _dio.post( '/vente/net/vno', data: {"venteId": venteId, "checkUg": false}); if (response.statusCode == 200 && response.data['success'] == true) { return SaleSummary.fromNetResponse(response.data); } return null; } catch (e) { journalErreur('Error calculating net', e); return null; } }
   Future<List<PaymentMethod>> getPaymentMethods() async { try { final response = await _dio.get('/common/reglement', queryParameters: {'page': 1, 'start': 0, 'limit': 25} ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List).map((e) => PaymentMethod.fromJson(e)).toList(); } return []; } catch (e) { journalErreur('Error fetching payment methods', e); return []; } }
   Future<Map<String, dynamic>> cloturerVente({ required String venteId, required SaleSummary summary, required String typeReglementId, required String clientId, required String userVendeurId, int? montantRecu, int? montantRemis, }) async { try { final response = await _dio.post('/vente/cloturer/vno', data: { "banque": "", "clientId": clientId.isEmpty ? null : clientId, "commentaire": "", "data": summary.toJson(), "devis": false, "lieux": "", "marge": summary.marge, "medecinId": null, "montantPaye": summary.montantNet, "montantRecu": montantRecu ?? summary.montantNet, "montantRemis": montantRemis ?? 0, "natureVenteId": "1", "nom": "", "partTP": 0, "reglements": [ { "montant": summary.montantNet, "montantAttentu": summary.montantNet, "typeReglement": typeReglementId } ], "remiseId": null, "totalRecap": summary.montantNet, "typeRegleId": typeReglementId, "typeVenteId": "1", "userVendeurId": userVendeurId, "venteId": venteId }); return response.data; } catch (e) { journalErreur('Error closing sale', e); return _echecEcriture(e); } }
@@ -319,7 +329,7 @@ class ApiService {
   Future<List<AyantDroit>> getAyantDroits(String clientId) async { try { final response = await _dio.get( '/client/ayant-droits', queryParameters: { 'clientId': clientId }, ); if (response.statusCode == 200 && response.data['data'] is List) { return (response.data['data'] as List) .map((e) => AyantDroit.fromJson(e)) .toList(); } return []; } catch (e) { journalErreur('Error fetching ayant droits', e); return []; } }
   Future<AyantDroit?> createAyantDroit({ required String clientId, required String firstName, required String lastName, required String numSecu, String? dtNaissance, }) async { try { final response = await _dio.post( '/client/ayant-droits/$clientId', data: { "dtNAISSANCE": dtNaissance ?? "", "lgVILLEID": "", "strFIRSTNAME": firstName, "strLASTNAME": lastName, "strNUMEROSECURITESOCIAL": numSecu }, ); if (response.statusCode == 200 && response.data['success'] == true) { return AyantDroit.fromJson(response.data['data']); } return null; } catch (e) { journalErreur('Error creating ayant droit', e); return null; } }
   Map<String, dynamic> _buildAssuranceSalePayload({ required String produitId, required int qte, required int itemPu, required String clientId, required String ayantDroitId, required String natureVenteId, required String typeVenteId, required String? userVendeurId, required List<Map<String, dynamic>> tierspayants, String? venteId, }) { return { "ayantDroitId": ayantDroitId, "clientId": clientId, "devis": false, "itemPu": itemPu, "natureVenteId": natureVenteId, "prevente": true, "produitId": produitId, "qte": qte, "qteServie": qte, "remiseId": null, "tierspayants": tierspayants.map((tp) => { "cmu": "false", "compteTp": tp['compteTp'], "numBon": tp['numBon'], "taux": tp['taux'] }).toList(), "typeVenteId": typeVenteId, "userVendeurId": userVendeurId, "venteId": venteId, ...LotScanneEnAttente.champ(produitId) }; }
-  Future<String?> addAssuranceSaleItem({ required String produitId, required int qte, required int itemPu, required String clientId, required String ayantDroitId, required String natureVenteId, required String typeVenteId, required String? userVendeurId, required List<Map<String, dynamic>> tierspayants, String? venteId, }) async { try { final bool isFirstItem = venteId == null; final String endpoint = isFirstItem ? '/vente/add/assurance' : '/vente/add/item'; final payload = _buildAssuranceSalePayload( produitId: produitId, qte: qte, itemPu: itemPu, clientId: clientId, ayantDroitId: ayantDroitId, natureVenteId: natureVenteId, typeVenteId: typeVenteId, userVendeurId: userVendeurId, tierspayants: tierspayants, venteId: venteId, ); final response = await _dio.post(endpoint, data: payload); if (response.statusCode == 200 && response.data['success'] == true) { return response.data['data']['lgPREENREGISTREMENTID'] ?? venteId; } _noterRefusPanier(response); return null; } catch (e) { journalErreur('Error adding assurance sale item', e); return null; } }
+  Future<String?> addAssuranceSaleItem({ required String produitId, required int qte, required int itemPu, required String clientId, required String ayantDroitId, required String natureVenteId, required String typeVenteId, required String? userVendeurId, required List<Map<String, dynamic>> tierspayants, String? venteId, }) async { try { final bool isFirstItem = venteId == null; final String endpoint = isFirstItem ? '/vente/add/assurance' : '/vente/add/item'; final payload = _buildAssuranceSalePayload( produitId: produitId, qte: qte, itemPu: itemPu, clientId: clientId, ayantDroitId: ayantDroitId, natureVenteId: natureVenteId, typeVenteId: typeVenteId, userVendeurId: userVendeurId, tierspayants: tierspayants, venteId: venteId, ); final response = await _dio.post(endpoint, data: payload); if (response.statusCode == 200 && response.data['success'] == true) { return response.data['data']['lgPREENREGISTREMENTID'] ?? venteId; } _noterRefusPanier(response); return null; } catch (e) { journalErreur('Error adding assurance sale item', e); _noterRefusPanierErreur(e); return null; } }
   Future<AssuranceSaleSummary?> calculateNetAssurance({ required String venteId, required List<Map<String, dynamic>> tierspayants, }) async { try { final response = await _dio.post( '/vente/net/assurance', data: { "remiseId": null, "tierspayants": tierspayants.map((tp) => { "cmu": "false", "compteTp": tp['compteTp'], "numBon": tp['numBon'], "taux": tp['taux'] }).toList(), "venteId": venteId }, ); if (response.statusCode == 200 && response.data['success'] == true) { return AssuranceSaleSummary.fromNetResponse(response.data); } return null; } catch (e) { journalErreur('Error calculating net assurance', e); return null; } }
   Future<Map<String, dynamic>> cloturerVenteAssurance({ required String venteId, required String clientId, required String ayantDroitId, required String natureVenteId, required String typeVenteId, required String? userVendeurId, required AssuranceSaleSummary summary, required String typeReglementId, required List<Map<String, dynamic>> tierspayants, int? montantRecu, int? montantRemis, }) async { try { final response = await _dio.post( '/vente/cloturer/assurance', data: { "ayantDroitId": ayantDroitId, "banque": "", "clientId": clientId, "commentaire": "", "data": summary.toJson(), "devis": false, "lieux": "", "marge": summary.marge, "medecinId": null, "montantPaye": summary.montantNet, "montantRecu": montantRecu ?? summary.montantNet, "montantRemis": montantRemis ?? 0, "natureVenteId": natureVenteId, "nom": "", "partTP": summary.montantTp.toString(), "reglements": [ { "montant": summary.montantNet, "montantAttentu": summary.montantNet, "typeReglement": typeReglementId } ], "remiseId": null, "sansBon": false, "tierspayants": tierspayants.map((tp) => { "activeTiersPayant": false, "cmu": false, "compteTp": tp['compteTp'], "dblPLAFOND": 0, "dblQUOTACONSOMENSUELLE": 0, "dbPLAFONDENCOURS": 0, "discount": 0, "enabled": false, "numBon": tp['numBon'], "numSecurity": "", "order": 0, "principal": false, "taux": tp['taux'], "tpnet": summary.tierspayants.firstWhere((ts) => ts.compteTp == tp['compteTp'], orElse: () => TiersPayantSummary(numBon: '', taux: 0, compteTp: '', tpnet: 0)).tpnet }).toList(), "totalRecap": summary.montant, "typeRegleId": typeReglementId, "typeVenteId": typeVenteId, "userVendeurId": userVendeurId, "venteId": venteId }, ); return response.data; } catch (e) { journalErreur('Error closing assurance sale', e); return _echecEcriture(e); } }
   Future<OuvertureData?> getOuvertureData() async { try { final response = await _dio.get('/billetage/ouventure-data'); if (response.statusCode == 200 && response.data['data'] != null) { return OuvertureData.fromJson(response.data['data']); } return null; } catch (e) { journalErreur('Error fetching ouverture data', e); return null; } }
@@ -387,15 +397,45 @@ class ApiService {
   // DANS lib/api/api_service.dart
 
   /// Supprime une vente globale (Dépôt ou autre) via son ID
+  ///
+  /// 5.5.0 (transmission du 24/11/2026) : le serveur refuse la suppression d'une vente EN SAISIE sur un poste
+  /// (`{success:false, msg}`) et toute écriture quand son heure est fausse (423) : message gardé pour l'écran
+  /// ([prendreRefusSuppression]) ; rien n'est supprimé.
   Future<bool> deleteSale(String saleId) async {
+    _refusSuppression = null;
     try {
       // Adaptez l'URL si besoin, c'est celle que vous m'avez donnée
       final response = await _dio.post('/ventestats/remove/$saleId');
-      return response.data == true;
+      final d = response.data;
+      if (d is Map && (d['success'] == false || d['success'] == 'false')) {
+        final m = '${d['msg'] ?? d['message'] ?? ''}'.trim();
+        _refusSuppression = m.isEmpty ? null : m;
+        return false;
+      }
+      return d == true || (d is Map && d['success'] == true);
     } catch (e) {
       journalErreur('Erreur suppression vente globale', e);
+      _refusSuppression = horlogeBloqueeDeErreur(e) ?? _messageRefusErreur(e);
       return false;
     }
+  }
+
+  String? _refusSuppression;
+
+  /// Message du dernier refus de [deleteSale] (puis oublié) ; null : pas de refus lisible.
+  String? prendreRefusSuppression() {
+    final m = _refusSuppression;
+    _refusSuppression = null;
+    return m;
+  }
+
+  /// `msg` d'un refus `{success:false, msg}` reçu en erreur HTTP (400, 409…), null sinon.
+  static String? _messageRefusErreur(Object e) {
+    if (e is! DioException) return null;
+    final d = corpsJson(e.response?.data);
+    if (d == null || (d['success'] != false && d['success'] != 'false')) return null;
+    final m = '${d['msg'] ?? d['message'] ?? ''}'.trim();
+    return m.isEmpty ? null : m;
   }
 
   // NOUVEAU : Récupération des bons de réception avec détails inclus

@@ -259,6 +259,15 @@
     "test/deuxieme_ticket_test.dart": "ecrans",
     "test/reedition_ventes_test.dart": "ecrans",
     "test/reedition_ventes_e2e_test.dart": "e2e",
-    "test/reedition_ventes_ergonomie_test.dart": "ergonomie"
+    "test/reedition_ventes_ergonomie_test.dart": "ergonomie",
+    "test/horloge_serveur_test.dart": "unitaires",
+    "test/horloge_serveur_ecrans_test.dart": "ecrans",
+    "test/horloge_serveur_integration_test.dart": "integration",
+    "test/horloge_serveur_e2e_test.dart": "e2e",
+    "test/horloge_serveur_garde_test.dart": "non_regression",
+    "test/horloge_serveur_ergonomie_test.dart": "ergonomie",
+    "test/horloge_serveur_performance_test.dart": "performance",
+    "test/reseau/horloge_serveur_reseau_test.dart": "reseau",
+    "test/prestigepointage/horloge_borne_test.dart": "integration"
   }
 }

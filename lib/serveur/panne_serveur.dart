@@ -21,6 +21,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 
 enum PanneServeur { injoignable, indisponible }
@@ -200,8 +201,10 @@ class IntercepteurDeploiement extends Interceptor {
 /// Pose [IntercepteurDeploiement] sur [d] (une seule fois) et renvoie [d].
 /// 4.7.0 : pose aussi [IntercepteurPoste] (nom de cet appareil, en-tête X-Poste) : tous les clients de Prestige
 /// passent par ici.
+/// 5.5.0 : pose aussi [IntercepteurHorloge] (HTTP 423 « heure du serveur fausse », lib/serveur/horloge_serveur.dart).
 Dio avecDeploiement(Dio d) {
   if (!d.interceptors.any((i) => i is IntercepteurDeploiement)) d.interceptors.add(IntercepteurDeploiement(source: d));
   IntercepteurPoste.brancher(d);
+  IntercepteurHorloge.brancher(d);
   return d;
 }

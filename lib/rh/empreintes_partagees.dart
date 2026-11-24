@@ -27,6 +27,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/rh/identification.dart';
 import 'package:prestige_vente_app/rh/rh_api.dart';
@@ -231,6 +232,9 @@ class EmpreintesPartagees {
       _noter('Empreintes envoyées au serveur — ${e.employeNom.isEmpty ? e.employeId : e.employeNom} (${ids.length} modèle(s))', r: ResultatJournal.ok);
       return EtatPartageEmpreintes.actif;
     }
+    // 5.5.0 : heure du serveur fausse (423) : rien n'a été enregistré ; l'envoi RESTE en attente (même X-Client-Ref,
+    // refait à une synchronisation après la correction), état du partage inchangé.
+    if (horlogeBloqueeDe(r.status, r.body) != null) return s.etat;
     // Refus définitif (partage désactivé, route absente, droit) : plus d'envoi en attente, modèles locaux gardés.
     final etat = _etatRefus(r);
     await _remplacer(e.employeId, (x) => x.copie(envoiEnAttente: false));
@@ -273,6 +277,8 @@ class EmpreintesPartagees {
     if (horsLigne()) return false;
     try {
       final r = await (serveur as RhEmpreintes).supprimerEmpreintes(employeId);
+      // 5.5.0 : heure du serveur fausse (423) : suppression à refaire après la correction.
+      if (horlogeBloqueeDe(r.status, r.body) != null) return false;
       if (r.status == 200 && r.body?['success'] == true) {
         _noter('Empreintes supprimées du serveur — employé $employeId');
       }
