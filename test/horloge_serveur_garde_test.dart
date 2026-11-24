@@ -49,6 +49,8 @@ void main() {
     expect(_lire('lib/horsligne/stock/stock_queue.dart'), contains('motif: horloge ? motifJournalHorloge : e.message'));
     expect(_lire('lib/rh/pointage_rh.dart'), contains("motif: horloge ? motifJournalHorloge : ''"));
     expect(_lire('lib/serveur/horloge_serveur.dart'), contains('motif: motifJournalHorloge'));
+    expect(RegExp('motif: motifJournalHorloge').allMatches(_lire('lib/horsligne/journal/journal_interceptor.dart')), hasLength(2));
+    expect(_lire('lib/borne/borne_service.dart'), contains('r.horlogeBloquee ? motifJournalHorloge'));
     expect(motifJournalHorloge, isNot(contains('administrateur')));
   });
 

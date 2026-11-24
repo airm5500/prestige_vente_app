@@ -11,6 +11,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 
 /// Ce qu'on retient d'une requête d'écriture.
@@ -149,7 +150,10 @@ class JournalInterceptor extends Interceptor {
         _fin(o);
         final body = response.data;
         final code = response.statusCode ?? 200;
-        if (code >= 400) {
+        if (horlogeBloqueeDe(code, body) != null) {
+          // 5.5.0 : heure du serveur fausse : catégorie seulement (jamais le message du serveur).
+          _noter(o, ResultatJournal.refus, motif: motifJournalHorloge);
+        } else if (code >= 400) {
           _noter(o, ResultatJournal.refus, motif: 'Erreur du serveur (code $code). ${_msg(body)}', reponse: body);
         } else if (body is Map && body['success'] == false) {
           final m = _msg(body);
@@ -170,6 +174,9 @@ class JournalInterceptor extends Interceptor {
         _fin(o);
         final code = err.response?.statusCode ?? 0;
         switch (err.type) {
+          case DioExceptionType.badResponse when horlogeBloqueeDe(code, err.response?.data) != null:
+            // 5.5.0 : heure du serveur fausse : catégorie seulement (jamais le message du serveur).
+            _noter(o, ResultatJournal.refus, motif: motifJournalHorloge);
           case DioExceptionType.badResponse:
             final m = _msg(err.response?.data);
             _noter(o, _dejaApplique(m) ? ResultatJournal.dejaApplique : ResultatJournal.refus,

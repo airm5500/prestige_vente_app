@@ -11,6 +11,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prestige_vente_app/horsligne/journal/journal_interceptor.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_models.dart';
 import 'package:prestige_vente_app/horsligne/stock/stock_sender.dart';
@@ -171,6 +172,21 @@ void main() {
       await d.post('/vente/add/vno', data: {});
       expect(HorlogeServeur.instance.bloquee, isFalse);
       expect(t.recues.where((r) => r == 'POST /prestige/api/v1/mobile/pointages'), hasLength(1), reason: 'aucune relance automatique');
+    });
+
+    test('journal des écritures : 423 noté « refusé » par sa catégorie, jamais le msg du serveur', () async {
+      for (final tous in [false, true]) {
+        final t = _Transport((o) => (statut: 423, corps: _corps));
+        final d = _dio(t, tousStatuts: tous)..interceptors.add(JournalInterceptor(fileEnCours: () => false));
+        try {
+          await d.post('/vente/add/vno', data: {'produitId': 'P1', 'qte': 1});
+        } on DioException catch (_) {}
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final lignes = await store.lire(const JournalFiltre());
+      final refus = lignes.where((e) => e.type != TypeJournal.reseau && e.resultat == ResultatJournal.refus && e.motif == motifJournalHorloge).toList();
+      expect(refus, hasLength(2));
+      expect(lignes.map((e) => e.motif).join('\n'), isNot(contains('administrateur doit')));
     });
 
     test('verifierSiBloquee : aucun appel quand rien n\'est bloqué', () async {
