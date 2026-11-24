@@ -23,6 +23,9 @@ import 'package:prestige_vente_app/version_app.dart';
 import 'package:prestige_vente_app/widgets/pin_code_dialog.dart';
 import 'package:prestige_vente_app/widgets/presentation_style.dart';
 import 'package:provider/provider.dart';
+import 'package:dio/dio.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
+import 'package:prestige_vente_app/serveur/nom_appareil.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 // ---------------------------------------------------------------------------
@@ -49,7 +52,34 @@ class ConnexionServices {
   /// Page de configuration (défaut : InterfaceVersion.settings()).
   final Widget Function()? configuration;
 
-  const ConnexionServices({this.adminCheck, this.sonde, this.chargements, this.accueil, this.ouvrirBorne, this.configuration});
+  /// 5.5.0 (transmission du 24/11/2026, facultatif) : `GET v1/horloge/public` (sans session) pour le bandeau « heure
+  /// du serveur fausse » de l'écran de connexion. Défaut : appel réel, seulement avec la sonde réelle ([sonde] null) ;
+  /// des services de test sans [horloge] n'envoient rien. null renvoyé (404 = serveur ancien, pas de réponse) : rien.
+  final Future<HorlogePublique?> Function(SettingsProvider settings)? horloge;
+
+  const ConnexionServices({this.adminCheck, this.sonde, this.chargements, this.accueil, this.ouvrirBorne, this.configuration, this.horloge});
+
+  /// État de l'horloge du serveur courant (jamais d'exception).
+  Future<HorlogePublique?> lireHorloge(SettingsProvider s) async {
+    final f = horloge ?? (sonde == null ? _horlogeReelle : null);
+    if (f == null) return null;
+    try {
+      final h = await f(s);
+      HorlogeServeur.instance.appliquer(h);
+      return h;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<HorlogePublique?> _horlogeReelle(SettingsProvider s) async {
+    final d = IntercepteurPoste.brancher(Dio(BaseOptions(connectTimeout: const Duration(seconds: 5))));
+    try {
+      return await HorlogeServeur.lirePublique(d, baseUrl: s.baseUrl);
+    } finally {
+      d.close(force: true);
+    }
+  }
 
   /// Services de l'appli (remplaçables dans les tests).
   static ConnexionServices instance = const ConnexionServices();
@@ -632,6 +662,37 @@ class MessageErreur extends StatelessWidget {
         const SizedBox(width: 6),
         Expanded(child: Text(texte, key: const Key('message_erreur'), style: TextStyle(color: t.erreur, fontWeight: FontWeight.w600, fontSize: 13.5))),
       ]),
+    );
+  }
+}
+
+/// 5.5.0 : bandeau « heure du serveur fausse » (GET v1/horloge/public = BLOQUE) : information seulement — la
+/// connexion reste possible (v1/user/auth n'est pas bloquée), aucun contournement proposé.
+class BandeauHorlogeServeur extends StatelessWidget {
+  final String texte;
+  const BandeauHorlogeServeur(this.texte, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Teintes.of(context);
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        key: const Key('bandeau_horloge_serveur'),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: t.erreurFond, borderRadius: BorderRadius.circular(14), border: Border.all(color: t.erreur.withValues(alpha: 0.35))),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.schedule, color: t.erreur),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(titreHorlogeBloquee, style: TextStyle(color: t.erreur, fontWeight: FontWeight.w800, fontSize: 15)),
+              const SizedBox(height: 2),
+              Text(texte, style: TextStyle(color: t.texte, fontSize: 13.5)),
+            ]),
+          ),
+        ]),
+      ),
     );
   }
 }

@@ -98,7 +98,7 @@ void main() {
     expect(ci, contains("application-label:'PrestigePOS'"));
     expect(ci, contains("launchable-activity: name='com.dici.prestigepos.PosActivity'"));
     expect(ci, contains('grep -qE "prestigemobile|Prestige Mobile|com.dici.prestige_vente_app.MainActivity"'));
-    expect(ci, contains('REFERENCE_MOBILE: 2a23bcaf03ccec1387d827d4b90bda33bdfe99ad'), reason: 'référence : Prestige Mobile V3 5.4.0+54 (PrestigePOS 1.17.0)');
+    expect(ci, contains('REFERENCE_MOBILE: 51d3b490d83eb4f89dac42ff8cc2b20a34bd108c'), reason: 'référence : Prestige Mobile V3 5.5.0+55 (PrestigePOS 1.18.0)');
     expect(ci, contains(r"""grep -qE "^application: .*icon='[^']*\.xml'"""), reason: '1.13.4 : icône adaptative de PrestigePOS inchangée');
   });
 }

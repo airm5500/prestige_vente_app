@@ -589,7 +589,7 @@ class _TerminalPointageScreenState extends State<TerminalPointageScreen> with Pr
         return;
       case IssueBadge.enFile:
         // Gardé sur le terminal : information (orange), jamais présenté comme envoyé.
-        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm', '$etatEnAttenteEnvoi\n${r.message}', true, _rh.now,
+        _afficher(_Affiche('Bonjour ${a.employe.prenomAffiche} — ${_sens.majuscules} $hm', '${r.horloge ? etatAttenteHorloge : etatEnAttenteEnvoi}\n${r.message}', true, _rh.now,
             info: true, attente: true, sansPhoto: sansPhoto, confirmation: mention));
       case IssueBadge.refuse:
         _afficher(_Affiche('${a.employe.prenomAffiche} : pointage refusé', '$etatRefusPrestige : ${r.message}', false, _rh.now));

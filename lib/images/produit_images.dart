@@ -18,6 +18,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/foundation.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/local_store.dart';
 import 'package:prestige_vente_app/images/images_reglages.dart';
@@ -105,6 +106,9 @@ VenteResult<ImagesListe?> imagesListeDepuis(int status, Object? body) {
 
 /// Réponse de l'ajout (text/html contenant du JSON).
 VenteResult<String> ajoutDepuis(int status, Object? body) {
+  // 5.5.0 : heure du serveur fausse (423) : refus avec le message du serveur, photo non envoyée.
+  final horloge = horlogeBloqueeDe(status, body);
+  if (horloge != null) return VenteRefused(horloge, code: VenteRefused.codeHorloge);
   if (status == 401 || status == 403) return const VenteFailed('Session expirée : reconnectez-vous.');
   if (codePasserelle(status)) return const VenteFailed('Envoi de la photo : ${MessagesServeur.indisponible}');
   if (status == 404) return const VenteRefused('Ce serveur ne gère pas les images des produits.');

@@ -3,6 +3,7 @@
 // « gestion des lots » du BL) : aucune modification du serveur n'est nécessaire.
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/horsligne/client_ref.dart';
 import 'package:prestige_vente_app/reception/manquants_bl.dart';
 import 'package:prestige_vente_app/reception/reception_models.dart';
@@ -126,6 +127,9 @@ class DioReceptionGateway implements ReceptionGateway, ClotureRecuGateway, Retou
       // 4.3.3 : serveur injoignable ≠ Prestige en démarrage / redéploiement.
       final panne = panneDe(e);
       if (panne != null) return ReceptionResult(false, MessagesServeur.message(panne));
+      // 5.5.0 : heure du serveur fausse (423) : message du serveur tel quel, rien n'a été enregistré.
+      final horloge = horlogeBloqueeDeErreur(e);
+      if (horloge != null) return ReceptionResult(false, horloge, const {'horlogeBloquee': true});
       if (r?.data is Map && (r!.data as Map)['msg'] != null) return ReceptionResult(false, '${(r.data as Map)['msg']}');
       if (r != null) return ReceptionResult(false, 'Erreur du serveur (${r.statusCode}).');
       return const ReceptionResult(false, MessagesServeur.injoignable);

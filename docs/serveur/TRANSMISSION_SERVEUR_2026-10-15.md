@@ -1212,6 +1212,44 @@ Tests serveur suggérés : image `…/vo/{id}/image?largeur=58&dpi=203` d'une ve
 après seuil 128, moins de 15 % des suites noires horizontales des textes normaux d'un seul point ; mêmes largeurs de
 textes (aucun débordement nouveau) ; code-barres relu (Code 128), QR de la prévente relu ; 80 mm inchangé.
 
+
+### Retour plan 24/11 — heure du serveur fausse (`plan/24112026`) : pris en compte (Prestige Mobile 5.5.0+55, Prestige Pointage 1.2.0+3, PrestigePOS 1.18.0+41)
+
+**Aucune nouvelle demande.** Ce que fait l'application avec la transmission du 24/11 :
+
+1. **HTTP 423 `{success:false, horlogeBloquee:true, msg}`** (toute écriture sauf `v1/user/auth`, `auth-badge`,
+   `logout`, `v1/horloge/*`) : reconnu sur **tous** les clients HTTP de l'application (intercepteur posé avec celui du
+   déploiement, `lib/serveur/horloge_serveur.dart`) ; le `msg` est affiché **tel quel**, jamais comme « serveur
+   injoignable », « erreur du serveur (code 423) » ni « erreur inconnue » ; **aucune relance automatique** ; aucun
+   contournement proposé. Journal du terminal : la catégorie seulement (« Heure du serveur fausse (HTTP 423
+   horlogeBloquee) »), jamais le `msg`.
+   - Écritures concernées utilisées par l'application : `v1/mobile/connexion`, `v1/mobile/pointages`,
+     `v1/rh/moi/pointages`, `v1/rh/pointages` (terminal), `v1/borne-pointage/*` (Prestige Pointage), photo de contrôle
+     `v1/rh/pointages/{id}/photo`, empreintes partagées, photos des produits, ventes (`vente/add/*`, `net`, `remise`,
+     `update/*`, `terminerprevente`, `cloturer/*`), clients, paiements mobile money, réceptions (`commande/add-lot`,
+     `validerbl`, retours fournisseurs, `reception/{id}/retour-manquants`), stock hors ligne, Réserve / Fiche client,
+     centre de support.
+   - **Files avec `X-Client-Ref`** (ventes hors ligne, stock hors ligne, pointages du terminal et de la borne,
+     empreintes partagées, photos de contrôle, anomalies du centre de support) : l'opération **reste dans la file**
+     (jamais « à vérifier » ni « refusée »), l'envoi s'arrête sur le message du serveur ; un pointage refusé en ligne
+     est gardé en file (heure de lecture conservée). Après le déblocage, l'envoi est de nouveau proposé (confirmation
+     habituelle, rien sans accord) et part avec la **même clé**.
+   - Déblocage constaté par la première écriture acceptée, ou par `GET v1/horloge/public` (OK / REGULARISATION), lu
+     **seulement après un 423**, à la cadence existante de la surveillance (30 s) ; jamais d'écriture rejouée seule.
+   - Facultatif retenu : bandeau « Heure du serveur fausse » sur l'écran de connexion quand `GET v1/horloge/public`
+     répond `BLOQUE` (avec l'heure `serveur`) ; OK ou REGULARISATION : rien. Lu seulement après un 423 déjà constaté
+     (aucune requête de plus au démarrage d'un serveur normal ou ancien).
+2. **Dates futures** (`vente/update-created-date`, `reglement/reglementdiffere`, `reglementdiffere-all`) : routes
+   **non utilisées** par l'application (vérifié dans le code), rien à faire.
+3. **Ventes en attente** : `POST v1/vente/rappel/{id}` et `PUT v1/ventestats/update/{id}/is_Trash` **non utilisées** ;
+   `POST v1/ventestats/remove/{id}` est utilisée (vente dépôt vide, proforma vide) : le refus (`success:false`, vente en
+   saisie sur un poste) et le 423 affichent désormais le `msg` du serveur, rien n'est supprimé. Aucune nouvelle route
+   (`vente-saisie/signal` non implémentée, comme demandé).
+
+Point à confirmer côté serveur, sans nouvelle demande : le refus 423 doit rester **avant** la mémoire des réponses par
+`X-Client-Ref` (un 423 ne doit pas être mémorisé sous la clé, sinon le renvoi après correction rendrait encore 423) —
+c'est ce que dit la transmission (« rejouée après déblocage sans doublon grâce à X-Client-Ref »).
+
 ---
 
 ## 5. Récapitulatif des nouvelles demandes

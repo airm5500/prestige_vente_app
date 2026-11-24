@@ -18,6 +18,7 @@ import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/utils/journal_debug.dart';
 import 'package:prestige_vente_app/api/dio_client.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
@@ -70,6 +71,8 @@ typedef SupportContactEnvoi = Future<(SupportReponse, String)> Function({
 
 /// Lecture d'une réponse de POST /support/events (ou /support-contact).
 SupportReponse lireReponseSupport(int status, Object? data) {
+  // 5.5.0 : heure du serveur fausse (423) : comme un échec passager, l'anomalie reste en file (renvoyée plus tard).
+  if (horlogeBloqueeDe(status, data) != null) return SupportReponse.echec;
   if (status == 404) return SupportReponse.routeAbsente;
   if (status == 401 || status == 403) return SupportReponse.session;
   if (status >= 500 || status == 0) return SupportReponse.echec;

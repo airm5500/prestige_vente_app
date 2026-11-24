@@ -22,6 +22,7 @@ import 'package:prestige_vente_app/horsligne/routes_app_vente.dart';
 import 'package:prestige_vente_app/serveur/adresse_serveur.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 
 /// Tiers payant d'une vente (forme attendue par le serveur).
@@ -307,6 +308,9 @@ class DioVenteGateway implements VenteGateway, ClientRefGateway, ClientVenteGate
     if (interdit != null) return VenteRefused(interdit, code: VenteRefused.codeInterdit);
     final change = sessionChangeeDe(code, body);
     if (change != null) return VenteFailed(change);
+    // 5.5.0 : heure du serveur fausse (423 horlogeBloquee) : refus, rien n'a été exécuté (file : vente gardée).
+    final horloge = horlogeBloqueeDe(code, body);
+    if (horloge != null) return VenteRefused(horloge, code: VenteRefused.codeHorloge);
     return null;
   }
 

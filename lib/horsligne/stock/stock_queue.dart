@@ -6,6 +6,7 @@
 // décocher les opérations déjà ressaisies sur le serveur (statut « ressaisie », gardées dans
 // l'historique). Une opération à la fois, dans l'ordre de saisie ; un refus du serveur donne une
 // ANOMALIE (motif conservé dans le rapport d'anomalies) ; une panne interrompt l'envoi sans rien perdre.
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:prestige_vente_app/horsligne/journal/journal_terminal.dart';
@@ -360,7 +361,12 @@ class StockQueue extends ChangeNotifier implements AnomalieSource {
           } on StockStopException catch (e) {
             interruption = e.message;
             await _save(op);
-            journalStockOp(op, 'envoi interrompu', resultat: ResultatJournal.echecReseau, motif: e.message, source: SourceJournal.fileHL);
+            // 5.5.0 : heure du serveur fausse (423) : catégorie seulement au journal, jamais un échec réseau.
+            final horloge = e is StockHorlogeBloquee;
+            journalStockOp(op, 'envoi interrompu',
+                resultat: horloge ? ResultatJournal.refus : ResultatJournal.echecReseau,
+                motif: horloge ? motifJournalHorloge : e.message,
+                source: SourceJournal.fileHL);
             break;
           }
           final rejected = op.lines.where((l) => l.etat == StockLineEtat.rejected).toList();

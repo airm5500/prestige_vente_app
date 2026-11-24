@@ -29,6 +29,7 @@ import 'package:prestige_vente_app/ordonnances/o5/lecture_avancee.dart';
 import 'package:prestige_vente_app/ventes/core/vente_gateway.dart';
 import 'package:prestige_vente_app/ventes/core/product_lookup.dart';
 import 'package:prestige_vente_app/ventes/core/vente_result.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/serveur/panne_serveur.dart';
 import 'package:prestige_vente_app/api/utilisateur_session.dart';
 
@@ -48,9 +49,23 @@ class HorsLigne {
 
   EtatServeur _etat;
 
-  HorsLigne._(this.monitor, this.store, this.sync, this.ventes) : _etat = monitor.etat {
+  HorsLigne._(this.monitor, this.store, this.sync, this.ventes)
+      : _etat = monitor.etat,
+        _horlogeBloquee = false {
     ventes.addListener(_onVentes);
     monitor.addListener(_onMonitor);
+    _horlogeBloquee = HorlogeServeur.instance.bloquee;
+    HorlogeServeur.instance.addListener(_onHorloge);
+  }
+
+  bool _horlogeBloquee;
+
+  /// 5.5.0 : heure du serveur corrigée (après un refus 423) : les ventes gardées en file sont de nouveau proposées à
+  /// l'envoi (confirmation, comme au retour du serveur ; même X-Client-Ref : aucun doublon).
+  void _onHorloge() {
+    final avant = _horlogeBloquee;
+    _horlogeBloquee = HorlogeServeur.instance.bloquee;
+    if (avant && !_horlogeBloquee && monitor.etat == EtatServeur.enLigne) ventes.demanderConfirmation();
   }
 
   factory HorsLigne({ServerMonitor? monitor, LocalStore? store, CatalogueSync? sync, FileVentesHL? ventes}) {
@@ -275,6 +290,9 @@ class HorsLigne {
         monitor.noterPanne(PanneServeur.indisponible);
         return false;
       }
+      // 5.5.0 : après un refus « heure du serveur fausse », GET horloge/public à la même cadence (30 s) pour
+      // constater la correction ; aucune écriture n'est rejouée sans l'accord de l'utilisateur.
+      if (code > 0) await HorlogeServeur.instance.verifierSiBloquee(d);
       return code > 0;
     } catch (_) {
       monitor.noterPanne(PanneServeur.injoignable);

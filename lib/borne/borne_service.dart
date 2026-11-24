@@ -7,6 +7,7 @@
 // Aucune prévente hors ligne à la borne (B1) : serveur injoignable = borne indisponible.
 import 'dart:math';
 
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/ventes/core/gs1_vente.dart';
 import 'package:prestige_vente_app/api/models/product.dart';
 import 'package:prestige_vente_app/api/models/sale.dart';
@@ -162,6 +163,10 @@ class BorneService {
     return const VenteOk(null);
   }
 
+  /// 5.5.0 : motif du journal d'un refus ; heure du serveur fausse : catégorie seulement (jamais le message du serveur).
+  static String _motif(VenteResult<dynamic> r) =>
+      r is VenteRefused && r.horlogeBloquee ? motifJournalHorloge : (r.message ?? '');
+
   // ---------------------------------------------------------------------------
   // Création de la prévente
   // ---------------------------------------------------------------------------
@@ -196,7 +201,7 @@ class BorneService {
             }
           }
           await _abandonner(venteId);
-          _journal(lignes, null, ResultatJournal.refus, motif: r.message ?? '', cle: cle, reseau: r is VenteFailed);
+          _journal(lignes, null, ResultatJournal.refus, motif: _motif(r), cle: cle, reseau: r is VenteFailed);
           return r.map((_) => throw StateError('inutilisé'));
         }
         final id = venteId!;
@@ -212,7 +217,7 @@ class BorneService {
         final fin = await gateway.terminerPrevente(id);
         if (!fin.isOk && !fin.uncertain) {
           await _abandonner(id);
-          _journal(lignes, null, ResultatJournal.refus, motif: fin.message ?? '', cle: cle);
+          _journal(lignes, null, ResultatJournal.refus, motif: _motif(fin), cle: cle);
           return fin.map((_) => throw StateError('inutilisé'));
         }
         final details = await gateway.saleDetails(id);

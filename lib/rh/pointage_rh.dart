@@ -21,6 +21,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:prestige_vente_app/serveur/horloge_serveur.dart';
 import 'package:prestige_vente_app/api/api_service.dart';
 import 'package:prestige_vente_app/horsligne/catalogue_sync.dart';
 import 'package:prestige_vente_app/horsligne/horsligne.dart';
@@ -100,15 +101,27 @@ const String etatEnvoyePrestige = 'Envoyé à Prestige ✓';
 const String etatEnAttenteEnvoi = 'En attente d\'envoi (hors ligne)';
 const String etatRefusPrestige = 'Refusé par Prestige';
 
+/// 5.5.0 : gardé parce que l'heure du serveur est fausse (le serveur répond, mais refuse les écritures).
+const String etatAttenteHorloge = 'En attente d\'envoi (heure du serveur à corriger)';
+
 /// Message d'un pointage gardé faute de session Prestige (401) : envoyé après reconnexion de l'application.
 String messageSessionExpireeFile(String heure) =>
     'Session Prestige expirée : pointage gardé sur le terminal ($heure), envoyé après reconnexion de l\'application.';
+
+/// 5.5.0 (transmission du 24/11/2026) : pointage refusé parce que l'heure du SERVEUR est fausse (HTTP 423
+/// horlogeBloquee, rien n'a été enregistré) : message du serveur tel quel, puis le pointage gardé en file (heure de
+/// lecture conservée), envoyé quand le serveur accepte de nouveau (même identifiant : aucun doublon).
+String messageHorlogeFile(String msgServeur, String heure) =>
+    '$msgServeur\nPointage gardé sur le terminal ($heure) : envoyé à Prestige quand l\'heure du serveur sera corrigée.';
 
 class ResultatBadge {
   final IssueBadge issue;
   final String message;
   final PointageBadge pointage;
-  const ResultatBadge(this.issue, this.message, this.pointage);
+
+  /// 5.5.0 : mis en file à cause d'un refus « heure du serveur fausse » (423).
+  final bool horloge;
+  const ResultatBadge(this.issue, this.message, this.pointage, {this.horloge = false});
   bool get accepte => issue != IssueBadge.refuse;
 }
 
@@ -124,13 +137,23 @@ class BilanEnvoiRh {
 
   /// 4.3.3 : cause d'une interruption (serveur injoignable ≠ Prestige indisponible).
   final PanneServeur panne;
+
+  /// 5.5.0 : envoi arrêté par un refus « heure du serveur fausse » (423) : message du serveur ; pointages gardés.
+  final String? horloge;
   const BilanEnvoiRh(
-      {this.envoyes = 0, this.dejaAppliques = 0, this.refuses = 0, this.interrompu = false, this.sessionExpiree = false, this.panne = PanneServeur.injoignable});
+      {this.envoyes = 0,
+      this.dejaAppliques = 0,
+      this.refuses = 0,
+      this.interrompu = false,
+      this.sessionExpiree = false,
+      this.panne = PanneServeur.injoignable,
+      this.horloge});
   String get message => [
         '$envoyes pointage(s) envoyé(s) à Prestige',
         if (dejaAppliques > 0) '$dejaAppliques déjà enregistré(s)',
         if (refuses > 0) '$refuses refusé(s) (voir les anomalies)',
-        if (interrompu && !sessionExpiree) 'envoi interrompu : ${MessagesServeur.titre(panne).toLowerCase()}',
+        if (horloge != null) 'envoi interrompu : $horloge Les pointages restent en attente',
+        if (interrompu && !sessionExpiree && horloge == null) 'envoi interrompu : ${MessagesServeur.titre(panne).toLowerCase()}',
         if (sessionExpiree) 'session Prestige expirée : reconnectez l\'application, les autres restent en attente',
       ].join(' · ');
 }
@@ -206,6 +229,10 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     _attache?.monitor.removeListener(_onMonitor);
     _attache = hl;
     hl.monitor.addListener(_onMonitor);
+    // 5.5.0 : heure du serveur corrigée → la file des pointages est signalée comme au retour du serveur.
+    HorlogeServeur.instance.removeListener(_onHorloge);
+    _horlogeBloquee = HorlogeServeur.instance.bloquee;
+    HorlogeServeur.instance.addListener(_onHorloge);
     _autoriseMemorise().then((v) {
       if (v) _activerCopie();
     });
@@ -264,6 +291,17 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
   }
 
   bool _confirmationDemandee = false;
+
+  bool _horlogeBloquee = false;
+
+  void _onHorloge() {
+    final avant = _horlogeBloquee;
+    _horlogeBloquee = HorlogeServeur.instance.bloquee;
+    if (avant && !_horlogeBloquee && enAttente > 0) {
+      _confirmationDemandee = true;
+      notifyListeners();
+    }
+  }
 
   /// Le serveur est revenu et des pointages attendent : l'écran ouvert propose l'envoi.
   bool get confirmationDemandee => _confirmationDemandee;
@@ -587,6 +625,9 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
         // Session de l'application expirée : rien n'est perdu, le pointage attend la reconnexion.
         return _mettreEnFile(p, message: messageSessionExpireeFile(p.heure));
       }
+      // 5.5.0 : heure du serveur fausse (423) : rien n'est enregistré, le pointage attend le déblocage.
+      final horloge = horlogeBloqueeDe(r.status, r.body);
+      if (horloge != null) return _mettreEnFile(p, message: messageHorlogeFile(horloge, p.heure), horloge: true);
       final res = await _issue(p, r, source: SourceJournal.enLigne);
       if (res.issue == IssueBadge.refuse) {
         // Refus en ligne : affiché tout de suite (pas d'anomalie), relecture possible.
@@ -711,13 +752,15 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     } catch (_) {}
   }
 
-  Future<ResultatBadge> _mettreEnFile(PointageBadge p0, {String? message}) async {
+  Future<ResultatBadge> _mettreEnFile(PointageBadge p0, {String? message, bool horloge = false}) async {
     final p = PointageBadge.fromJson({...p0.toJson(), 'horsLigne': true});
     await _sauver(p);
-    _noter(p, 'Pointage ${p.sens.majuscules} mis en file (${message == null ? 'hors ligne' : 'session expirée'})', ResultatJournal.info,
-        source: SourceJournal.horsLigne);
+    final cause = horloge ? 'heure du serveur fausse' : (message == null ? 'hors ligne' : 'session expirée');
+    _noter(p, 'Pointage ${p.sens.majuscules} mis en file ($cause)', ResultatJournal.info,
+        source: SourceJournal.horsLigne, motif: horloge ? motifJournalHorloge : '');
     return ResultatBadge(
-        IssueBadge.enFile, message ?? 'Hors ligne : pointage gardé sur le terminal (${p.heure}), envoyé à Prestige au retour du serveur.', p);
+        IssueBadge.enFile, message ?? 'Hors ligne : pointage gardé sur le terminal (${p.heure}), envoyé à Prestige au retour du serveur.', p,
+        horloge: horloge);
   }
 
   Future<ResultatBadge> _issue(PointageBadge p, ReponseRh r, {required String source}) async {
@@ -789,6 +832,7 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     var envoyes = 0, deja = 0, refus = 0;
     var interrompu = false, session = false;
     var panne = PanneServeur.injoignable;
+    String? horloge;
     final choix = ids?.toSet();
     try {
       for (final p in aEnvoyer) {
@@ -798,6 +842,13 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
           if (r.status == 401) {
             // Session expirée : arrêt, ce pointage et les suivants restent en attente (jamais marqués refusés).
             interrompu = session = true;
+            break;
+          }
+          // 5.5.0 : heure du serveur fausse (423) : arrêt sans relance, ce pointage et les suivants restent en attente.
+          final h = horlogeBloqueeDe(r.status, r.body);
+          if (h != null) {
+            interrompu = true;
+            horloge = h;
             break;
           }
           final res = await _issue(p, r, source: SourceJournal.fileHL);
@@ -824,7 +875,8 @@ class PointageRh extends ChangeNotifier implements AnomalieSourceListe, Catalogu
     }
     // Photos des pointages enregistrés (demande 31), sans retarder le bilan.
     if (!interrompu) envoiPhotos = envoyerPhotos();
-    return BilanEnvoiRh(envoyes: envoyes, dejaAppliques: deja, refuses: refus, interrompu: interrompu, sessionExpiree: session, panne: panne);
+    return BilanEnvoiRh(
+        envoyes: envoyes, dejaAppliques: deja, refuses: refus, interrompu: interrompu, sessionExpiree: session, panne: panne, horloge: horloge);
   }
 
   /// Purge de l'historique au-delà de la durée de conservation.
